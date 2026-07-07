@@ -44,10 +44,10 @@ class PreLiveBusinessFlowService:
         经过工具注册表和安全 Hook，且生成审计记录，方便后续按 trace_id 回放。
         """
 
-        products = self._query_products(room_id=room_id, trace_id=trace_id)
-        plan = self._generate_plan(room_id=room_id, products=products, trace_id=trace_id)
-        cards = self._generate_cards(room_id=room_id, plan=plan, products=products, trace_id=trace_id)
-        setup_gate, setup_audit_id = self._setup_live_session(
+        products = self.query_products(room_id=room_id, trace_id=trace_id)
+        plan = self.generate_plan(room_id=room_id, products=products, trace_id=trace_id)
+        cards = self.generate_cards(room_id=room_id, plan=plan, products=products, trace_id=trace_id)
+        setup_gate, setup_audit_id = self.setup_live_session(
             room_id=room_id,
             plan=plan,
             trace_id=trace_id,
@@ -62,7 +62,7 @@ class PreLiveBusinessFlowService:
             trace_id=trace_id,
         )
 
-    def _query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
+    def query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
         """查询数据库货盘并写入审计。"""
 
         tool = self._require_pre_live_tool("query_products")
@@ -83,7 +83,7 @@ class PreLiveBusinessFlowService:
         )
         return products
 
-    def _generate_plan(self, room_id: str, products: list[CatalogProduct], trace_id: str) -> LivePlanDraft:
+    def generate_plan(self, room_id: str, products: list[CatalogProduct], trace_id: str) -> LivePlanDraft:
         """生成排品草案并写入审计。"""
 
         tool = self._require_pre_live_tool("generate_live_plan")
@@ -104,7 +104,7 @@ class PreLiveBusinessFlowService:
         )
         return plan
 
-    def _generate_cards(
+    def generate_cards(
         self,
         room_id: str,
         plan: LivePlanDraft,
@@ -135,7 +135,7 @@ class PreLiveBusinessFlowService:
             )
         return cards
 
-    def _setup_live_session(
+    def setup_live_session(
         self,
         room_id: str,
         plan: LivePlanDraft,
