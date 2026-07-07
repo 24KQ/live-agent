@@ -481,3 +481,88 @@ Phase 2D LangGraph 播前 Harness 骨架验收通过。系统已经证明 LangGr
 - 接入 LangGraph interrupt / human-in-the-loop 前，应先明确人工确认输入格式、恢复命令和审计记录字段。
 - Kafka consumer 可作为下一条主线，先把库存和弹幕 topic 转成本地事件模型，再交给现有播中服务。
 - LLM 手卡增强建议在 graph + checkpoint 边界稳定后接入，并保留 Schema 校验、禁用词检查、人工复核和审计。
+
+## Phase 2E: PostgreSQL Checkpoint 与可恢复 LangGraph 状态
+
+### 基本信息
+
+- 验收日期：2026-07-07
+- 对应提交：`feat: add phase 2e postgres checkpoint recovery`
+- 阶段状态：通过
+
+### 目标
+
+把 Phase 2D 的播前 LangGraph 从“一次性执行”升级为“可中断、可持久化、可恢复”的工程骨架：
+
+```text
+初始化样例数据 -> 运行播前 Graph -> 在生成商品手卡后中断
+-> PostgreSQL 保存 checkpoint -> 使用同一 thread_id 恢复
+-> 完成合规摘要与建播 hard-gate -> 写入审计
+```
+
+本阶段采用官方 `langgraph-checkpoint-postgres` 的 PostgresSaver，不自研 checkpoint store；不接 LLM、不接 Kafka consumer、不做 Web 前端、不接真实平台 API。
+
+### 计划任务
+
+- 精确锁定 `langgraph==1.2.8`，新增 `langgraph-checkpoint-postgres==3.1.0`。
+- 新增 `LANGGRAPH_STRICT_MSGPACK=true` 公开配置模板。
+- 为 PostgresSaver 增加专用 conninfo 生成方法，同时保持日志只展示脱敏 DSN。
+- 将 `PreLiveGraphState` 改为 JSON 可序列化快照，不再持久化 Pydantic 对象。
+- 支持 `checkpointer`、`interrupt_after` 和以 `trace_id` 作为 `thread_id` 的 graph config。
+- 新增官方 PostgresSaver 初始化和创建辅助模块。
+- 新增 Phase 2E CLI 演示、设计文档、实施计划，并持续留迹。
+
+### 交付物
+
+- 设计文档：`docs/superpowers/specs/2026-07-07-phase-2e-postgres-checkpoint-design.md`。
+- 实施计划：`docs/superpowers/plans/2026-07-07-phase-2e-postgres-checkpoint-plan.md`。
+- Checkpoint 辅助模块：`src/core/langgraph_checkpoint.py`。
+- 可恢复播前 Graph：`src/core/pre_live_graph.py`。
+- CLI 演示：`scripts/run_phase2e_pre_live_checkpoint_demo.py`。
+- 测试覆盖：`tests/unit/test_pre_live_graph_serialization.py`、`tests/unit/test_pre_live_graph_checkpoint.py`、`tests/integration/test_pre_live_graph_checkpoint_flow.py`。
+
+### 验收命令
+
+```powershell
+pytest tests/unit/test_pre_live_graph_serialization.py -v
+pytest tests/unit/test_pre_live_graph_checkpoint.py -v
+pytest tests/unit/test_settings.py -v
+pytest tests/integration/test_pre_live_graph_checkpoint_flow.py -v
+pytest -v
+python scripts/check_infra.py
+python scripts/seed_phase2_demo_data.py
+python scripts/run_phase2e_pre_live_checkpoint_demo.py
+git status --short --ignored
+git add -n .
+```
+
+### 执行反馈
+
+- 基线反馈：隔离 worktree 初次缺少本地 `.env`，集成测试和中间件检查使用公开默认数据库密码导致 PostgreSQL 鉴权失败；复制 ignored 的本地 `.env` 后，基线恢复为 `75 passed`，PostgreSQL、pgvector、Redis、Kafka 全部通过。
+- TDD 红灯结果：新增测试初次运行失败，原因分别是缺少快照 API、`create_pre_live_graph_config`、`Settings.postgres_checkpoint_conninfo`、`Settings.langgraph_strict_msgpack` 和 `src.core.langgraph_checkpoint` 模块。
+- 单元测试覆盖商品/排品/手卡 snapshot 往返、state JSON 可序列化、内存 checkpointer 中断恢复、未确认 hard-gate pending、`trace_id` 作为 `thread_id`。
+- 集成测试覆盖官方 PostgresSaver schema 初始化、生成商品手卡后中断、重新创建 graph 后恢复到 END、最终审计不重复。
+- 指定测试结果：`test_pre_live_graph_serialization`、`test_pre_live_graph_checkpoint`、`test_settings`、`test_pre_live_graph_checkpoint_flow` 均通过。
+- 全量测试结果：`83 passed`。
+- CLI 演示结果：Graph 在 `generate_product_cards` 后中断，下一节点为 `compliance_check`；中断后审计 5 条；恢复后完成 `compliance_check` 与 `setup_live_session`，查询 10 个商品，生成 10 个排品项、3 张手卡，建播 hard-gate 通过，最终审计 6 条。
+- 问题与修复记录：PostgresSaver 首次使用需要 `.setup()` 初始化表结构，已封装到 `initialize_postgres_checkpointer()`；checkpoint state 不能携带 Pydantic 对象，已通过 snapshot 转换解决。
+
+### 最终结论
+
+Phase 2E PostgreSQL checkpoint 恢复链路验收通过。系统已经证明播前 LangGraph 可以使用官方 PostgresSaver 持久化 checkpoint，并在模拟进程重启后用同一 `thread_id` 恢复执行，同时不重复写入前半段审计。
+
+### 遗留限制
+
+- 不接入真正 LangGraph interrupt，当前中断使用 `interrupt_after` 验证恢复语义。
+- 不实现人工确认表单，建播确认仍通过 `confirmed_setup` 参数模拟。
+- 不接 Kafka consumer，不处理真实平台事件流。
+- 不接入 LLM，排品和手卡仍为确定性规则。
+- 不接真实淘宝生产 API，不处理真实用户隐私数据。
+- 不实现 Web 前端，仍使用 CLI 演示闭环。
+
+### 下一阶段建议
+
+- Phase 2F / Phase 3 可优先接 LangGraph interrupt / human-in-the-loop，把 hard-gate 从参数模拟升级为“暂停 -> 人工确认 -> 恢复”。
+- Kafka consumer 可作为另一条主线，在 checkpoint 可恢复边界稳定后，把库存和弹幕 topic 转成本地事件模型。
+- LLM 手卡增强建议继续后置，接入时必须保留 Schema 校验、禁用词检查、人工复核和审计。
+- Web 副屏继续后置，等 interrupt 和 Kafka 入口稳定后，再展示审批、恢复、售罄提示和弹幕参考回复。

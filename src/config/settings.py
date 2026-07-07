@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from psycopg.conninfo import make_conninfo
 
 
 class Settings(BaseSettings):
@@ -59,6 +60,10 @@ class Settings(BaseSettings):
     minio_secret_key: str = Field(default="change_me", validation_alias="MINIO_SECRET_KEY")
     minio_bucket: str = Field(default="live-agent", validation_alias="MINIO_BUCKET")
 
+    # LangGraph checkpoint 使用官方 PostgresSaver。严格 msgpack 默认开启，避免
+    # checkpoint 反序列化时接受过宽的类型范围；如本机调试确需关闭，应只改 `.env`。
+    langgraph_strict_msgpack: bool = Field(default=True, validation_alias="LANGGRAPH_STRICT_MSGPACK")
+
     # pgAdmin / MySQL 当前只作为本地实验辅助配置，Phase 0 不主动连接。
     pgadmin_email: str = Field(default="change_me@example.com", validation_alias="PGADMIN_EMAIL")
     pgadmin_password: str = Field(default="change_me", validation_alias="PGADMIN_PASSWORD")
@@ -80,6 +85,25 @@ class Settings(BaseSettings):
             "user": self.postgres_user,
             "password": self.postgres_password,
         }
+
+    @property
+    def postgres_checkpoint_conninfo(self) -> str:
+        """生成 PostgresSaver 可直接使用的 PostgreSQL conninfo。
+
+        PostgresSaver 的 `from_conn_string()` 接受 libpq conninfo 字符串。这里使用
+        psycopg 官方的 `make_conninfo()` 负责转义密码、空格和特殊字符，避免手写
+        字符串导致 checkpoint 连接失败或凭据解析错误。该返回值包含真实密码，
+        只能传给数据库客户端，禁止打印到日志、README 或阶段记录。
+        """
+
+        return make_conninfo(
+            "",
+            host=self.postgres_host,
+            port=self.postgres_port,
+            dbname=self.postgres_db,
+            user=self.postgres_user,
+            password=self.postgres_password,
+        )
 
     @property
     def postgres_safe_dsn(self) -> str:

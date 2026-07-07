@@ -109,4 +109,12 @@ Phase 2D 演示用 LangGraph 编排已有播前业务闭环：查询货盘、生
 python scripts/run_phase2d_pre_live_graph_demo.py
 ```
 
+## Phase 2E PostgreSQL Checkpoint 恢复演示
+
+Phase 2E 演示用官方 PostgresSaver 持久化 LangGraph checkpoint：播前 Graph 在生成商品手卡后中断，随后用同一 `trace_id/thread_id` 恢复执行合规摘要和建播 hard-gate，并确认前半段审计不会重复写入。
+
+```powershell
+python scripts/run_phase2e_pre_live_checkpoint_demo.py
+```
+
 阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。

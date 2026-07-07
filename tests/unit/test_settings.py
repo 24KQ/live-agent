@@ -57,3 +57,30 @@ def test_required_kafka_topics_exist() -> None:
         "traffic": "anchor.traffic",
         "command": "anchor.command",
     }
+
+
+def test_postgres_checkpoint_conninfo_is_built_without_logging_password() -> None:
+    """PostgresSaver 需要完整连接串，但日志和报错只能展示脱敏 DSN。"""
+
+    settings = build_test_settings(
+        POSTGRES_HOST="db.local",
+        POSTGRES_PORT="15432",
+        POSTGRES_DB="live_agent",
+        POSTGRES_USER="live_user",
+        POSTGRES_PASSWORD="secret with space",
+    )
+
+    assert settings.postgres_checkpoint_conninfo == (
+        "host=db.local port=15432 dbname=live_agent "
+        "user=live_user password='secret with space'"
+    )
+    assert settings.postgres_safe_dsn == "postgresql://live_user:***@db.local:15432/live_agent"
+    assert "secret" not in settings.postgres_safe_dsn
+
+
+def test_langgraph_strict_msgpack_defaults_to_enabled() -> None:
+    """checkpoint 默认启用严格 msgpack，降低反序列化风险。"""
+
+    settings = build_test_settings()
+
+    assert settings.langgraph_strict_msgpack is True
