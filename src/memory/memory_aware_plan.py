@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
 
 from src.memory.memory_store import MemoryStore
+from src.memory.memory_retrieval import MemoryHit, MemoryRetriever, rank_memory_hits
 from src.memory.models import AnchorMemoryEntry
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem, generate_live_plan
 from src.skills.product_catalog import CatalogProduct
@@ -43,8 +43,15 @@ class MemoryAwarePlanService:
         created_at 排序，排品层只关心内容和权重。
         """
 
-        memories = self._memory_store.list_memories(anchor_id=anchor_id, room_id=room_id)
-        return apply_memory_to_live_plan(room_id=room_id, products=products, trace_id=trace_id, memories=memories)
+        # Phase 3B 起优先使用增强检索。检索层负责衰减、状态压低和脱敏解释，
+        # 排品层只消费结构化命中结果，避免把 Store 的数据库排序当作业务排序。
+        memory_hits = MemoryRetriever(self._memory_store).retrieve(anchor_id=anchor_id, room_id=room_id)
+        return apply_memory_hits_to_live_plan(
+            room_id=room_id,
+            products=products,
+            trace_id=trace_id,
+            memory_hits=memory_hits,
+        )
 
 
 def apply_memory_to_live_plan(
@@ -59,14 +66,36 @@ def apply_memory_to_live_plan(
     如果有命中，按“记忆分高优先、原始排品顺序兜底”的规则重排，并把命中原因写入 reason。
     """
 
-    base_plan = generate_live_plan(room_id=room_id, products=products, trace_id=trace_id)
     if not memories:
+        return generate_live_plan(room_id=room_id, products=products, trace_id=trace_id)
+    return apply_memory_hits_to_live_plan(
+        room_id=room_id,
+        products=products,
+        trace_id=trace_id,
+        memory_hits=rank_memory_hits(memories, room_id=room_id),
+    )
+
+
+def apply_memory_hits_to_live_plan(
+    room_id: str,
+    products: list[CatalogProduct],
+    trace_id: str,
+    memory_hits: list[MemoryHit],
+) -> LivePlanDraft:
+    """在既有排品基础上叠加增强检索命中。
+
+    该入口消费 Phase 3B 的 `MemoryHit`，使用已完成衰减计算的 `effective_weight`。
+    suppressed 记忆仍会被纳入审计解释，但权重已经很低，不应继续主导排品。
+    """
+
+    base_plan = generate_live_plan(room_id=room_id, products=products, trace_id=trace_id)
+    if not memory_hits:
         return base_plan
 
     base_items = {item.product_id: item for item in base_plan.items}
     base_rank = {item.product_id: item.rank for item in base_plan.items}
     influences = {
-        product.product_id: _calculate_memory_influence(product, memories)
+        product.product_id: _calculate_memory_hit_influence(product, memory_hits)
         for product in products
     }
 
@@ -104,18 +133,28 @@ def apply_memory_to_live_plan(
 
 def _calculate_memory_influence(
     product: CatalogProduct,
-    memories: Iterable[AnchorMemoryEntry],
+    memories: list[AnchorMemoryEntry],
 ) -> MemoryInfluence:
     """计算单个商品的记忆加权分。
 
-    分数只用于同一批候选商品内排序，不对外承诺业务含义。权重采用 confidence * evidence_weight，
-    这样低置信度或证据弱的记忆不会过度影响排品。
+    保留该函数是为了兼容 Phase 3A 期间的内部调用习惯；Phase 3B 的公开入口会先把
+    原始记忆转换成 MemoryHit，再使用衰减后的有效权重计算影响。
     """
+
+    return _calculate_memory_hit_influence(product, rank_memory_hits(memories, room_id=""))
+
+
+def _calculate_memory_hit_influence(
+    product: CatalogProduct,
+    memory_hits: list[MemoryHit],
+) -> MemoryInfluence:
+    """计算单个商品受到增强检索命中的加权分。"""
 
     score = Decimal("0.00")
     reasons: list[str] = []
-    for memory in memories:
-        weight = memory.confidence * memory.evidence_weight
+    for hit in memory_hits:
+        memory = hit.memory
+        weight = hit.effective_weight
         metadata = memory.metadata
         preferred_product_ids = _as_list(metadata.get("preferred_product_ids") or metadata.get("preferred_product_id"))
         preferred_categories = _as_list(metadata.get("preferred_categories") or metadata.get("preferred_category"))
@@ -139,7 +178,7 @@ def _calculate_memory_influence(
         if matched_fields:
             # 面向主播和审计的解释只输出结构化命中摘要，不直接回显 memory.content，避免未来
             # 记忆内容包含敏感文本时经由排品理由扩散。
-            reasons.append(f"{memory.layer.value}/{memory.source.value} 命中 {'、'.join(matched_fields)}")
+            reasons.append(f"{hit.explanation}；商品匹配 {'、'.join(matched_fields)}")
     return MemoryInfluence(score=score.quantize(Decimal("0.01")), reasons=reasons)
 
 

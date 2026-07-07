@@ -141,4 +141,20 @@ python scripts/seed_phase3_memory_demo_data.py
 python scripts/run_phase3a_memory_trust_demo.py
 ```
 
+## Phase 3B 记忆检索与冲突修正演示
+
+Phase 3B 演示增强记忆检索、记忆衰减和冲突修正：旧偏好先影响播前排品，随后模拟主播反馈生成新的 L2 记忆，旧偏好被标记为 `suppressed`，下一轮排品转向新偏好。
+
+初始化或刷新 Phase 3B 独立样例数据：
+
+```powershell
+python scripts/seed_phase3b_memory_demo_data.py
+```
+
+运行记忆修正闭环演示：
+
+```powershell
+python scripts/run_phase3b_memory_revision_demo.py
+```
+
 阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。
