@@ -27,6 +27,8 @@ def test_default_registry_contains_pre_live_tools() -> None:
         "handle_sold_out_event",
         "recommend_backup_product",
         "generate_on_live_prompt",
+        "aggregate_danmaku_questions",
+        "generate_danmaku_reply",
     }
 
 
@@ -95,3 +97,21 @@ def test_on_live_prompt_tool_is_low_risk_readonly_tool() -> None:
     assert metadata.risk_level == RiskLevel.LOW
     assert metadata.gate_decision == GateDecision.AUTO
     assert metadata.requires_idempotency_key is False
+
+
+def test_danmaku_tools_are_only_available_during_on_live() -> None:
+    """Phase 2C 弹幕工具只能在 ON_LIVE 阶段使用。"""
+
+    registry = get_default_tool_registry()
+    aggregate_metadata = registry.get("aggregate_danmaku_questions")
+    reply_metadata = registry.get("generate_danmaku_reply")
+
+    assert registry.is_available("aggregate_danmaku_questions", LifecycleStage.ON_LIVE) is True
+    assert registry.is_available("aggregate_danmaku_questions", LifecycleStage.PRE_LIVE) is False
+    assert aggregate_metadata.risk_level == RiskLevel.LOW
+    assert aggregate_metadata.gate_decision == GateDecision.AUTO
+
+    assert registry.is_available("generate_danmaku_reply", LifecycleStage.ON_LIVE) is True
+    assert reply_metadata.risk_level == RiskLevel.MEDIUM
+    assert reply_metadata.gate_decision == GateDecision.SOFT_GATE
+    assert reply_metadata.requires_idempotency_key is False

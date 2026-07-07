@@ -210,5 +210,40 @@ def get_default_tool_registry() -> ToolRegistry:
                 gate_decision=GateDecision.AUTO,
                 requires_idempotency_key=False,
             ),
+            ToolMetadata(
+                name="aggregate_danmaku_questions",
+                description="按 5 秒窗口聚合播中弹幕同类问题，不修改状态",
+                lifecycle=on_live,
+                risk_level=RiskLevel.LOW,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "trace_id", "events"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "trace_id": {"type": "string"},
+                        "events": {"type": "array", "items": {"type": "object"}},
+                    },
+                },
+                gate_decision=GateDecision.AUTO,
+                requires_idempotency_key=False,
+            ),
+            ToolMetadata(
+                name="generate_danmaku_reply",
+                description="为聚合后的弹幕问题生成主播参考回复，不自动发送",
+                lifecycle=on_live,
+                risk_level=RiskLevel.MEDIUM,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "trace_id", "category", "summary"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "trace_id": {"type": "string"},
+                        "category": {"type": "string"},
+                        "summary": {"type": "string"},
+                    },
+                },
+                gate_decision=GateDecision.SOFT_GATE,
+                requires_idempotency_key=False,
+            ),
         ]
     )
