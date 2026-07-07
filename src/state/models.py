@@ -30,8 +30,8 @@ class LifecycleStage(StrEnum):
 class ActionType(StrEnum):
     """系统可审计的动作类型。
 
-    前三个动作仍然是 Reducer 可执行的状态变更；Phase 2A 新增的播前业务动作
-    只用于工具注册和审计记录，不会绕过 Reducer 直接修改商品状态。
+    前三个动作仍然是 Reducer 可执行的状态变更；后续新增的业务动作主要用于
+    工具注册和审计记录，不会绕过 Reducer 直接修改商品状态。
     """
 
     SET_PRICE = "SET_PRICE"
@@ -41,6 +41,9 @@ class ActionType(StrEnum):
     GENERATE_LIVE_PLAN = "GENERATE_LIVE_PLAN"
     GENERATE_PRODUCT_CARD = "GENERATE_PRODUCT_CARD"
     SETUP_LIVE_SESSION = "SETUP_LIVE_SESSION"
+    HANDLE_SOLD_OUT_EVENT = "HANDLE_SOLD_OUT_EVENT"
+    RECOMMEND_BACKUP_PRODUCT = "RECOMMEND_BACKUP_PRODUCT"
+    GENERATE_ON_LIVE_PROMPT = "GENERATE_ON_LIVE_PROMPT"
 
 
 class RiskLevel(StrEnum):

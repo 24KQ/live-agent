@@ -24,6 +24,9 @@ def test_default_registry_contains_pre_live_tools() -> None:
         "generate_live_plan",
         "generate_product_card",
         "setup_live_session",
+        "handle_sold_out_event",
+        "recommend_backup_product",
+        "generate_on_live_prompt",
     }
 
 
@@ -67,3 +70,28 @@ def test_setup_live_session_requires_confirmation_and_idempotency() -> None:
     assert metadata.risk_level == RiskLevel.HIGH
     assert metadata.gate_decision == GateDecision.HARD_GATE
     assert metadata.requires_idempotency_key is True
+
+
+def test_on_live_tools_are_only_available_during_on_live() -> None:
+    """Phase 2B 播中工具只能在 ON_LIVE 阶段可用。"""
+
+    registry = get_default_tool_registry()
+    metadata = registry.get("handle_sold_out_event")
+
+    assert registry.is_available("handle_sold_out_event", LifecycleStage.ON_LIVE) is True
+    assert registry.is_available("handle_sold_out_event", LifecycleStage.PRE_LIVE) is False
+    assert metadata.risk_level == RiskLevel.HIGH
+    assert metadata.gate_decision == GateDecision.AUTO
+    assert metadata.requires_idempotency_key is True
+
+
+def test_on_live_prompt_tool_is_low_risk_readonly_tool() -> None:
+    """播中提示生成不直接改状态，应保持低风险自动执行。"""
+
+    registry = get_default_tool_registry()
+    metadata = registry.get("generate_on_live_prompt")
+
+    assert metadata.lifecycle == {LifecycleStage.ON_LIVE}
+    assert metadata.risk_level == RiskLevel.LOW
+    assert metadata.gate_decision == GateDecision.AUTO
+    assert metadata.requires_idempotency_key is False

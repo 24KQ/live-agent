@@ -85,4 +85,12 @@ python scripts/seed_phase2_demo_data.py
 python scripts/run_phase2_pre_live_demo.py
 ```
 
+## Phase 2B 基础播中事件演示
+
+Phase 2B 演示本地模拟售罄事件：进入播中状态、下架售罄商品、推荐备选商品、生成主播提示并写入审计。
+
+```powershell
+python scripts/run_phase2b_on_live_demo.py
+```
+
 阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。

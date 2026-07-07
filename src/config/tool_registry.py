@@ -60,9 +60,10 @@ class ToolRegistry:
 
 
 def get_default_tool_registry() -> ToolRegistry:
-    """构建 Phase 1 默认工具注册表。"""
+    """构建默认工具注册表。"""
 
     pre_live = {LifecycleStage.PRE_LIVE}
+    on_live = {LifecycleStage.ON_LIVE}
     return ToolRegistry(
         [
             ToolMetadata(
@@ -157,6 +158,57 @@ def get_default_tool_registry() -> ToolRegistry:
                 },
                 gate_decision=GateDecision.HARD_GATE,
                 requires_idempotency_key=True,
+            ),
+            ToolMetadata(
+                name="handle_sold_out_event",
+                description="处理播中售罄事件，调用 Reducer 下架售罄商品",
+                lifecycle=on_live,
+                risk_level=RiskLevel.HIGH,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "product_id", "trace_id", "idempotency_key"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "product_id": {"type": "string"},
+                        "trace_id": {"type": "string"},
+                        "idempotency_key": {"type": "string"},
+                    },
+                },
+                gate_decision=GateDecision.AUTO,
+                requires_idempotency_key=True,
+            ),
+            ToolMetadata(
+                name="recommend_backup_product",
+                description="播中售罄后推荐仍可讲解的备选商品",
+                lifecycle=on_live,
+                risk_level=RiskLevel.MEDIUM,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "sold_out_product_id"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "sold_out_product_id": {"type": "string"},
+                    },
+                },
+                gate_decision=GateDecision.AUTO,
+                requires_idempotency_key=False,
+            ),
+            ToolMetadata(
+                name="generate_on_live_prompt",
+                description="生成播中主播提示文案，不直接修改状态",
+                lifecycle=on_live,
+                risk_level=RiskLevel.LOW,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "sold_out_product_id"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "sold_out_product_id": {"type": "string"},
+                        "backup_product_id": {"type": "string"},
+                    },
+                },
+                gate_decision=GateDecision.AUTO,
+                requires_idempotency_key=False,
             ),
         ]
     )
