@@ -8,6 +8,7 @@ Phase 1 只把工具调用和状态变更写入 PostgreSQL 审计表，不持久
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -124,3 +125,48 @@ class ToolCallAuditStore:
                 cursor.execute(sql, {"trace_id": trace_id})
                 row = cursor.fetchone()
         return dict(row) if row is not None else None
+
+    def list_events_by_trace_id(self, trace_id: str) -> list[dict[str, Any]]:
+        """按 trace_id 读取完整审计链路。
+
+        Phase 2A 一个播前准备流程会产生查询货盘、生成排品、生成手卡、模拟建播等
+        多条审计记录。列表接口按创建时间返回，便于测试和后续 CLI 回放整条链路。
+        """
+
+        sql = """
+            SELECT
+                audit_id::text,
+                trace_id,
+                room_id,
+                tool_name,
+                action_type,
+                risk_level,
+                gate_decision,
+                operator_decision,
+                request_payload,
+                result_payload,
+                created_at
+            FROM tool_call_audit
+            WHERE trace_id = %(trace_id)s
+            ORDER BY created_at ASC, audit_id ASC;
+        """
+        with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, {"trace_id": trace_id})
+                rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+def initialize_tool_call_audit_schema(settings: Settings) -> None:
+    """初始化工具调用审计表。
+
+    CLI 演示和集成测试都应显式调用该函数，避免依赖开发者本机数据库里已经
+    存在审计表。SQL 文件本身使用事务级 advisory lock，重复执行是安全的。
+    """
+
+    project_root = Path(__file__).resolve().parents[2]
+    sql = (project_root / "docker" / "init_phase1_audit.sql").read_text(encoding="utf-8")
+    with psycopg.connect(**settings.postgres_connection_kwargs) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(sql)
+        connection.commit()

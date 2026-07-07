@@ -3,8 +3,8 @@
 
 -- 集成测试可能并行启动多个进程同时初始化表；PostgreSQL 的
 -- CREATE TABLE IF NOT EXISTS 仍可能在内部类型创建阶段发生并发冲突。
--- advisory lock 用固定 key 把本脚本的 DDL 串行化，保证初始化可重复执行。
-SELECT pg_advisory_lock(hashtext('live_agent_phase1_audit_schema'));
+-- 使用事务级 advisory lock，把 DDL 串行化到事务提交为止，避免锁释放早于提交。
+SELECT pg_advisory_xact_lock(hashtext('live_agent_phase1_audit_schema'));
 
 CREATE TABLE IF NOT EXISTS tool_call_audit (
     audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -25,6 +25,3 @@ CREATE INDEX IF NOT EXISTS idx_tool_call_audit_trace_id ON tool_call_audit (trac
 
 -- room_id 方便按直播间查看播前、播中、播后全部工具调用记录。
 CREATE INDEX IF NOT EXISTS idx_tool_call_audit_room_id ON tool_call_audit (room_id);
-
--- 脚本结束前释放锁；如果执行中断，连接关闭时 PostgreSQL 也会自动释放会话锁。
-SELECT pg_advisory_unlock(hashtext('live_agent_phase1_audit_schema'));

@@ -69,4 +69,20 @@ Phase 1 演示播前最小可控闭环：查询模拟货盘、请求改价、进
 python scripts/run_phase1_pre_live_demo.py
 ```
 
+## Phase 2A 播前业务能力演示
+
+Phase 2A 演示基于 PostgreSQL 样例数据的播前业务闭环：初始化脱敏商品数据、查询货盘、生成排品草案、生成商品手卡、确认模拟建播并写入审计。
+
+初始化或刷新样例数据：
+
+```powershell
+python scripts/seed_phase2_demo_data.py
+```
+
+运行播前业务闭环演示：
+
+```powershell
+python scripts/run_phase2_pre_live_demo.py
+```
+
 阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。

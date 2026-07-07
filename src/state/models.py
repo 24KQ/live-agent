@@ -28,11 +28,19 @@ class LifecycleStage(StrEnum):
 
 
 class ActionType(StrEnum):
-    """Reducer 支持的确定性动作类型。"""
+    """系统可审计的动作类型。
+
+    前三个动作仍然是 Reducer 可执行的状态变更；Phase 2A 新增的播前业务动作
+    只用于工具注册和审计记录，不会绕过 Reducer 直接修改商品状态。
+    """
 
     SET_PRICE = "SET_PRICE"
     MARK_SOLD_OUT = "MARK_SOLD_OUT"
     SWITCH_PRODUCT = "SWITCH_PRODUCT"
+    QUERY_PRODUCTS = "QUERY_PRODUCTS"
+    GENERATE_LIVE_PLAN = "GENERATE_LIVE_PLAN"
+    GENERATE_PRODUCT_CARD = "GENERATE_PRODUCT_CARD"
+    SETUP_LIVE_SESSION = "SETUP_LIVE_SESSION"
 
 
 class RiskLevel(StrEnum):

@@ -115,5 +115,48 @@ def get_default_tool_registry() -> ToolRegistry:
                 gate_decision=GateDecision.SOFT_GATE,
                 requires_idempotency_key=False,
             ),
+            ToolMetadata(
+                name="generate_live_plan",
+                description="基于本地样例货盘生成确定性播前排品方案",
+                lifecycle=pre_live,
+                risk_level=RiskLevel.MEDIUM,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id"],
+                    "properties": {"room_id": {"type": "string"}},
+                },
+                gate_decision=GateDecision.SOFT_GATE,
+                requires_idempotency_key=False,
+            ),
+            ToolMetadata(
+                name="generate_product_card",
+                description="为指定商品生成确定性主播讲解手卡",
+                lifecycle=pre_live,
+                risk_level=RiskLevel.MEDIUM,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["product_id"],
+                    "properties": {"product_id": {"type": "string"}},
+                },
+                gate_decision=GateDecision.SOFT_GATE,
+                requires_idempotency_key=False,
+            ),
+            ToolMetadata(
+                name="setup_live_session",
+                description="根据播前方案模拟建播配置写入",
+                lifecycle=pre_live,
+                risk_level=RiskLevel.HIGH,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "plan_item_ids", "idempotency_key"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "plan_item_ids": {"type": "array", "items": {"type": "string"}},
+                        "idempotency_key": {"type": "string"},
+                    },
+                },
+                gate_decision=GateDecision.HARD_GATE,
+                requires_idempotency_key=True,
+            ),
         ]
     )
