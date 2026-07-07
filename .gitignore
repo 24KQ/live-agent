@@ -33,3 +33,6 @@ docs/worklog/
 
 # 第三方学习资料：文章和图片可能涉及转载授权，公开仓库默认不发布。
 docs/study/
+
+# Superpowers 隔离工作区：用于在独立目录中开发功能分支，避免工作区内容被误提交。
+.worktrees/
