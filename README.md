@@ -117,4 +117,12 @@ Phase 2E 演示用官方 PostgresSaver 持久化 LangGraph checkpoint：播前 G
 python scripts/run_phase2e_pre_live_checkpoint_demo.py
 ```
 
+## Phase 2F LangGraph Interrupt 人审恢复演示
+
+Phase 2F 演示真正的 human-in-the-loop：播前 Graph 在建播 hard-gate 触发 `interrupt()` 暂停，CLI 模拟 approve/reject 后用 `Command(resume=...)` 恢复。批准会执行建播并写审计；拒绝不会写建播成功审计。
+
+```powershell
+python scripts/run_phase2f_pre_live_interrupt_demo.py
+```
+
 阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。

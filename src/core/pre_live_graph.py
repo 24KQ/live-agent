@@ -11,11 +11,19 @@ from __future__ import annotations
 from typing import Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
+from src.core.human_approval import (
+    HumanApprovalDecision,
+    HumanApprovalRequest,
+    HumanApprovalResponse,
+    validate_human_approval_response,
+)
 from src.core.security_hooks import GateResult
 from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
+from src.state.models import RiskLevel
 
 
 ProductSnapshot = dict[str, Any]
@@ -58,6 +66,14 @@ class PreLiveBusinessServiceProtocol(Protocol):
         """执行模拟建播 hard-gate，并在确认后写入审计。"""
         ...
 
+    def record_setup_approval_event(
+        self,
+        request: HumanApprovalRequest,
+        response: HumanApprovalResponse | None,
+    ) -> str:
+        """写入建播人工审批审计，并返回审批审计 ID。"""
+        ...
+
 
 class PreLiveGraphState(TypedDict, total=False):
     """LangGraph 播前流程状态。
@@ -71,6 +87,7 @@ class PreLiveGraphState(TypedDict, total=False):
     room_id: str
     trace_id: str
     confirmed_setup: bool
+    enable_human_approval: bool
     completed_nodes: list[str]
     products_snapshot: list[ProductSnapshot]
     product_count: int
@@ -85,10 +102,21 @@ class PreLiveGraphState(TypedDict, total=False):
     setup_requires_confirmation: bool
     setup_status: str
     setup_audit_id: str | None
+    approval_request: dict[str, Any]
+    approval_pending_audit_id: str | None
+    approval_resume_audit_id: str | None
+    approval_decision: str | None
+    approval_operator_id: str | None
+    approval_reason: str | None
     error: str | None
 
 
-def create_initial_pre_live_graph_state(room_id: str, trace_id: str, confirmed_setup: bool) -> PreLiveGraphState:
+def create_initial_pre_live_graph_state(
+    room_id: str,
+    trace_id: str,
+    confirmed_setup: bool,
+    enable_human_approval: bool = False,
+) -> PreLiveGraphState:
     """创建播前 graph 的初始 state。
 
     这里做最基础的空字符串校验，避免 graph 运行到中间节点后才因为缺少 room_id
@@ -103,6 +131,7 @@ def create_initial_pre_live_graph_state(room_id: str, trace_id: str, confirmed_s
         "room_id": room_id.strip(),
         "trace_id": trace_id.strip(),
         "confirmed_setup": confirmed_setup,
+        "enable_human_approval": enable_human_approval,
         "completed_nodes": [],
         "error": None,
     }
@@ -221,6 +250,9 @@ def _setup_live_session_node(state: PreLiveGraphState, service: PreLiveBusinessS
     """
 
     plan = plan_from_snapshot(_require_state_value(state, "plan_snapshot"))
+    if state.get("enable_human_approval", False):
+        return _setup_live_session_with_human_approval(state, service, plan)
+
     gate, audit_id = service.setup_live_session(
         room_id=state["room_id"],
         plan=plan,
@@ -233,6 +265,76 @@ def _setup_live_session_node(state: PreLiveGraphState, service: PreLiveBusinessS
         "setup_gate_allowed": gate.allowed,
         "setup_requires_confirmation": gate.requires_confirmation,
         "setup_status": setup_status,
+        "setup_audit_id": audit_id,
+        "completed_nodes": _append_node(state, "setup_live_session"),
+    }
+
+
+def _setup_live_session_with_human_approval(
+    state: PreLiveGraphState,
+    service: PreLiveBusinessServiceProtocol,
+    plan: LivePlanDraft,
+) -> dict[str, Any]:
+    """通过 LangGraph interrupt 执行建播人审。
+
+    LangGraph 的 `interrupt()` 在恢复时会从当前节点开头重新执行，因此 pending 审计
+    必须通过服务层幂等写入；否则 `Command(resume=...)` 会导致同一条 pending 审计
+    被重复插入。真正的建播动作只放在 interrupt 返回之后，并且只有 approved 才执行。
+    """
+
+    approval_request = HumanApprovalRequest(
+        trace_id=state["trace_id"],
+        room_id=state["room_id"],
+        tool_name="setup_live_session",
+        risk_level=RiskLevel.HIGH,
+        action="confirm_setup_live_session",
+        plan_item_ids=[item.product_id for item in plan.items],
+        message="请确认是否按当前排品方案模拟建播。",
+    )
+    pending_audit_id = service.record_setup_approval_event(approval_request, None)
+    interrupt_payload = approval_request.model_dump(mode="json")
+    interrupt_payload["pending_audit_id"] = pending_audit_id
+
+    resume_payload = interrupt(interrupt_payload)
+    approval_response = validate_human_approval_response(
+        approval_request,
+        HumanApprovalResponse.model_validate(resume_payload),
+    )
+    resume_audit_id = service.record_setup_approval_event(approval_request, approval_response)
+
+    if approval_response.decision == HumanApprovalDecision.REJECTED:
+        return {
+            "approval_request": interrupt_payload,
+            "approval_pending_audit_id": pending_audit_id,
+            "approval_resume_audit_id": resume_audit_id,
+            "approval_decision": approval_response.decision.value,
+            "approval_operator_id": approval_response.operator_id,
+            "approval_reason": approval_response.reason,
+            "setup_gate_decision": "hard-gate",
+            "setup_gate_allowed": False,
+            "setup_requires_confirmation": False,
+            "setup_status": "rejected",
+            "setup_audit_id": None,
+            "completed_nodes": _append_node(state, "setup_live_session"),
+        }
+
+    gate, audit_id = service.setup_live_session(
+        room_id=state["room_id"],
+        plan=plan,
+        trace_id=state["trace_id"],
+        confirmed_setup=True,
+    )
+    return {
+        "approval_request": interrupt_payload,
+        "approval_pending_audit_id": pending_audit_id,
+        "approval_resume_audit_id": resume_audit_id,
+        "approval_decision": approval_response.decision.value,
+        "approval_operator_id": approval_response.operator_id,
+        "approval_reason": approval_response.reason,
+        "setup_gate_decision": gate.decision.value,
+        "setup_gate_allowed": gate.allowed,
+        "setup_requires_confirmation": gate.requires_confirmation,
+        "setup_status": "prepared" if gate.allowed else "pending_confirmation",
         "setup_audit_id": audit_id,
         "completed_nodes": _append_node(state, "setup_live_session"),
     }

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from src.audit.tool_call_audit import AuditEvent, ToolCallAuditStore
 from src.config.tool_registry import get_default_tool_registry
+from src.core.human_approval import HumanApprovalDecision, HumanApprovalRequest, HumanApprovalResponse
 from src.core.security_hooks import GateResult, evaluate_tool_gate
 from src.skills.live_plan_generator import LivePlanDraft, generate_live_plan
 from src.skills.product_card_generator import ProductCard, generate_product_card
@@ -149,6 +150,15 @@ class PreLiveBusinessFlowService:
         if not gate.allowed:
             return gate, None
 
+        idempotency_key = f"{trace_id}:setup_live_session"
+        existing_audit_id = self._find_existing_audit_id(
+            trace_id=trace_id,
+            tool_name=tool.name,
+            idempotency_key=idempotency_key,
+        )
+        if existing_audit_id is not None:
+            return gate, existing_audit_id
+
         audit_id = self._audit_store.record_event(
             AuditEvent(
                 trace_id=trace_id,
@@ -160,7 +170,7 @@ class PreLiveBusinessFlowService:
                 operator_decision="approved",
                 request_payload={
                     "room_id": room_id,
-                    "idempotency_key": f"{trace_id}:setup_live_session",
+                    "idempotency_key": idempotency_key,
                 },
                 result_payload={
                     "status": "prepared",
@@ -170,6 +180,67 @@ class PreLiveBusinessFlowService:
         )
         return gate, audit_id
 
+    def record_setup_approval_event(
+        self,
+        request: HumanApprovalRequest,
+        response: HumanApprovalResponse | None,
+    ) -> str:
+        """记录建播人工审批事件，并对 LangGraph 节点重放做幂等保护。
+
+        `interrupt()` 恢复时会从当前节点开头重新执行，pending 审计写在 interrupt 前
+        才能让人工看到“正在等待确认”的留痕。为避免恢复时重复插入 pending 记录，
+        这里使用 trace_id、工具名和审批状态组成 idempotency_key，写入前先检查同一
+        trace 下是否已经存在相同审批事件。
+        """
+
+        tool = self._require_pre_live_tool(request.tool_name)
+        status = "pending" if response is None else response.decision.value
+        idempotency_key = f"{request.trace_id}:{request.tool_name}:approval:{status}"
+        existing_audit_id = self._find_existing_audit_id(
+            trace_id=request.trace_id,
+            tool_name=f"{request.tool_name}_approval",
+            idempotency_key=idempotency_key,
+        )
+        if existing_audit_id is not None:
+            return existing_audit_id
+
+        is_approved = response is not None and response.decision == HumanApprovalDecision.APPROVED
+        gate = evaluate_tool_gate(tool, confirmed=is_approved)
+        request_payload = request.model_dump(mode="json")
+        request_payload["idempotency_key"] = idempotency_key
+
+        if response is None:
+            action_type = ActionType.HUMAN_APPROVAL_PENDING
+            operator_decision = "pending"
+            result_payload = {
+                "status": "pending",
+                "requires_confirmation": True,
+                "decision": None,
+            }
+        else:
+            action_type = ActionType.HUMAN_APPROVAL_RESUMED
+            operator_decision = response.decision.value
+            result_payload = {
+                "status": "resumed" if response.decision == HumanApprovalDecision.APPROVED else "rejected",
+                "decision": response.decision.value,
+                "operator_id": response.operator_id,
+                "reason": response.reason,
+            }
+
+        return self._audit_store.record_event(
+            AuditEvent(
+                trace_id=request.trace_id,
+                room_id=request.room_id,
+                tool_name=f"{request.tool_name}_approval",
+                action_type=action_type,
+                risk_level=tool.risk_level,
+                gate_decision=gate.decision,
+                operator_decision=operator_decision,
+                request_payload=request_payload,
+                result_payload=result_payload,
+            )
+        )
+
     def _require_pre_live_tool(self, tool_name: str):
         """读取工具元数据，并确保该工具只在播前阶段开放。"""
 
@@ -177,3 +248,19 @@ class PreLiveBusinessFlowService:
         if not self._registry.is_available(tool.name, LifecycleStage.PRE_LIVE):
             raise ValueError(f"tool {tool.name} is not available in PRE_LIVE")
         return tool
+
+    def _find_existing_audit_id(self, trace_id: str, tool_name: str, idempotency_key: str) -> str | None:
+        """按幂等键查找已有审批审计 ID。
+
+        审计表当前没有为 Phase 2F 单独新增唯一索引；为了保持迁移范围可控，这里在同一
+        trace_id 的审计链路内按 tool_name 和 request_payload.idempotency_key 查找。
+        这样既能保护审批 pending/resume，也能保护 approved 后的建播成功副作用。
+        后续如果审批量或外部写操作增大，可以再把该键提升为独立列或唯一约束。
+        """
+
+        for event in self._audit_store.list_events_by_trace_id(trace_id):
+            if event["tool_name"] != tool_name:
+                continue
+            if event["request_payload"].get("idempotency_key") == idempotency_key:
+                return event["audit_id"]
+        return None
