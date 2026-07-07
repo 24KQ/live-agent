@@ -57,6 +57,17 @@ class MemorySource(StrEnum):
     MANUAL_IMPORT = "manual_import"
 
 
+class MemoryStatus(StrEnum):
+    """记忆当前状态。
+
+    active 表示该记忆可正常参与检索和排品；suppressed 表示该记忆因后续反馈发生冲突，
+    仍保留用于审计回放，但在排序和排品时只保留很低影响力，避免旧偏好继续误导主播。
+    """
+
+    ACTIVE = "active"
+    SUPPRESSED = "suppressed"
+
+
 class AnchorAction(StrEnum):
     """主播对建议的动作反馈。"""
 
@@ -96,8 +107,11 @@ class AnchorMemoryEntry(BaseModel):
     confidence: Decimal = Field(default=Decimal("0.70"), ge=Decimal("0.00"), le=Decimal("1.00"))
     evidence_weight: Decimal = Field(default=Decimal("0.50"), ge=Decimal("0.00"), le=Decimal("1.00"))
     source: MemorySource
+    status: MemoryStatus = MemoryStatus.ACTIVE
+    suppressed_reason: str | None = None
     embedding: list[float] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("memory_key", "room_id")
     @classmethod
@@ -119,6 +133,13 @@ class AnchorMemoryEntry(BaseModel):
         """清理记忆正文两端空白，防止只有空格的内容绕过 min_length。"""
 
         return _strip_required_text(value)
+
+    @field_validator("suppressed_reason")
+    @classmethod
+    def normalize_suppressed_reason(cls, value: str | None) -> str | None:
+        """冲突修正原因有值时必须可读，不能只保存空白占位。"""
+
+        return _strip_optional_text(value)
 
 
 class TrustState(BaseModel):

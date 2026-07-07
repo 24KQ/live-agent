@@ -752,3 +752,99 @@ Phase 3A 记忆与信任层基础闭环验收通过。系统已经能基于 Post
 - Kafka consumer 可并行规划，把库存、弹幕和成交事件转成可复用的本地事件入口。
 - LLM 手卡增强建议在记忆层稳定后接入，并继续保留 Schema 校验、禁用词检查、人工复核和审计。
 - Web 副屏可以在记忆、审批、Kafka 入口稳定后启动，重点展示审批、trace 回放、trust_score 变化和建议理由。
+
+## Phase 3B: 记忆检索、衰减与冲突修正
+
+### 基本信息
+
+- 验收日期：2026-07-08
+- 对应提交：`feat: add phase 3b memory retrieval and revision`
+- 阶段状态：通过
+
+### 目标
+
+增强 Phase 3A 的记忆层质量控制：
+
+```text
+增强记忆检索 -> 记忆衰减 -> 冲突修正 -> Decision Trace 反哺记忆 -> 下一轮排品变化
+```
+
+本阶段不接 LLM、不接 embedding、不接 Kafka consumer、不做 Web、不接真实平台 API。所有规则保持确定性，便于测试和审计复盘。
+
+### 计划任务
+
+- 新增 Phase 3B 设计文档和实施计划文档。
+- 新增 `MemoryDecayPolicy`、`MemoryRetriever`、`BeliefRevisionService`、`DecisionTraceMemoryFeedbackService`。
+- 扩展记忆表状态字段：`status`、`suppressed_reason`、`updated_at`。
+- 扩展 `MemoryAwarePlanService`，优先消费增强检索命中结果，同时兼容 Phase 3A 原始记忆入口。
+- 新增 Phase 3B 独立 seed 和 CLI 演示脚本。
+- 记录 TDD 红绿、测试结果、CLI 结果、问题修复、限制和后续迭代方向。
+
+### 交付物
+
+- 设计文档：`docs/superpowers/specs/2026-07-08-phase-3b-memory-retrieval-revision-design.md`。
+- 实施计划：`docs/superpowers/plans/2026-07-08-phase-3b-memory-retrieval-revision-plan.md`。
+- SQL 更新：`docker/init_phase3_memory.sql`。
+- 领域模型与服务：`src/memory/memory_decay.py`、`src/memory/memory_retrieval.py`、`src/memory/belief_revision.py`、`src/memory/decision_memory_feedback.py`、`src/memory/demo_memory_seed_phase3b.py`。
+- 兼容性更新：`src/memory/models.py`、`src/memory/memory_store.py`、`src/memory/memory_aware_plan.py`。
+- CLI：`scripts/seed_phase3b_memory_demo_data.py`、`scripts/run_phase3b_memory_revision_demo.py`。
+- 测试覆盖：`tests/unit/test_memory_decay.py`、`tests/unit/test_memory_retrieval.py`、`tests/unit/test_belief_revision.py`、`tests/unit/test_decision_memory_feedback.py`、`tests/integration/test_memory_revision_flow.py`。
+
+### 验收命令
+
+```powershell
+pytest tests/unit/test_memory_retrieval.py -v
+pytest tests/unit/test_memory_decay.py -v
+pytest tests/unit/test_belief_revision.py -v
+pytest tests/unit/test_decision_memory_feedback.py -v
+pytest tests/integration/test_memory_revision_flow.py -v
+pytest -v
+python scripts/check_infra.py
+python scripts/seed_phase2_demo_data.py
+python scripts/seed_phase3_memory_demo_data.py
+python scripts/seed_phase3b_memory_demo_data.py
+python scripts/run_phase3b_memory_revision_demo.py
+git status --short --ignored
+git add -n .
+```
+
+### 执行反馈
+
+- TDD 红灯结果：新增 4 组测试首次运行失败，原因均为 Phase 3B 新模块尚未实现，包括 `src.memory.memory_decay`、`memory_retrieval`、`belief_revision` 和 `demo_memory_seed_phase3b`。
+- TDD 绿灯结果：实现最小检索、衰减、冲突修正、反馈记忆和 Phase 3B seed/demo 后，新增 10 个 Phase 3B 用例全部通过；代码审查后补强原子事务、跨房间 key、值级脱敏、缺少货盘 fail-closed 和字段别名冲突测试，Phase 3B 新增/强化用例扩展为 16 个并全部通过。
+- 受影响回归结果：`test_memory_models`、`test_memory_store`、`test_memory_aware_plan` 共 11 个用例通过，确认新增记忆状态字段与增强检索没有破坏 Phase 3A 行为。
+- 全量测试结果：`pytest -v` 通过，合计 `140 passed`。
+- 中间件检查结果：PostgreSQL、pgvector、Redis、Kafka 全部通过。
+- seed 脚本结果：Phase 2A seed 写入 1 个主播、1 个直播间、10 个脱敏商品；Phase 3A seed 写入 3 条记忆；Phase 3B seed 写入独立主播 `anchor-phase3b-001`、直播间 `room-phase3b-001`，并重置旧偏好 `phase3b-old-home-preference`。
+- CLI 演示结果：`run_phase3b_memory_revision_demo.py` 完成闭环。修正前旧家居偏好使 `p001` 排第一；模拟 `accepted/good` 后生成厨房类 L2 反馈记忆，旧记忆被标记为 `suppressed`；修正后 `p003` 排第一，记忆命中显示新反馈记忆有效权重高于 suppressed 旧记忆。
+- Git 候选检查：`git add -n .` 只包含 README、阶段日志、Phase 3B 文档、SQL、脚本、源码和测试；`.env`、`.pytest_cache/`、`__pycache__/` 仍为 ignored。
+
+### 当前问题与修复记录
+
+- 集成测试首次运行暴露 psycopg 参数化 SQL 问题：`LIKE 'phase3b-feedback-%'` 中的 `%` 被 pyformat 解析为占位符。已改为 `LIKE %(memory_key_prefix)s` 并通过集成测试验证。
+- 代码审查发现冲突修正非原子、`memory_key` 可被同主播跨房间移动、反馈记忆只做字段名白名单而缺少值级脱敏。已新增 `revise_memories_atomically()`，保证 suppress 和新记忆写入同事务；`write_memory()` 阻止同 key 跨房间移动；反馈记忆按当前货盘过滤类目、标签和商品 ID；并补充对应红绿测试。
+- 二轮复核发现反馈记忆在缺少货盘时仍可能 fail-open。已改为没有非空 `catalog_products` 时直接拒绝生成反馈记忆，并补充字段别名冲突检测，避免 `preferred_category` 与 `preferred_categories` 混用时漏检。
+- PostgreSQL 在 scoped suppress SQL 中无法推断 `%(room_id)s IS NULL` 参数类型；已按 `room_id is None` 分支生成 `room_id IS NULL` 或 `room_id = %(room_id)s`，避免类型推断错误。
+- 为避免 Phase 3B 影响 Phase 3A 对默认样例主播的断言，Phase 3B 使用独立脱敏主播和直播间。
+- 为保证 seed/demo 可重复，Phase 3B seed 会清理上一轮 `phase3b-feedback-*` 反馈记忆，并把旧偏好重置为 active。
+- 冲突修正不删除旧记忆，只写入 `status=suppressed` 和脱敏 `suppressed_reason`；检索层仍可回放旧记忆，但有效权重被显著降低。
+- Decision Trace 反哺记忆只白名单提取 `preferred_category`、`preferred_tags`、`preferred_product_ids`、`conflict_group` 等结构化字段，不复制完整话术、主播原话、订单信息或平台字段。
+
+### 最终结论
+
+Phase 3B 验收通过。系统已经能按记忆新鲜度、层级、证据权重、房间匹配和状态进行增强检索；旧记忆会随时间衰减；发生偏好冲突时旧记忆被保留但压低影响力；主播反馈可以生成新的结构化 L2 记忆，并推动下一轮播前排品变化。该阶段把 Phase 3A 的“能记住”推进到“能修正、能解释、能复盘”。
+
+### 遗留限制
+
+- 不接 embedding，增强检索仍基于结构化 metadata 和确定性规则。
+- 不接 LLM，反馈记忆内容和排品解释仍为模板化生成。
+- 冲突修正目前只处理 `conflict_group` 下的类目、标签和商品 ID 偏好，不处理复杂多目标策略冲突。
+- 记忆衰减使用固定半衰期参数，尚未根据真实业务效果自动调参。
+- 仍使用 CLI 演示，不提供 Web 端记忆审核和冲突修正界面。
+
+### 下一阶段建议
+
+- Phase 3C 可进入 embedding/pgvector 语义检索，把结构化检索与向量相似度组合，但仍需保留 Schema 校验、隐私白名单和审计。
+- 可并行规划 Kafka consumer，把播中库存、成交和弹幕事件进入统一事件入口，反哺记忆和 Decision Trace。
+- LLM 接入建议放在记忆检索和冲突修正稳定后，优先做“LLM 手卡增强/话术改写”，并保留人工复核、禁用词检查和审计链路。
+- Web 副屏可在记忆审核、冲突解释、trust_score 趋势和审批恢复稳定后启动。

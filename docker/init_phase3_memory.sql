@@ -32,9 +32,36 @@ CREATE TABLE IF NOT EXISTS live_agent_anchor_memories (
     confidence NUMERIC(4, 2) NOT NULL DEFAULT 0.70 CHECK (confidence >= 0 AND confidence <= 1),
     evidence_weight NUMERIC(4, 2) NOT NULL DEFAULT 0.50 CHECK (evidence_weight >= 0 AND evidence_weight <= 1),
     source TEXT NOT NULL CHECK (source IN ('user_stated', 'system_observed', 'offline_summary', 'manual_import')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suppressed')),
+    suppressed_reason TEXT,
     embedding vector(1536),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Phase 3B 在 Phase 3A 表结构上增补记忆状态字段；IF NOT EXISTS 让旧本地库可以平滑升级，
+-- 默认 active 保证历史 seed 数据仍按原语义参与检索。
+ALTER TABLE live_agent_anchor_memories
+    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
+ALTER TABLE live_agent_anchor_memories
+    ADD COLUMN IF NOT EXISTS suppressed_reason TEXT;
+
+ALTER TABLE live_agent_anchor_memories
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'live_agent_anchor_memories_status_check'
+    ) THEN
+        ALTER TABLE live_agent_anchor_memories
+            ADD CONSTRAINT live_agent_anchor_memories_status_check
+            CHECK (status IN ('active', 'suppressed'));
+    END IF;
+END $$;
 
 DO $$
 BEGIN
@@ -90,5 +117,8 @@ CREATE INDEX IF NOT EXISTS idx_live_agent_anchor_memories_anchor_layer
 
 CREATE INDEX IF NOT EXISTS idx_live_agent_anchor_memories_room
     ON live_agent_anchor_memories(room_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_live_agent_anchor_memories_status
+    ON live_agent_anchor_memories(anchor_id, status, updated_at DESC);
 
 -- trace_id 已由 UNIQUE 约束自动创建索引，用于和工具审计、LangGraph thread_id 做统一回放。

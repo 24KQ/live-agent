@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from src.config.settings import Settings
-from src.memory.models import AnchorMemoryEntry, MemoryLayer, MemorySource, TrustState
+from src.memory.models import AnchorMemoryEntry, MemoryLayer, MemorySource, MemoryStatus, TrustState
 
 
 class MemoryStore:
@@ -73,7 +73,9 @@ class MemoryStore:
                 metadata,
                 confidence,
                 evidence_weight,
-                source
+                source,
+                status,
+                suppressed_reason
             )
             VALUES (
                 %(memory_key)s,
@@ -84,7 +86,9 @@ class MemoryStore:
                 %(metadata)s,
                 %(confidence)s,
                 %(evidence_weight)s,
-                %(source)s
+                %(source)s,
+                %(status)s,
+                %(suppressed_reason)s
             )
             ON CONFLICT (memory_key)
             DO UPDATE SET
@@ -94,8 +98,15 @@ class MemoryStore:
                 metadata = EXCLUDED.metadata,
                 confidence = EXCLUDED.confidence,
                 evidence_weight = EXCLUDED.evidence_weight,
-                source = EXCLUDED.source
+                source = EXCLUDED.source,
+                status = EXCLUDED.status,
+                suppressed_reason = EXCLUDED.suppressed_reason,
+                updated_at = NOW()
             WHERE live_agent_anchor_memories.anchor_id = EXCLUDED.anchor_id
+              AND (
+                  (live_agent_anchor_memories.room_id IS NULL AND EXCLUDED.room_id IS NULL)
+                  OR live_agent_anchor_memories.room_id = EXCLUDED.room_id
+              )
             RETURNING memory_id::text;
         """
         with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
@@ -103,7 +114,7 @@ class MemoryStore:
                 cursor.execute(sql, self._memory_to_params(validated))
                 row = cursor.fetchone()
                 if row is None:
-                    raise ValueError("memory_key already exists for a different anchor_id")
+                    raise ValueError("memory_key already exists for a different anchor_id or room_id")
                 memory_id = row[0]
             connection.commit()
         return str(memory_id)
@@ -139,7 +150,10 @@ class MemoryStore:
                 confidence,
                 evidence_weight,
                 source,
-                created_at
+                status,
+                suppressed_reason,
+                created_at,
+                updated_at
             FROM live_agent_anchor_memories
             WHERE {' AND '.join(clauses)}
             ORDER BY created_at DESC, memory_id ASC;
@@ -149,6 +163,81 @@ class MemoryStore:
                 cursor.execute(sql, filters)
                 rows = cursor.fetchall()
         return [self._row_to_memory(row) for row in rows]
+
+    def suppress_memory(
+        self,
+        memory_key: str,
+        reason: str,
+        *,
+        anchor_id: str | None = None,
+        room_id: str | None = None,
+        scope_room: bool = False,
+    ) -> None:
+        """把旧记忆标记为 suppressed，而不是物理删除。
+
+        冲突修正需要保留历史证据，方便后续复盘“系统为什么不再强烈相信旧偏好”。
+        因此这里仅降低状态并写入脱敏原因，检索层仍可看到该记忆，但会显著降低权重。
+        anchor_id/room_id 用于原子修正路径的作用域收窄，避免只凭全局 key 误改其他画像。
+        """
+
+        if not memory_key or not memory_key.strip():
+            raise ValueError("memory_key must not be empty")
+        if not reason or not reason.strip():
+            raise ValueError("suppressed reason must not be empty")
+        self._require_settings()
+        clauses = ["memory_key = %(memory_key)s"]
+        params: dict[str, Any] = {"memory_key": memory_key, "reason": reason.strip()}
+        if anchor_id is not None:
+            clauses.append("anchor_id = %(anchor_id)s")
+            params["anchor_id"] = anchor_id
+        if scope_room:
+            if room_id is None:
+                clauses.append("room_id IS NULL")
+            else:
+                clauses.append("room_id = %(room_id)s")
+                params["room_id"] = room_id
+        sql = f"""
+            UPDATE live_agent_anchor_memories
+            SET status = 'suppressed',
+                suppressed_reason = %(reason)s,
+                updated_at = NOW()
+            WHERE {' AND '.join(clauses)}
+            RETURNING memory_id;
+        """
+        with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, params)
+                row = cursor.fetchone()
+            connection.commit()
+        if row is None:
+            raise ValueError("memory_key not found")
+
+    def revise_memories_atomically(
+        self,
+        new_entry: AnchorMemoryEntry,
+        conflicts_with_reasons: list[tuple[AnchorMemoryEntry, str]],
+    ) -> str:
+        """在单个事务中压制旧记忆并写入新记忆。
+
+        该方法用于 Phase 3B 冲突修正：如果新记忆写入失败，前面的 suppress 更新会随事务
+        一起回滚，避免出现“旧偏好已被压低，但新证据没有落库”的不一致状态。
+        """
+
+        validated = AnchorMemoryEntry.model_validate(new_entry.model_dump(mode="python"))
+        self._require_settings()
+        self._ensure_room_belongs_to_anchor(validated.anchor_id, validated.room_id)
+        with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
+            with connection.cursor() as cursor:
+                self._ensure_memory_key_not_moved(validated, cursor=cursor)
+                for conflict, reason in conflicts_with_reasons:
+                    self._suppress_memory_with_cursor(cursor, conflict, reason)
+                cursor.execute(self._memory_upsert_sql(), self._memory_to_params(validated))
+                row = cursor.fetchone()
+                if row is None:
+                    raise ValueError("memory_key already exists for a different anchor_id or room_id")
+                memory_id = row[0]
+            connection.commit()
+        return str(memory_id)
 
     def get_trust_state(self, anchor_id: str) -> TrustState:
         """读取主播 trust_score；不存在时返回默认状态但不隐式写库。"""
@@ -201,26 +290,32 @@ class MemoryStore:
         if self._settings is None:
             raise RuntimeError("MemoryStore requires Settings for database operations")
 
-    def _ensure_memory_key_not_moved(self, entry: AnchorMemoryEntry) -> None:
-        """阻止同一个 memory_key 被移动到另一个主播名下。
+    def _ensure_memory_key_not_moved(self, entry: AnchorMemoryEntry, cursor=None) -> None:
+        """阻止同一个 memory_key 被移动到另一个主播或直播间名下。
 
-        记忆属于主播画像的一部分，跨主播复用 key 会污染后续排品和信任评估；因此这里在
+        记忆属于主播画像的一部分，跨主播或跨直播间复用 key 会污染后续排品和信任评估；因此这里在
         upsert 之前先做显式检查，给调用方返回领域错误，而不是暴露底层外键异常。
         """
 
         if entry.memory_key is None:
             return
         sql = """
-            SELECT anchor_id
+            SELECT anchor_id, room_id
             FROM live_agent_anchor_memories
             WHERE memory_key = %(memory_key)s;
         """
-        with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(sql, {"memory_key": entry.memory_key})
-                row = cursor.fetchone()
+        if cursor is None:
+            with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
+                with connection.cursor() as local_cursor:
+                    local_cursor.execute(sql, {"memory_key": entry.memory_key})
+                    row = local_cursor.fetchone()
+        else:
+            cursor.execute(sql, {"memory_key": entry.memory_key})
+            row = cursor.fetchone()
         if row is not None and row[0] != entry.anchor_id:
             raise ValueError("memory_key already exists for a different anchor_id")
+        if row is not None and row[1] != entry.room_id:
+            raise ValueError("memory_key already exists for a different room_id")
 
     def _ensure_room_belongs_to_anchor(self, anchor_id: str, room_id: str | None) -> None:
         """校验直播间是否属于当前主播。
@@ -244,6 +339,57 @@ class MemoryStore:
             raise ValueError("room_id does not belong to anchor_id")
 
     @staticmethod
+    def _memory_upsert_sql() -> str:
+        """返回记忆 upsert SQL，供普通写入和原子修正共用。"""
+
+        return """
+            INSERT INTO live_agent_anchor_memories (
+                memory_key,
+                anchor_id,
+                room_id,
+                layer,
+                content,
+                metadata,
+                confidence,
+                evidence_weight,
+                source,
+                status,
+                suppressed_reason
+            )
+            VALUES (
+                %(memory_key)s,
+                %(anchor_id)s,
+                %(room_id)s,
+                %(layer)s,
+                %(content)s,
+                %(metadata)s,
+                %(confidence)s,
+                %(evidence_weight)s,
+                %(source)s,
+                %(status)s,
+                %(suppressed_reason)s
+            )
+            ON CONFLICT (memory_key)
+            DO UPDATE SET
+                room_id = EXCLUDED.room_id,
+                layer = EXCLUDED.layer,
+                content = EXCLUDED.content,
+                metadata = EXCLUDED.metadata,
+                confidence = EXCLUDED.confidence,
+                evidence_weight = EXCLUDED.evidence_weight,
+                source = EXCLUDED.source,
+                status = EXCLUDED.status,
+                suppressed_reason = EXCLUDED.suppressed_reason,
+                updated_at = NOW()
+            WHERE live_agent_anchor_memories.anchor_id = EXCLUDED.anchor_id
+              AND (
+                  (live_agent_anchor_memories.room_id IS NULL AND EXCLUDED.room_id IS NULL)
+                  OR live_agent_anchor_memories.room_id = EXCLUDED.room_id
+              )
+            RETURNING memory_id::text;
+        """
+
+    @staticmethod
     def _memory_to_params(entry: AnchorMemoryEntry) -> dict[str, Any]:
         """把领域模型转换为 psycopg 参数字典。"""
 
@@ -257,7 +403,39 @@ class MemoryStore:
             "confidence": entry.confidence,
             "evidence_weight": entry.evidence_weight,
             "source": entry.source.value,
+            "status": entry.status.value,
+            "suppressed_reason": entry.suppressed_reason,
         }
+
+    @staticmethod
+    def _suppress_memory_with_cursor(cursor, memory: AnchorMemoryEntry, reason: str) -> None:
+        """在外部事务游标中按主播和房间作用域压制旧记忆。"""
+
+        if memory.memory_key is None:
+            return
+        room_clause = "room_id IS NULL" if memory.room_id is None else "room_id = %(room_id)s"
+        params = {
+            "memory_key": memory.memory_key,
+            "anchor_id": memory.anchor_id,
+            "reason": reason.strip(),
+        }
+        if memory.room_id is not None:
+            params["room_id"] = memory.room_id
+        cursor.execute(
+            f"""
+            UPDATE live_agent_anchor_memories
+            SET status = 'suppressed',
+                suppressed_reason = %(reason)s,
+                updated_at = NOW()
+            WHERE memory_key = %(memory_key)s
+              AND anchor_id = %(anchor_id)s
+              AND {room_clause}
+            RETURNING memory_id;
+            """,
+            params,
+        )
+        if cursor.fetchone() is None:
+            raise ValueError("memory_key not found for scoped suppression")
 
     @staticmethod
     def _row_to_memory(row: dict[str, Any]) -> AnchorMemoryEntry:
@@ -274,5 +452,8 @@ class MemoryStore:
             confidence=Decimal(str(row["confidence"])),
             evidence_weight=Decimal(str(row["evidence_weight"])),
             source=MemorySource(row["source"]),
+            status=MemoryStatus(row.get("status") or MemoryStatus.ACTIVE.value),
+            suppressed_reason=row.get("suppressed_reason"),
             created_at=row["created_at"],
+            updated_at=row.get("updated_at") or row["created_at"],
         )
