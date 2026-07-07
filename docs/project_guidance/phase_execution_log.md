@@ -658,3 +658,97 @@ Phase 2F LangGraph interrupt 人审恢复链路验收通过。系统已经把建
 - Kafka consumer 可并行规划，把库存和弹幕 topic 转成本地事件入口，再接入现有播中服务。
 - Web 副屏建议在 interrupt、人审审计和 Kafka 入口稳定后开始，让审批、恢复、售罄提示和弹幕参考回复可视化。
 - LLM 手卡增强继续后置，接入时必须保留 Schema 校验、禁用词检查、人工复核和审计。
+
+## Phase 3A: 记忆与信任层基础闭环
+
+### 基本信息
+
+- 验收日期：2026-07-07
+- 对应提交：`feat: add phase 3a memory trust foundation`
+- 阶段状态：通过
+
+### 目标
+
+建设“越用越懂主播”的最小可控闭环：
+
+```text
+初始化记忆样例数据 -> 读取主播偏好与历史表现 -> 生成带记忆影响的播前排品
+-> 记录 Decision Trace -> 模拟主播反馈与业务结果 -> 更新 trust_score
+-> 下一次播前建议受记忆和信任分影响
+```
+
+本阶段不接 LLM、不做 Web、不接 Kafka consumer、不接真实平台 API。继续使用 PostgreSQL + pgvector，`embedding vector(1536)` 只做字段预留。
+
+### 计划任务
+
+- 新增 Phase 3A 设计文档和实施计划文档。
+- 新增记忆、信任状态和 Decision Trace PostgreSQL 表。
+- 新增 `MemoryStore`、`TrustManager`、`DecisionTraceStore`、`MemoryAwarePlanService`、`ToolMaskPolicy`。
+- 新增 Phase 3A seed 脚本和 CLI 演示脚本。
+- README 增加 Phase 3A seed 与 demo 命令。
+
+### 交付物
+
+- 设计文档：`docs/superpowers/specs/2026-07-07-phase-3a-memory-trust-design.md`。
+- 实施计划：`docs/superpowers/plans/2026-07-07-phase-3a-memory-trust-plan.md`。
+- SQL 初始化：`docker/init_phase3_memory.sql`。
+- 领域模型与服务：`src/memory/models.py`、`src/memory/memory_store.py`、`src/memory/trust_manager.py`、`src/memory/decision_trace_store.py`、`src/memory/memory_aware_plan.py`、`src/memory/tool_mask_policy.py`。
+- CLI：`scripts/seed_phase3_memory_demo_data.py`、`scripts/run_phase3a_memory_trust_demo.py`。
+- 测试覆盖：`tests/unit/test_memory_models.py`、`tests/unit/test_memory_store.py`、`tests/unit/test_trust_manager.py`、`tests/unit/test_tool_mask_policy.py`、`tests/unit/test_memory_aware_plan.py`、`tests/integration/test_phase3_memory_seed_data.py`、`tests/integration/test_memory_trust_flow.py`。
+
+### 验收命令
+
+```powershell
+pytest tests/unit/test_memory_models.py -v
+pytest tests/unit/test_memory_store.py -v
+pytest tests/unit/test_trust_manager.py -v
+pytest tests/unit/test_tool_mask_policy.py -v
+pytest tests/unit/test_memory_aware_plan.py -v
+pytest tests/integration/test_phase3_memory_seed_data.py -v
+pytest tests/integration/test_memory_trust_flow.py -v
+pytest -v
+python scripts/check_infra.py
+python scripts/seed_phase2_demo_data.py
+python scripts/seed_phase3_memory_demo_data.py
+python scripts/run_phase3a_memory_trust_demo.py
+git status --short --ignored
+git add -n .
+```
+
+### 执行反馈
+
+- TDD 红灯结果：新增 7 组测试首次运行失败，原因均为 Phase 3A 新模块尚未实现，包括 `src.memory.models`、`memory_store`、`trust_manager`、`tool_mask_policy`、`memory_aware_plan`、`demo_memory_seed`、`decision_trace_store`。
+- TDD 绿灯结果：实现最小记忆/信任/排品/追踪闭环后，新增 21 个 Phase 3A 用例通过；代码审查后补强数据隔离和审计不可覆盖测试，Phase 3A 指定用例扩展为 26 个并全部通过。
+- 指定测试结果：`test_memory_models` 5 个用例通过，`test_memory_store` 4 个用例通过，`test_trust_manager` 6 个用例通过，`test_tool_mask_policy` 4 个用例通过，`test_memory_aware_plan` 2 个用例通过，`test_phase3_memory_seed_data` 1 个集成用例通过，`test_memory_trust_flow` 4 个集成用例通过。
+- 全量测试结果：`pytest -v` 通过，合计 `124 passed`。
+- 中间件检查结果：PostgreSQL、pgvector、Redis、Kafka 全部通过。
+- seed 脚本结果：Phase 2A seed 写入 1 个主播、1 个直播间、10 个脱敏商品；Phase 3A seed 写入 3 条记忆，默认 `trust_score=0.70`。
+- CLI 演示结果：`run_phase3a_memory_trust_demo.py` 完成闭环，记忆将 `p003` 提升为第一讲解商品；模拟 `accepted/good` 后 `trust_score` 从 `0.70` 更新为 `0.75`；Decision Trace 返回可回放 ID；高信任分下播前工具可见范围包含非 block 工具；排品理由只输出结构化命中摘要，不回显完整记忆正文。
+- Git 候选检查：`git add -n .` 只包含 README、阶段日志、Phase 3A 文档、SQL、脚本、源码和测试；`.env`、缓存目录和 `__pycache__` 仍为 ignored。
+
+### 当前问题与修复记录
+
+- 已确认记忆表依赖 Phase 2A 样例主播和直播间外键，因此 seed 脚本会先初始化 Phase 2A 货盘数据，再初始化 Phase 3A 记忆数据。
+- Decision Trace 使用 `trace_id` 唯一约束和 upsert，保证演示脚本重复执行时不会不断追加重复闭环记录。
+- `ToolMaskPolicy` 只裁剪工具可见范围，不替代 ToolRegistry 和 SecurityHook，避免信任层绕过原有安全边界。
+- 代码审查发现 anchor/room 组合一致性、memory_key 跨主播移动、Decision Trace 覆盖写入、原始记忆正文回显和测试假阳性风险；已补充组合外键与 Store 层校验，阻止 memory_key 跨主播移动，Decision Trace 改为“相同内容幂等、不同内容拒绝覆盖”，排品理由改为结构化摘要，并补充对应红绿测试。
+- CLI 原先使用固定 `trace_id`，在 Decision Trace 不可覆盖后重复运行会被正确拒绝；已改为每次生成新的脱敏 `trace_id`，保留历史演示记录。
+
+### 最终结论
+
+Phase 3A 记忆与信任层基础闭环验收通过。系统已经能基于 PostgreSQL 中的主播偏好和历史表现影响播前排品，并把主播反馈、业务结果、trust_delta 和最终 trust_score 写入 Decision Trace。该阶段为后续 embedding 检索、LLM 手卡增强和更复杂的主播偏好学习留下了稳定接口。
+
+### 遗留限制
+
+- 不接 LLM，记忆影响排品只使用结构化 metadata 和确定性规则。
+- 不写入 embedding，pgvector 字段只预留，语义检索后置。
+- trust_score 更新规则固定为四条基础规则，尚未引入更复杂的业务指标归因。
+- 记忆数据目前来自 seed 和模拟反馈，不接真实平台历史数据。
+- 不做 Web 副屏，仍使用 CLI 演示。
+
+### 下一阶段建议
+
+- Phase 3B 可继续增强记忆检索与归因：接入 embedding、相似记忆检索、记忆衰减和冲突修正。
+- Kafka consumer 可并行规划，把库存、弹幕和成交事件转成可复用的本地事件入口。
+- LLM 手卡增强建议在记忆层稳定后接入，并继续保留 Schema 校验、禁用词检查、人工复核和审计。
+- Web 副屏可以在记忆、审批、Kafka 入口稳定后启动，重点展示审批、trace 回放、trust_score 变化和建议理由。
