@@ -1,0 +1,146 @@
+"""LiveAgent 本地配置定义。
+
+本模块是 Phase 0 的配置中心，负责把 `.env` 或系统环境变量转换为
+类型明确的 Python 对象。生产代码不要直接读取环境变量，而应通过
+`Settings` 或 `get_settings()` 访问配置，这样测试、脚本和后续服务
+可以共享同一套配置契约。
+"""
+
+from functools import lru_cache
+from typing import Any
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """LiveAgent 运行配置。
+
+    字段默认值与公开的 `.env.example` 保持一致，因此公开仓库在没有
+    真实 `.env` 的情况下也可以运行单元测试。真正的账号、密码和端口
+    应写入开发者本机 `.env`，该文件已被 `.gitignore` 忽略，避免凭据
+    被推送到 GitHub。
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # 应用名称只用于日志、命令行输出和后续服务标识，不参与业务判断。
+    app_name: str = Field(default="LiveAgent", validation_alias="APP_NAME")
+
+    # PostgreSQL 是 Phase 0 的主数据库，后续会承载状态、审计、记忆和 checkpoint。
+    postgres_host: str = Field(default="localhost", validation_alias="POSTGRES_HOST")
+    postgres_port: int = Field(default=5432, validation_alias="POSTGRES_PORT")
+    postgres_db: str = Field(default="postgres", validation_alias="POSTGRES_DB")
+    postgres_user: str = Field(default="postgres", validation_alias="POSTGRES_USER")
+    postgres_password: str = Field(default="change_me", validation_alias="POSTGRES_PASSWORD")
+
+    # Redis 用于短期缓存、幂等键和分布式锁；Phase 0 只验证连接可达性。
+    redis_host: str = Field(default="localhost", validation_alias="REDIS_HOST")
+    redis_port: int = Field(default=6379, validation_alias="REDIS_PORT")
+
+    # Kafka 承载直播过程中的事件流，多个 broker 使用逗号分隔。
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:9092",
+        validation_alias="KAFKA_BOOTSTRAP_SERVERS",
+    )
+    kafka_topic_danmaku: str = Field(default="anchor.danmaku", validation_alias="KAFKA_TOPIC_DANMAKU")
+    kafka_topic_inventory: str = Field(default="anchor.inventory", validation_alias="KAFKA_TOPIC_INVENTORY")
+    kafka_topic_traffic: str = Field(default="anchor.traffic", validation_alias="KAFKA_TOPIC_TRAFFIC")
+    kafka_topic_command: str = Field(default="anchor.command", validation_alias="KAFKA_TOPIC_COMMAND")
+
+    # MinIO 是可选对象存储，用于后续保存长报告、大文件或上下文卸载材料。
+    minio_endpoint: str = Field(default="http://localhost:8900", validation_alias="MINIO_ENDPOINT")
+    minio_access_key: str = Field(default="change_me", validation_alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="change_me", validation_alias="MINIO_SECRET_KEY")
+    minio_bucket: str = Field(default="live-agent", validation_alias="MINIO_BUCKET")
+
+    # pgAdmin / MySQL 当前只作为本地实验辅助配置，Phase 0 不主动连接。
+    pgadmin_email: str = Field(default="change_me@example.com", validation_alias="PGADMIN_EMAIL")
+    pgadmin_password: str = Field(default="change_me", validation_alias="PGADMIN_PASSWORD")
+    mysql_user: str = Field(default="root", validation_alias="MYSQL_USER")
+    mysql_password: str = Field(default="change_me", validation_alias="MYSQL_PASSWORD")
+
+    @property
+    def postgres_connection_kwargs(self) -> dict[str, Any]:
+        """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。
+
+        使用字典参数而不是手写 DSN，可以避免密码中包含特殊字符时产生
+        转义问题，也方便健康检查脚本对超时时间等参数做局部追加。
+        """
+
+        return {
+            "host": self.postgres_host,
+            "port": self.postgres_port,
+            "dbname": self.postgres_db,
+            "user": self.postgres_user,
+            "password": self.postgres_password,
+        }
+
+    @property
+    def postgres_safe_dsn(self) -> str:
+        """生成可打印到日志的 PostgreSQL DSN。
+
+        返回值会把密码替换为 `***`。健康检查失败时可以展示这个字符串，
+        让开发者知道正在连接哪里，同时不会把真实密码泄露到终端截图、
+        GitHub Issue 或聊天记录中。
+        """
+
+        return (
+            f"postgresql://{self.postgres_user}:***@"
+            f"{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        )
+
+    @property
+    def redis_connection_target(self) -> tuple[str, int]:
+        """生成 Redis 连接目标。
+
+        返回 `(host, port)` 的简单元组，方便脚本直接解包，同时保持测试
+        对连接契约的断言足够清晰。
+        """
+
+        return (self.redis_host, self.redis_port)
+
+    @property
+    def kafka_bootstrap_server_list(self) -> list[str]:
+        """把 Kafka broker 字符串拆成客户端需要的列表。
+
+        开发者可能在 `.env` 中写入 `host1:9092, host2:9092`。这里会去掉
+        多余空白并过滤空项，避免 Kafka 客户端收到无效 broker 地址。
+        """
+
+        return [
+            server.strip()
+            for server in self.kafka_bootstrap_servers.split(",")
+            if server.strip()
+        ]
+
+    @property
+    def kafka_topics(self) -> dict[str, str]:
+        """返回 Phase 0 必须声明的 Kafka topic 映射。
+
+        使用语义化 key 是为了让后续业务代码引用 `danmaku`、`inventory`
+        这类领域名称，而不是到处复制真实 topic 字符串。
+        """
+
+        return {
+            "danmaku": self.kafka_topic_danmaku,
+            "inventory": self.kafka_topic_inventory,
+            "traffic": self.kafka_topic_traffic,
+            "command": self.kafka_topic_command,
+        }
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """获取全局配置实例。
+
+    `lru_cache` 可以避免脚本或服务在一次进程生命周期内重复解析 `.env`。
+    测试中如需隔离配置，应直接实例化 `Settings(...)`，不要依赖缓存对象。
+    """
+
+    return Settings()

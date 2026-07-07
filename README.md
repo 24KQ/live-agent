@@ -25,3 +25,38 @@ Copy-Item .env.example .env
 ```
 
 `.env` 已被 `.gitignore` 忽略，请不要提交。
+
+## Phase 0 快速开始
+
+安装 Python 依赖：
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+复制环境变量模板，并按你本机 Docker 中间件填写真实账号和密码：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+运行配置层测试：
+
+```powershell
+pytest tests/unit/test_settings.py -v
+pytest tests/integration/test_infra_config.py -v
+```
+
+运行全量测试：
+
+```powershell
+pytest -v
+```
+
+检查本地中间件连通性：
+
+```powershell
+python scripts/check_infra.py
+```
+
+如果 PostgreSQL、Redis 或 Kafka 未启动，检查脚本会显示失败服务并返回退出码 `1`；全部通过时返回退出码 `0`。
