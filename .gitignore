@@ -1,0 +1,35 @@
+# Python 运行与缓存目录：这些文件由本机解释器生成，不应进入公开仓库。
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境目录：依赖应通过 requirements.txt 或 pyproject.toml 复现。
+.venv/
+venv/
+env/
+
+# 本地密钥与环境配置：真实账号、密码、Token 必须只保存在开发者本机。
+.env
+.env.*
+!.env.example
+
+# IDE 与系统文件：不同开发者环境不同，提交后会制造无意义变更。
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 日志与临时产物：运行过程输出可以复现，不进入版本库。
+*.log
+tmp/
+temp/
+
+# 文档整理过程记录：包含本机环境摘录，只作为本地工作日志保留。
+docs/worklog/
+
+# 第三方学习资料：文章和图片可能涉及转载授权，公开仓库默认不发布。
+docs/study/
