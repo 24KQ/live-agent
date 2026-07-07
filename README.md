@@ -60,3 +60,13 @@ python scripts/check_infra.py
 ```
 
 如果 PostgreSQL、Redis 或 Kafka 未启动，检查脚本会显示失败服务并返回退出码 `1`；全部通过时返回退出码 `0`。
+
+## Phase 1 播前地基层演示
+
+Phase 1 演示播前最小可控闭环：查询模拟货盘、请求改价、进入 hard-gate、确认后更新状态并写入 PostgreSQL 审计。
+
+```powershell
+python scripts/run_phase1_pre_live_demo.py
+```
+
+阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。
