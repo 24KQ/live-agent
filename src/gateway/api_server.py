@@ -46,29 +46,35 @@ async def get_card(product_id: str):
 
 @app.get("/api/danmaku/summary")
 async def get_danmaku_summary(room_id: str = ""):
+    """?????????? live_agent_danmaku_aggregates ????? 50 ??"""
     try:
-        from src.skills.danmaku_aggregator import aggregate_danmaku_questions
-        from src.skills.danmaku_events import DanmakuEvent
-        from datetime import datetime, timezone
+        import psycopg
+        from psycopg.rows import dict_row
         rid = room_id or "room-001"
-        sim_events = [
-            DanmakuEvent(room_id=rid, viewer_id="v1",
-                         content="这个产品能用多久",
-                         event_time=datetime.now(timezone.utc), trace_id="demo-batch"),
-            DanmakuEvent(room_id=rid, viewer_id="v2",
-                         content="价格还能便宜吗",
-                         event_time=datetime.now(timezone.utc), trace_id="demo-batch"),
-        ]
-        groups = aggregate_danmaku_questions(sim_events, window_seconds=5)
+        with psycopg.connect(**settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT category, summary, count, sample_contents, window_start "
+                    "FROM live_agent_danmaku_aggregates "
+                    "WHERE room_id = %(room_id)s "
+                    "ORDER BY window_start DESC LIMIT 50;",
+                    {"room_id": rid}
+                )
+                rows = cur.fetchall()
+        if not rows:
+            return {"danmaku_count": 0, "question_groups": []}
         return {
-            "danmaku_count": len(sim_events),
+            "danmaku_count": sum(r["count"] for r in rows),
             "question_groups": [
-                {"question": grp.summary, "count": grp.count, "suggested_reply": ""}
-                for grp in groups
+                {"question": r["summary"], "count": r["count"],
+                 "category": r["category"], "suggested_reply": ""}
+                for r in rows
             ],
         }
     except Exception as exc:
+        from fastapi.responses import JSONResponse
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
 
 
 @app.get("/api/alert/{room_id}")
@@ -151,3 +157,4 @@ async def get_review(room_id: str):
 front_dir = Path(__file__).resolve().parent.parent.parent / "front"
 if front_dir.exists():
     app.mount("/", StaticFiles(directory=str(front_dir), html=True), name="static")
+
