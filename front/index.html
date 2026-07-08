@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LiveAgent 副屏</title>
+<style>
+  /* ---- 深色主题全局 ---- */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif;
+    background: #0d1117; color: #c9d1d9;
+    width: 1280px; height: 800px; overflow: hidden;
+    display: grid;
+    grid-template-rows: 40px 1fr;
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+
+  /* ---- 顶部工具栏 ---- */
+  .toolbar {
+    background: #161b22; border-bottom: 1px solid #21262d;
+    display: flex; align-items: center; padding: 0 12px;
+    font-size: 13px; color: #8b949e;
+  }
+  .toolbar .logo { font-weight: 600; color: #58a6ff; margin-right: 16px; letter-spacing: 0.5px; }
+  .toolbar .status { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .toolbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+  .toolbar button {
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .toolbar button:hover { background: #30363d; }
+
+  /* ---- 四象限面板布局 ---- */
+  .dashboard {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px; padding: 8px;
+  }
+  .panel {
+    background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+    padding: 12px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel h2 {
+    font-size: 14px; font-weight: 600; color: #58a6ff;
+    margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px solid #21262d;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .panel .content { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.6; }
+  .panel .content::-webkit-scrollbar { width: 4px; }
+  .panel .content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+  /* ---- 手卡面板 ---- */
+  #card-panel .card-section { margin-bottom: 10px; }
+  .card-section .label { font-size: 11px; color: #8b949e; text-transform: uppercase; margin-bottom: 2px; }
+  .card-section .value { color: #e6edf3; }
+
+  /* ---- 弹幕面板 ---- */
+  #danmaku-panel .danmaku-item {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+    padding: 8px 10px; margin-bottom: 8px;
+  }
+  .danmaku-item .q-text { color: #e6edf3; font-weight: 500; }
+  .danmaku-item .q-count { color: #8b949e; font-size: 11px; }
+  .danmaku-item .q-reply { color: #7ee787; font-size: 12px; margin-top: 4px; }
+  .danmaku-item .q-reply::before { content: "💬  "; }
+
+  /* ---- 告警面板 ---- */
+  #alert-panel .alert-item {
+    background: #0d1117; border-left: 3px solid #d29922; border-radius: 0 6px 6px 0;
+    padding: 8px 10px; margin-bottom: 8px;
+  }
+  .alert-item.danger { border-left-color: #f85149; }
+  .alert-item .alert-type { font-size: 11px; color: #d29922; text-transform: uppercase; }
+  .alert-item.danger .alert-type { color: #f85149; }
+  .alert-item .alert-msg { color: #e6edf3; margin-top: 2px; }
+
+  /* ---- 复盘面板 ---- */
+  #review-panel .review-stat {
+    display: flex; justify-content: space-between;
+    padding: 6px 0; border-bottom: 1px solid #21262d;
+  }
+  .review-stat .stat-label { color: #8b949e; }
+  .review-stat .stat-value { color: #e6edf3; font-weight: 600; }
+  .review-state { font-size: 12px; color: #8b949e; text-align: center; padding: 16px 0; }
+
+  /* ---- 错误与加载 ---- */
+  .error { color: #f85149; font-size: 12px; }
+  .loading { color: #8b949e; font-size: 12px; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+
+<!-- 顶部工具栏 -->
+<div class="toolbar">
+  <span class="logo">LiveAgent 副屏</span>
+  <span id="clock">--:--:--</span>
+  <span class="status">
+    <span class="dot" id="health-dot" style="background:#f85149;"></span>
+    <span id="health-text">未连接</span>
+    <button onclick="refreshCard()">刷新手卡</button>
+  </span>
+</div>
+
+<!-- 四象限面板 -->
+<div class="dashboard">
+  <!-- 左上：手卡 -->
+  <div class="panel" id="card-panel">
+    <h2>🃏 讲解手卡</h2>
+    <div class="content" id="card-content">
+      <div class="loading">点击刷新手卡...</div>
+    </div>
+  </div>
+
+  <!-- 右上：弹幕 -->
+  <div class="panel" id="danmaku-panel">
+    <h2>💬 弹幕洞察</h2>
+    <div class="content" id="danmaku-content">
+      <div class="loading">等待弹幕数据...</div>
+    </div>
+  </div>
+
+  <!-- 左下：告警 -->
+  <div class="panel" id="alert-panel">
+    <h2>⚠️ 实时告警</h2>
+    <div class="content" id="alert-content">
+      <div class="loading">等待告警数据...</div>
+    </div>
+  </div>
+
+  <!-- 右下：复盘 -->
+  <div class="panel" id="review-panel">
+    <h2>📊 场次复盘</h2>
+    <div class="content" id="review-content">
+      <div class="loading">暂无复盘数据...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8100";
+
+// ---- 时钟 ----
+function updateClock() {
+  const now = new Date();
+  document.getElementById("clock").textContent =
+    now.toLocaleTimeString("zh-CN", { hour12: false });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ---- 健康检查 ----
+async function checkHealth() {
+  try {
+    const res = await fetch(API + "/api/health");
+    if (res.ok) {
+      document.getElementById("health-dot").style.background = "#3fb950";
+      document.getElementById("health-text").textContent = "已连接";
+    }
+  } catch {
+    document.getElementById("health-dot").style.background = "#f85149";
+    document.getElementById("health-text").textContent = "未连接";
+  }
+}
+checkHealth();
+setInterval(checkHealth, 15000);
+
+// ---- 手卡（手动刷新） ----
+async function refreshCard() {
+  const el = document.getElementById("card-content");
+  el.innerHTML = '<div class="loading">加载手卡...</div>';
+  try {
+    const res = await fetch(API + "/api/card/p001");
+    if (!res.ok) throw new Error("请求失败");
+    const card = await res.json();
+    if (card.error) throw new Error(card.error);
+    el.innerHTML = `
+      <div class="card-section">
+        <div class="label">商品</div>
+        <div class="value">${escapeHtml(card.title || "—")}（${escapeHtml(card.product_id || "")}）</div>
+      </div>
+      <div class="card-section">
+        <div class="label">开场话术</div>
+        <div class="value">${escapeHtml(card.opening_script || "—")}</div>
+      </div>
+      <div class="card-section">
+        <div class="label">讲解要点</div>
+        <div class="value">${formatList(card.talking_points)}</div>
+      </div>
+      <div class="card-section">
+        <div class="label">价格提示</div>
+        <div class="value">${escapeHtml(card.price_hint || "—")}</div>
+      </div>
+      <div class="card-section">
+        <div class="label">风险提示</div>
+        <div class="value">${formatList(card.risk_tips)}</div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = '<div class="error">无法加载手卡：' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// ---- 弹幕（10s 轮询） ----
+async function refreshDanmaku() {
+  const el = document.getElementById("danmaku-content");
+  try {
+    const res = await fetch(API + "/api/danmaku/summary?room_id=demo-room");
+    if (!res.ok) throw new Error("请求失败");
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const groups = data.question_groups || [];
+    if (groups.length === 0) {
+      el.innerHTML = '<div class="loading">暂无弹幕问题</div>';
+      return;
+    }
+    el.innerHTML = groups.map(g => `
+      <div class="danmaku-item">
+        <div class="q-text">${escapeHtml(g.question)}</div>
+        <div class="q-count">出现 ${g.count} 次</div>
+        ${g.suggested_reply ? '<div class="q-reply">' + escapeHtml(g.suggested_reply) + '</div>' : ''}
+      </div>`).join("");
+  } catch (e) {
+    el.innerHTML = '<div class="error">弹幕加载失败</div>';
+  }
+}
+
+// ---- 告警（10s 轮询） ----
+async function refreshAlerts() {
+  const el = document.getElementById("alert-content");
+  try {
+    const res = await fetch(API + "/api/alert/demo-room");
+    if (!res.ok) throw new Error("请求失败");
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const alerts = data.alerts || [];
+    if (alerts.length === 0) {
+      el.innerHTML = '<div class="loading">暂无告警</div>';
+      return;
+    }
+    el.innerHTML = alerts.map(a => `
+      <div class="alert-item ${a.type === 'sold_out' ? 'danger' : ''}">
+        <div class="alert-type">${escapeHtml(a.type)}</div>
+        <div class="alert-msg">${escapeHtml(a.message)}</div>
+      </div>`).join("");
+  } catch (e) {
+    el.innerHTML = '<div class="error">告警加载失败</div>';
+  }
+}
+
+// ---- 复盘（30s 轮询） ----
+async function refreshReview() {
+  const el = document.getElementById("review-content");
+  try {
+    const res = await fetch(API + "/api/review/demo-room");
+    if (!res.ok) throw new Error("请求失败");
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (!data.total_decisions) {
+      el.innerHTML = '<div class="review-state">本场暂无决策记录</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="review-stat">
+        <span class="stat-label">总决策数</span>
+        <span class="stat-value">${data.total_decisions}</span>
+      </div>
+      <div class="review-stat">
+        <span class="stat-label">采纳率</span>
+        <span class="stat-value">${data.adoption_rate || "—"}</span>
+      </div>
+      <div class="review-stat">
+        <span class="stat-label">准确率</span>
+        <span class="stat-value">${data.accuracy_rate || "—"}</span>
+      </div>
+      <div class="review-stat">
+        <span class="stat-label">信任度变化</span>
+        <span class="stat-value">${data.trust_delta_total || "—"}</span>
+      </div>
+      ${(data.issues || []).map(i => '<div class="review-stat"><span class="stat-label">' + escapeHtml(i) + '</span></div>').join("")}`;
+  } catch (e) {
+    el.innerHTML = '<div class="error">复盘加载失败</div>';
+  }
+}
+
+// ---- 工具函数 ----
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function formatList(items) {
+  if (!items || items.length === 0) return "—";
+  if (Array.isArray(items)) return items.map(i => "· " + escapeHtml(i)).join("<br>");
+  return escapeHtml(String(items));
+}
+
+// ---- 初始化加载 ----
+refreshDanmaku();
+refreshAlerts();
+refreshReview();
+setInterval(refreshDanmaku, 10000);
+setInterval(refreshAlerts, 10000);
+setInterval(refreshReview, 30000);
+</script>
+</body>
+</html>

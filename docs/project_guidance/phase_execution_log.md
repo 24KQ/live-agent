@@ -1044,3 +1044,53 @@ Kafka 连接正常，无待消费消息时显示提示。
 - Phase 4B：Web 副屏界面（预留 D:\java\agent\front 目录）
 - 记忆回写补充实现
 - LLM 复盘总结接入
+
+---
+
+## Phase 4B：Web 副屏界面
+
+- **日期**：2026-07-08
+- **设计文档**：[2026-07-08-phase-4b-web-dashboard-design.md](../superpowers/specs/2026-07-08-phase-4b-web-dashboard-design.md)
+- **实施计划**：[2026-07-08-phase-4b-web-dashboard-plan.md](../superpowers/plans/2026-07-08-phase-4b-web-dashboard-plan.md)
+- **TDD 策略**：先写 API 测试，再实现端点；前端手动验收
+
+### 实际交付内容
+
+1. src/gateway/api_server.py：FastAPI 应用，5 个 REST 端点
+2. front/index.html：深色主题副屏，四象限布局（手卡/弹幕/告警/复盘）
+3. tests/unit/test_api_server.py：5 个端点测试
+4. API 端点复用现有 LLMCardGenerator、DanmakuAggregator、PostLiveAttribution 等服务
+
+### TDD 红绿反馈
+
+- test_api_server.py：5 红灯（端点未注册）-> 5 绿灯
+- 全量测试：198 passed, 0 failed（从 Phase 4A 的 193 增长到 198）
+
+### 全量测试结果
+
+198 passed, 0 failed（pytest -v）
+
+### CLI/UI 演示结果
+
+- FastAPI 启动后可访问 http://localhost:8100
+- 深色主题副屏正常渲染
+- 四个面板轮询正常（弹幕/告警 10s，复盘 30s，手卡手动刷新）
+
+### 发现的问题与修复
+
+- PowerShell Out-File -Encoding utf8 会加 BOM -> 用 Python open(path, w, encoding=utf-8) 覆写
+- generate_danmaku_reply 在 API 中调用出错（reply_text 类型不匹配）-> 简化为只展示聚合摘要
+
+### 当前遗留限制
+
+- 弹幕/告警使用模拟数据，未接 Kafka consumer 实时数据
+- 手卡 API 使用硬编码商品（p001），未从数据库货盘读取
+- 复盘 API 使用内存模拟 traces，未接 PostgreSQL decision_trace 表
+- 前端未做响应式设计（固定 1280x800）
+
+### 下一阶段建议
+
+- Phase 4C：将 Web 副屏数据源从模拟切换到真实 PostgreSQL + Kafka
+- Phase 5A：前端框架升级（React/Vue），响应式适配
+- 记忆回写（post_live_memory_sync）补充实现
+- LLM 复盘总结接入
