@@ -93,6 +93,33 @@ class Settings(BaseSettings):
         default=1024,
         validation_alias="EMBEDDING_DIMENSIONS",
     )
+
+    # LLM API ???Phase 3E DeepSeek ???????
+    llm_api_base_url: str = Field(
+        default="https://api.deepseek.com",
+        validation_alias="LLM_API_BASE_URL",
+    )
+    llm_api_key: str = Field(
+        default="change_me",
+        validation_alias="LLM_API_KEY",
+    )
+    llm_model: str = Field(
+        default="deepseek-v4-flash",
+        validation_alias="LLM_MODEL",
+    )
+    llm_max_tokens: int = Field(
+        default=500,
+        validation_alias="LLM_MAX_TOKENS",
+    )
+    llm_temperature: float = Field(
+        default=0.3,
+        validation_alias="LLM_TEMPERATURE",
+    )
+    llm_timeout_seconds: int = Field(
+        default=15,
+        validation_alias="LLM_TIMEOUT_SECONDS",
+    )
+
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
         """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。

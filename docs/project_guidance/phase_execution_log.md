@@ -952,3 +952,43 @@ Kafka 连接正常，无待消费消息时显示提示。
 - Phase 3E：LLM 手卡增强（DeepSeek chat API + 话术生成）
 - Phase 4：播后复盘 + Web 副屏
 - 后续：PlanEngine 抢占恢复 / 真实平台 API 适配
+## Phase 3E: LLM 手卡话术增强 (DeepSeek)
+
+### 基本信息
+
+- 验收日期：2026-07-08
+- 对应提交：待提交
+- 设计文档：待补充
+- TDD：先 Mock 测试 prompt/parse/降级，再集成真实 API
+
+### 交付内容
+
+1. `src/skills/llm_card_generator.py`：DeepSeek chat API 封装 + 降级 fallback
+2. `tests/unit/test_llm_card_generator.py`：7 测试（prompt 构建、JSON 解析、降级）
+3. `tests/integration/test_llm_card_flow.py`：3 测试（真实 API、降级）
+4. `scripts/run_phase3e_llm_card_demo.py`：模板 vs LLM 对比演示
+
+### TDD 红绿反馈
+
+- 测试先写 7 个，红灯 -> 绿灯（中间修复 CatalogProduct 字段匹配问题）
+- 集成测试 3 个，真实 DeepSeek API 直接绿灯
+
+### CLI 演示结果
+
+- LLM 手卡话术自然度远超模板：开场话术口语化、卖点自动推导、价格促单话术有吸引力
+- LLM 自动生成了产品风险提示（模板没有）
+- 降级链路验证：坏 key 时正确回退到模板
+
+### 全量测试结果
+
+182 passed, 0 failed
+
+### 发现的问题与修复
+
+- CatalogProduct 缺少 description 字段 -> 从 prompt 中移除
+- 测试数据缺少 inventory/commission_rate -> 补全
+
+### 下一阶段建议
+
+- Phase 4：播后复盘 + Web 副屏
+- LLM 手卡接入 LangGraph 播前编排链路
