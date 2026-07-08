@@ -1,7 +1,7 @@
 ﻿"""Phase 3C EmbeddingService 单元测试。
 
 本模块使用 MockEmbeddingService 做确定性验证，不依赖真实智谱 API。
-Mock 策略：用 hash(content) 生成 1024 维向量，同一 query 始终相同，
+Mock 策略：用 hash(content) 生成 2048 维向量，同一 query 始终相同，
 不同 query 返回不同向量，可真正验证语义排序。
 """
 
@@ -15,11 +15,11 @@ from src.skills.embedding_service import EmbeddingService, MockEmbeddingService
 class TestMockEmbeddingService:
     """MockEmbeddingService 的确定性行为测试。"""
 
-    def test_returns_1024_dim_vector_for_single_text(self) -> None:
-        """单条文本应返回 1024 维向量。"""
+    def test_returns_2048_dim_vector_for_single_text(self) -> None:
+        """单条文本应返回 2048 维向量。"""
         svc = MockEmbeddingService()
         result = svc.embed("价格优惠的产品")
-        assert len(result) == 1024
+        assert len(result) == 2048
         assert all(isinstance(v, float) for v in result)
 
     def test_same_text_returns_same_vector(self) -> None:
@@ -68,7 +68,7 @@ class TestMockEmbeddingService:
         result = svc.embed_batch(texts)
         assert len(result) == len(texts)
         for v in result:
-            assert len(v) == 1024
+            assert len(v) == 2048
 
 
 import math

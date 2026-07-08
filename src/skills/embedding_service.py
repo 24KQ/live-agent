@@ -33,10 +33,10 @@ class EmbeddingService:
         self._path: str = (settings.embedding_embeddings_path or "/embeddings").lstrip("/")
         self._api_key: str = settings.embedding_api_key or ""
         self._model: str = settings.embedding_model or "embedding-3"
-        self._dimensions: int = settings.embedding_dimensions or 1024
+        self._dimensions: int = settings.embedding_dimensions or 2048
 
     def embed(self, text: str) -> list[float]:
-        """对单条文本生成 1024 维向量。空文本直接抛出 ValueError。"""
+        """对单条文本生成 2048 维向量。空文本直接抛出 ValueError。"""
         if not text or not text.strip():
             raise ValueError("embedding input must not be empty")
         return self._call_api([text])[0]
@@ -79,16 +79,16 @@ class EmbeddingService:
 class MockEmbeddingService:
     """确定性 Mock Embedding 服务。
 
-    用 hash(content) 生成 1024 维确定性向量：
+    用 hash(content) 生成 2048 维确定性向量：
     - 同一 query 始终返回相同向量
     - 不同 query 返回不同向量
     - 用于单元测试验证语义排序、混合检索等逻辑
     """
 
-    DIM = 1024
+    DIM = 2048
 
     def embed(self, text: str) -> list[float]:
-        """对单条文本生成确定性 1024 维向量。"""
+        """对单条文本生成确定性 2048 维向量。"""
         if not text or not text.strip():
             raise ValueError("mock embedding input must not be empty")
         return self._hash_to_vector(text)
@@ -99,13 +99,13 @@ class MockEmbeddingService:
 
     @classmethod
     def _hash_to_vector(cls, text: str) -> list[float]:
-        """用 SHA-256 哈希生成 1024 个确定性 float。
+        """用 SHA-256 哈希生成 2048 个确定性 float。
 
-        流程：SHA-256(text) -> 32 字节 -> 重复展开 1024 个数值 -> L2 归一化。
+        流程：SHA-256(text) -> 32 字节 -> 重复展开 2048 个数值 -> L2 归一化。
         归一化保证向量在单位球面上，余弦距离等价于内积。
         """
         h = hashlib.sha256(text.encode("utf-8")).digest()
-        # 用 struct 把 hash 展开为 32 个 float-like 数，再扩展到 1024 维
+        # 用 struct 把 hash 展开为 32 个 float-like 数，再扩展到 2048 维
         seed = list(struct.unpack(f">{len(h)}B", h))
         # 扩展到 DIM 维
         vector: list[float] = []

@@ -899,3 +899,56 @@ Kafka 连接正常，无待消费消息时显示提示。
 - Phase 3C 收尾：等 embedding API key 更新后完成 seed + 集成测试
 - Phase 3E：LLM 手卡增强（用 DeepSeek 生成更自然的话术）
 - Phase 4：播后复盘 + Web 副屏
+
+## Phase 3C: 语义记忆检索 (Embedding + pgvector)
+
+### 基本信息
+
+- 验收日期：2026-07-08
+- 对应提交：待提交
+- 设计文档：[phase-3c-semantic-memory-design.md](../superpowers/specs/2026-07-08-phase-3c-semantic-memory-design.md)
+- TDD：Mock 先验证逻辑，再验证真实 API
+
+### 交付内容
+
+1. `src/skills/embedding_service.py`：封装智谱 embedding-3 API，2048 维 + MockEmbeddingService
+2. `src/memory/semantic_retrieval.py`：SemanticMemoryRetriever，混合加权融合 (0.6x语义 + 0.4x结构化)
+3. `MemoryStore` 改造：write_memory() 内部自动生成 embedding
+4. 数据库：embedding vector(2048)，`docker/alter_phase3c_embedding_dim.sql`
+5. seed 脚本：回填已有记忆 embedding
+6. CLI demo：语义检索演示
+
+### TDD 红绿反馈
+
+- test_embedding_service.py：7 Mock 测试，红灯 -> 绿灯
+- test_semantic_retrieval.py：7 测试，红灯 -> 绿灯
+- test_memory_store.py (embedding)：2 测试，红灯 -> 绿灯
+
+### CLI 演示结果
+
+- seed 回填 4 条记忆全部成功，2048 维
+- 语义搜索 "利润高的产品" -> 召回 "偏好高利润商品" (0.60)
+- 语义搜索 "主播不喜欢低价款" -> 召回 "偏好高利润" (0.60)
+- 语义搜索 "售后问题怎么处理" -> 相似度偏低 (0.32-0.35)，符合预期
+
+### 全量测试结果
+
+168 passed, 0 failed
+
+### 发现的问题与修复
+
+- 智谱 embedding-3 实际输出 2048 维非 1024 维 -> 调整 schema 从 vector(1024) 到 vector(2048)
+- 旧 API key 401 -> 更新新 key
+- SQL BOM 问题反复出现 -> 统一用 utf-8-sig 读取再 utf-8 回写
+
+### 遗留限制
+
+- 语义检索暂未集成到 MemoryAwarePlanService（后续 Phase 决定）
+- 无 Reranker 二次排序
+- mixed_retrieve 目前只在测试覆盖，未在 demo 中使用
+
+### 下一阶段建议
+
+- Phase 3E：LLM 手卡增强（DeepSeek chat API + 话术生成）
+- Phase 4：播后复盘 + Web 副屏
+- 后续：PlanEngine 抢占恢复 / 真实平台 API 适配
