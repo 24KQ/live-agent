@@ -992,3 +992,55 @@ Kafka 连接正常，无待消费消息时显示提示。
 
 - Phase 4：播后复盘 + Web 副屏
 - LLM 手卡接入 LangGraph 播前编排链路
+
+## Phase 4A: 播后复盘基础闭环
+
+### 基本信息
+
+- 验收日期：2026-07-08
+- 对应提交：待提交
+- 设计文档：待补充
+- TDD：先写失败测试，再实现代码（lock + attribution + review）
+
+### 交付内容
+
+1. `src/core/post_live_lock.py`：POST_LIVE 写操作强制锁定
+2. `src/skills/post_live_attribution.py`：采纳率/准确率归因计算
+3. `src/skills/post_live_review.py`：决策复盘 + trust 变化汇总
+4. 测试：unit 9 + integration 2 = 11 个新测试
+5. `scripts/run_phase4a_post_live_demo.py`：完整播后闭环演示
+
+### TDD 红绿反馈
+
+- test_post_live_lock.py：3 红灯（mask_for_lifecycle 不存在）-> 4 绿灯
+- test_post_live_attribution.py：3 红灯 -> 3 绿灯
+- test_post_live_review.py：2 红灯 -> 2 绿灯
+- test_post_live_flow.py：集成 2 测试，修复 decimal 类型问题后绿灯
+
+### CLI 演示结果
+
+- POST_LIVE 下 all 写操作被 block
+- 归因：4 条决策，采纳率 0.5，准确率 0.5
+- 复盘：trust 累计 -0.07，识别 1 个问题（采纳但效果差）
+
+### 全量测试结果
+
+193 passed, 0 failed
+
+### 发现的问题与修复
+
+- TrustManager 构造函数无参数 -> 从集成测试中移除不必要调用
+- Decimal 与 float 混用 -> 统一用 Decimal(str(val)) 转
+
+### 当前遗留限制
+
+- 未接入真实 PostgreSQL audit/decision_trace 数据（用内存模拟 traces）
+- 报告为 CLI 格式，不生成 PDF
+- 记忆回写逻辑（post_live_memory_sync）尚未实现
+- 未接入 LLM 复盘总结
+
+### 下一阶段建议
+
+- Phase 4B：Web 副屏界面（预留 D:\java\agent\front 目录）
+- 记忆回写补充实现
+- LLM 复盘总结接入
