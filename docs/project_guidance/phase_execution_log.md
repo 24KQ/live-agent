@@ -1094,3 +1094,38 @@ Kafka 连接正常，无待消费消息时显示提示。
 - Phase 5A：前端框架升级（React/Vue），响应式适配
 - 记忆回写（post_live_memory_sync）补充实现
 - LLM 复盘总结接入
+
+---
+
+## Phase 4C：Web 副屏数据源真实化
+
+- **日期**：2026-07-08
+- **实施计划**：[2026-07-08-phase-4c-dashboard-real-data-plan.md](../superpowers/plans/2026-07-08-phase-4c-dashboard-real-data-plan.md)
+
+### 实际交付内容
+
+1. /api/card/{product_id} 从 PostgreSQL live_agent_products 表读取真实商品（复用 ProductCatalogRepository），查不到返回 404
+2. /api/alert/{room_id} 从数据库查询 room 关联商品的库存，inventory < 30 或 = 0 生成告警
+3. /api/review/{room_id} 从 live_agent_decision_trace 表读取真实决策记录，计算归因指标
+4. /api/danmaku/summary 保持模拟（标注 TODO：Phase 4D/5 接入 Kafka 后升级）
+
+### 全量测试结果
+
+198 passed, 0 failed（pytest -v）
+
+### 发现的问题与修复
+
+- PowerShell 写 Python 文件反复遇到 BOM / 转义问题 -> 最终用 heredoc -> base64 -> decode 管道方案
+- TestClient 测试兼容性好，无需修改现有测试用例
+
+### 当前遗留限制
+
+- 弹幕 API 仍使用模拟数据（标注 TODO）
+- 手卡 API 硬编码 room-001，未做多直播间支持
+- 未做写入型端点（副屏目前只读）
+
+### 下一阶段建议
+
+- Phase 4D：弹幕数据持久化到 PostgreSQL + Kafka 长期消费模式
+- Phase 5A：前端框架升级与响应式适配
+- 多直播间选择功能
