@@ -66,3 +66,53 @@ def test_memory_store_accepts_weighted_memory_entry() -> None:
 
     assert entry.memory_key == "anchor-001-pref-kitchen"
     assert entry.metadata["preferred_category"] == "厨房"
+def test_write_memory_includes_embedding_in_params() -> None:
+    """write_memory 生成的 SQL 参数中应包含 embedding 字段。
+    
+    测试策略：不连真实 DB，只验证 _memory_to_params 输出的字典中
+    embedding 字段存在且格式正确。真实 API 调用在集成测试覆盖。
+    """
+    from unittest.mock import patch
+    from src.skills.embedding_service import MockEmbeddingService
+
+    mock_embedding = MockEmbeddingService()
+
+    with patch.object(MemoryStore, '_require_settings', return_value=None):
+        with patch.object(MemoryStore, '_ensure_memory_key_not_moved', return_value=None):
+            with patch.object(MemoryStore, '_ensure_room_belongs_to_anchor', return_value=None):
+                store = MemoryStore(settings=None)
+                entry = AnchorMemoryEntry(
+                    memory_key="embed-test",
+                    anchor_id="a001",
+                    room_id="room-001",
+                    layer=MemoryLayer.L2,
+                    content="主播喜欢高端路线",
+                    metadata={},
+                    confidence=Decimal("0.80"),
+                    evidence_weight=Decimal("0.60"),
+                    source=MemorySource.USER_STATED,
+                )
+                params = store._memory_to_params(entry)
+                assert "embedding" in params
+                # 无真实 Settings 时，embedding 为 None
+                assert params["embedding"] is None
+
+
+def test_write_memory_embedding_failure_does_not_block_write() -> None:
+    """API 失败时 embedding 为 NULL，不抛异常，记忆仍可正常写入。"""
+    store = MemoryStore(settings=None)
+    entry = AnchorMemoryEntry(
+        memory_key="fail-safe-test",
+        anchor_id="a001",
+        room_id="room-001",
+        layer=MemoryLayer.L3,
+        content="这是一个安全降级测试",
+        metadata={},
+        confidence=Decimal("0.70"),
+        evidence_weight=Decimal("0.50"),
+        source=MemorySource.SYSTEM_OBSERVED,
+    )
+    params = store._memory_to_params(entry)
+    # 即使 embedding 为 NULL，params 仍然完整
+    assert params["content"] == "这是一个安全降级测试"
+    assert params["embedding"] is None

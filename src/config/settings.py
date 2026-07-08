@@ -1,4 +1,4 @@
-"""LiveAgent 本地配置定义。
+﻿"""LiveAgent 本地配置定义。
 
 本模块是 Phase 0 的配置中心，负责把 `.env` 或系统环境变量转换为
 类型明确的 Python 对象。生产代码不要直接读取环境变量，而应通过
@@ -70,6 +70,29 @@ class Settings(BaseSettings):
     mysql_user: str = Field(default="root", validation_alias="MYSQL_USER")
     mysql_password: str = Field(default="change_me", validation_alias="MYSQL_PASSWORD")
 
+    # Embedding API 配置（Phase 3C 语义记忆检索）。
+    # 默认使用智谱（bigmodel）embedding-3 模型，1024 维；
+    # 如切换到 OpenAI 或本地模型，只需改这几个值。
+    embedding_api_base_url: str = Field(
+        default="https://open.bigmodel.cn/api/paas/v4",
+        validation_alias="EMBEDDING_API_BASE_URL",
+    )
+    embedding_api_key: str = Field(
+        default="change_me",
+        validation_alias="EMBEDDING_API_KEY",
+    )
+    embedding_model: str = Field(
+        default="embedding-3",
+        validation_alias="EMBEDDING_MODEL",
+    )
+    embedding_embeddings_path: str = Field(
+        default="/embeddings",
+        validation_alias="EMBEDDING_EMBEDDINGS_PATH",
+    )
+    embedding_dimensions: int = Field(
+        default=1024,
+        validation_alias="EMBEDDING_DIMENSIONS",
+    )
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
         """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。

@@ -1,4 +1,4 @@
-"""Phase 3A 主播记忆与 trust_score PostgreSQL Store。
+﻿"""Phase 3A 主播记忆与 trust_score PostgreSQL Store。
 
 Store 只负责读写数据，不包含排品策略和信任分规则。这样后续切换到 embedding 检索或
 增加缓存时，不会影响上层 MemoryAwarePlanService 的业务接口。
@@ -63,6 +63,19 @@ class MemoryStore:
         self._require_settings()
         self._ensure_memory_key_not_moved(validated)
         self._ensure_room_belongs_to_anchor(validated.anchor_id, validated.room_id)
+
+        # Phase 3C????? content ? embedding ????? embedding-3?1024 ???
+        # ??? embedding ? None????????????????
+        params = self._memory_to_params(validated)
+        try:
+            from src.skills.embedding_service import EmbeddingService
+            svc = EmbeddingService(settings=self._settings)
+            emb = svc.embed(validated.content)
+            params["embedding"] = emb
+        except Exception:
+            # ???????/API/??????????
+            pass
+
         sql = """
             INSERT INTO live_agent_anchor_memories (
                 memory_key,
@@ -111,7 +124,7 @@ class MemoryStore:
         """
         with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
             with connection.cursor() as cursor:
-                cursor.execute(sql, self._memory_to_params(validated))
+                cursor.execute(sql, params)
                 row = cursor.fetchone()
                 if row is None:
                     raise ValueError("memory_key already exists for a different anchor_id or room_id")
@@ -226,12 +239,23 @@ class MemoryStore:
         validated = AnchorMemoryEntry.model_validate(new_entry.model_dump(mode="python"))
         self._require_settings()
         self._ensure_room_belongs_to_anchor(validated.anchor_id, validated.room_id)
+
+        # Phase 3C????? content ? embedding ???????????????
+        params = self._memory_to_params(validated)
+        try:
+            from src.skills.embedding_service import EmbeddingService
+            svc = EmbeddingService(settings=self._settings)
+            emb = svc.embed(validated.content)
+            params["embedding"] = emb
+        except Exception:
+            pass
+
         with psycopg.connect(**self._settings.postgres_connection_kwargs) as connection:
             with connection.cursor() as cursor:
                 self._ensure_memory_key_not_moved(validated, cursor=cursor)
                 for conflict, reason in conflicts_with_reasons:
                     self._suppress_memory_with_cursor(cursor, conflict, reason)
-                cursor.execute(self._memory_upsert_sql(), self._memory_to_params(validated))
+                cursor.execute(self._memory_upsert_sql(), params)
                 row = cursor.fetchone()
                 if row is None:
                     raise ValueError("memory_key already exists for a different anchor_id or room_id")
@@ -404,7 +428,9 @@ class MemoryStore:
             "evidence_weight": entry.evidence_weight,
             "source": entry.source.value,
             "status": entry.status.value,
+            "status": entry.status.value,
             "suppressed_reason": entry.suppressed_reason,
+            "embedding": None,
         }
 
     @staticmethod

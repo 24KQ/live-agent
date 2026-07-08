@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS live_agent_anchor_memories (
     source TEXT NOT NULL CHECK (source IN ('user_stated', 'system_observed', 'offline_summary', 'manual_import')),
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suppressed')),
     suppressed_reason TEXT,
-    embedding vector(1536),
+    embedding vector(1024),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
