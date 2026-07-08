@@ -1,4 +1,4 @@
-﻿# Phase 3D 设计文档：Kafka Consumer 实时播中事件管线
+# Phase 3D 设计文档：Kafka Consumer 实时播中事件管线
 
 ## 1. 概述
 
