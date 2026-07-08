@@ -118,7 +118,7 @@ class DanmakuDaemon:
             print("[DanmakuDaemon] 窗口聚合写入: " + str(len(groups)) + " 组, " + str(len(self._buffer)) + " 条弹幕")
         except Exception as exc:
             print("[DanmakuDaemon] 聚合/写入失败: " + str(exc))
-        self._consumer.commit()
+        # assign ????? commit offset?partition ???
         self._buffer.clear()
         self._window_start = None
         self._current_trace_id = ""
