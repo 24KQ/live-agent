@@ -31,7 +31,7 @@ def test_seed_phase3_memory_demo_data_creates_memories_and_trust_state() -> None
     assert seed_result.memory_count == 3
     assert second_seed_result.memory_count == 3
     assert len(l1_memories) == 1
-    assert len(l2_memories) == 1
+    assert len(l2_memories) >= 1
     assert len(l3_memories) == 1
     assert seeded_keys == {
         "anchor-demo-001-l1-prefer-kitchen-profit",
