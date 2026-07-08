@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "live-agent"
+version = "0.4.0"
+description = "AI-powered live streaming agent for pre-live, on-live, and post-live workflows"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "psycopg[binary]>=3.1.0",
+    "redis>=5.0.0",
+    "kafka-python>=2.0.2",
+    "langgraph==1.2.8",
+    "langgraph-checkpoint-postgres==3.1.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "integration: marks tests as integration tests",
+]
