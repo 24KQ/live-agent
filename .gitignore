@@ -36,3 +36,6 @@ docs/study/
 
 # Superpowers 隔离工作区：用于在独立目录中开发功能分支，避免工作区内容被误提交。
 .worktrees/
+
+# Editable install artifact
+src/live_agent.egg-info/
