@@ -1210,3 +1210,71 @@ Kafka 连接正常，无待消费消息时显示提示。
 - Phase 4F：售罄事件守护进程化
 - Phase 5A：前端框架升级与 WebSocket
 - LLM 复盘总结
+---
+
+## 2026-07-09 项目状态复盘与 Agent 化方向
+
+### 当前完成情况
+
+项目已完成 Phase 0 到 Phase 4E，基础业务闭环已经打通：
+
+```text
+播前排品 -> 建播 hard-gate -> 播中弹幕/售罄/告警 -> 播后复盘 -> 记忆回写 -> 下一次播前建议受记忆影响
+```
+
+当前系统已经具备产品雏形，包括 PostgreSQL/pgvector、Redis、Kafka、FastAPI 副屏、LangGraph checkpoint/interrupt、LLM 手卡、embedding 语义检索、记忆与信任层、审计与安全门禁。
+
+### 当前测试反馈
+
+最近一次全量测试出现过 `206 passed, 1 failed`，失败项为：
+
+```text
+tests/integration/test_llm_card_flow.py::TestLLMCardIntegration::test_deepseek_card_differs_from_template
+```
+
+判断原因：LLM 手卡结果与模板手卡一致，可能是 DeepSeek 调用失败后 fallback，也可能是 LLM 输出没有通过 schema 校验。这说明 LLM 当前仍是增强能力，不是稳定决策核心。
+
+### Agent 能力评估
+
+当前项目更接近：
+
+```text
+规则业务系统 + LangGraph 编排骨架 + 少量 LLM 能力 + 记忆/审计/安全体系
+```
+
+而不是完整意义上的：
+
+```text
+LLM 驱动决策 + Tool Calling + LangGraph 条件分支 + ReAct 观察反馈循环
+```
+
+LangGraph 已经用于 StateGraph、PostgreSQL checkpoint、interrupt、人审恢复，但当前播前 graph 仍是线性 workflow：
+
+```text
+START -> query_products -> generate_live_plan -> generate_product_cards -> compliance_check -> setup_live_session -> END
+```
+
+缺少 `add_conditional_edges`、LLM planner、tool selection、observe/replan 循环。
+
+### 后续迭代方向
+
+新增专项路线图：
+
+```text
+docs/project_guidance/current_project_status_and_agent_roadmap.md
+```
+
+推荐下一阶段调整为：
+
+```text
+Phase 5A：LangGraph Agent Planner + Tool Calling + Conditional Edges
+```
+
+Phase 5A 应重点体现：
+
+- LLM planner 节点根据货盘、记忆、trust_score、活动目标生成结构化决策。
+- LangGraph 使用 conditional edges，根据 planner 输出动态路由。
+- LLM 只能选择 ToolRegistry 白名单工具，不能直接写数据库或业务状态。
+- 每次 tool call 必须写审计并关联 trace_id。
+- 至少实现一轮 Reason -> Act -> Observe -> Finish/Replan。
+- LLM 失败、schema 校验失败或超时时，fallback 到现有稳定规则链路。
