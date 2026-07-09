@@ -1,41 +1,35 @@
-"""Phase 5A LangGraph Agent 播前编排图。
+"""Phase 5A 播前 Agent 编排图（修正版）。
 
-把已有的线性播前 workflow 升级为 Agent 驱动的条件路由图：
+播前流程默认使用确定性规则路由（AgentRulesPlanner），
+不走 LLM 决策。AgentPlanner（LLM 驱动）保留供后续播中 Agent。
 
-    START -> collect_context -> llm_planner
+播前执行路径：
+
+    START -> collect_context -> rules_planner
       -> route_by_decision (conditional edge)
-         -> retrieve_memory
-         -> generate_live_plan
-         -> generate_product_cards
-         -> risk_check
-         -> deterministic_fallback
+         -> deterministic_prelive（排品 + 手卡）
       -> observe_result
-      -> replan_or_finish (conditional edge)
-         -> llm_planner(replan) 或 setup_live_session
+      -> replan_or_finish（conditional edge，出错时 replan，最多 1 次）
+      -> setup_live_session
       -> END
 
-保留原 pre_live_graph.py 不破坏。
+本图是实验/预研路径，默认播前仍走 pre_live_graph.py。
 """
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypedDict
+from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
 
 from src.core.agent_decision import (
-    AgentObservation,
     AgentPlannerDecision,
     AgentReplanRoute,
-    AgentToolCall,
 )
-from src.core.human_approval import HumanApprovalRequest, HumanApprovalResponse
 from src.core.security_hooks import GateResult
-from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
+from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
-from src.state.models import RiskLevel
 
 
 class PreLiveAgentGraphState(TypedDict, total=False):
@@ -45,7 +39,6 @@ class PreLiveAgentGraphState(TypedDict, total=False):
     trace_id: str
     planner_decision: dict[str, Any] | None
     planner_route: str | None
-    planner_fallback: bool
     planner_reason: str | None
     goal: str | None
     observations: list[dict[str, Any]]
@@ -62,8 +55,6 @@ class PreLiveAgentGraphState(TypedDict, total=False):
     risk_summary: str | None
     setup_status: str | None
     setup_audit_id: str | None
-    approval_decision: str | None
-    approval_audit_id: str | None
     error: str | None
 
 
@@ -78,7 +69,6 @@ def create_initial_agent_state(
         "trace_id": trace_id,
         "planner_decision": None,
         "planner_route": None,
-        "planner_fallback": False,
         "planner_reason": None,
         "goal": None,
         "observations": [],
@@ -95,8 +85,6 @@ def create_initial_agent_state(
         "risk_summary": None,
         "setup_status": None,
         "setup_audit_id": None,
-        "approval_decision": None,
-        "approval_audit_id": None,
         "error": None,
     }
 
@@ -108,20 +96,24 @@ def build_pre_live_agent_graph(
     *,
     checkpointer: Any | None = None,
 ):
-    """构建 Agent 播前编排图。"""
+    """构建播前 Agent 编排图。
+
+    播前默认使用 rules_planner（确定性规则），不走 LLM 决策。
+    planner 参数接受 AgentRulesPlanner 或后续播中使用的 AgentPlanner。
+    """
     graph = StateGraph(PreLiveAgentGraphState)
 
     graph.add_node("collect_context", lambda state: _collect_context_node(state, service))
-    graph.add_node("llm_planner", lambda state: _llm_planner_node(state, planner))
+    graph.add_node("rules_planner", lambda state: _rules_planner_node(state, planner))
     graph.add_node("route_by_decision", _route_by_decision_node)
     graph.add_node("deterministic_prelive", lambda state: _deterministic_prelive_node(state, service))
     graph.add_node("observe_result", _observe_result_node)
-    graph.add_node("replan_or_finish", lambda state: _replan_or_finish_node(state, planner))
+    graph.add_node("replan_or_finish", lambda state: _replan_or_finish_node(state))
     graph.add_node("setup_live_session", lambda state: _setup_live_session_node(state, service))
 
     graph.add_edge(START, "collect_context")
-    graph.add_edge("collect_context", "llm_planner")
-    graph.add_edge("llm_planner", "route_by_decision")
+    graph.add_edge("collect_context", "rules_planner")
+    graph.add_edge("rules_planner", "route_by_decision")
     graph.add_conditional_edges(
         "route_by_decision",
         _route_decider,
@@ -135,7 +127,7 @@ def build_pre_live_agent_graph(
         "replan_or_finish",
         _replan_decider,
         {
-            "llm_planner": "llm_planner",
+            "deterministic_prelive": "deterministic_prelive",
             "setup_live_session": "setup_live_session",
         },
     )
@@ -145,24 +137,24 @@ def build_pre_live_agent_graph(
 
 
 def _collect_context_node(state: PreLiveAgentGraphState, service: Any) -> dict[str, Any]:
-    """收集上下文：查货盘、获取记忆等。"""
+    """收集上下文：查货盘。"""
     try:
         products = service.query_products(state["room_id"], state["trace_id"])
-        product_snapshots = [p.model_dump(mode="json") if hasattr(p, "model_dump") else {"product_id": p.product_id} for p in products]
+        snapshots = [p.model_dump(mode="json") if hasattr(p, "model_dump") else {"product_id": p.product_id} for p in products]
         return {
-            "products": product_snapshots,
+            "products": snapshots,
             "product_count": len(products),
             "completed_nodes": _append_node(state, "collect_context"),
         }
     except Exception as exc:
         return {
-            "error": f"collect_context failed: {exc}",
+            "error": "collect_context failed: " + str(exc),
             "completed_nodes": _append_node(state, "collect_context"),
         }
 
 
-def _llm_planner_node(state: PreLiveAgentGraphState, planner: Any) -> dict[str, Any]:
-    """LLM planner 节点：生成结构化决策。"""
+def _rules_planner_node(state: PreLiveAgentGraphState, planner: Any) -> dict[str, Any]:
+    """规则 planner 节点。播前不用 LLM，用确定性规则生成路由决策。"""
     try:
         products = [CatalogProduct.model_validate(p) for p in state.get("products", [])]
         decision = planner.plan(
@@ -171,37 +163,34 @@ def _llm_planner_node(state: PreLiveAgentGraphState, planner: Any) -> dict[str, 
             products=products,
             trust_score=state.get("trust_score", 0.7),
         )
-        is_fallback = decision.route == AgentReplanRoute.FALLBACK
         return {
             "planner_decision": decision.model_dump(mode="json"),
             "planner_route": decision.route.value,
-            "planner_fallback": is_fallback,
             "planner_reason": decision.reason,
             "goal": decision.goal,
-            "completed_nodes": _append_node(state, "llm_planner"),
+            "completed_nodes": _append_node(state, "rules_planner"),
         }
     except Exception as exc:
         return {
-            "planner_route": AgentReplanRoute.FALLBACK.value,
-            "planner_fallback": True,
-            "planner_reason": str(exc),
-            "error": f"planner failed: {exc}",
-            "completed_nodes": _append_node(state, "llm_planner"),
+            "planner_route": AgentReplanRoute.DIRECT_PLAN.value,
+            "planner_reason": "planner failed, default to direct_plan: " + str(exc),
+            "error": "rules_planner failed: " + str(exc),
+            "completed_nodes": _append_node(state, "rules_planner"),
         }
 
 
 def _route_by_decision_node(state: PreLiveAgentGraphState) -> dict[str, Any]:
     """路由决策节点——仅作为 conditional edge 的锚点。"""
-    return {
-        "completed_nodes": _append_node(state, "route_by_decision"),
-    }
+    return {"completed_nodes": _append_node(state, "route_by_decision")}
 
 
 def _route_decider(state: PreLiveAgentGraphState) -> str:
+    """播前固定走 deterministic_prelive。"""
     return "deterministic_prelive"
 
 
 def _deterministic_prelive_node(state: PreLiveAgentGraphState, service: Any) -> dict[str, Any]:
+    """确定性播前链路：排品 + 手卡。"""
     try:
         products_raw = state.get("products", [])
         products = [CatalogProduct.model_validate(p) for p in products_raw] if products_raw else []
@@ -215,21 +204,20 @@ def _deterministic_prelive_node(state: PreLiveAgentGraphState, service: Any) -> 
         }
     except Exception as exc:
         return {
-            "error": f"deterministic_prelive failed: {exc}",
+            "error": "deterministic_prelive failed: " + str(exc),
             "completed_nodes": _append_node(state, "deterministic_prelive"),
         }
 
 
 def _observe_result_node(state: PreLiveAgentGraphState) -> dict[str, Any]:
-    """观察节点——汇总执行结果供 planner 评估。"""
-    obs_count = len(state.get("observations", []))
+    """观察节点。"""
     return {
         "observations": state.get("observations", []),
         "completed_nodes": _append_node(state, "observe_result"),
     }
 
 
-def _replan_or_finish_node(state: PreLiveAgentGraphState, planner: Any) -> dict[str, Any]:
+def _replan_or_finish_node(state: PreLiveAgentGraphState) -> dict[str, Any]:
     """决定是 re-plan 还是进入建播。"""
     return {
         "replan_count": state.get("replan_count", 0) + 1,
@@ -238,13 +226,13 @@ def _replan_or_finish_node(state: PreLiveAgentGraphState, planner: Any) -> dict[
 
 
 def _replan_decider(state: PreLiveAgentGraphState) -> str:
-    """决定是否 replan。仅当有错误且未超过 replan 限制时 replan。"""
+    """决定是否 replan。仅当有错误且未超过限制时回调 deterministic_prelive。"""
     replan_count = state.get("replan_count", 0)
     max_replan = state.get("max_replan", 1)
     has_error = state.get("error") is not None
 
-    if has_error and replan_count < max_replan:
-        return "llm_planner"
+    if has_error and replan_count <= max_replan:
+        return "deterministic_prelive"
     return "setup_live_session"
 
 
@@ -269,7 +257,7 @@ def _setup_live_session_node(state: PreLiveAgentGraphState, service: Any) -> dic
         }
     except Exception as exc:
         return {
-            "error": f"setup_live_session failed: {exc}",
+            "error": "setup_live_session failed: " + str(exc),
             "setup_status": "error",
             "completed_nodes": _append_node(state, "setup_live_session"),
         }
