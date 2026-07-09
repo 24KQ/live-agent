@@ -1492,3 +1492,61 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 2. 播中 Agent 接真实 OnLiveFlowService 和 DanmakuFlowService
 3. WebSocket 推送给副屏实时 Agent 建议
 4. 接入真实淘宝/抖音 API
+
+
+---
+
+## Phase 5D: LLM 播后复盘总结（LLM Post-Live Review Summary）
+
+- **日期**: 2026-07-10
+- **设计文档**: [2026-07-10-phase-5d-llm-review-design.md](../superpowers/specs/2026-07-10-phase-5d-llm-review-design.md)
+- **实施计划**: [2026-07-10-phase-5d-llm-review-plan.md](../superpowers/plans/2026-07-10-phase-5d-llm-review-plan.md)
+- **TDD 策略**: 先写失败测试（RED），再实现（GREEN），全量测试通过后提交
+
+### 实际交付内容
+
+1. LLMPostLiveSummary（src/skills/llm_post_live_summary.py）:
+   - generate(attribution, issues) 生成自然语言播后总结
+   - LLM 不可用时降级到 build_structured_fallback() 结构化模板
+   - build_review_prompt() 构造含归因指标的复盘 prompt
+   - 复用 Phase 3E 的 LLM API 配置，不加新依赖
+   - 空数据时返回"无决策数据"
+
+2. CLI 演示（scripts/run_phase5d_llm_review_demo.py）:
+   - 场景 1: LLM 成功生成自然语言总结
+   - 场景 2: LLM 不可用时降级到结构化报告
+   - 场景 3: 无决策数据时返回基础报告
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_llm_post_live_summary.py | 5 红 -> 5 绿（含 2 个测试断言修正） |
+
+### 全量测试结果
+
+232 passed, 0 failed（从 Phase 5C 的 227 增长至 232）
+
+### CLI 演示结果
+
+- 场景 1（LLM 可用）: DeepSeek 生成了三段式复盘: 本场概览 -> 发现问题 -> 后续建议
+- 场景 2（LLM 不可用）: 降级到结构化报告，包含全部归因指标
+- 场景 3（空数据）: 返回 "播后复盘：无决策数据"
+
+### 发现的问题与修复
+
+1. 测试文件三引号字符串未闭合 -> 修复为单引号
+2. 测试断言 "0.7" 预期不匹配 "70.0%" -> 修正为 assert "70" in prompt
+
+### 当前遗留限制
+
+- LLM 复盘需要使用 DeepSeek key，降级时报告为结构化格式
+- 未与 Phase 4B 副屏 API 集成（播后复盘端点在副屏已存在）
+- prompt 质量取决于归因数据完整性
+
+### 下一阶段建议
+
+1. 5A-5D 基础 Agent 能力已完整，可进入优化和部署阶段
+2. 播中 Agent（Phase 5C）接真实 OnLiveFlowService
+3. WebSocket 推送给副屏实时 Agent 建议
+4. 守护进程治理: 数据清理、监控、异常告警
