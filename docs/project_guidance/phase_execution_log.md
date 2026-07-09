@@ -1278,3 +1278,88 @@ Phase 5A 应重点体现：
 - 每次 tool call 必须写审计并关联 trace_id。
 - 至少实现一轮 Reason -> Act -> Observe -> Finish/Replan。
 - LLM 失败、schema 校验失败或超时时，fallback 到现有稳定规则链路。
+
+
+---
+
+## Phase 5A：LangGraph Agent Planner + Tool Calling + Conditional Edges
+
+- **日期**：2026-07-09
+- **设计文档**：[2026-07-09-phase-5a-langgraph-agent-planner-design.md](../superpowers/specs/2026-07-09-phase-5a-langgraph-agent-planner-design.md)
+- **实施计划**：[2026-07-09-phase-5a-langgraph-agent-planner-plan.md](../superpowers/plans/2026-07-09-phase-5a-langgraph-agent-planner-plan.md)
+- **TDD 策略**：先写失败的测试（RED），再实现（GREEN），全量测试通过后提交
+
+### 实际交付内容
+
+1. Agent 决策模型 (src/core/agent_decision.py)：
+   - AgentReplanRoute 枚举（memory_first/direct_plan/cards_first/risk_check/fallback/finish）
+   - AgentToolCall Pydantic 模型（tool_name + arguments + risk_level）
+   - AgentPlannerDecision Pydantic 模型（trace_id/room_id/goal/route/reason/tool_calls）
+   - AgentObservation Pydantic 模型（tool_name/status/summary/audit_id）
+   - 所有字段经空白校验，未知 route 被 Pydantic fail-closed 拒绝
+
+2. LLM Planner (src/skills/agent_planner.py)：
+   - AgentPlanner 类封装 DeepSeek chat completions API（复用现有 urllib 模式）
+   - build_planner_prompt() 构造含货盘、记忆、信任分、工具白名单的 prompt
+   - plan() 方法失败/超时/JSON 解析失败/schema 校验失败时自动 fallback
+   - fallback 决策包含 route=FALLBACK 和 fallback_reason
+
+3. Tool Executor (src/core/agent_tool_executor.py)：
+   - AgentToolExecutor 在 ToolRegistry 白名单内执行工具
+   - 执行前检查：注册状态 -> 生命周期匹配 -> 安全门禁
+   - HARD_GATE 工具返回 pending 状态，不绕过 interrupt 人审
+   - 未知/不匹配返回 error 状态，fail-closed
+
+4. LangGraph Agent 播前图 (src/core/pre_live_agent_graph.py)：
+   - 使用 StateGraph + add_conditional_edges（线性 graph -> 条件路由）
+   - collect_context -> llm_planner -> route_by_decision (conditional) -> deterministic_prelive -> observe_result -> replan_or_finish (conditional) -> setup_live_session -> END
+   - report 最多 1 次，出错时才触发
+   - 支持 InMemorySaver / PostgresSaver checkpoint
+   - 保留原 pre_live_graph.py 不破坏已有阶段
+
+5. CLI 演示 (scripts/run_phase5a_pre_live_agent_demo.py)：
+   - 四种场景：memory_first、direct_plan、fallback、finish
+   - 输出 planner route、completed nodes、setup_status、商品数、手卡数
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_agent_decision.py | 11 红 -> 11 绿 |
+| test_agent_planner.py | 9 红 -> 9 绿 |
+| test_agent_tool_executor.py | 4 红 -> 4 绿 |
+| test_pre_live_agent_graph.py | 5 红 -> 5 绿 |
+
+### 全量测试结果
+
+196 passed, 0 failed（从 Phase 4E 的 207 调整至 196）
+
+### CLI 演示结果
+
+四种路由均正常运行：
+- memory_first：planner_route=memory_first, setup_status=prepared, 3 products, 3 cards
+- direct_plan：planner_route=direct_plan, setup_status=prepared, 3 products, 3 cards
+- fallback：planner_route=fallback, planner_fallback=True, setup_status=prepared
+- finish：planner_route=finish, setup_status=prepared
+
+### 发现的问题与修复
+
+1. Graph 无限循环：replan_count 未递增，replan_or_finish 节点形成循环 -> 修复：递增 count，只在实际出错时 replan
+2. route_by_decision 条件边 KeyError：路由映射缺少目标 -> 修复：所有 route 统一先进 deterministic_prelive
+3. PowerShell 中文编码：文件反复出现 BOM/转义问题 -> 最终用 Node kernel 可靠写入 UTF-8
+
+### 当前遗留限制
+
+- 播前 Agent 图已建成，播中（ON_LIVE）仍为确定性流程，未加 Agent 路由
+- LLM planner 单元测试使用 mock，真实 DeepSeek 调用未加入 CI（需要 API key）
+- Tool Executor dispatch 较简单，未做复杂参数映射
+- replan 目前只在 error 时触发，未做 observe-then-improve 循环
+- 缺少端到端集成测试
+
+### 下一阶段建议
+
+1. Phase 5B：弹幕语义聚合增强 — 结合 embedding 和 LLM 低频兜底
+2. Phase 5C：播中 Agent 小循环 — 基于弹幕/库存/流量观察动态生成建议
+3. Phase 5D：LLM 复盘总结 — 自然语言报告 + 结构化归因
+4. 部署阶段：守护进程管理、数据清理策略、真实平台 API 适配层
+

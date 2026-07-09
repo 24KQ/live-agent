@@ -158,3 +158,23 @@ python scripts/run_phase3b_memory_revision_demo.py
 ```
 
 阶段任务、验收命令和测试反馈记录在 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。
+
+
+## Phase 5A LangGraph Agent 播前编排图演示
+
+Phase 5A 把播前流程从线性 workflow 升级为 Agent 编排：
+
+- LLM Planner 节点生成结构化路由决策
+- LangGraph conditional edges 根据决策动态路由
+- Tool Executor 在 ToolRegistry 白名单内执行工具
+- observe -> replan 循环（最多 1 次）
+- fallback 到确定性链路
+
+演示命令：
+
+`powershell
+python scripts/run_phase5a_pre_live_agent_demo.py
+`
+
+
+阶段测试记录详见 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。
