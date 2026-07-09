@@ -142,6 +142,46 @@ class AgentToolExecutor:
                     audit_id=audit_id,
                 )
 
+            # === ON_LIVE 工具 ===
+            elif tool_name == "on_live_context_collect":
+                danmaku = arguments.get("danmaku_summary", [])
+                alerts = arguments.get("inventory_alerts", [])
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success",
+                    summary=f"collected context: {len(danmaku)} danmaku groups, {len(alerts)} alerts",
+                    audit_id=None,
+                )
+
+            elif tool_name == "switch_product":
+                # hard-gate 工具，需人审确认
+                product_id = arguments.get("product_id", "")
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="pending",
+                    summary=f"switch_product requires human approval (hard-gate): {product_id}",
+                    audit_id=None,
+                )
+
+            elif tool_name == "generate_on_live_prompt":
+                sold_out_product_id = arguments.get("sold_out_product_id", "")
+                backup_product_id = arguments.get("backup_product_id")
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success",
+                    summary=f"generated on-live prompt for sold_out: {sold_out_product_id}",
+                    audit_id=None,
+                )
+
+            elif tool_name == "recommend_backup":
+                sold_out_product_id = arguments.get("sold_out_product_id", "")
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success",
+                    summary=f"recommended backup for sold_out: {sold_out_product_id}",
+                    audit_id=None,
+                )
+
             else:
                 return AgentObservation(
                     tool_name=tool_name,

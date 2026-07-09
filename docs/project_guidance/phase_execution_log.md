@@ -1432,3 +1432,63 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 1. Phase 5C：播中 Agent 动态决策循环
 2. Phase 5D：LLM 复盘总结
 3. 考虑：弹幕聚合结果直接写入副屏 Web 界面
+
+
+---
+
+## Phase 5C：播中 Agent 动态决策小循环（On-Live Agent Decision Loop）
+
+- **日期**：2026-07-10
+- **设计文档**：[2026-07-10-phase-5c-on-live-agent-design.md](../superpowers/specs/2026-07-10-phase-5c-on-live-agent-design.md)
+- **实施计划**：[2026-07-10-phase-5c-on-live-agent-plan.md](../superpowers/plans/2026-07-10-phase-5c-on-live-agent-plan.md)
+- **TDD 策略**：先写失败的测试（RED），再实现（GREEN），全量测试通过后提交
+
+### 实际交付内容
+
+1. **播中 Agent Graph**（src/core/on_live_agent_graph.py）：
+   - OnLiveAgentGraphState：弹幕摘要、库存告警、决策状态、建议输出
+   - 6 个节点：collect_on_live_context → on_live_planner → route_by_decision（conditional）→ execute_tools → observe_result → write_audit
+   - 路由规则：弹幕高频（>=10条）→ 建议回应；库存告警 → 建议切换备选；无事件 → finish
+   - 不接 LLM planner，接确定性规则决策
+
+2. **播中工具扩展**（src/core/agent_tool_executor.py）：
+   - 新增 on_live_context_collect、switch_product（hard-gate）、generate_on_live_prompt、recommend_backup 的 dispatch
+   - 与现有 PRE_LIVE 工具 dispatch 兼容
+
+3. **CLI 演示**（scripts/run_phase5c_on_live_agent_demo.py）：
+   - 4 种场景：正常直播（无事件 → finish）、弹幕价格集中（建议回应）、库存告警（建议切换）、低信任分（仍可运行）
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_on_live_agent_graph.py | 7 红 → 7 绿 |
+
+### 全量测试结果
+
+227 passed, 0 failed（从 Phase 5B 的 220 增长至 227）
+
+### CLI 演示结果
+
+- 正常直播无事件：route=finish，无建议
+- 弹幕价格集中：route=direct_plan，建议"弹幕高频问题：价格相关问题，建议主播重点回应"
+- 库存告警：route=direct_plan，建议"检测到 1 个库存异常，建议检查备选商品并准备切换"
+- 低信任分：仍可正常运行
+
+### 发现的问题与修复
+
+无重大问题。Graph 节点路由设计合理，无需修复。
+
+### 当前遗留限制
+
+- 播中 Agent 使用确定性规则决策，未接 LLM planner
+- 工具执行为模拟（simulated），未接真实 OnLiveFlowService
+- 播中 Agent 为单轮决策，未做多轮观察-决策循环
+- 缺少端到端集成测试（需要 Kafka + PostgreSQL 环境）
+
+### 下一阶段建议
+
+1. Phase 5D：LLM 复盘总结 — 自然语言报告 + 结构化归因
+2. 播中 Agent 接真实 OnLiveFlowService 和 DanmakuFlowService
+3. WebSocket 推送给副屏实时 Agent 建议
+4. 接入真实淘宝/抖音 API
