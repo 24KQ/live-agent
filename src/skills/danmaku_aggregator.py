@@ -149,3 +149,120 @@ def aggregate_danmaku_questions(events: list[DanmakuEvent], window_seconds: int 
         )
         for group in sorted(groups.values(), key=lambda item: (item.window_start, item.category.value))
     ]
+
+
+def aggregate_with_semantic_fallback(
+    events: list[DanmakuEvent],
+    window_seconds: int = 5,
+    clusterer: Any = None,
+    llm_fallback: Any = None,
+) -> list[DanmakuQuestionGroup]:
+    """带语义聚类和 LLM 兜底的弹幕聚合。
+
+    流程：
+    1. 先用关键词分类（复用 aggregate_danmaku_questions）
+    2. 收集所有 GENERAL 分类的弹幕
+    3. 若 >= 5 条，先做语义聚类（DanmakuSemanticClusterer）
+    4. 再对聚类后的未分类弹幕做 LLM 兜底（DanmakuLLMFallback）
+    5. LLM 返回的分类合并到最终结果
+
+    参数:
+        events: 弹幕事件列表（同一直播间、同一 trace）
+        window_seconds: 时间窗口
+        clusterer: DanmakuSemanticClusterer 实例，为 None 时跳过语义聚类
+        llm_fallback: DanmakuLLMFallback 实例，为 None 时跳过 LLM 兜底
+
+    返回:
+        聚合后的弹幕问题分组列表
+    """
+    if not events:
+        raise ValueError("danmaku events cannot be empty")
+    if window_seconds <= 0:
+        raise ValueError("window_seconds must be greater than 0")
+
+    # 第一步：关键词分类聚合
+    keyword_groups = aggregate_danmaku_questions(events, window_seconds=window_seconds)
+
+    # 第二步：收集 GENERAL 弹幕内容
+    general_contents: list[str] = []
+    for event in events:
+        if classify_danmaku_question(event.content) == DanmakuQuestionCategory.GENERAL:
+            general_contents.append(event.content)
+
+    if not general_contents:
+        return keyword_groups
+
+    # 第三步：语义聚类
+    clustered_messages: list[str] = []
+    if clusterer is not None and len(general_contents) >= 5:
+        try:
+            cluster_results = clusterer.cluster(general_contents, threshold=0.75)
+            # 取每簇的代表消息（簇中第一条）
+            for cr in cluster_results:
+                if cr.messages:
+                    clustered_messages.append(cr.messages[0])
+        except Exception:
+            # 聚类失败时用原始列表
+            clustered_messages = general_contents
+    else:
+        clustered_messages = general_contents
+
+    # 第四步：LLM 兜底分类
+    llm_results: list[dict] = []
+    if llm_fallback is not None and len(clustered_messages) >= 5:
+        try:
+            llm_results = llm_fallback.classify_unclassified(clustered_messages)
+        except Exception:
+            llm_results = []
+
+    # 第五步：将 LLM 分类结果合并到 keyword_groups
+    if llm_results:
+        # 从 keyword_groups 中移除原有的 GENERAL 分组
+        filtered_groups = [g for g in keyword_groups if g.category != DanmakuQuestionCategory.GENERAL]
+        general_groups = [g for g in keyword_groups if g.category == DanmakuQuestionCategory.GENERAL]
+
+        # 统计原有 GENERAL 条数
+        original_general_count = sum(g.count for g in general_groups)
+
+        # 按 LLM 分类重新分组
+        llm_by_category: dict[DanmakuQuestionCategory, list[str]] = {}
+        for item in llm_results:
+            cat = item["category"]
+            content = item["content"]
+            if cat not in llm_by_category:
+                llm_by_category[cat] = []
+            llm_by_category[cat].append(content)
+
+        # 添加 LLM 分类后的新分组
+        for cat, contents in llm_by_category.items():
+            filtered_groups.append(DanmakuQuestionGroup(
+                room_id=events[0].room_id,
+                trace_id=events[0].trace_id,
+                category=cat,
+                summary=_CATEGORY_SUMMARIES.get(cat, cat.value),
+                count=len(contents),
+                sample_contents=contents[:3],
+                window_start=keyword_groups[0].window_start if keyword_groups else events[0].event_time,
+                window_end=keyword_groups[0].window_end if keyword_groups else events[0].event_time,
+            ))
+
+        # 如果有未被 LLM 覆盖的 GENERAL（LLM 没返回的分类），保留
+        llm_covered = sum(len(v) for v in llm_by_category.values())
+        remaining_general = original_general_count - llm_covered
+        if remaining_general > 0 and general_groups:
+            filtered_groups.append(DanmakuQuestionGroup(
+                room_id=events[0].room_id,
+                trace_id=events[0].trace_id,
+                category=DanmakuQuestionCategory.GENERAL,
+                summary=_CATEGORY_SUMMARIES[DanmakuQuestionCategory.GENERAL],
+                count=remaining_general,
+                sample_contents=general_groups[0].sample_contents,
+                window_start=general_groups[0].window_start,
+                window_end=general_groups[0].window_end,
+            ))
+
+        # 按窗口时间排序
+        filtered_groups.sort(key=lambda g: (g.window_start, g.category.value))
+        return filtered_groups
+
+    return keyword_groups

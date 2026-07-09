@@ -1363,3 +1363,72 @@ Phase 5A 应重点体现：
 3. Phase 5D：LLM 复盘总结 — 自然语言报告 + 结构化归因
 4. 部署阶段：守护进程管理、数据清理策略、真实平台 API 适配层
 
+
+
+---
+
+## Phase 5B：语义弹幕分类增强（Semantic Danmaku Aggregation Enhancement）
+
+- **日期**：2026-07-10
+- **设计文档**：[2026-07-10-phase-5b-semantic-danmaku-design.md](../superpowers/specs/2026-07-10-phase-5b-semantic-danmaku-design.md)
+- **实施计划**：[2026-07-10-phase-5b-semantic-danmaku-plan.md](../superpowers/plans/2026-07-10-phase-5b-semantic-danmaku-plan.md)
+- **TDD 策略**：先写失败的测试（RED），再实现（GREEN），确保全量测试通过后提交
+
+### 实际交付内容
+
+1. **DanmakuSemanticClusterer**（src/skills/danmaku_semantic_cluster.py）：
+   - 基于 embedding 余弦相似度的弹幕语义聚类
+   - 使用并查集（Union-Find）将相似度 >= threshold 的弹幕归为同一簇
+   - embedding 不可用时降级为每条独立成簇
+   - 复用 MockEmbeddingService（Phase 3C），不依赖真实 API
+
+2. **DanmakuLLMFallback**（src/skills/danmaku_llm_fallback.py）：
+   - 对关键词分类未命中（GENERAL）的弹幕做 LLM 兜底分类
+   - 仅未分类弹幕 >= 5 条时调用 LLM，避免频繁 API 请求
+   - 支持分批处理（batch_size 默认 20，25 条分 3 批验证通过）
+   - LLM 不可用时降级为 general，不中断流程
+   - 封装 DeepSeek chat completions API，返回 JSON 数组格式
+
+3. **DanmakuAggregator 增强**（src/skills/danmaku_aggregator.py）：
+   - 新增 aggregate_with_semantic_fallback() 函数
+   - 五步流程：关键词分类 → 收集 GENERAL → 语义聚类 → LLM 兜底 → 合并结果
+   - 不修改现有 aggregate_danmaku_questions 签名，保持向后兼容
+
+4. **CLI 演示**（scripts/run_phase5b_semantic_danmaku_demo.py）：
+   - 三阶段对比：纯关键词 vs 语义聚类 vs LLM 兜底
+   - 输出每阶段未分类弹幕数量和分类结果
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_danmaku_semantic_cluster.py | 6 红 → 6 绿（含修复 1 个） |
+| test_danmaku_llm_fallback.py | 5 红 → 5 绿 |
+| test_danmaku_aggregator.py（已有） | 3 绿不变 |
+| test_danmaku_aggregator_semantic.py | 4 红 → 4 绿 |
+
+### 全量测试结果
+
+220 passed, 0 failed（单元测试不含集成测试）
+
+### CLI 演示结果
+
+Phase 5B CLI 演示脚本已创建，运行时需要 DeepSeek API key 展示完整的三个阶段；
+MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
+
+### 发现的问题与修复
+
+1. test_high_threshold_increases_sensitivity 访问了低 threshold results（list 本身而非 .results 属性）→ 修复：assert len(low) <= len(high)
+2. test_sufficient_unclassified_calls_llm 的 mock return_value 格式不匹配 → 修正为 list[dict] 格式
+
+### 当前遗留限制
+
+- LLM 兜底阶段需要 DeepSeek API key 才能运行完整演示
+- 语义聚类阶段使用 MockEmbeddingService（确定性 hash），真实 embedding 效果需用智谱 API 验证
+- 未接入真实 Kafka 弹幕流，当前测试基于构造事件
+
+### 下一阶段建议
+
+1. Phase 5C：播中 Agent 动态决策循环
+2. Phase 5D：LLM 复盘总结
+3. 考虑：弹幕聚合结果直接写入副屏 Web 界面

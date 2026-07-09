@@ -178,3 +178,18 @@ python scripts/run_phase5a_pre_live_agent_demo.py
 
 
 阶段测试记录详见 [Phase Execution Log](docs/project_guidance/phase_execution_log.md)。
+
+
+## Phase 5B 语义弹幕聚合
+
+弹幕分类增强：关键词分类 + 语义聚类 + LLM 兜底三层架构。
+
+```powershell
+# 单元测试
+pytest tests/unit/test_danmaku_semantic_cluster.py -v
+pytest tests/unit/test_danmaku_llm_fallback.py -v
+pytest tests/unit/test_danmaku_aggregator_semantic.py -v
+
+# CLI 演示
+python scripts/run_phase5b_semantic_danmaku_demo.py
+```
