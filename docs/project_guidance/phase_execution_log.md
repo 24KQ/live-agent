@@ -1661,3 +1661,53 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 
 1. Phase 6B: WebSocket 实时推送 + 移动端适配
 2. 完善 Agent 建议缓存机制
+
+
+---
+
+## Phase 6B: WebSocket 实时推送副屏（WebSocket Realtime Push）
+
+- **日期**: 2026-07-10
+- **设计文档**: [2026-07-10-phase-6b-websocket-design.md](../superpowers/specs/2026-07-10-phase-6b-websocket-design.md)
+- **实施计划**: [2026-07-10-phase-6b-websocket-plan.md](../superpowers/plans/2026-07-10-phase-6b-websocket-plan.md)
+
+### 实际交付内容
+
+1. WebSocket 管理器（src/gateway/websocket_manager.py）:
+   - 连接注册/移除/广播
+   - 发送失败时自动移除断开连接
+   - 空连接时广播不报错
+
+2. API Server 改造（src/gateway/api_server.py）:
+   - WS /ws 端点
+   - 4 个后台推送任务（5s/10s/10s/30s）
+   - lifespan 管理启动/停止
+
+3. 前端改造（front/index.html）:
+   - WebSocket 客户端自动连接/重连
+   - 移除轮询，改为 WS 消息回调
+   - 初始 fallback 用一次 HTTP 请求
+
+4. CLI 演示（scripts/run_phase6b_ws_demo.py）
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_websocket_manager.py | 7 红 -> 7 绿 |
+
+### 全量测试结果
+
+252 passed, 0 failed（从 Phase 6A 的 245 增长至 252）
+
+### 遗留限制
+
+- 后台任务用 httpx 请求本地 API，不是直接调用 service
+- 无连接时后台任务跳过，但 httpx 请求本身开销很小
+- 前端 WS 重连间隔固定 3 秒
+
+### 下一阶段建议
+
+1. 接入真实淘宝/抖音平台 API
+2. 守护进程治理与监控
+3. 安全加固（WS 鉴权、限流）

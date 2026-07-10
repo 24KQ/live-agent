@@ -201,6 +201,72 @@
 
 <script>
 const API = window.location.origin;
+const WS_URL = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+
+let ws = null;
+let wsReconnectTimer = null;
+
+function connectWebSocket() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  
+  try {
+    ws = new WebSocket(WS_URL);
+    
+    ws.onopen = function() {
+      console.log('WebSocket connected');
+      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+    };
+    
+    ws.onmessage = function(event) {
+      try {
+        const msg = JSON.parse(event.data);
+        handleWSMessage(msg);
+      } catch(e) { console.error('WS parse error:', e); }
+    };
+    
+    ws.onclose = function() {
+      console.log('WebSocket disconnected, reconnecting in 3s...');
+      ws = null;
+      if (!wsReconnectTimer) {
+        wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+      }
+    };
+    
+    ws.onerror = function() {
+      console.error('WebSocket error');
+    };
+  } catch(e) {
+    console.error('WebSocket connection failed:', e);
+    if (!wsReconnectTimer) {
+      wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+    }
+  }
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'agent_suggestion':
+      renderAgentSuggestion(msg.payload);
+      document.getElementById('agent-time').textContent = '更新于 ' + fmtTime(msg.timestamp);
+      break;
+    case 'danmaku_update':
+      renderDanmaku(msg.payload);
+      document.getElementById('danmaku-time').textContent = '共 ' + (msg.payload.danmaku_count || 0) + ' 条';
+      break;
+    case 'alert_update':
+      renderAlerts(msg.payload);
+      document.getElementById('alert-time').textContent = (msg.payload.alerts || []).length + ' 条告警';
+      break;
+    case 'review_update':
+      renderReview(msg.payload);
+      document.getElementById('review-time').textContent = (msg.payload.decision_count || 0) + ' 条决策';
+      break;
+  }
+}
+
+// ---- 启动 WebSocket ----
+setTimeout(connectWebSocket, 500);
+
 
 // ---- 工具函数 ----
 function escapeHtml(str) {
@@ -266,15 +332,10 @@ async function refreshCard(productId) {
 }
 
 // ---- Agent 建议（5s 轮询） ----
-async function refreshAgent() {
+function renderAgentSuggestion(data) {
   const el = document.getElementById("agent-content");
   try {
-    const res = await fetch(API + "/api/agent/suggestion?room_id=dashboard-room");
-    if (!res.ok) throw new Error("请求失败");
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-
-    document.getElementById("agent-time").textContent = "更新于 " + fmtTime(data.timestamp);
+    
 
     if (!data.suggestion) {
       el.innerHTML = '<div class="empty-state">直播运行正常</div>';
@@ -294,21 +355,13 @@ async function refreshAgent() {
         '</div>' +
       '</div>';
 
-  } catch (e) {
-    el.innerHTML = '<div class="error">Agent 建议加载失败</div>';
-  }
-}
+
 
 // ---- 弹幕（10s 轮询） ----
-async function refreshDanmaku() {
+function renderDanmaku(data) {
   const el = document.getElementById("danmaku-content");
   try {
-    const res = await fetch(API + "/api/danmaku/summary?room_id=dashboard-room");
-    if (!res.ok) throw new Error("请求失败");
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-
-    document.getElementById("danmaku-time").textContent =
+    var dc = data.danmaku_count || 0; document.getElementById("danmaku-time").textContent =
       "共 " + (data.danmaku_count || 0) + " 条";
 
     const groups = data.question_groups || [];
@@ -327,36 +380,26 @@ async function refreshDanmaku() {
         '<div class="q-count">' + (g.count || 0) + ' 次</div>' +
       '</div>';
     }).join("");
-  } catch (e) {
-    el.innerHTML = '<div class="error">弹幕加载失败</div>';
-  }
 }
 
+// cleanup: remove old danmaku interval
+if (window._danmakuInterval) clearInterval(window._danmakuInterval);
+window._danmakuInterval = null;
+
 // ---- 告警（10s 轮询） ----
-async function refreshAlerts() {
+function renderAlerts(data) {
   const el = document.getElementById("alert-content");
-  try {
-    const res = await fetch(API + "/api/alert/dashboard-room");
-    if (!res.ok) throw new Error("请求失败");
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-
-    const alerts = data.alerts || [];
-    document.getElementById("alert-time").textContent = alerts.length + " 条告警";
-
-    if (alerts.length === 0) {
-      el.innerHTML = '<div class="empty-state">暂无告警</div>';
-      return;
-    }
-    el.innerHTML = alerts.map(a =>
-      '<div class="alert-item ' + (a.type === "sold_out" ? "danger" : "") + '">' +
-        '<div class="alert-type">' + escapeHtml(a.type) + '</div>' +
-        '<div class="alert-msg">' + escapeHtml(a.message) + '</div>' +
-      '</div>'
-    ).join("");
-  } catch (e) {
-    el.innerHTML = '<div class="error">告警加载失败</div>';
+  const alerts = data.alerts || [];
+  if (alerts.length === 0) {
+    el.innerHTML = '<div class="empty-state">暂无告警</div>';
+    return;
   }
+  el.innerHTML = alerts.map(a =>
+    '<div class="alert-item ' + (a.type === "sold_out" ? "danger" : "") + '">' +
+      '<div class="alert-type">' + escapeHtml(a.type) + '</div>' +
+      '<div class="alert-msg">' + escapeHtml(a.message) + '</div>' +
+    '</div>'
+  ).join("");
 }
 
 // ---- 复盘（30s 轮询） ----
@@ -406,17 +449,27 @@ function formatList(items) {
   return escapeHtml(String(items));
 }
 
-// ---- 初始化 ----
+// ---- 初始 fallback（WS 可能慢） ----
 refreshCard("p001");
-refreshAgent();
-refreshDanmaku();
-refreshAlerts();
-refreshReview();
-
-setInterval(refreshAgent, 5000);
-setInterval(refreshDanmaku, 10000);
-setInterval(refreshAlerts, 10000);
-setInterval(refreshReview, 30000);
+// WebSocket 接管实时推送，初始 fallback 用一次 HTTP 请求
+(async function initFallback() {
+  try {
+    const r = await fetch(API + "/api/agent/suggestion?room_id=dashboard-room");
+    if (r.ok) { const d = await r.json(); renderAgentSuggestion(d); }
+  } catch(e) {}
+  try {
+    const r = await fetch(API + "/api/danmaku/summary?room_id=dashboard-room");
+    if (r.ok) { const d = await r.json(); renderDanmaku(d); }
+  } catch(e) {}
+  try {
+    const r = await fetch(API + "/api/alert/dashboard-room");
+    if (r.ok) { const d = await r.json(); renderAlerts(d); }
+  } catch(e) {}
+  try {
+    const r = await fetch(API + "/api/review/llm/dashboard-room");
+    if (r.ok) { const d = await r.json(); renderReview(d); }
+  } catch(e) {}
+})();
 </script>
 </body>
 </html>

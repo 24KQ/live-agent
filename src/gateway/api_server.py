@@ -5,6 +5,8 @@ FastAPI 应用，从 PostgreSQL 真实读取业务数据。
 """
 
 from __future__ import annotations
+import asyncio
+from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 
@@ -325,6 +327,25 @@ async def get_llm_review(room_id: str):
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动后台推送任务。"""
+    tasks = [
+        asyncio.create_task(_push_agent_suggestion()),
+        asyncio.create_task(_push_danmaku()),
+        asyncio.create_task(_push_alerts()),
+        asyncio.create_task(_push_review()),
+    ]
+    yield
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+app.router.lifespan_context = lifespan
 
 front_dir = Path(__file__).resolve().parent.parent.parent / "front"
 if front_dir.exists():
