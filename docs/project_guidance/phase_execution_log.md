@@ -1608,3 +1608,56 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 1. Phase 5F: WebSocket 副屏推送实时 Agent 建议
 2. Phase 6: 部署治理阶段
 3. 接入真实平台 API
+
+
+---
+
+## Phase 6A: 前端功能补全与数据可看化（Frontend Data Completeness）
+
+- **日期**: 2026-07-10
+- **设计文档**: [2026-07-10-phase-6a-frontend-design.md](../superpowers/specs/2026-07-10-phase-6a-frontend-design.md)
+- **实施计划**: [2026-07-10-phase-6a-frontend-plan.md](../superpowers/plans/2026-07-10-phase-6a-frontend-plan.md)
+
+### 实际交付内容
+
+1. 前端 HTML 重写（front/index.html）:
+   - 五面板布局: 手卡 + Agent 建议 + 弹幕洞察 + 实时告警 + 场次复盘
+   - Agent 实时建议面板（5s 轮询），带路由/目标/弹幕热度/告警状态
+   - 复盘面板含 LLM 自然语言总结
+   - 弹幕热度条颜色编码
+   - 顶部栏显示房间 ID、信任分、连接状态
+
+2. API Server 扩展（src/gateway/api_server.py）:
+   - GET /api/agent/suggestion — 内联播中 Agent graph，返回建议
+   - GET /api/review/llm/{room_id} — LLM 复盘总结
+
+3. 种子脚本（scripts/seed_frontend_data.py）:
+   - 写入弹幕聚合、决策记录、产品关联
+   - 幂等设计
+
+4. 启动脚本（scripts/run_frontend.ps1）
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_api_server_extended.py | 4 红 -> 4 绿 |
+
+### 全量测试结果
+
+245 passed, 0 failed（从 Phase 5E 的 241 增长至 245）
+
+### CLI 演示结果
+
+种子脚本可正常写入数据；API server 8080 端口正常返回各端点数据。
+
+### 当前遗留限制
+
+- 仍为轮询，非 WebSocket（Phase 6B）
+- Agent 建议 API 每次请求重新运行 graph，无缓存
+- 弹幕面板需 Kafka daemon 运行才展示实时数据
+
+### 下一阶段建议
+
+1. Phase 6B: WebSocket 实时推送 + 移动端适配
+2. 完善 Agent 建议缓存机制

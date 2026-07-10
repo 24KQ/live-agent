@@ -3,152 +3,220 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LiveAgent 副屏</title>
+<title>LiveAgent 直播副屏</title>
 <style>
-  /* ---- 深色主题全局 ---- */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif;
     background: #0d1117; color: #c9d1d9;
     width: 1280px; height: 800px; overflow: hidden;
     display: grid;
-    grid-template-rows: 40px 1fr;
-    grid-template-columns: 1fr;
+    grid-template-rows: 40px 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
     padding: 0;
   }
 
-  /* ---- 顶部工具栏 ---- */
+  /* ---- 顶部栏 ---- */
   .toolbar {
+    grid-column: 1 / -1;
     background: #161b22; border-bottom: 1px solid #21262d;
     display: flex; align-items: center; padding: 0 12px;
     font-size: 13px; color: #8b949e;
   }
-  .toolbar .logo { font-weight: 600; color: #58a6ff; margin-right: 16px; letter-spacing: 0.5px; }
-  .toolbar .status { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-  .toolbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
-  .toolbar button {
-    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
-    padding: 4px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
-    transition: background 0.15s;
+  .toolbar .logo { font-weight: 700; color: #58a6ff; margin-right: 16px; font-size: 15px; letter-spacing: 1px; }
+  .toolbar .meta { display: flex; gap: 20px; align-items: center; }
+  .toolbar .meta span { font-size: 12px; }
+  .toolbar .meta .label { color: #8b949e; }
+  .toolbar .meta .val { color: #e6edf3; font-weight: 500; }
+  .toolbar .status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .toolbar .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; display: inline-block; }
+  .toolbar .dot.warning { background: #d29922; }
+  .toolbar .dot.error { background: #f85149; }
+  .toolbar .room-badge {
+    background: #21262d; padding: 2px 10px; border-radius: 10px; font-size: 11px; color: #58a6ff;
+    border: 1px solid #30363d;
   }
-  .toolbar button:hover { background: #30363d; }
 
-  /* ---- 四象限面板布局 ---- */
-  .dashboard {
-    display: grid;
-    grid-template-rows: 1fr 1fr;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px; padding: 8px;
-  }
+  /* ---- 面板通用 ---- */
   .panel {
-    background: #161b22; border: 1px solid #21262d; border-radius: 8px;
-    padding: 12px; display: flex; flex-direction: column; overflow: hidden;
+    background: #161b22; border: 1px solid #21262d;
+    margin: 6px; border-radius: 8px;
+    display: flex; flex-direction: column; overflow: hidden;
   }
-  .panel h2 {
-    font-size: 14px; font-weight: 600; color: #58a6ff;
-    margin-bottom: 8px; padding-bottom: 6px;
-    border-bottom: 1px solid #21262d;
-    text-transform: uppercase; letter-spacing: 1px;
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid #21262d;
   }
-  .panel .content { flex: 1; overflow-y: auto; font-size: 13px; line-height: 1.6; }
-  .panel .content::-webkit-scrollbar { width: 4px; }
-  .panel .content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+  .panel-header h2 { font-size: 12px; font-weight: 600; color: #58a6ff; text-transform: uppercase; letter-spacing: 1px; }
+  .panel-header .time { font-size: 11px; color: #484f58; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 13px; line-height: 1.6; }
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 
   /* ---- 手卡面板 ---- */
-  #card-panel .card-section { margin-bottom: 10px; }
-  .card-section .label { font-size: 11px; color: #8b949e; text-transform: uppercase; margin-bottom: 2px; }
-  .card-section .value { color: #e6edf3; }
+  .card-section { margin-bottom: 10px; }
+  .card-section .label { font-size: 10px; color: #8b949e; text-transform: uppercase; margin-bottom: 2px; }
+  .card-section .value { color: #e6edf3; font-size: 13px; }
+  .card-tip { font-size: 11px; color: #484f58; margin-top: 8px; text-align: center; }
+
+  /* ---- Agent 建议面板 ---- */
+  .suggestion-box {
+    background: #0d1117; border-radius: 8px; padding: 12px; margin-bottom: 8px;
+    border-left: 4px solid #3fb950;
+  }
+  .suggestion-box.warning { border-left-color: #d29922; }
+  .suggestion-box.danger { border-left-color: #f85149; }
+  .suggestion-box .route { font-size: 10px; color: #484f58; text-transform: uppercase; }
+  .suggestion-box .goal { font-size: 11px; color: #8b949e; margin: 2px 0 6px 0; }
+  .suggestion-box .text { color: #e6edf3; font-size: 14px; font-weight: 500; line-height: 1.5; }
+  .suggestion-box .meta-row { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: #484f58; }
+  .empty-state { color: #484f58; text-align: center; padding: 20px; }
 
   /* ---- 弹幕面板 ---- */
-  #danmaku-panel .danmaku-item {
+  .danmaku-item {
     background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
-    padding: 8px 10px; margin-bottom: 8px;
+    padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: center;
   }
-  .danmaku-item .q-text { color: #e6edf3; font-weight: 500; }
-  .danmaku-item .q-count { color: #8b949e; font-size: 11px; }
-  .danmaku-item .q-reply { color: #7ee787; font-size: 12px; margin-top: 4px; }
-  .danmaku-item .q-reply::before { content: "💬  "; }
+  .danmaku-item .heat-bar {
+    width: 3px; height: 32px; border-radius: 2px; margin-right: 10px; flex-shrink: 0;
+  }
+  .danmaku-item .q-text { color: #e6edf3; font-weight: 500; font-size: 13px; flex: 1; }
+  .danmaku-item .q-count {
+    color: #8b949e; font-size: 11px; white-space: nowrap; margin-left: 8px;
+    background: #21262d; padding: 1px 8px; border-radius: 10px;
+  }
 
   /* ---- 告警面板 ---- */
-  #alert-panel .alert-item {
-    background: #0d1117; border-left: 3px solid #d29922; border-radius: 0 6px 6px 0;
-    padding: 8px 10px; margin-bottom: 8px;
+  .alert-item {
+    padding: 8px 10px; margin-bottom: 6px; border-radius: 6px;
+    border-left: 3px solid #d29922; background: #0d1117;
   }
   .alert-item.danger { border-left-color: #f85149; }
-  .alert-item .alert-type { font-size: 11px; color: #d29922; text-transform: uppercase; }
+  .alert-item .alert-type {
+    font-size: 10px; color: #d29922; text-transform: uppercase; letter-spacing: 0.5px;
+  }
   .alert-item.danger .alert-type { color: #f85149; }
-  .alert-item .alert-msg { color: #e6edf3; margin-top: 2px; }
+  .alert-item .alert-msg { color: #e6edf3; margin-top: 2px; font-size: 13px; }
 
   /* ---- 复盘面板 ---- */
-  #review-panel .review-stat {
-    display: flex; justify-content: space-between;
-    padding: 6px 0; border-bottom: 1px solid #21262d;
+  .review-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px;
   }
-  .review-stat .stat-label { color: #8b949e; }
-  .review-stat .stat-value { color: #e6edf3; font-weight: 600; }
-  .review-state { font-size: 12px; color: #8b949e; text-align: center; padding: 16px 0; }
+  .review-stat {
+    background: #0d1117; border-radius: 6px; padding: 10px; text-align: center;
+  }
+  .review-stat .stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; }
+  .review-stat .stat-value { font-size: 18px; font-weight: 700; color: #e6edf3; margin-top: 2px; }
+  .review-stat .stat-value.green { color: #3fb950; }
+  .review-stat .stat-value.red { color: #f85149; }
+  .review-llm {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+    padding: 10px; font-size: 12px; color: #c9d1d9; line-height: 1.7;
+    white-space: pre-wrap;
+  }
+  .review-llm .llm-header { font-size: 10px; color: #484f58; text-transform: uppercase; margin-bottom: 4px; }
 
-  /* ---- 错误与加载 ---- */
-  .error { color: #f85149; font-size: 12px; }
-  .loading { color: #8b949e; font-size: 12px; text-align: center; padding: 20px; }
+  /* ---- 按钮 ---- */
+  .btn {
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    padding: 3px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #30363d; }
+
+  .loading { color: #484f58; text-align: center; padding: 20px; font-size: 12px; }
+  .error { color: #f85149; text-align: center; padding: 20px; font-size: 12px; }
 </style>
 </head>
 <body>
 
-<!-- 顶部工具栏 -->
 <div class="toolbar">
-  <span class="logo">LiveAgent 副屏</span>
-  <span id="clock">--:--:--</span>
-  <span class="status">
-    <span class="dot" id="health-dot" style="background:#f85149;"></span>
-    <span id="health-text">未连接</span>
-    <button onclick="refreshCard()">刷新手卡</button>
-  </span>
+  <div class="logo">LIVEAGENT</div>
+  <div class="meta">
+    <span class="room-badge" id="room-badge">room-dashboard-001</span>
+    <span><span class="label">信任分</span> <span class="val" id="trust-score">0.70</span></span>
+  </div>
+  <div class="status">
+    <span id="health-dot" class="dot"></span>
+    <span id="health-text">连接中...</span>
+    <span style="margin:0 8px;color:#21262d;">|</span>
+    <span id="clock"></span>
+  </div>
 </div>
 
-<!-- 四象限面板 -->
-<div class="dashboard">
-  <!-- 左上：手卡 -->
-  <div class="panel" id="card-panel">
-    <h2>🃏 讲解手卡</h2>
-    <div class="content" id="card-content">
-      <div class="loading">点击刷新手卡...</div>
-    </div>
+<!-- 左上：手卡 -->
+<div class="panel">
+  <div class="panel-header">
+    <h2>讲解手卡</h2>
+    <button class="btn" onclick="refreshCard()">刷新</button>
   </div>
-
-  <!-- 右上：弹幕 -->
-  <div class="panel" id="danmaku-panel">
-    <h2>💬 弹幕洞察</h2>
-    <div class="content" id="danmaku-content">
-      <div class="loading">等待弹幕数据...</div>
-    </div>
+  <div class="panel-body" id="card-content">
+    <div class="loading">点击刷新手卡...</div>
   </div>
+</div>
 
-  <!-- 左下：告警 -->
-  <div class="panel" id="alert-panel">
-    <h2>⚠️ 实时告警</h2>
-    <div class="content" id="alert-content">
-      <div class="loading">等待告警数据...</div>
-    </div>
+<!-- 右上：Agent 建议（新面板，取代原弹幕位置） -->
+<div class="panel">
+  <div class="panel-header">
+    <h2>Agent 实时建议</h2>
+    <span class="time" id="agent-time">等待更新...</span>
   </div>
+  <div class="panel-body" id="agent-content">
+    <div class="loading">等待 Agent 数据...</div>
+  </div>
+</div>
 
-  <!-- 右下：复盘 -->
-  <div class="panel" id="review-panel">
-    <h2>📊 场次复盘</h2>
-    <div class="content" id="review-content">
-      <div class="loading">暂无复盘数据...</div>
-    </div>
+<!-- 左下：弹幕 -->
+<div class="panel">
+  <div class="panel-header">
+    <h2>弹幕洞察</h2>
+    <span class="time" id="danmaku-time">--</span>
+  </div>
+  <div class="panel-body" id="danmaku-content">
+    <div class="loading">加载弹幕数据...</div>
+  </div>
+</div>
+
+<!-- 右下：告警 -->
+<div class="panel">
+  <div class="panel-header">
+    <h2>实时告警</h2>
+    <span class="time" id="alert-time">--</span>
+  </div>
+  <div class="panel-body" id="alert-content">
+    <div class="loading">加载告警数据...</div>
+  </div>
+</div>
+
+<!-- 底部全宽：复盘 -->
+<div class="panel" style="grid-column: 1 / -1;">
+  <div class="panel-header">
+    <h2>场次复盘</h2>
+    <span class="time" id="review-time">--</span>
+  </div>
+  <div class="panel-body" id="review-content">
+    <div class="loading">加载复盘数据...</div>
   </div>
 </div>
 
 <script>
-const API = "http://localhost:8100";
+const API = window.location.origin;
+
+// ---- 工具函数 ----
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function fmtTime(isoStr) {
+  if (!isoStr) return "--";
+  try { return new Date(isoStr).toLocaleTimeString("zh-CN", {hour12:false}); }
+  catch { return "--"; }
+}
 
 // ---- 时钟 ----
 function updateClock() {
-  const now = new Date();
-  document.getElementById("clock").textContent =
-    now.toLocaleTimeString("zh-CN", { hour12: false });
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-CN", {hour12:false});
 }
 updateClock();
 setInterval(updateClock, 1000);
@@ -158,11 +226,13 @@ async function checkHealth() {
   try {
     const res = await fetch(API + "/api/health");
     if (res.ok) {
-      document.getElementById("health-dot").style.background = "#3fb950";
+      const dot = document.getElementById("health-dot");
+      dot.style.background = "#3fb950"; dot.className = "dot";
       document.getElementById("health-text").textContent = "已连接";
     }
   } catch {
-    document.getElementById("health-dot").style.background = "#f85149";
+    const dot = document.getElementById("health-dot");
+    dot.style.background = "#f85149"; dot.className = "dot error";
     document.getElementById("health-text").textContent = "未连接";
   }
 }
@@ -170,37 +240,62 @@ checkHealth();
 setInterval(checkHealth, 15000);
 
 // ---- 手卡（手动刷新） ----
-async function refreshCard() {
+async function refreshCard(productId) {
   const el = document.getElementById("card-content");
+  const pid = productId || "p001";
   el.innerHTML = '<div class="loading">加载手卡...</div>';
   try {
-    const res = await fetch(API + "/api/card/p001");
+    const res = await fetch(API + "/api/card/" + pid);
     if (!res.ok) throw new Error("请求失败");
     const card = await res.json();
     if (card.error) throw new Error(card.error);
-    el.innerHTML = `
-      <div class="card-section">
-        <div class="label">商品</div>
-        <div class="value">${escapeHtml(card.title || "—")}（${escapeHtml(card.product_id || "")}）</div>
-      </div>
-      <div class="card-section">
-        <div class="label">开场话术</div>
-        <div class="value">${escapeHtml(card.opening_script || "—")}</div>
-      </div>
-      <div class="card-section">
-        <div class="label">讲解要点</div>
-        <div class="value">${formatList(card.talking_points)}</div>
-      </div>
-      <div class="card-section">
-        <div class="label">价格提示</div>
-        <div class="value">${escapeHtml(card.price_hint || "—")}</div>
-      </div>
-      <div class="card-section">
-        <div class="label">风险提示</div>
-        <div class="value">${formatList(card.risk_tips)}</div>
-      </div>`;
+    el.innerHTML =
+      '<div class="card-section"><div class="label">商品</div><div class="value">' +
+        escapeHtml(card.title || "") + ' (' + escapeHtml(card.product_id || "") + ')</div></div>' +
+      '<div class="card-section"><div class="label">开场话术</div><div class="value">' +
+        escapeHtml(card.opening_script || "--") + '</div></div>' +
+      '<div class="card-section"><div class="label">讲解要点</div><div class="value">' +
+        formatList(card.talking_points) + '</div></div>' +
+      '<div class="card-section"><div class="label">价格提示</div><div class="value">' +
+        escapeHtml(card.price_hint || "--") + '</div></div>' +
+      '<div class="card-section"><div class="label">风险提示</div><div class="value">' +
+        formatList(card.risk_tips) + '</div></div>';
   } catch (e) {
-    el.innerHTML = '<div class="error">无法加载手卡：' + escapeHtml(e.message) + '</div>';
+    el.innerHTML = '<div class="error">无法加载手卡: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// ---- Agent 建议（5s 轮询） ----
+async function refreshAgent() {
+  const el = document.getElementById("agent-content");
+  try {
+    const res = await fetch(API + "/api/agent/suggestion?room_id=dashboard-room");
+    if (!res.ok) throw new Error("请求失败");
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    document.getElementById("agent-time").textContent = "更新于 " + fmtTime(data.timestamp);
+
+    if (!data.suggestion) {
+      el.innerHTML = '<div class="empty-state">直播运行正常</div>';
+      return;
+    }
+
+    const sclass = data.has_alerts ? "danger" : "normal";
+    const routeLabel = data.route === "finish" ? "观察中" : "已决策";
+    el.innerHTML =
+      '<div class="suggestion-box ' + sclass + '">' +
+        '<div class="route">' + routeLabel + ' | ' + escapeHtml(data.route || "") + '</div>' +
+        '<div class="goal">' + escapeHtml(data.goal || "") + '</div>' +
+        '<div class="text">' + escapeHtml(data.suggestion) + '</div>' +
+        '<div class="meta-row">' +
+          '<span>弹幕热度: ' + (data.danmaku_count || 0) + '</span>' +
+          '<span>告警: ' + (data.has_alerts ? "有" : "无") + '</span>' +
+        '</div>' +
+      '</div>';
+
+  } catch (e) {
+    el.innerHTML = '<div class="error">Agent 建议加载失败</div>';
   }
 }
 
@@ -208,21 +303,30 @@ async function refreshCard() {
 async function refreshDanmaku() {
   const el = document.getElementById("danmaku-content");
   try {
-    const res = await fetch(API + "/api/danmaku/summary?room_id=demo-room");
+    const res = await fetch(API + "/api/danmaku/summary?room_id=dashboard-room");
     if (!res.ok) throw new Error("请求失败");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
+
+    document.getElementById("danmaku-time").textContent =
+      "共 " + (data.danmaku_count || 0) + " 条";
+
     const groups = data.question_groups || [];
     if (groups.length === 0) {
-      el.innerHTML = '<div class="loading">暂无弹幕问题</div>';
+      el.innerHTML = '<div class="empty-state">暂无弹幕数据</div>';
       return;
     }
-    el.innerHTML = groups.map(g => `
-      <div class="danmaku-item">
-        <div class="q-text">${escapeHtml(g.question)}</div>
-        <div class="q-count">出现 ${g.count} 次</div>
-        ${g.suggested_reply ? '<div class="q-reply">' + escapeHtml(g.suggested_reply) + '</div>' : ''}
-      </div>`).join("");
+
+    const maxCount = Math.max(...groups.map(g => g.count || 1), 1);
+    el.innerHTML = groups.map(g => {
+      const pct = Math.round(((g.count || 0) / maxCount) * 100);
+      const color = pct > 70 ? "#f85149" : pct > 40 ? "#d29922" : "#3fb950";
+      return '<div class="danmaku-item">' +
+        '<div class="heat-bar" style="background:' + color + ';opacity:' + (0.3 + pct/100 * 0.7) + '"></div>' +
+        '<div class="q-text">' + escapeHtml(g.question || g.category || "") + '</div>' +
+        '<div class="q-count">' + (g.count || 0) + ' 次</div>' +
+      '</div>';
+    }).join("");
   } catch (e) {
     el.innerHTML = '<div class="error">弹幕加载失败</div>';
   }
@@ -232,20 +336,24 @@ async function refreshDanmaku() {
 async function refreshAlerts() {
   const el = document.getElementById("alert-content");
   try {
-    const res = await fetch(API + "/api/alert/demo-room");
+    const res = await fetch(API + "/api/alert/dashboard-room");
     if (!res.ok) throw new Error("请求失败");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
+
     const alerts = data.alerts || [];
+    document.getElementById("alert-time").textContent = alerts.length + " 条告警";
+
     if (alerts.length === 0) {
-      el.innerHTML = '<div class="loading">暂无告警</div>';
+      el.innerHTML = '<div class="empty-state">暂无告警</div>';
       return;
     }
-    el.innerHTML = alerts.map(a => `
-      <div class="alert-item ${a.type === 'sold_out' ? 'danger' : ''}">
-        <div class="alert-type">${escapeHtml(a.type)}</div>
-        <div class="alert-msg">${escapeHtml(a.message)}</div>
-      </div>`).join("");
+    el.innerHTML = alerts.map(a =>
+      '<div class="alert-item ' + (a.type === "sold_out" ? "danger" : "") + '">' +
+        '<div class="alert-type">' + escapeHtml(a.type) + '</div>' +
+        '<div class="alert-msg">' + escapeHtml(a.message) + '</div>' +
+      '</div>'
+    ).join("");
   } catch (e) {
     el.innerHTML = '<div class="error">告警加载失败</div>';
   }
@@ -255,52 +363,57 @@ async function refreshAlerts() {
 async function refreshReview() {
   const el = document.getElementById("review-content");
   try {
-    const res = await fetch(API + "/api/review/demo-room");
+    // 先取 LLM 复盘
+    const res = await fetch(API + "/api/review/llm/dashboard-room");
     if (!res.ok) throw new Error("请求失败");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    if (!data.total_decisions) {
-      el.innerHTML = '<div class="review-state">本场暂无决策记录</div>';
+
+    document.getElementById("review-time").textContent =
+      data.decision_count + " 条决策";
+
+    const s = data.structured || {};
+    const total = s.total_decisions || 0;
+
+    if (total === 0) {
+      el.innerHTML = '<div class="empty-state">本场暂无决策记录</div>';
       return;
     }
-    el.innerHTML = `
-      <div class="review-stat">
-        <span class="stat-label">总决策数</span>
-        <span class="stat-value">${data.total_decisions}</span>
-      </div>
-      <div class="review-stat">
-        <span class="stat-label">采纳率</span>
-        <span class="stat-value">${data.adoption_rate || "—"}</span>
-      </div>
-      <div class="review-stat">
-        <span class="stat-label">准确率</span>
-        <span class="stat-value">${data.accuracy_rate || "—"}</span>
-      </div>
-      <div class="review-stat">
-        <span class="stat-label">信任度变化</span>
-        <span class="stat-value">${data.trust_delta_total || "—"}</span>
-      </div>
-      ${(data.issues || []).map(i => '<div class="review-stat"><span class="stat-label">' + escapeHtml(i) + '</span></div>').join("")}`;
+
+    const delta = parseFloat(s.trust_delta_total || 0);
+    el.innerHTML =
+      '<div class="review-grid">' +
+        '<div class="review-stat"><div class="stat-label">总决策</div><div class="stat-value">' + total + '</div></div>' +
+        '<div class="review-stat"><div class="stat-label">采纳率</div><div class="stat-value">' +
+          (s.adoption_rate || "0%") + '</div></div>' +
+        '<div class="review-stat"><div class="stat-label">准确率</div><div class="stat-value">' +
+          (s.accuracy_rate || "0%") + '</div></div>' +
+        '<div class="review-stat"><div class="stat-label">信任变化</div><div class="stat-value ' +
+          (delta >= 0 ? "green" : "red") + '">' + (delta > 0 ? "+" : "") + delta.toFixed(2) + '</div></div>' +
+      '</div>' +
+      '<div class="review-llm">' +
+        '<div class="llm-header">LLM 复盘总结</div>' +
+        escapeHtml(data.summary || "暂无") +
+      '</div>';
   } catch (e) {
     el.innerHTML = '<div class="error">复盘加载失败</div>';
   }
 }
 
-// ---- 工具函数 ----
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
 function formatList(items) {
-  if (!items || items.length === 0) return "—";
+  if (!items || items.length === 0) return "--";
   if (Array.isArray(items)) return items.map(i => "· " + escapeHtml(i)).join("<br>");
   return escapeHtml(String(items));
 }
 
-// ---- 初始化加载 ----
+// ---- 初始化 ----
+refreshCard("p001");
+refreshAgent();
 refreshDanmaku();
 refreshAlerts();
 refreshReview();
+
+setInterval(refreshAgent, 5000);
 setInterval(refreshDanmaku, 10000);
 setInterval(refreshAlerts, 10000);
 setInterval(refreshReview, 30000);
