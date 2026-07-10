@@ -1,0 +1,274 @@
+"""Phase 5G-B 播中 LangGraph Harness Planner。
+
+这个模块不是普通的“给一句建议”planner，而是为 LangGraph Harness Agent Loop
+提供结构化决策：
+- call_tool：请求图进入工具执行分支。
+- final_answer：本轮已经形成主播建议，可以结束。
+- no_action：无事件或无需干预。
+- fallback：LLM 不可用或输出不可信时的降级结果。
+
+LLM 只负责生成受控 JSON；工具白名单、生命周期、风险等级由 Harness Hook
+继续兜底，避免 prompt 约束失效时越权执行。
+"""
+
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+from src.config.settings import Settings, get_settings
+from src.config.tool_registry import get_default_tool_registry
+from src.core.agent_harness_context import AgentContextResult
+from src.core.agent_decision import AgentObservation
+from src.skills.on_live_llm_planner import OnLiveLLMPlanner
+
+HarnessAction = Literal["call_tool", "final_answer", "no_action", "fallback"]
+HarnessRiskLevel = Literal["LOW", "MEDIUM", "HIGH"]
+
+
+def _available_on_live_tools() -> list[str]:
+    """从 ToolRegistry 中读取 ON_LIVE 工具名，作为 LLM 输出白名单。"""
+    registry = get_default_tool_registry()
+    return [
+        name
+        for name in registry.tool_names()
+        if name
+        in {
+            "handle_sold_out_event",
+            "recommend_backup_product",
+            "generate_on_live_prompt",
+            "aggregate_danmaku_questions",
+            "generate_danmaku_reply",
+        }
+    ]
+
+
+class OnLiveHarnessDecision(BaseModel):
+    """播中 Harness Planner 的结构化决策。
+
+    该模型是 LangGraph 条件路由的唯一输入来源，字段必须稳定、可序列化。
+    """
+
+    thought: str = Field(default="")
+    action: HarnessAction
+    tool_name: str | None = None
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    final_suggestion: str | None = None
+    risk_level: HarnessRiskLevel = "LOW"
+    fallback_reason: str | None = None
+
+    @field_validator("tool_name")
+    @classmethod
+    def validate_tool_name(cls, value: str | None, info) -> str | None:
+        """call_tool 必须使用 ToolRegistry 中的标准工具名。"""
+        action = info.data.get("action")
+        if action != "call_tool":
+            return value
+        if not value:
+            raise ValueError("tool_name is required when action is call_tool")
+        if value not in _available_on_live_tools():
+            raise ValueError(f"unknown on-live tool: {value}")
+        return value
+
+
+def build_harness_prompt(
+    context: AgentContextResult,
+    available_tools: list[str],
+    observations: list[dict[str, Any] | AgentObservation],
+) -> str:
+    """构造播中 Harness Planner prompt。
+
+    只注入压缩后的状态摘要和工具 observation 摘要，不把大 JSON 原样塞入上下文。
+    """
+    lines = [
+        "你是直播间播中 Harness Agent 的决策节点。",
+        "你只能在给定工具白名单内选择工具，不能直接执行高风险动作。",
+        "",
+        "当前上下文:",
+        context.system_context,
+        "",
+        "可用工具:",
+    ]
+    for tool in available_tools:
+        lines.append(f"- {tool}")
+    lines.extend(
+        [
+            "",
+            "风险约束:",
+            "- LOW: 可自动执行，例如聚合弹幕、生成提示。",
+            "- MEDIUM: 只能给建议或调用安全工具。",
+            "- HIGH: 不自动执行，只能返回 pending/human approval 方向。",
+            "",
+            "最近观察:",
+        ]
+    )
+    if observations:
+        for obs in observations[-5:]:
+            if isinstance(obs, AgentObservation):
+                lines.append(f"- {obs.tool_name}: {obs.status} | {obs.summary}")
+            else:
+                lines.append(
+                    "- "
+                    + str(obs.get("tool_name", "unknown"))
+                    + ": "
+                    + str(obs.get("status", "unknown"))
+                    + " | "
+                    + str(obs.get("summary", ""))
+                )
+    else:
+        lines.append("- 无")
+    lines.extend(
+        [
+            "",
+            "只返回 JSON，不要输出其他文字。JSON 格式:",
+            "{",
+            '  "thought": "本轮判断依据",',
+            '  "action": "call_tool | final_answer | no_action | fallback",',
+            '  "tool_name": "工具名或 null",',
+            '  "arguments": {},',
+            '  "final_suggestion": "给主播看的建议或 null",',
+            '  "risk_level": "LOW | MEDIUM | HIGH",',
+            '  "fallback_reason": "降级原因或 null"',
+            "}",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def parse_harness_decision(llm_output: str) -> OnLiveHarnessDecision:
+    """解析 LLM 输出为 Harness decision。
+
+    解析失败必须抛 ValueError，由调用方降级，不允许 fail-open。
+    """
+    text = llm_output.strip()
+    if text.startswith("```"):
+        lines = [line for line in text.splitlines() if not line.strip().startswith("```")]
+        text = "\n".join(lines)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("LLM output does not contain JSON")
+    try:
+        raw = json.loads(text[start : end + 1])
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid JSON: {exc}") from exc
+    try:
+        return OnLiveHarnessDecision.model_validate(raw)
+    except Exception as exc:
+        raise ValueError(f"invalid harness decision: {exc}") from exc
+
+
+class OnLiveHarnessPlanner:
+    """播中 Harness Planner。
+
+    负责把播中上下文转成 LangGraph 可路由的结构化决策。失败时降级到
+    Phase 5F 的 OnLiveLLMPlanner，保证播中流程不中断。
+    """
+
+    def __init__(self, settings: Settings | None = None, api_key: str = "") -> None:
+        if settings is None and not api_key:
+            try:
+                settings = get_settings()
+            except Exception:
+                settings = None
+        if settings is not None:
+            self._base_url = (settings.llm_api_base_url or "https://api.deepseek.com").rstrip("/")
+            self._api_key = settings.llm_api_key or api_key
+            self._model = settings.llm_model or "deepseek-v4-flash"
+            self._max_tokens = settings.llm_max_tokens or 500
+            self._temperature = settings.llm_temperature or 0.2
+            self._timeout = settings.llm_timeout_seconds or 15
+        else:
+            self._base_url = "https://api.deepseek.com"
+            self._api_key = api_key
+            self._model = "deepseek-v4-flash"
+            self._max_tokens = 500
+            self._temperature = 0.2
+            self._timeout = 15
+        self._fallback_planner = OnLiveLLMPlanner(settings=settings, api_key=api_key)
+
+    def plan_next_step(
+        self,
+        context: AgentContextResult,
+        danmaku_summary: list[dict[str, Any]],
+        inventory_alerts: list[dict[str, Any]],
+        observations: list[dict[str, Any] | AgentObservation],
+    ) -> OnLiveHarnessDecision:
+        """生成下一步 Harness 决策。"""
+        if not danmaku_summary and not inventory_alerts and not observations:
+            return OnLiveHarnessDecision(
+                thought="无播中事件，无需干预",
+                action="no_action",
+                final_suggestion=None,
+                risk_level="LOW",
+            )
+        available_tools = _available_on_live_tools()
+        if self._api_key:
+            try:
+                prompt = build_harness_prompt(context, available_tools, observations)
+                return parse_harness_decision(self._call_llm(prompt))
+            except Exception as exc:
+                return self._fallback_decision(danmaku_summary, inventory_alerts, str(exc))
+        return self._fallback_decision(danmaku_summary, inventory_alerts, "missing api key")
+
+    def _call_llm(self, user_prompt: str) -> str:
+        """调用 DeepSeek OpenAI 兼容 chat completions API。"""
+        url = self._base_url + "/chat/completions"
+        body = json.dumps(
+            {
+                "model": self._model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "你是直播播中 Harness Agent。只返回 JSON。",
+                    },
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": self._max_tokens,
+                "temperature": self._temperature,
+            }
+        ).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + self._api_key,
+        }
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
+            raise RuntimeError(f"LLM API call failed: {exc}") from exc
+        return data["choices"][0]["message"]["content"]
+
+    def _fallback_decision(
+        self,
+        danmaku_summary: list[dict[str, Any]],
+        inventory_alerts: list[dict[str, Any]],
+        reason: str,
+    ) -> OnLiveHarnessDecision:
+        """降级到 Phase 5F planner，并映射为 Harness decision。"""
+        fallback = self._fallback_planner.plan(
+            danmaku_summary=danmaku_summary,
+            inventory_alerts=inventory_alerts,
+            trust_score=0.7,
+        )
+        suggestion = fallback.get("suggestion")
+        if suggestion:
+            return OnLiveHarnessDecision(
+                thought="Harness planner 降级到 Phase 5F planner",
+                action="final_answer",
+                final_suggestion=suggestion,
+                risk_level="LOW",
+                fallback_reason=reason,
+            )
+        return OnLiveHarnessDecision(
+            thought="Harness planner 降级后仍无建议",
+            action="fallback",
+            final_suggestion=None,
+            risk_level="LOW",
+            fallback_reason=reason,
+        )

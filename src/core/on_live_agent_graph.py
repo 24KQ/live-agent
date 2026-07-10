@@ -371,7 +371,7 @@ class _LocalServiceExecutor:
             if tool_name == "handle_sold_out_event":
                 return self._handle_sold_out(arguments, room_id, trace_id, state)
 
-            elif tool_name == "recommend_backup":
+            elif tool_name in ("recommend_backup", "recommend_backup_product"):
                 return self._recommend_backup(arguments, room_id, trace_id, state)
 
             elif tool_name == "generate_on_live_prompt":

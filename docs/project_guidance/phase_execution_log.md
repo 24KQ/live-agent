@@ -1756,3 +1756,72 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 1. 接入真实淘宝/抖音平台 API
 2. 守护进程治理与监控
 3. 安全加固（WS 鉴权、限流）
+
+---
+
+## Phase 5G-B：LangGraph Harness Agent Loop（2026-07-11）
+
+- **设计文档**: [2026-07-11-phase-5g-langgraph-harness-agent-loop-design.md](../superpowers/specs/2026-07-11-phase-5g-langgraph-harness-agent-loop-design.md)
+- **实施计划**: [2026-07-11-phase-5g-langgraph-harness-agent-loop-plan.md](../superpowers/plans/2026-07-11-phase-5g-langgraph-harness-agent-loop-plan.md)
+
+### 实际交付内容
+
+1. Harness Planner（`src/skills/on_live_harness_planner.py`）
+   - 定义 `OnLiveHarnessDecision`
+   - 支持 `call_tool / final_answer / no_action / fallback`
+   - 只允许 ToolRegistry 中的 ON_LIVE 工具
+   - LLM 失败时降级到 Phase 5F planner
+
+2. LangGraph Harness Agent Loop（`src/core/on_live_harness_agent_graph.py`）
+   - 新增 `build_on_live_harness_agent_graph()`
+   - 显式节点：load_context、pre_reasoning_hook、agent_reasoning、route_agent_decision、pre_tool_call_hook、route_tool_policy、execute_tool、post_tool_call_hook、observe_result、route_replan、write_audit
+   - 工具 observation 回灌后可进入下一轮 reasoning
+   - `max_iterations` 防止死循环
+
+3. 工具协议兼容
+   - Agent 侧使用 ToolRegistry 标准工具名 `recommend_backup_product`
+   - `_LocalServiceExecutor` 增加 `recommend_backup_product` 别名兼容
+
+4. CLI 演示（`scripts/run_phase5g_harness_agent_demo.py`）
+   - 场景 1：无事件 -> no_action
+   - 场景 2：价格弹幕高频 -> final_answer
+   - 场景 3：库存售罄 -> recommend_backup_product -> observation -> final_answer
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯 | 绿灯 |
+| --- | --- | --- |
+| `test_on_live_harness_planner.py` | 模块不存在 | 9 passed |
+| `test_on_live_harness_agent_graph.py` | 模块不存在 | 7 passed |
+| `test_on_live_harness_agent_flow.py` | 新增集成场景 | 2 passed |
+
+### 测试结果
+
+- `pytest tests/unit/test_on_live_harness_planner.py -v`: 9 passed
+- `pytest tests/unit/test_on_live_harness_agent_graph.py -v`: 7 passed
+- `pytest tests/integration/test_on_live_harness_agent_flow.py -v`: 2 passed
+- 旧链路验证：`test_on_live_agent_graph.py` / `test_on_live_llm_planner.py` 保持通过
+- `pytest tests/unit/ -v`: 294 passed, 4 warnings
+
+### CLI 演示结果
+
+- `python scripts/run_phase5g_harness_agent_demo.py` 正常运行
+- 库存售罄场景完整输出 LangGraph 节点路径：
+  `load_context -> pre_reasoning_hook -> agent_reasoning -> route_agent_decision -> pre_tool_call_hook -> route_tool_policy -> execute_tool -> post_tool_call_hook -> observe_result -> route_replan -> pre_reasoning_hook -> agent_reasoning -> route_agent_decision -> write_audit`
+
+### 问题修复
+
+1. ToolRegistry 标准名为 `recommend_backup_product`，旧执行器内部使用 `recommend_backup`，已补别名兼容。
+2. Phase 5G 不再做普通 ReAct while-loop，改为 LangGraph 显式节点与条件边。
+
+### 遗留限制
+
+- `write_audit` 当前仍是状态留迹占位，后续可接 `ToolCallAuditStore` / `DecisionTraceStore`。
+- 高风险工具当前返回 pending，不自动 interrupt；后续可接 LangGraph `interrupt()`。
+- CLI 使用 deterministic planner，真实 LLM 行为仍需独立验收。
+
+### 下一阶段建议
+
+1. Phase 5H：把 Harness Agent 的 `write_audit` 接入真实审计与 DecisionTrace。
+2. Phase 5I：高风险工具接 LangGraph interrupt 人审恢复。
+3. Phase 6C：WebSocket 推送 Harness Agent 节点状态和建议。

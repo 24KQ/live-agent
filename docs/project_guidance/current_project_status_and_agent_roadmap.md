@@ -23,6 +23,47 @@ LiveAgent 已完成从播前到播后再到记忆回写的基础业务闭环：
 
 下一阶段应从“继续堆业务能力”切换到“LangGraph Agent 化改造”。
 
+## 2026-07-11 更新：Agent 化路线修正
+
+重新对照 `docs/study/taobao_anchor_agent_harness.md` 后，项目的 Agent 化重点不应是裸 ReAct，而应是 Harness 工程：
+
+```text
+Execution Loop
+Tool Registry
+Context Manager
+State Store
+Lifecycle Hooks
+Evaluation Interface
+```
+
+Phase 5G-B 已按这个方向新增 LangGraph Harness Agent Loop。它不是普通 `while LLM -> tool -> LLM`，而是把关键控制点拆成 LangGraph 节点和条件边：
+
+```text
+load_context
+-> pre_reasoning_hook
+-> agent_reasoning
+-> route_agent_decision
+-> pre_tool_call_hook
+-> route_tool_policy
+-> execute_tool
+-> post_tool_call_hook
+-> observe_result
+-> route_replan
+-> write_audit
+```
+
+当前更准确的项目定位是：
+
+```text
+业务 Workflow 闭环 + LangGraph Harness Agent 播中核心 + 记忆/信任/审计/副屏工程底座
+```
+
+后续 Agent 主线应优先补：
+
+1. Harness Agent 审计与 DecisionTrace 接入。
+2. 高风险工具的 LangGraph interrupt 人审恢复。
+3. WebSocket 副屏展示 Harness Agent 节点状态。
+
 ## 已完成能力
 
 | 模块 | 当前状态 |
@@ -129,4 +170,3 @@ START
 3. Phase 5C：播中 ReAct 小循环，让 Agent 基于弹幕、库存、流量观察动态生成主播建议。
 4. Phase 5D：LLM 播后复盘总结，输出自然语言报告，但仍保留结构化归因。
 5. 部署阶段：守护进程管理、数据清理策略、真实平台 API 适配层。
-
