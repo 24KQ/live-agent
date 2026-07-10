@@ -296,6 +296,191 @@ class _DefaultPlanner:
         )
 
 
+
+
+class _LocalServiceExecutor:
+    """本地服务执行器——调用真实 OnLiveFlowService / DanmakuFlowService。
+
+    替代 _DefaultExecutor 的模拟行为，让播中 Agent 真正调起本地业务服务：
+    - OnLiveFlowService.handle_sold_out_event: 处理售罄事件
+    - recommend_backup_product: 推荐备用商品
+    - generate_sold_out_prompt: 生成主播提示
+    - DanmakuFlowService.handle_danmaku_batch: 弹幕聚合
+    """
+
+    def __init__(self, on_live_service=None, danmaku_service=None) -> None:
+        self._on_live_service = on_live_service
+        self._danmaku_service = danmaku_service
+
+    def execute(
+        self,
+        tool_name: str,
+        arguments: dict,
+        room_id: str,
+        trace_id: str,
+        state=None,
+        sold_out_product=None,
+    ) -> dict:
+        """根据 tool_name 路由到对应的本地服务。
+
+        返回 dict:
+            - status: success / error / pending
+            - summary: 执行摘要
+            - audit_ids: 审计 ID 列表（如果有）
+            - backup_product_id: 备用商品 ID（如果是推荐备用）
+            - message: 提示文案（如果是生成主播提示）
+            - group_count: 聚合组数（如果是弹幕聚合）
+        """
+        try:
+            if tool_name == "handle_sold_out_event":
+                return self._handle_sold_out(arguments, room_id, trace_id, state)
+
+            elif tool_name == "recommend_backup":
+                return self._recommend_backup(arguments, room_id, trace_id, state)
+
+            elif tool_name == "generate_on_live_prompt":
+                return self._generate_prompt(arguments, room_id, trace_id, sold_out_product)
+
+            elif tool_name == "aggregate_danmaku_questions":
+                return self._aggregate_danmaku(arguments, room_id, trace_id, state)
+
+            else:
+                return {
+                    "tool_name": tool_name,
+                    "status": "error",
+                    "summary": f"tool {tool_name} not supported in _LocalServiceExecutor",
+                }
+        except Exception as exc:
+            return {
+                "tool_name": tool_name,
+                "status": "error",
+                "summary": f"execution failed: {exc}",
+            }
+
+    def _handle_sold_out(self, arguments, room_id, trace_id, state):
+        """调用 OnLiveFlowService 处理售罄事件。"""
+        if self._on_live_service is None:
+            return {"status": "error", "summary": "on_live_service not configured"}
+
+        from src.skills.on_live_events import InventoryEvent, OnLiveEventType
+        product_id = arguments.get("product_id", "")
+        event = InventoryEvent(
+            room_id=room_id,
+            product_id=product_id,
+            event_type=OnLiveEventType.SOLD_OUT,
+            trace_id=trace_id,
+        )
+        if state is None:
+            return {"status": "error", "summary": "state required for handle_sold_out_event"}
+
+        result = self._on_live_service.handle_sold_out_event(state, event)
+        return {
+            "tool_name": "handle_sold_out_event",
+            "status": "success",
+            "summary": f"sold_out handled for {product_id}",
+            "audit_ids": result.audit_ids,
+            "backup_product_id": result.backup_product.product_id if result.backup_product else None,
+            "message": result.prompt.message if result.prompt else "",
+        }
+
+    def _recommend_backup(self, arguments, room_id, trace_id, state):
+        """调用本地 recommend_backup_product。"""
+        from src.skills.backup_product_recommender import (
+            recommend_backup_product,
+            BackupProductNotFoundError,
+        )
+
+        if state is None:
+            return {"status": "error", "summary": "state required for recommend_backup"}
+
+        sold_out_id = arguments.get("sold_out_product_id", "")
+        try:
+            backup = recommend_backup_product(state, sold_out_product_id=sold_out_id)
+            return {
+                "tool_name": "recommend_backup",
+                "status": "success",
+                "summary": f"recommended backup {backup.product_id}",
+                "backup_product_id": backup.product_id,
+            }
+        except BackupProductNotFoundError as exc:
+            return {
+                "tool_name": "recommend_backup",
+                "status": "success",
+                "summary": f"no backup found: {exc}",
+                "backup_product_id": None,
+            }
+
+    def _generate_prompt(self, arguments, room_id, trace_id, sold_out_product):
+        """调用 generate_sold_out_prompt 生成主播提示。"""
+        from src.skills.on_live_prompt import generate_sold_out_prompt
+
+        if sold_out_product is None:
+            return {"status": "error", "summary": "sold_out_product required for generate_on_live_prompt"}
+
+        backup_id = arguments.get("backup_product_id")
+        backup_product = None
+        if backup_id:
+            try:
+                backup_product = sold_out_product.model_copy(update={"product_id": backup_id})
+            except Exception:
+                backup_product = None
+
+        prompt = generate_sold_out_prompt(
+            sold_out_product=sold_out_product,
+            backup_product=backup_product,
+        )
+        return {
+            "tool_name": "generate_on_live_prompt",
+            "status": "success",
+            "summary": f"prompt severity: {prompt.severity}",
+            "message": prompt.message,
+            "severity": prompt.severity,
+        }
+
+    def _aggregate_danmaku(self, arguments, room_id, trace_id, state):
+        """调用 DanmakuFlowService.handle_danmaku_batch。"""
+        if self._danmaku_service is None:
+            return {"status": "error", "summary": "danmaku_service not configured"}
+
+        from src.skills.danmaku_events import DanmakuEvent
+        from datetime import datetime, timezone
+        events_data = arguments.get("events", [])
+        events = []
+        for ev in events_data:
+            if isinstance(ev, DanmakuEvent):
+                events.append(ev)
+            else:
+                # dict -> DanmakuEvent
+                ev_time = ev.get("event_time")
+                if ev_time is None:
+                    ev_time = datetime(2026, 7, 10, tzinfo=timezone.utc)
+                elif isinstance(ev_time, str):
+                    try:
+                        ev_time = datetime.fromisoformat(ev_time.replace("Z", "+00:00"))
+                    except Exception:
+                        ev_time = datetime(2026, 7, 10, tzinfo=timezone.utc)
+                events.append(DanmakuEvent(
+                    room_id=ev.get("room_id", room_id),
+                    viewer_id=ev.get("viewer_id", "anonymous"),
+                    content=ev.get("content", ""),
+                    event_time=ev_time,
+                    trace_id=ev.get("trace_id", trace_id),
+                ))
+
+        if state is None:
+            return {"status": "error", "summary": "state required for aggregate_danmaku_questions"}
+
+        result = self._danmaku_service.handle_danmaku_batch(state, events)
+        return {
+            "tool_name": "aggregate_danmaku_questions",
+            "status": "success",
+            "summary": f"aggregated {len(result.groups)} groups",
+            "group_count": len(result.groups),
+            "audit_ids": result.audit_ids,
+        }
+
+
+
 class _DefaultExecutor:
     """默认播中执行器——用于测试和快速验证。"""
 

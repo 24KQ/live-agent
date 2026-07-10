@@ -1550,3 +1550,61 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 2. 播中 Agent（Phase 5C）接真实 OnLiveFlowService
 3. WebSocket 推送给副屏实时 Agent 建议
 4. 守护进程治理: 数据清理、监控、异常告警
+
+
+---
+
+## Phase 5E: Agent 接通本地真实服务（Agent Real Services Integration）
+
+- **日期**: 2026-07-10
+- **设计文档**: [2026-07-10-phase-5e-real-services-design.md](../superpowers/specs/2026-07-10-phase-5e-real-services-design.md)
+- **实施计划**: [2026-07-10-phase-5e-real-services-plan.md](../superpowers/plans/2026-07-10-phase-5e-real-services-plan.md)
+- **TDD 策略**: 先写失败测试（RED），再实现（GREEN），全量测试通过后提交
+
+### 实际交付内容
+
+1. _LocalServiceExecutor（src/core/on_live_agent_graph.py）:
+   - handle_sold_out_event -> OnLiveFlowService.handle_sold_out_event()
+   - recommend_backup -> recommend_backup_product()
+   - generate_on_live_prompt -> generate_sold_out_prompt()
+   - aggregate_danmaku_questions -> DanmakuFlowService.handle_danmaku_batch()
+   - 向后兼容: 不传 service 时退回 _DefaultExecutor
+
+2. CLI 演示（scripts/run_phase5e_real_service_demo.py）:
+   - 场景 1: 弹幕聚合（DanmakuFlowService）
+   - 场景 2: 库存告警（OnLiveFlowService）
+   - 场景 3: 向后兼容验证
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯数 | 绿灯数 |
+|---------|--------|--------|
+| test_on_live_agent_graph_real.py | 9 红 -> 9 绿 |
+
+### 全量测试结果
+
+241 passed, 0 failed（从 Phase 5D 的 232 增长至 241）
+
+### CLI 演示结果
+
+- 场景 1（弹幕聚合）: DanmakuFlowService 真实调用
+- 场景 2（库存告警）: OnLiveFlowService 真实调用，建议切换备选商品
+- 场景 3（向后兼容）: 无 service 时退回 _DefaultExecutor，无异常
+
+### 发现的问题与修复
+
+1. CLI 演示中 ToolCallAuditStore 需要 settings 参数 -> 修复
+2. import OnLiveEventType 拼写错误 -> 去掉未使用的导入
+3. emoji 导致 Windows GBK 编码错误 -> 替换为纯文本
+
+### 当前遗留限制
+
+- _LocalServiceExecutor 需要传入 state 对象，播中 Agent graph 尚不支持持久化 state
+- 未接 Kafka 真实弹幕流（需 Phase 4D daemon 配合）
+- 播中 Agent 仍为单轮决策，未做多轮观察-决策循环
+
+### 下一阶段建议
+
+1. Phase 5F: WebSocket 副屏推送实时 Agent 建议
+2. Phase 6: 部署治理阶段
+3. 接入真实平台 API
