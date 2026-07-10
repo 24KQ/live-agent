@@ -20,6 +20,7 @@ from langgraph.graph import END, START, StateGraph
 from src.core.agent_decision import AgentObservation
 from src.core.agent_harness_context import AgentContextResult, build_agent_context
 from src.core.agent_lifecycle_hooks import AgentLifecycleHooks, HookResult
+from src.core.on_live_harness_audit import OnLiveHarnessAuditWriter
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision, OnLiveHarnessPlanner
 
 
@@ -31,6 +32,7 @@ class OnLiveHarnessAgentState(TypedDict, total=False):
 
     room_id: str
     trace_id: str
+    anchor_id: str | None
     danmaku_summary: list[dict[str, Any]]
     inventory_alerts: list[dict[str, Any]]
     current_product: dict[str, Any] | None
@@ -48,6 +50,10 @@ class OnLiveHarnessAgentState(TypedDict, total=False):
     executed_tools: list[dict[str, Any]]
     final_suggestion: str | None
     agent_status: str | None
+    audit_ids: list[str]
+    decision_trace_ids: list[str]
+    audit_status: str | None
+    audit_payload: dict[str, Any] | None
     error: str | None
     completed_nodes: list[str]
 
@@ -56,6 +62,7 @@ def create_initial_on_live_harness_state(
     room_id: str,
     trace_id: str,
     *,
+    anchor_id: str | None = None,
     trust_score: float = 0.7,
     danmaku_summary: list[dict[str, Any]] | None = None,
     inventory_alerts: list[dict[str, Any]] | None = None,
@@ -67,6 +74,7 @@ def create_initial_on_live_harness_state(
     return {
         "room_id": room_id,
         "trace_id": trace_id,
+        "anchor_id": anchor_id,
         "danmaku_summary": danmaku_summary or [],
         "inventory_alerts": inventory_alerts or [],
         "current_product": current_product,
@@ -84,6 +92,10 @@ def create_initial_on_live_harness_state(
         "executed_tools": [],
         "final_suggestion": None,
         "agent_status": None,
+        "audit_ids": [],
+        "decision_trace_ids": [],
+        "audit_status": None,
+        "audit_payload": None,
         "error": None,
         "completed_nodes": [],
     }
@@ -93,6 +105,7 @@ def build_on_live_harness_agent_graph(
     planner: Any | None = None,
     executor: Any | None = None,
     hooks: AgentLifecycleHooks | None = None,
+    audit_writer: OnLiveHarnessAuditWriter | None = None,
     *,
     checkpointer: Any | None = None,
 ):
@@ -100,6 +113,7 @@ def build_on_live_harness_agent_graph(
     _planner = planner or OnLiveHarnessPlanner()
     _executor = executor or _HarnessDefaultExecutor()
     _hooks = hooks or AgentLifecycleHooks()
+    _audit_writer = audit_writer or OnLiveHarnessAuditWriter()
 
     graph = StateGraph(OnLiveHarnessAgentState)
     graph.add_node("load_context", _load_context_node)
@@ -112,7 +126,7 @@ def build_on_live_harness_agent_graph(
     graph.add_node("post_tool_call_hook", lambda state: _post_tool_call_hook_node(state, _hooks))
     graph.add_node("observe_result", _observe_result_node)
     graph.add_node("route_replan", _route_replan_node)
-    graph.add_node("write_audit", _write_audit_node)
+    graph.add_node("write_audit", lambda state: _write_audit_node(state, _audit_writer))
 
     graph.add_edge(START, "load_context")
     graph.add_edge("load_context", "pre_reasoning_hook")
@@ -360,16 +374,35 @@ def _replan_decider(state: OnLiveHarnessAgentState) -> str:
     return "pre_reasoning_hook"
 
 
-def _write_audit_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
+def _write_audit_node(state: OnLiveHarnessAgentState, audit_writer: OnLiveHarnessAuditWriter) -> dict[str, Any]:
     """写审计占位节点。
 
     当前阶段先记录图状态，后续可接 ToolCallAuditStore / DecisionTraceStore。
     """
     status = state.get("agent_status") or "finished"
-    return {
-        "agent_status": status,
-        "completed_nodes": _append_node(state, "write_audit"),
-    }
+    completed_nodes = _append_node(state, "write_audit")
+    audit_state = dict(state)
+    audit_state["agent_status"] = status
+    audit_state["completed_nodes"] = completed_nodes
+    try:
+        audit_result = audit_writer.write(audit_state)
+        return {
+            "agent_status": status,
+            "audit_status": audit_result.get("audit_status"),
+            "audit_ids": audit_result.get("audit_ids", []),
+            "decision_trace_ids": audit_result.get("decision_trace_ids", []),
+            "audit_payload": audit_result.get("audit_payload"),
+            "completed_nodes": completed_nodes,
+        }
+    except Exception as exc:  # noqa: BLE001 - 审计失败必须被 Graph 捕获并留痕，不能让播中建议链路崩溃。
+        return {
+            "agent_status": status,
+            "audit_status": "error",
+            "audit_ids": state.get("audit_ids", []),
+            "decision_trace_ids": state.get("decision_trace_ids", []),
+            "error": f"audit write failed: {exc}",
+            "completed_nodes": completed_nodes,
+        }
 
 
 class _HarnessDefaultExecutor:

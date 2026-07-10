@@ -103,6 +103,28 @@ class RecordingExecutor:
         }
 
 
+class RecordingAuditWriter:
+    """测试用审计 writer，验证 Graph write_audit 节点会真正调用注入对象。"""
+
+    def __init__(self) -> None:
+        self.states: list[dict[str, Any]] = []
+
+    def write(self, state: dict[str, Any]) -> dict[str, Any]:
+        self.states.append(dict(state))
+        return {
+            "audit_status": "recorded",
+            "audit_ids": ["audit-graph-1"],
+            "decision_trace_ids": ["decision-graph-1"],
+        }
+
+
+class FailingAuditWriter:
+    """测试用异常 writer，确保审计失败不会让 Graph 崩溃。"""
+
+    def write(self, state: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("audit store unavailable")
+
+
 def test_harness_graph_runs_start_to_end() -> None:
     """Graph 能从 START 到 END。"""
     graph = build_on_live_harness_agent_graph(planner=NoActionPlanner())
@@ -190,3 +212,30 @@ def test_old_on_live_graph_still_works() -> None:
     state = create_initial_on_live_state(room_id="old-room", trace_id="old-trace")
     result = graph.invoke(state)
     assert result["room_id"] == "old-room"
+
+
+def test_write_audit_node_calls_injected_audit_writer() -> None:
+    """Phase 5H：write_audit 节点应调用注入的 audit writer 并回填审计 ID。"""
+    audit_writer = RecordingAuditWriter()
+    graph = build_on_live_harness_agent_graph(planner=FinalAnswerPlanner(), audit_writer=audit_writer)
+    state = create_initial_on_live_harness_state(room_id="room-5h", trace_id="trace-5h")
+
+    result = graph.invoke(state)
+
+    assert len(audit_writer.states) == 1
+    assert audit_writer.states[0]["trace_id"] == "trace-5h"
+    assert result["audit_status"] == "recorded"
+    assert result["audit_ids"] == ["audit-graph-1"]
+    assert result["decision_trace_ids"] == ["decision-graph-1"]
+
+
+def test_audit_writer_error_does_not_crash_graph() -> None:
+    """Phase 5H：审计写入失败时 Graph 返回 audit_status=error，而不是直接崩溃。"""
+    graph = build_on_live_harness_agent_graph(planner=FinalAnswerPlanner(), audit_writer=FailingAuditWriter())
+    state = create_initial_on_live_harness_state(room_id="room-5h", trace_id="trace-5h")
+
+    result = graph.invoke(state)
+
+    assert result["agent_status"] == "final_answer"
+    assert result["audit_status"] == "error"
+    assert "audit store unavailable" in result["error"]

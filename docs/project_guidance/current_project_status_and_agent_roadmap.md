@@ -170,3 +170,23 @@ START
 3. Phase 5C：播中 ReAct 小循环，让 Agent 基于弹幕、库存、流量观察动态生成主播建议。
 4. Phase 5D：LLM 播后复盘总结，输出自然语言报告，但仍保留结构化归因。
 5. 部署阶段：守护进程管理、数据清理策略、真实平台 API 适配层。
+---
+
+## 2026-07-11 当前状态补充：Phase 5H 后的 Agent 能力
+
+Phase 5H 已补齐 Harness Agent 的审计与 DecisionTrace 证据链。当前项目已经不只是“workflow + 局部 LLM”，播中链路具备了更明显的 Agent 特征：
+
+- LangGraph 显式节点图：推理、工具策略、工具执行、观察、replan、审计都在图中可见。
+- Agent state 可回放：`completed_nodes`、`observations`、`executed_tools`、`final_suggestion`、`audit_status` 都进入最终状态。
+- 工具调用可复盘：低风险工具自动执行，高风险工具 pending/blocked 会进入审计 payload。
+- DecisionTrace 闭环已打底：本阶段先记录 Agent 建议证据，播后再回填主播反馈和 trust_delta。
+
+### 当前仍缺的 Agent 核心能力
+
+1. **人审 interrupt 恢复**：高风险工具现在只 pending，还没有用 LangGraph `interrupt()` 暂停和恢复。
+2. **前端可观测性**：Web 副屏还没有展示 Harness 节点路径、审计状态和 pending 工具。
+3. **真实反馈更新**：DecisionTrace 里的采纳结果、业务结果、trust_delta 仍需播后复盘回填。
+
+### 推荐下一步
+
+优先做 **Phase 5I：LangGraph interrupt 人审恢复**。理由是它最能继续体现 Agent + LangGraph 的项目特征：Agent 不是自动乱执行，而是在高风险动作处可暂停、可人工批准、可从同一个 thread 恢复继续跑。

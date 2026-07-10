@@ -91,6 +91,13 @@ def _print_result(title: str, result: dict[str, Any]) -> None:
     print("executed_tools:", result.get("executed_tools"))
     print("observations:", result.get("observations"))
     print("final_suggestion:", result.get("final_suggestion"))
+    print("audit_status:", result.get("audit_status"))
+    print("audit_ids:", result.get("audit_ids"))
+    print("decision_trace_ids:", result.get("decision_trace_ids"))
+    audit_payload = result.get("audit_payload") or {}
+    if audit_payload:
+        print("audit_payload keys:", sorted(audit_payload.keys()))
+        print("dry_run decision trace:", audit_payload.get("decision_trace_dry_run"))
     print("error:", result.get("error"))
     print()
 

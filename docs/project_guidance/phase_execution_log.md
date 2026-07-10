@@ -1825,3 +1825,63 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 1. Phase 5H：把 Harness Agent 的 `write_audit` 接入真实审计与 DecisionTrace。
 2. Phase 5I：高风险工具接 LangGraph interrupt 人审恢复。
 3. Phase 6C：WebSocket 推送 Harness Agent 节点状态和建议。
+---
+
+## Phase 5H：Harness Agent 审计与 DecisionTrace 闭环（2026-07-11）
+
+- **设计文档**: [2026-07-11-phase-5h-harness-audit-trace-design.md](../superpowers/specs/2026-07-11-phase-5h-harness-audit-trace-design.md)
+- **实施计划**: [2026-07-11-phase-5h-harness-audit-trace-plan.md](../superpowers/plans/2026-07-11-phase-5h-harness-audit-trace-plan.md)
+
+### 实际交付内容
+
+1. 新增 `src/core/on_live_harness_audit.py`
+   - `OnLiveHarnessAuditWriter` 支持 dry-run 和真实 store 注入。
+   - 将 Harness Agent state 转换为 `AuditEvent` 和 `DecisionTraceRecord`。
+   - 对 API key、token、password、`.env` 和本机路径做递归脱敏。
+
+2. 改造 `src/core/on_live_harness_agent_graph.py`
+   - `build_on_live_harness_agent_graph()` 新增 `audit_writer` 参数。
+   - `write_audit` 节点调用真实 writer。
+   - state 增加 `anchor_id`、`audit_ids`、`decision_trace_ids`、`audit_status`、`audit_payload`。
+   - 审计失败返回 `audit_status=error`，不覆盖 Agent 已生成建议。
+
+3. 升级 CLI 演示
+   - `scripts/run_phase5g_harness_agent_demo.py` 输出审计状态、审计 ID、DecisionTrace ID 和 dry-run payload 摘要。
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯原因 | 绿灯结果 |
+| --- | --- | --- |
+| `test_on_live_harness_audit.py` | 新模块不存在 | 5 passed |
+| `test_on_live_harness_agent_graph.py -k audit` | Graph 不支持 `audit_writer` | 2 passed |
+| `test_on_live_harness_audit_flow.py` | Graph 不支持审计注入 | 1 passed |
+
+### 验收结果记录
+
+- `pytest tests/unit/test_on_live_harness_audit.py -v`: 5 passed
+- `pytest tests/unit/test_on_live_harness_agent_graph.py -v -k "audit"`: 2 passed
+- `pytest tests/integration/test_on_live_harness_audit_flow.py -v`: 1 passed
+- `pytest tests/unit/test_on_live_harness_planner.py -v`: 9 passed
+- `pytest tests/unit/ -v`: 301 passed, 4 warnings
+- `python scripts/run_phase5g_harness_agent_demo.py`: 三个场景均输出 `audit_status=dry_run`，库存场景包含 `recommend_backup_product` 审计预览和 DecisionTrace dry-run payload。
+- `git status --short --ignored`: 仅 5H 相关文件变更；`.env`、缓存、`docs/study/`、`docs/worklog/` 仍被忽略。
+- `git add -n .`: dry-run staging 只包含 5H 代码、测试和留迹文档。
+
+### 已修复问题
+
+1. `write_audit` 从占位节点变成真实审计节点。
+2. 无数据库环境下可 dry-run，不影响 CLI 和单元测试。
+3. 审计异常不会让 LangGraph 链路崩溃。
+4. DecisionTrace 在缺少真实 store 或 anchor_id 时进入 dry-run payload，而不是强行写库。
+
+### 遗留限制
+
+- 真实 DecisionTrace 中主播采纳/拒绝和 trust_delta 仍需播后复盘更新。
+- 高风险工具仍停留在 pending，不做 LangGraph interrupt 恢复。
+- Web 副屏暂未展示 Harness 节点路径和审计状态。
+
+### 下一阶段建议
+
+1. Phase 5I：接入 LangGraph `interrupt()`，实现高风险工具人审恢复。
+2. Phase 6C：WebSocket 推送 Harness Agent 节点路径、审计状态和最终建议。
+3. 播后复盘增强：基于 DecisionTrace 更新真实采纳结果和 trust_score。
