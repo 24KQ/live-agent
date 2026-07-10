@@ -1885,3 +1885,52 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 1. Phase 5I：接入 LangGraph `interrupt()`，实现高风险工具人审恢复。
 2. Phase 6C：WebSocket 推送 Harness Agent 节点路径、审计状态和最终建议。
 3. 播后复盘增强：基于 DecisionTrace 更新真实采纳结果和 trust_score。
+---
+
+## Phase 5I：Harness Interrupt 人审恢复（2026-07-11）
+
+- **设计文档**: [2026-07-11-phase-5i-harness-interrupt-design.md](../superpowers/specs/2026-07-11-phase-5i-harness-interrupt-design.md)
+- **实施计划**: [2026-07-11-phase-5i-harness-interrupt-plan.md](../superpowers/plans/2026-07-11-phase-5i-harness-interrupt-plan.md)
+
+### 实际交付内容
+
+1. 播中 Harness Graph 新增 `human_approval_interrupt` 节点。
+2. 高风险工具从 `pending_human` 升级为 LangGraph `interrupt()` 暂停。
+3. 使用 `Command(resume=...)` 恢复 approve / reject 两条路径。
+4. approved 后执行原 pending tool；rejected 后不执行工具并写审计。
+5. `HumanApprovalRequest` 支持 `tool_arguments` 和 `context_summary`。
+6. 审计 payload 记录审批请求、审批结果、操作员和原因。
+7. 新增 CLI 演示 `scripts/run_phase5i_harness_interrupt_demo.py`。
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯原因 | 绿灯结果 |
+| --- | --- | --- |
+| `test_human_approval.py` | `HumanApprovalRequest` 缺少播中工具字段 | 11 passed |
+| `test_on_live_harness_agent_interrupt.py` | Harness Graph 未触发 `__interrupt__` | 4 passed |
+| `test_on_live_harness_interrupt_flow.py` | 缺少 approve/reject 恢复链路 | 2 passed |
+
+### 当前验收记录
+
+- `pytest tests/unit/test_human_approval.py -v`: 11 passed
+- `pytest tests/unit/test_on_live_harness_agent_interrupt.py -v`: 4 passed
+- `pytest tests/integration/test_on_live_harness_interrupt_flow.py -v`: 2 passed
+- `pytest tests/unit/test_on_live_harness_agent_graph.py -v`: 9 passed
+- `pytest tests/unit/test_on_live_harness_audit.py -v`: 5 passed
+- `pytest tests/unit/test_pre_live_graph_interrupt.py -v`: 3 passed
+
+- `pytest tests/unit/ -v`: 307 passed, 4 warnings
+- `python scripts/run_phase5i_harness_interrupt_demo.py`: approve 场景执行 `handle_sold_out_event` 并生成 observation；reject 场景不执行工具，状态为 `rejected_by_human`。
+- `git status --short --ignored` 和 `git add -n .` 在阶段收尾检查，确保 `.env`、缓存和 ignored 文档不会进入提交。
+
+### 遗留限制
+
+- 目前只有 CLI 演示 approve/reject，Web 副屏还没有审批按钮。
+- pending/resume 审计在真实数据库场景下还需要更强的幂等键设计。
+- 真实平台高风险动作仍由本地执行器模拟，不接淘宝/抖音 API。
+
+### 下一阶段建议
+
+1. Phase 6C：Web 副屏展示 pending human approval，并提供 approve/reject 操作入口。
+2. Phase 6D：WebSocket 推送 Harness 节点路径、interrupt 状态和审批结果。
+3. 播后复盘：把审批结果纳入 DecisionTrace 反馈和 trust_score 更新。

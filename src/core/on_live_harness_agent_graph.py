@@ -16,10 +16,17 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from src.core.agent_decision import AgentObservation
 from src.core.agent_harness_context import AgentContextResult, build_agent_context
 from src.core.agent_lifecycle_hooks import AgentLifecycleHooks, HookResult
+from src.core.human_approval import (
+    HumanApprovalDecision,
+    HumanApprovalRequest,
+    HumanApprovalResponse,
+    validate_human_approval_response,
+)
 from src.core.on_live_harness_audit import OnLiveHarnessAuditWriter
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision, OnLiveHarnessPlanner
 
@@ -54,6 +61,11 @@ class OnLiveHarnessAgentState(TypedDict, total=False):
     decision_trace_ids: list[str]
     audit_status: str | None
     audit_payload: dict[str, Any] | None
+    approval_request: dict[str, Any] | None
+    approval_decision: str | None
+    approval_resume_audit_id: str | None
+    approval_operator_id: str | None
+    approval_reason: str | None
     error: str | None
     completed_nodes: list[str]
 
@@ -96,6 +108,11 @@ def create_initial_on_live_harness_state(
         "decision_trace_ids": [],
         "audit_status": None,
         "audit_payload": None,
+        "approval_request": None,
+        "approval_decision": None,
+        "approval_resume_audit_id": None,
+        "approval_operator_id": None,
+        "approval_reason": None,
         "error": None,
         "completed_nodes": [],
     }
@@ -123,6 +140,7 @@ def build_on_live_harness_agent_graph(
     graph.add_node("pre_tool_call_hook", lambda state: _pre_tool_call_hook_node(state, _hooks))
     graph.add_node("route_tool_policy", _route_tool_policy_node)
     graph.add_node("execute_tool", lambda state: _execute_tool_node(state, _executor))
+    graph.add_node("human_approval_interrupt", _human_approval_interrupt_node)
     graph.add_node("post_tool_call_hook", lambda state: _post_tool_call_hook_node(state, _hooks))
     graph.add_node("observe_result", _observe_result_node)
     graph.add_node("route_replan", _route_replan_node)
@@ -144,6 +162,15 @@ def build_on_live_harness_agent_graph(
     graph.add_conditional_edges(
         "route_tool_policy",
         _tool_policy_decider,
+        {
+            "execute_tool": "execute_tool",
+            "human_approval_interrupt": "human_approval_interrupt",
+            "write_audit": "write_audit",
+        },
+    )
+    graph.add_conditional_edges(
+        "human_approval_interrupt",
+        _human_approval_decider,
         {
             "execute_tool": "execute_tool",
             "write_audit": "write_audit",
@@ -300,6 +327,80 @@ def _tool_policy_decider(state: OnLiveHarnessAgentState) -> str:
     """根据 Hook 策略决定是否执行工具。"""
     policy = state.get("tool_policy") or {}
     if policy.get("status") == "auto_execute":
+        return "execute_tool"
+    if policy.get("status") == "pending_human":
+        return "human_approval_interrupt"
+    return "write_audit"
+
+
+def _human_approval_interrupt_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
+    """对高风险播中工具触发 LangGraph interrupt 人审。
+
+    恢复时会从当前节点重新进入，`interrupt()` 返回 `Command(resume=...)` 的审批结果。因此这里必须
+    重新校验 trace、room 和 tool，避免错误审批结果驱动高风险工具执行。
+    """
+
+    request = _build_on_live_approval_request(state)
+    request_payload = request.model_dump(mode="json")
+    resume_payload = interrupt(request_payload)
+    response = validate_human_approval_response(
+        request,
+        HumanApprovalResponse.model_validate(resume_payload),
+    )
+    completed_nodes = _append_node(state, "human_approval_interrupt")
+    base_result: dict[str, Any] = {
+        "approval_request": request_payload,
+        "approval_decision": response.decision.value,
+        "approval_resume_audit_id": f"dry-run:{request.trace_id}:{request.tool_name}:approval:{response.decision.value}",
+        "approval_operator_id": response.operator_id,
+        "approval_reason": response.reason,
+        "completed_nodes": completed_nodes,
+    }
+    if response.decision == HumanApprovalDecision.APPROVED:
+        return {
+            **base_result,
+            "agent_status": "call_tool",
+            "error": None,
+            "tool_policy": {
+                **(state.get("tool_policy") or {}),
+                "status": "human_approved",
+                "reason": response.reason,
+            },
+        }
+    return {
+        **base_result,
+        "agent_status": "rejected_by_human",
+        "error": response.reason,
+        "tool_policy": {
+            **(state.get("tool_policy") or {}),
+            "status": "human_rejected",
+            "reason": response.reason,
+        },
+    }
+
+
+def _build_on_live_approval_request(state: OnLiveHarnessAgentState) -> HumanApprovalRequest:
+    """从 pending_tool_call 构造给人工审批看的播中请求。"""
+
+    call = state.get("pending_tool_call") or {}
+    tool_name = str(call.get("tool_name") or "")
+    arguments = dict(call.get("arguments") or {})
+    return HumanApprovalRequest(
+        trace_id=str(state.get("trace_id") or ""),
+        room_id=str(state.get("room_id") or ""),
+        tool_name=tool_name,
+        risk_level=str(call.get("risk_level") or "HIGH"),
+        action="approve_on_live_tool_call",
+        message=f"是否允许 Agent 执行播中高风险工具 {tool_name}？",
+        tool_arguments=arguments,
+        context_summary=state.get("context_summary"),
+    )
+
+
+def _human_approval_decider(state: OnLiveHarnessAgentState) -> str:
+    """根据人工审批结果决定执行工具还是写审计结束。"""
+
+    if state.get("approval_decision") == HumanApprovalDecision.APPROVED.value:
         return "execute_tool"
     return "write_audit"
 

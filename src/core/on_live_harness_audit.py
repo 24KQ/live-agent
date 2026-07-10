@@ -101,6 +101,11 @@ class OnLiveHarnessAuditWriter:
                 "final_suggestion": state.get("final_suggestion"),
                 "observations": state.get("observations", []),
                 "executed_tools": state.get("executed_tools", []),
+                "approval_request": state.get("approval_request"),
+                "approval_decision": state.get("approval_decision"),
+                "approval_resume_audit_id": state.get("approval_resume_audit_id"),
+                "approval_operator_id": state.get("approval_operator_id"),
+                "approval_reason": state.get("approval_reason"),
                 "error": state.get("error"),
             }
         )

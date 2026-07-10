@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -41,6 +42,8 @@ class HumanApprovalRequest(BaseModel):
     action: str = Field(..., min_length=1)
     plan_item_ids: list[str] = Field(default_factory=list)
     message: str = Field(..., min_length=1)
+    tool_arguments: dict[str, Any] = Field(default_factory=dict)
+    context_summary: str | None = None
 
     @field_validator("trace_id", "room_id", "tool_name", "action", "message", mode="before")
     @classmethod

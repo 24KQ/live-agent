@@ -130,3 +130,32 @@ def test_validate_human_approval_response_returns_clean_response_when_matched() 
     )
 
     assert validate_human_approval_response(request, response) == response
+
+
+def test_human_approval_request_supports_on_live_tool_context_defaults() -> None:
+    """Phase 5I：播中审批新增字段应有默认值，避免破坏播前旧调用。"""
+
+    request = _approval_request()
+
+    assert request.tool_arguments == {}
+    assert request.context_summary is None
+
+
+def test_human_approval_request_serializes_on_live_tool_context() -> None:
+    """Phase 5I：播中审批 payload 应能携带工具参数和压缩上下文，供副屏/CLI 展示。"""
+
+    request = HumanApprovalRequest(
+        trace_id="trace-on-live-approval",
+        room_id="room-demo-001",
+        tool_name="handle_sold_out_event",
+        risk_level=RiskLevel.HIGH,
+        action="approve_on_live_tool_call",
+        message="是否允许 Agent 执行售罄处理工具？",
+        tool_arguments={"product_id": "p001"},
+        context_summary="库存售罄，弹幕集中询问能否继续购买。",
+    )
+
+    payload = request.model_dump(mode="json")
+
+    assert payload["tool_arguments"] == {"product_id": "p001"}
+    assert payload["context_summary"] == "库存售罄，弹幕集中询问能否继续购买。"
