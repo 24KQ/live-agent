@@ -1612,6 +1612,51 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 
 ---
 
+
+## Phase 5F：播中 LLM Planner（2026-07-10）
+
+### 状态
+✅ 已完成
+
+### 任务说明
+把播中 Agent 的决策从确定性规则升级为 LLM 驱动决策。DeepSeek（deepseek-v4-flash）优先决策，不可用时降级到 Phase 5C 的确定性规则。
+
+### TDD 红绿
+- 单元测试 11 个（test_on_live_llm_planner.py）：RED 确认（模块不存在）→ GREEN 11/11 passed
+- 全量单元测试 263 passed
+
+### 测试结果
+- `pytest tests/unit/test_on_live_llm_planner.py -v`：11/11 passed
+- `pytest tests/unit/test_on_live_agent_graph.py -v`：7/7 passed（向后兼容）
+- `pytest tests/unit/ -v`：263/263 passed
+
+### CLI 演示结果
+- `python scripts/run_phase5f_llm_planner_demo.py`：三种场景 + Graph 集成全部正常
+  - 场景 1（弹幕集中）：LLM 建议"主动回应价格问题，强调高端定位和耐用性"——比规则的"建议主播重点回应"更自然
+  - 场景 2（库存告警）：LLM 建议"确认大码库存"——比规则的"检查备选商品"更精准
+  - 场景 3（无事件）：LLM 返回 finish，不干预——正确
+  - 场景 4（Graph 集成）：完整运行 collect → plan → route → execute → observe → audit 全链路
+
+### 新增文件
+- `src/skills/on_live_llm_planner.py`：OnLiveLLMPlanner 核心逻辑
+- `scripts/run_phase5f_llm_planner_demo.py`：CLI 演示脚本
+- `tests/unit/test_on_live_llm_planner.py`：11 个单元测试
+- `docs/superpowers/specs/2026-07-10-phase-5f-on-live-llm-planner-design.md`：设计文档
+- `docs/superpowers/plans/2026-07-10-phase-5f-on-live-llm-planner-plan.md`：实施计划
+
+### 修改文件
+- `src/core/on_live_agent_graph.py`：_planner_node 增加 LLM 分支（OnLiveLLMPlanner 优先，_DefaultPlanner 降级）
+
+### 问题修复
+- Node REPL 写入 f-string 时 literal \n 导致 SyntaxError，改用字符串拼接绕过
+
+### 遗留限制
+- 无事件时直接 finish，不调 LLM（节省 API 调用），这个逻辑在 `OnLiveLLMPlanner.plan()` 中第一行判断
+- 集成测试依赖真实 DeepSeek key，只在 CLI 演示中验证
+
+### 下一阶段建议
+- Phase 5G：播中 LLM Agent 完整循环——LLM 不仅做决策，还能主动查询记忆、调用工具
+
 ## Phase 6A: 前端功能补全与数据可看化（Frontend Data Completeness）
 
 - **日期**: 2026-07-10

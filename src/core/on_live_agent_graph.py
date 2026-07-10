@@ -154,17 +154,55 @@ def _collect_context_node(state: OnLiveAgentGraphState) -> dict[str, Any]:
 
 
 def _planner_node(state: OnLiveAgentGraphState, planner: Any) -> dict[str, Any]:
-    """播中 planner 节点：根据弹幕和告警决策本轮目标。"""
+    """播中 planner 节点：根据弹幕和告警决策本轮目标。
+
+    如果 planner 是 OnLiveLLMPlanner（有 plan 方法且不是 _DefaultPlanner），
+    优先用 LLM 决策；否则走旧确定性规则。
+    LLM 不可用或失败时自动降级到规则，不中断流程。
+    """
     try:
         danmaku = state.get("danmaku_summary", [])
         alerts = state.get("inventory_alerts", [])
+        trust_score = state.get("trust_score", 0.7)
+        memory_hints = state.get("memory_summary", None)
 
-        # 判断是否有需要干预的事件
+        # 判断 planner 类型：OnLiveLLMPlanner 有 plan 方法且不是 _DefaultPlanner
+        use_llm = hasattr(planner, "plan") and not isinstance(planner, _DefaultPlanner)
+
+        if use_llm:
+            try:
+                # OnLiveLLMPlanner.plan() 接受的参数
+                kwargs = {
+                    "danmaku_summary": danmaku,
+                    "inventory_alerts": alerts,
+                    "trust_score": trust_score,
+                }
+                if memory_hints:
+                    kwargs["memory_hints"] = [(memory_hints, 0.5)]
+
+                decision = planner.plan(**kwargs)
+
+                route = AgentReplanRoute.FALLBACK.value
+                if decision.get("route") == "direct_plan":
+                    route = AgentReplanRoute.DIRECT_PLAN.value
+                elif decision.get("route") == "finish":
+                    route = AgentReplanRoute.FINISH.value
+
+                return {
+                    "planner_route": route,
+                    "goal": decision.get("goal", "LLM 决策"),
+                    "suggestion": decision.get("suggestion"),
+                    "completed_nodes": _append_node(state, "on_live_planner"),
+                }
+            except Exception:
+                # LLM 失败，降级到规则
+                pass
+
+        # 确定性规则（_DefaultPlanner 或 LLM 降级）
         has_high_frequency = any(d.get("count", 0) >= 10 for d in danmaku)
         has_alerts = len(alerts) > 0
 
         if not danmaku and not alerts:
-            # 无事件时 finish
             return {
                 "planner_route": AgentReplanRoute.FINISH.value,
                 "goal": "无事件，不干预",
@@ -172,19 +210,17 @@ def _planner_node(state: OnLiveAgentGraphState, planner: Any) -> dict[str, Any]:
                 "completed_nodes": _append_node(state, "on_live_planner"),
             }
 
-        # 根据上下文决策
         if has_alerts:
             route = AgentReplanRoute.DIRECT_PLAN.value
             goal = "处理库存告警"
-            suggestion = f"检测到 {len(alerts)} 个库存异常，建议检查备选商品并准备切换。"
+            suggestion = "检测到 " + str(len(alerts)) + " 个库存异常，建议检查备选商品并准备切换。"
         elif has_high_frequency:
             route = AgentReplanRoute.DIRECT_PLAN.value
             goal = "处理高频弹幕"
-            # 找出最高频分类
             top = max(danmaku, key=lambda d: d.get("count", 0))
-            suggestion = f"弹幕高频问题：{top.get('summary', top.get('category', '未知'))}，建议主播重点回应。"
+            summary = top.get("summary", top.get("category", "未知"))
+            suggestion = "弹幕高频问题：" + str(summary) + "，建议主播重点回应。"
         else:
-            # 低频事件不干预
             route = AgentReplanRoute.FINISH.value
             goal = "低频事件，不干预"
             suggestion = None
@@ -199,7 +235,7 @@ def _planner_node(state: OnLiveAgentGraphState, planner: Any) -> dict[str, Any]:
         return {
             "planner_route": AgentReplanRoute.FALLBACK.value,
             "goal": "planner 失败，降级",
-            "error": f"on_live_planner failed: {exc}",
+            "error": "on_live_planner failed: " + str(exc),
             "completed_nodes": _append_node(state, "on_live_planner"),
         }
 
