@@ -1,6 +1,6 @@
 # LiveAgent 当前项目状态与 Agent 化路线图
 
-更新日期：2026-07-09
+更新日期：2026-07-11
 
 ## 当前状态结论
 
@@ -205,3 +205,43 @@ Phase 5I 已把播中 Harness Agent 的高风险工具接入 LangGraph `interrup
 ### 下一步推荐
 
 优先做 **Phase 6C：Web 副屏人审入口与 Agent 可观测面板**。原因是 5G-B/5H/5I 已经把 Agent 内核补齐，下一步要让主播在前端看见节点路径、pending 审批和最终建议，形成真正可用的人机协同产品体验。
+
+---
+
+## 2026-07-11 文档编码治理补充
+
+项目留迹已经成为后续迭代的重要输入，因此中文文档编码需要纳入工程规范。本次治理完成后，当前文档体系调整为：
+
+- `docs/project_guidance/`：正式项目指导、状态路线图、阶段执行日志和编码规范。
+- `docs/worklog/`：可追踪的过程工作日志，只记录脱敏项目事实和后续任务，不记录真实密钥或本机私密信息。
+- `scripts/check_doc_encoding.py`：只读扫描工具，用于区分终端显示乱码和文件内容损坏。
+
+后续所有中文留迹默认遵循 `docs/project_guidance/document_encoding_policy.md`：优先使用 `apply_patch` 修改，避免 PowerShell heredoc / 管道写入大段中文，阶段收尾时运行编码扫描和 `git diff --check`。
+---
+
+## 2026-07-11 当前状态补充：Phase 6C 后的产品化 Agent 能力
+
+Phase 6C 已把播中 Harness Agent 从 CLI 演示推进到 Web 副屏产品体验：
+
+- Web 可以启动一条 Harness Agent 会话，并看到 `trace_id`、状态、节点路径和 pending 高风险工具。
+- 高风险工具不会自动执行，必须在副屏点击批准后才通过 `Command(resume=...)` 恢复同一 LangGraph thread。
+- 拒绝路径不会执行工具，会把 `rejected_by_human`、操作员和原因写入会话状态。
+- PostgreSQL `live_agent_harness_sessions` 保存 Web 查询所需的会话快照；LangGraph checkpoint 仍由官方 PostgresSaver 负责。
+- WebSocket 已能推送 `agent_harness_update`，副屏可实时刷新审批状态和最终建议。
+
+### 现在项目为什么更像 Agent
+
+当前核心亮点不再只是“业务 workflow + LLM 文案”，而是具备了 Agent 工程闭环：
+
+```text
+Context -> Reason -> Tool Policy -> Interrupt -> Human Resume
+-> Tool Execution -> Observation -> Replan -> Audit -> Web Observability
+```
+
+这条链路体现了 LangGraph 的状态图、条件边、checkpoint、interrupt/resume 和可观测状态，而不是普通脚本式 ReAct。
+
+### 下一步优先级
+
+1. Phase 7A：Agent Replay / Evaluation。把每次 Harness 会话做成可回放、可评分、可复盘的评估接口。
+2. Phase 7B：生产化硬化。补审批 TTL、操作员锁、幂等键、错误告警、恢复脚本和敏感字段脱敏检查。
+3. Phase 7C：一键演示与部署包装。把 seed、Kafka、API、Web、demo 组合成可交付的项目演示入口。

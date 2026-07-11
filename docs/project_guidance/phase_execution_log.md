@@ -1934,3 +1934,99 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 1. Phase 6C：Web 副屏展示 pending human approval，并提供 approve/reject 操作入口。
 2. Phase 6D：WebSocket 推送 Harness 节点路径、interrupt 状态和审批结果。
 3. 播后复盘：把审批结果纳入 DecisionTrace 反馈和 trust_score 更新。
+
+---
+
+## 文档编码治理记录（2026-07-11）
+
+### 背景
+
+项目阶段留迹已经成为后续 Agent 化迭代的关键输入。此前多次用 PowerShell heredoc / 管道写入中文文档，存在终端编码和文件编码不一致的风险，容易造成“终端显示乱码”和“文件内容真实损坏”混淆。
+
+### 实际交付内容
+
+1. 新增 `scripts/check_doc_encoding.py`：
+   - 扫描 `docs/project_guidance/`、`docs/worklog/`、`docs/superpowers/specs/`、`docs/superpowers/plans/`。
+   - 检查 UTF-8 解码错误、U+FFFD 替换字符和高置信 mojibake 片段。
+   - 只读运行，不修改文件。
+
+2. 新增 `docs/project_guidance/document_encoding_policy.md`：
+   - 固定中文文档写入规则。
+   - 明确乱码排查顺序。
+   - 约定后续阶段收尾必须做编码检查。
+
+3. 调整 `docs/worklog/`：
+   - 从本机忽略目录改为可追踪的脱敏工作日志目录。
+   - 新增 `task_plan.md`、`findings.md`、`progress.md`。
+   - 明确不记录真实密钥、token、`.env` 内容或本机私密信息。
+
+### 修复策略
+
+- 不做盲目批量转码。
+- 能从 git 历史恢复的才按历史版本恢复。
+- 无法可靠恢复的内容按当前项目事实重写。
+- 后续中文文档优先用 `apply_patch` 修改，不再用 PowerShell heredoc / 管道写大段中文。
+
+### 验收记录
+
+- `python scripts/check_doc_encoding.py`：通过，无 UTF-8 解码错误、替换字符或高置信 mojibake 命中。
+- `pytest tests/unit/test_check_doc_encoding.py -v`：通过。
+- `git diff --check`：通过。
+
+### 后续要求
+
+1. 每个阶段结束后继续补充测试记录、反馈、遗留限制和后续迭代方向。
+2. 阶段收尾时先运行 `python scripts/check_doc_encoding.py`，再整理最终留迹。
+3. 如果文档扫描出现乱码命中，先处理文档治理，再继续推进新阶段。
+---
+
+## Phase 6C：Web 副屏 Agent 可观测与人审入口（2026-07-11）
+
+- **设计文档**: [2026-07-11-phase-6c-harness-dashboard-design.md](../superpowers/specs/2026-07-11-phase-6c-harness-dashboard-design.md)
+- **实施计划**: [2026-07-11-phase-6c-harness-dashboard-plan.md](../superpowers/plans/2026-07-11-phase-6c-harness-dashboard-plan.md)
+
+### 实际交付内容
+
+1. 新增 PostgreSQL 业务表 `live_agent_harness_sessions`，保存 Web 可查询的 Harness 会话快照。
+2. 新增 `PostgresHarnessSessionStore` 和 `HarnessDashboardService`，把 Web 请求转换为 LangGraph start / interrupt / resume。
+3. FastAPI 新增 `POST /api/agent/harness/start`、`GET /api/agent/harness/status`、`POST /api/agent/harness/approval`、`/ws` 和 `agent_harness_update` 推送。
+4. `front/index.html` 升级为 Harness 可观测副屏，展示节点路径、pending 工具、人审按钮、observation、最终建议和审计状态。
+5. 新增 CLI 演示 `scripts/run_phase6c_harness_dashboard_demo.py`。
+
+### TDD 红绿反馈
+
+| 测试文件 | 红灯原因 | 绿灯结果 |
+| --- | --- | --- |
+| `test_harness_session_store.py` | 新 session store 模块不存在 | 4 passed |
+| `test_harness_dashboard_service.py` | Dashboard service 模块不存在 | 4 passed |
+| `test_api_server_harness.py` | REST 端点不存在，返回 404/405 | 4 passed |
+| `test_harness_dashboard_flow.py` | PostgreSQL 会话表和恢复链路不存在 | 2 passed |
+
+### 当前验收记录
+
+- `pytest tests/unit/test_harness_session_store.py tests/unit/test_harness_dashboard_service.py tests/unit/test_api_server_harness.py tests/unit/test_websocket_manager.py -v`: 20 passed, 1 warning
+- `pytest tests/integration/test_harness_dashboard_flow.py -v`: 2 passed
+- `python -m py_compile src/gateway/harness_session_store.py src/gateway/harness_dashboard_service.py src/gateway/api_server.py`: passed
+
+### 问题修复
+
+1. `api_server.py` 原先生命周期任务引用 `_push_agent_suggestion/_push_danmaku/_push_alerts/_push_review`，但文件内没有定义；本阶段补齐。
+2. WebSocket `/ws` 入口缺失，前端实时推送无法真正建立；本阶段补齐。
+3. 前端旧 `index.html` 中文乱码严重且缺少 Harness 人审入口；本阶段重写为 UTF-8 副屏。
+
+### 遗留限制
+
+- Phase 6C 的高风险工具执行仍使用本地 demo executor，不调用真实平台 API。
+- pending 审批暂未设置过期时间、操作员抢占锁和多端冲突处理。
+- Web 人审结果已进入 Harness 会话和审计 payload，但真实业务反馈仍需播后复盘更新 DecisionTrace 和 trust_score。
+
+### 后续迭代方向
+
+1. Phase 7A：Agent Replay / Evaluation，把 Harness state、audit、DecisionTrace 做成可回放评估报告。
+2. Phase 7B：生产化硬化，补 pending 审批 TTL、幂等键、操作员锁、错误告警和恢复脚本。
+3. Phase 7C：一键演示与部署包装，提供 seed、Kafka、API、Web 的完整启动脚本。
+### Phase 6C 补充验收记录
+
+- `pytest tests/unit/ -v`: 320 passed, 4 warnings。
+- `python scripts/run_phase6c_harness_dashboard_demo.py`: approve / reject 两条 PostgreSQL 恢复链路均输出预期状态。
+- `pytest -v`: 366 passed, 1 failed, 9 warnings。失败项为既有 DeepSeek 手卡集成测试 `test_deepseek_card_differs_from_template`，当前 LLM 调用降级后与模板手卡相同，非 Phase 6C 链路。
