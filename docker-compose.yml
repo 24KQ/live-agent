@@ -1,0 +1,75 @@
+﻿# Phase 7C: LiveAgent 基础设施一键编排
+# docker compose up -d  // 后台启动
+# docker compose down   // 全部停止
+
+networks:
+  live-agent-net:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: liveagent-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: change_me
+    volumes:
+      - ./docker:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - live-agent-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6
+    container_name: liveagent-zk
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - live-agent-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6
+    container_name: liveagent-kafka
+    ports:
+      - "9092:9092"
+    depends_on:
+      zookeeper:
+        condition: service_started
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "anchor.danmaku:1:1,anchor.inventory:1:1,anchor.traffic:1:1,anchor.command:1:1"
+    networks:
+      - live-agent-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: liveagent-minio
+    ports:
+      - "8900:9000"
+      - "8901:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - miniodata:/data
+    networks:
+      - live-agent-net
+
+volumes:
+  pgdata:
+  miniodata:

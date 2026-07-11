@@ -20,6 +20,10 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+import sys
+from pathlib import Path
+if str(Path(__file__).resolve().parents[1]) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.config.settings import get_settings
 
 

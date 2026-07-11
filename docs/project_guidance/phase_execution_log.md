@@ -2090,3 +2090,25 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 3. Phase 8：真实平台 Adapter，保留当前 ToolPolicy 和人审边界。
 
 ---
+
+---
+
+## 2026-07-11 Phase 7C：一键演示与部署包装
+
+### 完成内容
+
+- docker-compose.yml：PostgreSQL 15 + Kafka 7.6 + Zookeeper + MinIO 一键编排
+- scripts/run_all.py：5 个子命令 unified entrypoint (migrate/seed/server/demo/up)
+- run.ps1：Windows 快捷启动入口（docker/up/demo/migrate/seed/server）
+- README.md：从开发笔记重写为可交付项目说明
+
+### 测试结果
+
+- 366 个单元测试全部通过，零回归
+- migrate --dry-run 验证通过（9 个迁移步骤正确识别）
+
+### 遗留限制
+
+- demo 子命令中部分 demo 脚本（如 LLM card）依赖 PostgreSQL 连接，没有 PostgreSQL 时会失败但不会阻塞
+- run.ps1 需要 PowerShell 5.1+，未测试跨平台
+- 未添加 GitHub Actions CI 配置
