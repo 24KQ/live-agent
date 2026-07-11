@@ -121,3 +121,51 @@ class AgentLifecycleHooks:
             summary=summary,
             audit_id=audit_id,
         )
+
+    def post_reasoning(
+        self,
+        tool_name: str | None,
+        arguments: dict[str, Any],
+        current_product: dict[str, Any] | None,
+        inventory_alerts: list[dict[str, Any]],
+    ) -> PostReasoningResult:
+        """对 LLM 决策结果做交叉验证，检测三种幻觉。
+
+        1. 商品不存在幻觉：call_tool 携带的 product_id 不在当前货盘中
+        2. 无事件调用工具幻觉：无库存告警时调用了售罄处理工具
+        3. 商品已售罄但未处理：有库存告警但 LLM 未响应
+
+        返回 PostReasoningResult，发现幻觉时 corrected_decision 不为 None。
+        """
+        issues: list[str] = []
+
+        # 检查 1：商品 ID 是否存在
+        product_id = arguments.get("product_id") or arguments.get("sold_out_product_id")
+        if product_id and current_product:
+            pid = current_product.get("product_id", "")
+            if pid and product_id != pid:
+                issues.append(f"商品 {product_id} 不在当前讲解商品中（当前商品: {pid}）")
+
+        # 检查 2：无事件调用工具
+        if tool_name == "handle_sold_out_event" and not inventory_alerts:
+            issues.append("无库存告警，不应调用售罄处理工具 handle_sold_out_event")
+
+        # 检查 3：有库存告警但 LLM 未处理（不强制阻断，仅记录）
+        if inventory_alerts and tool_name not in ("handle_sold_out_event", "recommend_backup_product"):
+            issues.append(f"存在 {len(inventory_alerts)} 个库存告警，但 LLM 决策未涉及售罄处理或备选推荐")
+
+        if issues:
+            return PostReasoningResult(
+                passed=False,
+                issues=issues,
+                corrected_decision={"action": "corrected", "reason": "; ".join(issues)},
+            )
+        return PostReasoningResult(passed=True, issues=[], corrected_decision=None)
+
+
+@dataclass
+class PostReasoningResult:
+    """PostReasoning 幻觉检测结果。"""
+    passed: bool = True
+    issues: list[str] = field(default_factory=list)
+    corrected_decision: dict | None = None

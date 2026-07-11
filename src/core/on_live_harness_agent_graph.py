@@ -67,6 +67,7 @@ class OnLiveHarnessAgentState(TypedDict, total=False):
     approval_operator_id: str | None
     approval_reason: str | None
     error: str | None
+    hallucination_issues: list[str]
     completed_nodes: list[str]
 
 
@@ -114,6 +115,7 @@ def create_initial_on_live_harness_state(
         "approval_operator_id": None,
         "approval_reason": None,
         "error": None,
+        "hallucination_issues": [],
         "completed_nodes": [],
     }
 
@@ -136,6 +138,7 @@ def build_on_live_harness_agent_graph(
     graph.add_node("load_context", _load_context_node)
     graph.add_node("pre_reasoning_hook", _pre_reasoning_hook_node)
     graph.add_node("agent_reasoning", lambda state: _agent_reasoning_node(state, _planner))
+    graph.add_node("post_reasoning_hook", lambda state: _post_reasoning_hook_node(state, _hooks))
     graph.add_node("route_agent_decision", _route_agent_decision_node)
     graph.add_node("pre_tool_call_hook", lambda state: _pre_tool_call_hook_node(state, _hooks))
     graph.add_node("route_tool_policy", _route_tool_policy_node)
@@ -149,7 +152,8 @@ def build_on_live_harness_agent_graph(
     graph.add_edge(START, "load_context")
     graph.add_edge("load_context", "pre_reasoning_hook")
     graph.add_edge("pre_reasoning_hook", "agent_reasoning")
-    graph.add_edge("agent_reasoning", "route_agent_decision")
+    graph.add_edge("agent_reasoning", "post_reasoning_hook")
+    graph.add_edge("post_reasoning_hook", "route_agent_decision")
     graph.add_conditional_edges(
         "route_agent_decision",
         _agent_decider,
@@ -274,6 +278,42 @@ def _agent_reasoning_node(state: OnLiveHarnessAgentState, planner: Any) -> dict[
             "completed_nodes": _append_node(state, "agent_reasoning"),
         }
 
+
+
+def _post_reasoning_hook_node(state: OnLiveHarnessAgentState, hooks: AgentLifecycleHooks) -> dict[str, Any]:
+    """PostReasoning 幻觉检测节点。
+
+    在 LLM 决策之后、工具执行之前，对决策结果做交叉验证。
+    发现幻觉时阻断工具执行，记录问题到 hallucination_issues。
+    """
+    call = state.get("pending_tool_call") or {}
+    tool_name = call.get("tool_name")
+    # 没有 pending tool call（如 LLM 返回 final_answer），跳过幻觉检查
+    if not tool_name:
+        return {
+            "hallucination_issues": [],
+            "completed_nodes": _append_node(state, "post_reasoning_hook"),
+        }
+    arguments = call.get("arguments") or {}
+    result = hooks.post_reasoning(
+        tool_name=tool_name,
+        arguments=arguments,
+        current_product=state.get("current_product"),
+        inventory_alerts=state.get("inventory_alerts", []),
+    )
+    updates: dict = {
+        "hallucination_issues": result.issues,
+        "completed_nodes": _append_node(state, "post_reasoning_hook"),
+    }
+    if not result.passed and result.corrected_decision:
+        # 发现幻觉，阻断工具执行
+        updates["pending_tool_call"] = None
+        updates["agent_status"] = "corrected"
+        updates["error"] = "; ".join(result.issues)
+        messages = list(state.get("messages", []))
+        messages.append({"role": "system", "content": f"幻觉检测修正: {result.issues}"})
+        updates["messages"] = messages
+    return updates
 
 def _route_agent_decision_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
     """Agent 决策路由锚点。"""

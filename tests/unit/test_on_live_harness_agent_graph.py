@@ -239,3 +239,78 @@ def test_audit_writer_error_does_not_crash_graph() -> None:
     assert result["agent_status"] == "final_answer"
     assert result["audit_status"] == "error"
     assert "audit store unavailable" in result["error"]
+def test_post_reasoning_detects_missing_product() -> None:
+    """Phase 9B: 幻觉检测 —— 调用工具时 product_id 不存在应被拦截"""
+    # 使用带 inventory_alerts 的初始状态，但 LLM 决策使用不存在的 product_id
+    graph = build_on_live_harness_agent_graph(planner=MissingProductPlanner())
+    state = create_initial_on_live_harness_state(
+        room_id="room-9b",
+        trace_id="trace-9b",
+        current_product={"product_id": "p001", "title": "商品A"},
+        inventory_alerts=[{"product_id": "p001", "severity": "low_stock"}],
+    )
+    result = graph.invoke(state)
+    assert result["agent_status"] == "corrected"
+    # 中文 issue 可能不包含 "product"，改为检查非空且有含义的描述
+    issues = result.get("hallucination_issues") or []
+    assert len(issues) > 0
+    assert "p999" in issues[0] or "商品" in issues[0]
+    assert result["pending_tool_call"] is None
+
+
+def test_post_reasoning_passes_valid_decision() -> None:
+    """Phase 9B: 幻觉检测 —— 正常决策应通过检测，不被拦截"""
+    graph = build_on_live_harness_agent_graph(planner=ToolThenFinalPlanner())
+    state = create_initial_on_live_harness_state(
+        room_id="room-9b",
+        trace_id="trace-9b",
+        inventory_alerts=[{"product_id": "p001", "severity": "sold_out"}],
+    )
+    result = graph.invoke(state)
+    # ToolThenFinalPlanner 在第二次迭代返回 final_answer，此时没有 pending tool call
+    # 后推理钩子应跳过检查，不应标记为 corrected
+    assert result["agent_status"] == "final_answer"
+    assert result["pending_tool_call"] is None
+
+
+def test_post_reasoning_detects_no_event_tool_call() -> None:
+    """Phase 9B: 幻觉检测 —— 无库存告警时调用售罄工具应被拦截"""
+    graph = build_on_live_harness_agent_graph(planner=SoldOutWithoutAlertPlanner())
+    state = create_initial_on_live_harness_state(
+        room_id="room-9b",
+        trace_id="trace-9b",
+        current_product={"product_id": "p001", "title": "商品A"},
+        # 没有 inventory_alerts
+    )
+    result = graph.invoke(state)
+    assert result["agent_status"] == "corrected"
+    assert any("alert" in issue.lower() or "告警" in issue for issue in (result.get("hallucination_issues") or []))
+    assert result["pending_tool_call"] is None
+
+
+# ────── 9B 专用 Planner ──────
+
+class MissingProductPlanner:
+    """Phase 9B: Planner 返回不存在的 product_id 工具调用"""
+    def plan_next_step(self, **kwargs):
+        return OnLiveHarnessDecision(
+            thought="测试缺失 product_id",
+            action="call_tool",
+            tool_name="recommend_backup_product",
+            arguments={"product_id": "p999", "reason": "测试不存在的商品"},
+            final_suggestion=None,
+            risk_level="MEDIUM",
+        )
+
+class SoldOutWithoutAlertPlanner:
+    """Phase 9B: Planner 在无库存告警时调用售罄工具"""
+    def plan_next_step(self, **kwargs):
+        return OnLiveHarnessDecision(
+            thought="测试无告警时调用售罄工具",
+            action="call_tool",
+            tool_name="handle_sold_out_event",
+            arguments={"product_id": "p001"},
+            final_suggestion=None,
+            risk_level="MEDIUM",
+        )
+
