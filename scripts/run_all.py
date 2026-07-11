@@ -159,6 +159,14 @@ def _run_demo_mock() -> int:
 
 
 
+def cmd_story(args: argparse.Namespace) -> int:
+    """\u8fd0\u884c\u7aef\u5230\u7aef Agent \u6545\u4e8b\u6f14\u793a\u3002"""
+    import sys as _sys
+    _sys.path.insert(0, __import__("os").path.join(__import__("os").path.dirname(__file__), ".."))
+    from scripts.run_story_demo import main as story_main
+    return story_main()
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     """启动 Kafka 弹幕守护进程（阻塞，需另开终端）。"""
     from src.gateway.kafka_daemon import DanmakuDaemon
@@ -212,6 +220,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_server.add_argument("--port", type=int, default=8100, help="端口号")
 
     sub.add_parser("demo", help="端到端全链路演示")
+    sub.add_parser("story", help="\u7aef\u5230\u7aef Agent \u6545\u4e8b\u6f14\u793a\uff08\u65e0\u5916\u90e8\u4f9d\u8d56\uff09")
     sub.add_parser("daemon", help="启动 Kafka 弹幕守护进程（阻塞，需另开终端）")
     p_sim = sub.add_parser("simulator", help="启动 Kafka 弹幕模拟生产者（需先启动 daemon）")
     p_sim.add_argument("--interval", type=int, default=3, help="发送间隔（秒）")
@@ -234,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": cmd_seed,
         "server": cmd_server,
         "demo": cmd_demo,
+        "story": cmd_story,
         "daemon": cmd_daemon,
         "simulator": cmd_simulator,
         "up": cmd_up,
