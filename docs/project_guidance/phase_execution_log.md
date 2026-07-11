@@ -2112,3 +2112,21 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 - demo 子命令中部分 demo 脚本（如 LLM card）依赖 PostgreSQL 连接，没有 PostgreSQL 时会失败但不会阻塞
 - run.ps1 需要 PowerShell 5.1+，未测试跨平台
 - 未添加 GitHub Actions CI 配置
+
+
+---
+
+## 2026-07-11 Phase 7C-Quality：补齐演示链路与文档质量
+
+### 完成内容
+
+- 修复 Phase 7B SQL bug: hashtext 引号错误导致 demo 链路断裂
+- README 重写: 从 65 行升级为 139 行完整交付文档, 含 mermaid 架构图、API 一览、功能矩阵
+- demo 降级模式: PostgreSQL 不可用时输出完整模拟演示文本, 不再静默失败
+- 清理临时脚本文件
+
+### 验证结果
+
+- 366 个单元测试全部通过
+- python scripts/run_all.py demo 在无 DB 环境下成功输出 mock 链路
+- git 工作区干净

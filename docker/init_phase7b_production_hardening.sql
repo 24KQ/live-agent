@@ -5,7 +5,7 @@
 BEGIN;
 
 -- 并发锁：同一时间只有一个进程执行此 DDL
-SELECT pg_advisory_xact_lock(hashtext(''live_agent_phase7b_hardening_schema''));
+SELECT pg_advisory_xact_lock(hashtext('live_agent_phase7b_hardening_schema'));
 
 -- ============================================================
 -- 1. 扩展 live_agent_harness_sessions：添加生产级字段
@@ -129,3 +129,4 @@ CREATE INDEX IF NOT EXISTS idx_operational_alerts_type
     ON live_agent_operational_alerts(alert_type, created_at DESC);
 
 COMMIT;
+
