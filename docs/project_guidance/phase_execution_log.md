@@ -2030,3 +2030,63 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 - `pytest tests/unit/ -v`: 320 passed, 4 warnings。
 - `python scripts/run_phase6c_harness_dashboard_demo.py`: approve / reject 两条 PostgreSQL 恢复链路均输出预期状态。
 - `pytest -v`: 366 passed, 1 failed, 9 warnings。失败项为既有 DeepSeek 手卡集成测试 `test_deepseek_card_differs_from_template`，当前 LLM 调用降级后与模板手卡相同，非 Phase 6C 链路。
+# Phase 7A：生产级 Agent Replay / Evaluation（2026-07-11）
+
+- **设计文档**: [2026-07-11-phase-7a-production-agent-evaluation-design.md](../superpowers/specs/2026-07-11-phase-7a-production-agent-evaluation-design.md)
+- **实施计划**: [2026-07-11-phase-7a-production-agent-evaluation-plan.md](../superpowers/plans/2026-07-11-phase-7a-production-agent-evaluation-plan.md)
+
+## 实际交付内容
+
+1. 新增 Agent 回放模型和 `AgentReplayService`，支持 checkpoint 优先、session/audit 降级回放。
+2. 新增 `AgentRuleEvaluator`，输出总分、覆盖率、维度分、PASS/WARN/FAIL 和严重违规。
+3. 新增 PostgreSQL 评估表和 Store，支持幂等创建、租约抢占、最多三次重试和终态不可覆盖。
+4. 新增 `AgentEvaluationWorker`，异步处理 queued 任务。
+5. 新增结构化 `AgentLLMJudge`，使用 fake HTTP 测试，不默认访问真实模型。
+6. FastAPI 新增评估 REST API、`agent_evaluation_update` 推送和 `/evaluation` 运维页面。
+7. 将真实 DeepSeek 集成测试标记为 `external`，默认测试不再依赖外部模型。
+
+## TDD 红绿反馈
+
+| 测试文件 | 红灯原因 | 绿灯结果 |
+| --- | --- | --- |
+| `test_agent_replay_service.py` | `src.core.agent_replay` 不存在 | 2 passed |
+| `test_agent_evaluator.py` | `src.core.agent_evaluation` 不存在 | 3 passed |
+| `test_agent_evaluation_store.py` | Store 模块不存在 | 3 passed |
+| `test_agent_evaluation_worker.py` | Worker 模块不存在 | 1 passed |
+| `test_agent_llm_judge.py` | Judge 模块不存在 | 3 passed |
+| `test_api_server_evaluation.py` | 评估 API 不存在 | 3 passed |
+| `test_agent_evaluation_flow.py` | PostgreSQL 评估表不存在 | 1 passed |
+
+## 当前验收记录
+
+- `pytest tests/unit/test_agent_replay_service.py tests/unit/test_agent_evaluator.py tests/unit/test_agent_evaluation_store.py tests/unit/test_agent_evaluation_worker.py tests/unit/test_agent_llm_judge.py tests/unit/test_api_server_evaluation.py tests/unit/test_websocket_manager.py -v`: 24 passed, 1 warning。
+- `pytest tests/integration/test_agent_evaluation_flow.py -v`: 1 passed。
+- `pytest tests/unit/ -v`: 342 passed, 4 warnings。
+- `pytest -v`: 387 passed, 3 deselected, 9 warnings。
+- `python scripts/run_phase7a_agent_evaluation_demo.py`: queued -> completed，评分 PASS，总分 96.11，覆盖率 90%。
+- `python scripts/check_doc_encoding.py`: 通过，无 UTF-8 解码错误、替换字符或高置信 mojibake 命中。
+
+## 问题修复
+
+1. 回放降级时 audit event 只带 audit_id，漏掉 session 中的 decision_trace_id；已合并 fallback evidence。
+2. 规则评分把“无工具调用”计入工具选择得分，导致低证据覆盖场景误判 PASS；已改为未评估维度并输出 WARN。
+3. 真实 DeepSeek 集成测试默认运行会受网络和额度影响；已标记为 `external` 并从默认 pytest 中排除。
+4. 代码审查发现 `/evaluation` 时间线使用 `innerHTML` 拼接持久化回放字段，存在 stored XSS 风险；已改为 DOM `textContent` 渲染。
+5. 代码审查发现 audit 降级回放未保留 `risk_level` 和审批结果；已把 `risk_level` 写入 `tool_call`，并把 `operator_decision=approved/rejected` 映射为评估器可识别的 approval。
+6. 代码审查发现 PostgreSQL run 汇总和维度明细分两次事务提交；已改为同一事务写入，避免事实源不一致。
+7. 代码审查发现 LLM Judge 未接入 Worker；已支持注入 Judge，并仅替换“建议语义质量”维度，不影响安全和人审维度。
+
+## 遗留限制
+
+- Golden Dataset 批量回归表已预留，但批量 API、case 管理和版本对比页面尚未完成。
+- 默认生产 Worker 当前以 Harness session + audit 降级回放为主，checkpoint 精确历史读取仍需结合真实 graph 实例完善。
+- API 人工复核当前还没有登录鉴权和操作员权限校验，需在 Phase 7B 接入认证/授权。
+- API 默认会初始化评估表，适合本地项目演示；生产环境应改为独立 migration 流程和低权限运行账号。
+
+## 后续迭代方向
+
+1. Phase 7B：生产硬化，补审批 TTL、操作员锁、幂等键、租约恢复脚本、告警和脱敏巡检。
+2. Phase 7C：Golden Dataset 批量回归，补 case 管理、批量任务 API 和发布门槛。
+3. Phase 8：真实平台 Adapter，保留当前 ToolPolicy 和人审边界。
+
+---

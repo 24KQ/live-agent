@@ -245,3 +245,33 @@ Context -> Reason -> Tool Policy -> Interrupt -> Human Resume
 1. Phase 7A：Agent Replay / Evaluation。把每次 Harness 会话做成可回放、可评分、可复盘的评估接口。
 2. Phase 7B：生产化硬化。补审批 TTL、操作员锁、幂等键、错误告警、恢复脚本和敏感字段脱敏检查。
 3. Phase 7C：一键演示与部署包装。把 seed、Kafka、API、Web、demo 组合成可交付的项目演示入口。
+# 2026-07-11 当前状态补充：Phase 7A 后的生产级 Agent 评估能力
+
+Phase 7A 已把 Harness Agent 的可观测能力推进到生产评估闭环：
+
+- `AgentReplayService` 可以把 checkpoint / Harness session / audit / DecisionTrace 整理为标准化时间线。
+- `AgentRuleEvaluator` 提供不依赖 LLM 的规则评分，覆盖状态完整性、工具选择、安全策略、人审合规、执行效率和业务效果。
+- PostgreSQL `live_agent_evaluation_runs` 成为评估任务事实源和轻量队列，Worker 通过 `FOR UPDATE SKIP LOCKED` 抢占任务。
+- `AgentLLMJudge` 已实现结构化 JSON Judge，外部模型失败时只标记 partial，不影响规则评分。
+- FastAPI 提供评估创建、状态查询、回放读取和人工复核接口。
+- `/evaluation` 运维页面独立展示评估分数、覆盖率、违规项和回放时间线。
+
+当前项目已经具备更接近生产的 Agent 工程能力：
+
+```text
+LangGraph Harness Loop
+-> Interrupt / Resume
+-> Audit / DecisionTrace
+-> Web Human Approval
+-> Replay / Rule Evaluation / Human Review
+```
+
+这意味着项目不只是“会调用 LLM 的 workflow”，而是可以说明 Agent 为什么这么做、做了什么工具调用、有没有绕过人审、结果是否可回放，并且能在版本升级后做回归评估。
+
+下一步优先级：
+
+1. Phase 7B：生产硬化。补审批 TTL、操作员锁、幂等键、租约恢复脚本、告警和更严格脱敏。
+2. Phase 7C：Golden Dataset 批量回归。补 case 管理、批量 API、版本对比和发布门槛。
+3. Phase 8：真实平台 Adapter。把本地 demo executor 替换为可插拔平台适配器，但仍保持高风险动作人审。
+
+---

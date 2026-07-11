@@ -90,6 +90,30 @@ class TestWebSocketManager:
         assert sent["payload"]["pending_approval"] is True
         assert "human_approval_interrupt" in sent["payload"]["completed_nodes"]
 
+    def test_broadcast_supports_agent_evaluation_update_payload(self):
+        """Phase 7A Evaluation 状态推送应保留评分摘要。"""
+        ws = AsyncMock()
+        self.manager.connect(ws)
+
+        import asyncio
+        asyncio.run(
+            self.manager.broadcast(
+                {
+                    "type": "agent_evaluation_update",
+                    "payload": {
+                        "evaluation_id": "eval-ws-001",
+                        "status": "completed",
+                        "overall_score": 91.5,
+                    },
+                }
+            )
+        )
+
+        sent = ws.send_json.call_args[0][0]
+        assert sent["type"] == "agent_evaluation_update"
+        assert sent["payload"]["evaluation_id"] == "eval-ws-001"
+        assert sent["payload"]["overall_score"] == 91.5
+
     def test_broadcast_skips_disconnected(self):
         """已断开的连接应被跳过并移除。"""
         ws_ok = AsyncMock()

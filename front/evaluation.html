@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Evaluation</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101214;
+      --panel: #191d21;
+      --panel-2: #20262b;
+      --text: #edf2f4;
+      --muted: #9aa7b2;
+      --line: #303841;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #fb7185;
+      --blue: #60a5fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--line);
+      background: #15191d;
+    }
+    h1, h2 { margin: 0; font-weight: 650; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 16px; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(320px, 420px) 1fr;
+      gap: 16px;
+      padding: 16px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      min-width: 0;
+    }
+    .stack { display: grid; gap: 12px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+    label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+    input, textarea, select {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #0f1316;
+      color: var(--text);
+      font: inherit;
+    }
+    textarea { min-height: 78px; resize: vertical; }
+    button {
+      min-height: 36px;
+      border: 1px solid #3c4752;
+      border-radius: 6px;
+      padding: 8px 12px;
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button.primary { border-color: #2563eb; background: #1d4ed8; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(110px, 1fr));
+      gap: 10px;
+    }
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .metric span { display: block; color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; margin-top: 8px; font-size: 22px; }
+    .status-pass { color: var(--green); }
+    .status-warn { color: var(--yellow); }
+    .status-fail { color: var(--red); }
+    .timeline { display: grid; gap: 8px; }
+    .node {
+      display: grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      background: #12171b;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .node code, .mono { font-family: Consolas, ui-monospace, monospace; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #26313a;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    pre {
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0f1316;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Agent Evaluation</h1>
+    <span class="pill" id="connection">REST</span>
+  </header>
+  <main>
+    <div class="stack">
+      <section class="stack">
+        <h2>评估任务</h2>
+        <label>Trace ID
+          <input id="traceId" value="trace-phase7a-demo" />
+        </label>
+        <div class="toolbar">
+          <button class="primary" id="createBtn">创建评估</button>
+          <button id="refreshBtn">刷新评估</button>
+          <button id="replayBtn">读取回放</button>
+        </div>
+        <label>Evaluation ID
+          <input id="evaluationId" placeholder="创建评估后自动填入" />
+        </label>
+      </section>
+      <section class="stack">
+        <h2>人工复核</h2>
+        <label>结论
+          <select id="reviewConclusion">
+            <option value="approved">approved</option>
+            <option value="rejected">rejected</option>
+            <option value="needs_followup">needs_followup</option>
+          </select>
+        </label>
+        <label>原因
+          <textarea id="reviewReason">运维复核通过</textarea>
+        </label>
+        <button id="reviewBtn">提交复核</button>
+      </section>
+      <section>
+        <h2>原始响应</h2>
+        <pre id="raw">{}</pre>
+      </section>
+    </div>
+    <div class="stack">
+      <section class="stack">
+        <h2>评分摘要</h2>
+        <div class="metrics">
+          <div class="metric"><span>状态</span><strong id="status">-</strong></div>
+          <div class="metric"><span>结论</span><strong id="verdict">-</strong></div>
+          <div class="metric"><span>总分</span><strong id="score">-</strong></div>
+          <div class="metric"><span>覆盖率</span><strong id="coverage">-</strong></div>
+        </div>
+      </section>
+      <section class="stack">
+        <h2>违规项</h2>
+        <pre id="violations">[]</pre>
+      </section>
+      <section class="stack">
+        <h2>回放时间线</h2>
+        <div class="timeline" id="timeline"></div>
+      </section>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let lastReplay = null;
+
+    function showRaw(value) {
+      $("raw").textContent = JSON.stringify(value, null, 2);
+    }
+
+    function renderEvaluation(data) {
+      $("status").textContent = data.status || "-";
+      $("verdict").textContent = data.verdict || "-";
+      $("verdict").className = data.verdict === "PASS" ? "status-pass" : data.verdict === "FAIL" ? "status-fail" : "status-warn";
+      $("score").textContent = data.overall_score ?? "-";
+      $("coverage").textContent = data.coverage_percent == null ? "-" : `${data.coverage_percent}%`;
+      $("violations").textContent = JSON.stringify(data.violations || [], null, 2);
+    }
+
+    function renderReplay(data) {
+      lastReplay = data;
+      const items = data?.replay?.timeline || [];
+      const timeline = $("timeline");
+      timeline.replaceChildren();
+      if (!items.length) {
+        const empty = document.createElement("span");
+        empty.className = "pill";
+        empty.textContent = "暂无回放";
+        timeline.appendChild(empty);
+        return;
+      }
+      for (const item of items) {
+        const node = document.createElement("div");
+        node.className = "node";
+
+        const seq = document.createElement("span");
+        seq.className = "pill";
+        seq.textContent = `#${item.sequence}`;
+
+        const body = document.createElement("div");
+        const name = document.createElement("code");
+        name.textContent = item.node_name || "";
+        const detail = document.createElement("div");
+        detail.className = "mono";
+        detail.textContent = item.tool_call?.tool_name || item.status || "";
+        body.append(name, detail);
+
+        const phase = document.createElement("span");
+        phase.className = "pill";
+        phase.textContent = item.phase || "on_live";
+
+        node.append(seq, body, phase);
+        timeline.appendChild(node);
+      }
+    }
+
+    function connectEvaluationSocket() {
+      const protocol = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${protocol}://${location.host}/ws`);
+      ws.onopen = () => { $("connection").textContent = "WS"; };
+      ws.onclose = () => { $("connection").textContent = "REST"; };
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type !== "agent_evaluation_update") return;
+        const payload = message.payload || {};
+        if (payload.evaluation_id && payload.evaluation_id === $("evaluationId").value) {
+          renderEvaluation(payload);
+          showRaw(payload);
+        }
+      };
+    }
+
+    async function requestJson(url, options = {}) {
+      const resp = await fetch(url, options);
+      const data = await resp.json();
+      showRaw(data);
+      if (!resp.ok) throw new Error(data.error || resp.statusText);
+      return data;
+    }
+
+    $("createBtn").onclick = async () => {
+      const data = await requestJson("/api/agent/evaluations", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({trace_id: $("traceId").value})
+      });
+      $("evaluationId").value = data.evaluation_id;
+      renderEvaluation(data);
+    };
+
+    $("refreshBtn").onclick = async () => {
+      const id = $("evaluationId").value.trim();
+      if (!id) return;
+      const data = await requestJson(`/api/agent/evaluations/${encodeURIComponent(id)}`);
+      renderEvaluation(data);
+    };
+
+    $("replayBtn").onclick = async () => {
+      const traceId = $("traceId").value.trim();
+      if (!traceId) return;
+      const data = await requestJson(`/api/agent/replays/${encodeURIComponent(traceId)}`);
+      renderReplay(data);
+    };
+
+    $("reviewBtn").onclick = async () => {
+      const id = $("evaluationId").value.trim();
+      if (!id) return;
+      await requestJson(`/api/agent/evaluations/${encodeURIComponent(id)}/reviews`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          operator_id: "ops-web",
+          conclusion: $("reviewConclusion").value,
+          reason: $("reviewReason").value
+        })
+      });
+    };
+    connectEvaluationSocket();
+  </script>
+</body>
+</html>

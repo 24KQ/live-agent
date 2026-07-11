@@ -25,3 +25,16 @@
 - 重要架构判断同步更新 `current_project_status_and_agent_roadmap.md`。
 - 长期任务过程记录可追加到 `docs/worklog/progress.md`。
 - 排障结论和设计取舍追加到 `docs/worklog/findings.md`。
+# 2026-07-11 Phase 7A 任务
+
+- [x] 提交 Phase 6C 功能代码。
+- [x] 提交编码治理和阶段记录。
+- [x] 新增 AgentReplayService 和回放模型。
+- [x] 新增规则评估器和维度分模型。
+- [x] 新增内存 Store、PostgreSQL Store 和 Worker。
+- [x] 新增 LLM Judge 结构化接口。
+- [x] 扩展 FastAPI 评估接口和 WebSocket 消息。
+- [x] 新增 `/evaluation` 运维页面。
+- [x] 跑全量测试、demo、编码扫描和 diff 检查。
+
+---

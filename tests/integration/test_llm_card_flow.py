@@ -10,7 +10,7 @@ from src.skills.product_card_generator import generate_product_card
 from src.skills.product_catalog import CatalogProduct
 from decimal import Decimal
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.external]
 
 
 @pytest.fixture(scope="module")

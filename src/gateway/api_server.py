@@ -13,7 +13,7 @@ from typing import Literal
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config.settings import get_settings
@@ -22,6 +22,16 @@ from src.gateway.harness_dashboard_service import (
     create_in_memory_harness_dashboard_service,
 )
 from src.gateway.harness_session_store import HarnessSessionNotFoundError
+from src.gateway.agent_evaluation_service import AgentEvaluationService, AgentEvaluationWorker
+from src.audit.tool_call_audit import ToolCallAuditStore
+from src.gateway.agent_evaluation_store import (
+    EvaluationRunNotFoundError,
+    PostgresAgentEvaluationStore,
+    initialize_agent_evaluation_schema,
+)
+from src.gateway.harness_session_store import PostgresHarnessSessionStore
+from src.core.agent_evaluation import AgentRuleEvaluator
+from src.core.agent_replay import AgentReplayService
 from src.gateway.websocket_manager import WebSocketManager
 from src.skills.product_catalog import ProductCatalogRepository
 
@@ -29,6 +39,8 @@ app = FastAPI(title="LiveAgent Dashboard", version="0.4.0")
 settings = get_settings()
 websocket_manager = WebSocketManager()
 _harness_dashboard_service = None
+_agent_evaluation_service = None
+_agent_evaluation_worker = None
 
 
 class HarnessStartRequest(BaseModel):
@@ -47,6 +59,21 @@ class HarnessApprovalRequest(BaseModel):
     tool_name: str = Field(..., min_length=1)
     decision: Literal["approved", "rejected"]
     operator_id: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+
+
+class EvaluationCreateRequest(BaseModel):
+    """创建 Agent 异步评估任务的请求体。"""
+
+    trace_id: str = Field(..., min_length=1)
+    profile: str = Field(default="production_hybrid", min_length=1)
+
+
+class EvaluationReviewRequest(BaseModel):
+    """提交人工复核 overlay 的请求体。"""
+
+    operator_id: str = Field(..., min_length=1)
+    conclusion: str = Field(..., min_length=1)
     reason: str = Field(..., min_length=1)
 
 
@@ -73,15 +100,80 @@ def get_harness_dashboard_service():
     return _harness_dashboard_service
 
 
+def set_agent_evaluation_service(service) -> None:
+    """替换 AgentEvaluationService，供单元测试注入内存版本。"""
+
+    global _agent_evaluation_service
+    _agent_evaluation_service = service
+
+
+def get_agent_evaluation_service():
+    """获取 Agent Evaluation 服务。
+
+    默认使用 PostgreSQL 作为评估事实源和任务队列；单元测试通过 setter 注入
+    内存版本，避免依赖开发者本机数据库。
+    """
+
+    global _agent_evaluation_service
+    if _agent_evaluation_service is None:
+        initialize_agent_evaluation_schema(settings)
+        _agent_evaluation_service = AgentEvaluationService(store=PostgresAgentEvaluationStore(settings))
+    return _agent_evaluation_service
+
+
+def set_agent_evaluation_worker(worker) -> None:
+    """替换评估 Worker，供 API 单元测试注入 fake replay。"""
+
+    global _agent_evaluation_worker
+    _agent_evaluation_worker = worker
+
+
+def get_agent_evaluation_worker():
+    """获取评估 Worker。
+
+    默认 Worker 使用空依赖的 replay service，只适合作为本地兜底；生产和测试应
+    通过 setter 注入带真实 store/checkpoint 的实例。
+    """
+
+    global _agent_evaluation_worker
+    if _agent_evaluation_worker is None:
+        service = get_agent_evaluation_service()
+        _agent_evaluation_worker = AgentEvaluationWorker(
+            store=service.store,
+            replay_service=AgentReplayService(
+                session_store=PostgresHarnessSessionStore(settings),
+                audit_store=ToolCallAuditStore(settings),
+            ),
+            evaluator=AgentRuleEvaluator(),
+        )
+    return _agent_evaluation_worker
+
+
 async def _broadcast_harness_status(payload: dict) -> None:
     """向副屏推送最新 Harness Agent 状态。"""
 
     await websocket_manager.broadcast({"type": "agent_harness_update", "payload": payload})
 
 
+async def _broadcast_evaluation_status(payload: dict) -> None:
+    """向运维页面推送 Agent Evaluation 状态摘要。"""
+
+    await websocket_manager.broadcast({"type": "agent_evaluation_update", "payload": payload})
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "LiveAgent"}
+
+
+@app.get("/evaluation")
+async def evaluation_page():
+    """Agent Evaluation 运维页面入口。"""
+
+    page = Path(__file__).resolve().parent.parent.parent / "front" / "evaluation.html"
+    if not page.exists():
+        return JSONResponse(status_code=404, content={"error": "evaluation page not found"})
+    return FileResponse(str(page))
 
 
 @app.get("/api/card/{product_id}")
@@ -367,6 +459,69 @@ async def submit_harness_approval(request: HarnessApprovalRequest):
         return status
     except HarnessSessionNotFoundError:
         return JSONResponse(status_code=404, content={"error": f"harness session {request.trace_id} not found"})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/api/agent/evaluations", status_code=202)
+async def create_agent_evaluation(request: EvaluationCreateRequest):
+    """创建 Agent 回放评估任务。
+
+    评估任务默认异步执行，本端点只负责幂等入队并返回 HTTP 202。调用方可以
+    通过 `/api/agent/evaluations/{evaluation_id}` 查询 Worker 处理结果。
+    """
+
+    try:
+        payload = get_agent_evaluation_service().create_evaluation(
+            trace_id=request.trace_id,
+            profile=request.profile,
+        )
+        await _broadcast_evaluation_status(payload)
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/api/agent/evaluations/{evaluation_id}")
+async def get_agent_evaluation(evaluation_id: str):
+    """读取 Agent Evaluation 任务状态和评分摘要。"""
+
+    try:
+        return get_agent_evaluation_service().get_evaluation(evaluation_id)
+    except EvaluationRunNotFoundError:
+        return JSONResponse(status_code=404, content={"error": f"evaluation {evaluation_id} not found"})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/api/agent/replays/{trace_id}")
+async def get_agent_replay(trace_id: str):
+    """读取最近一次持久化的 Agent 回放快照。"""
+
+    try:
+        payload = get_agent_evaluation_service().get_latest_replay(trace_id)
+        if payload is None:
+            return JSONResponse(status_code=404, content={"error": f"replay for {trace_id} not found"})
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/api/agent/evaluations/{evaluation_id}/reviews")
+async def create_agent_evaluation_review(evaluation_id: str, request: EvaluationReviewRequest):
+    """提交人工复核 overlay，不覆盖原始机器评分。"""
+
+    try:
+        payload = get_agent_evaluation_service().add_review(
+            evaluation_id=evaluation_id,
+            operator_id=request.operator_id,
+            conclusion=request.conclusion,
+            reason=request.reason,
+        )
+        await _broadcast_evaluation_status({"evaluation_id": evaluation_id, **payload})
+        return payload
+    except EvaluationRunNotFoundError:
+        return JSONResponse(status_code=404, content={"error": f"evaluation {evaluation_id} not found"})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(status_code=500, content={"error": str(exc)})
 

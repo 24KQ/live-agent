@@ -32,6 +32,8 @@ include = ["src*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-m 'not external'"
 markers = [
     "integration: marks tests as integration tests",
+    "external: marks tests that call external network/model services",
 ]
