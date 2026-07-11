@@ -245,5 +245,23 @@ def get_default_tool_registry() -> ToolRegistry:
                 gate_decision=GateDecision.SOFT_GATE,
                 requires_idempotency_key=False,
             ),
+            ToolMetadata(
+                name="on_live_context_collect",
+                description="播中收集弹幕聚合摘要和库存告警，不修改状态",
+                lifecycle=on_live,
+                risk_level=RiskLevel.LOW,
+                parameter_schema={
+                    "type": "object",
+                    "required": ["room_id", "trace_id"],
+                    "properties": {
+                        "room_id": {"type": "string"},
+                        "trace_id": {"type": "string"},
+                        "danmaku_summary": {"type": "array", "items": {"type": "object"}},
+                        "inventory_alerts": {"type": "array", "items": {"type": "object"}},
+                    },
+                },
+                gate_decision=GateDecision.AUTO,
+                requires_idempotency_key=False,
+            ),
         ]
     )

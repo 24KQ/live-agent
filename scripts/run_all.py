@@ -159,6 +159,15 @@ def _run_demo_mock() -> int:
 
 
 
+def cmd_daemon(args: argparse.Namespace) -> int:
+    """启动 Kafka 弹幕守护进程（阻塞，需另开终端）。"""
+    from src.gateway.kafka_daemon import DanmakuDaemon
+    _info("Starting Kafka DanmakuDaemon...")
+    daemon = DanmakuDaemon()
+    daemon.run_forever()
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     """判断 PostgreSQL 是否可用，选择真实链路或降级模式。"""
     try:
@@ -193,6 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_server.add_argument("--port", type=int, default=8100, help="端口号")
 
     sub.add_parser("demo", help="端到端全链路演示")
+    sub.add_parser("daemon", help="启动 Kafka 弹幕守护进程（阻塞，需另开终端）")
 
     p_up = sub.add_parser("up", help="migrate + seed + server 批量执行")
     p_up.add_argument("--dry-run", action="store_true")
@@ -211,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": cmd_seed,
         "server": cmd_server,
         "demo": cmd_demo,
+        "daemon": cmd_daemon,
         "up": cmd_up,
     }
     return command_map[args.command](args)

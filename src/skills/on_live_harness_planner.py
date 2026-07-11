@@ -26,14 +26,23 @@ from src.core.agent_harness_context import AgentContextResult
 from src.core.agent_decision import AgentObservation
 from src.skills.on_live_llm_planner import OnLiveLLMPlanner
 
+# 模块级缓存：ON_LIVE 工具名集合，避免每次 planner 调用重建 ToolRegistry
+_ON_LIVE_TOOL_NAMES: list[str] | None = None
+
 HarnessAction = Literal["call_tool", "final_answer", "no_action", "fallback"]
 HarnessRiskLevel = Literal["LOW", "MEDIUM", "HIGH"]
 
 
 def _available_on_live_tools() -> list[str]:
-    """从 ToolRegistry 中读取 ON_LIVE 工具名，作为 LLM 输出白名单。"""
+    """从 ToolRegistry 中读取 ON_LIVE 工具名，作为 LLM 输出白名单。
+
+    使用模块级缓存，避免每次 planner 调用都重建 ToolRegistry 实例。
+    """
+    global _ON_LIVE_TOOL_NAMES
+    if _ON_LIVE_TOOL_NAMES is not None:
+        return _ON_LIVE_TOOL_NAMES
     registry = get_default_tool_registry()
-    return [
+    _ON_LIVE_TOOL_NAMES = [
         name
         for name in registry.tool_names()
         if name
@@ -43,8 +52,10 @@ def _available_on_live_tools() -> list[str]:
             "generate_on_live_prompt",
             "aggregate_danmaku_questions",
             "generate_danmaku_reply",
+            "on_live_context_collect",
         }
     ]
+    return _ON_LIVE_TOOL_NAMES
 
 
 class OnLiveHarnessDecision(BaseModel):

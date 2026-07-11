@@ -39,7 +39,6 @@ class DanmakuDaemon:
             consumer_timeout_ms=1000,
             value_deserializer=lambda v: v,
         )
-        from kafka import TopicPartition
         tp = TopicPartition(topic, 0)
         self._consumer.assign([tp])
         self._consumer.seek_to_beginning(tp)

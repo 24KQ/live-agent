@@ -17,6 +17,14 @@ from __future__ import annotations
 from ast import literal_eval
 from typing import Any
 
+# jsonschema is optional for parameter validation; skip when unavailable
+_HAVE_JSONSCHEMA: bool = False
+try:
+    import jsonschema
+    _HAVE_JSONSCHEMA = True
+except ImportError:
+    pass
+
 from src.config.tool_registry import ToolNotFoundError, ToolRegistry
 from src.core.agent_decision import AgentObservation
 from src.core.security_hooks import evaluate_tool_gate
@@ -98,6 +106,20 @@ class AgentToolExecutor:
         trace_id: str,
     ) -> AgentObservation:
         """把工具名映射到 PreLiveBusinessFlowService 方法。"""
+        # Step 4a: Parameter schema validation (optional dep, skip when no jsonschema)
+        try:
+            tool = self._registry.get(tool_name)
+            if _HAVE_JSONSCHEMA and tool.parameter_schema:
+                jsonschema.validate(instance=arguments, schema=tool.parameter_schema)
+        except ToolNotFoundError:
+            pass  # already checked in execute()
+        except jsonschema.ValidationError as exc:
+            return AgentObservation(
+                tool_name=tool_name,
+                status="error",
+                summary=f"参数校验失败: {exc.message}",
+                audit_id=None,
+            )
         try:
             if tool_name == "query_products":
                 products = self._service.query_products(room_id, trace_id)

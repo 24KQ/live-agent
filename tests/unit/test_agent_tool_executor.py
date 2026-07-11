@@ -111,3 +111,37 @@ class TestAgentToolExecutor:
         )
         assert obs.status == "success"
         assert "plan" in obs.summary.lower()
+
+
+class TestParamValidation:
+    """参数 schema 校验测试。"""
+
+    def test_missing_required_param_returns_error(self):
+        """缺少必填参数时返回 error。"""
+        registry = get_default_tool_registry()
+        service = FakeService()
+        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        from src.skills.live_plan_generator import LivePlanDraft
+        # setup_live_session 需要 room_id, plan_item_ids, idempotency_key
+        obs = executor.execute(
+            tool_name="setup_live_session", arguments={},
+            room_id="room-001", trace_id="trace-001",
+        )
+        # 有 jsonschema 时参数校验失败，无 jsonschema 时走原有逻辑
+        try:
+            import jsonschema
+            assert obs.status == "error"
+            assert "参数校验" in obs.summary or "schema" in obs.summary.lower()
+        except ImportError:
+            assert obs.status == "success" or obs.status == "pending"
+
+    def test_valid_params_passes_schema_check(self):
+        """合法参数应通过校验。"""
+        registry = get_default_tool_registry()
+        service = FakeService()
+        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        obs = executor.execute(
+            tool_name="query_products", arguments={"room_id": "room-001"},
+            room_id="room-001", trace_id="trace-001",
+        )
+        assert obs.status == "success"

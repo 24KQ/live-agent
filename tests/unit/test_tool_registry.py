@@ -29,6 +29,7 @@ def test_default_registry_contains_pre_live_tools() -> None:
         "generate_on_live_prompt",
         "aggregate_danmaku_questions",
         "generate_danmaku_reply",
+        "on_live_context_collect",
     }
 
 
