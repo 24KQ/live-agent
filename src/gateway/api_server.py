@@ -11,7 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +29,7 @@ from src.gateway.agent_evaluation_store import (
     PostgresAgentEvaluationStore,
     initialize_agent_evaluation_schema,
 )
+from src.gateway.operator_auth import authenticate_request, authorize_action, OperatorRole, OperatorAuthError, OperatorPermissionError, extract_idempotency_key
 from src.gateway.harness_session_store import PostgresHarnessSessionStore
 from src.core.agent_evaluation import AgentRuleEvaluator
 from src.core.agent_replay import AgentReplayService
@@ -443,10 +444,14 @@ async def get_harness_status(trace_id: str):
 
 
 @app.post("/api/agent/harness/approval")
-async def submit_harness_approval(request: HarnessApprovalRequest):
+async def submit_harness_approval(http_request: Request, request: HarnessApprovalRequest):
     """提交 Web 人审结果，并用同一 thread_id 恢复 LangGraph。"""
 
     try:
+        # Phase 7B: 操作员鉴权 — 需 operator 及以上角色
+        identity = authenticate_request(dict(http_request.headers))
+        authorize_action(identity, OperatorRole.OPERATOR)
+
         status = get_harness_dashboard_service().submit_approval(
             trace_id=request.trace_id,
             room_id=request.room_id,
@@ -508,10 +513,14 @@ async def get_agent_replay(trace_id: str):
 
 
 @app.post("/api/agent/evaluations/{evaluation_id}/reviews")
-async def create_agent_evaluation_review(evaluation_id: str, request: EvaluationReviewRequest):
+async def create_agent_evaluation_review(evaluation_id: str, http_request: Request, request: EvaluationReviewRequest):
     """提交人工复核 overlay，不覆盖原始机器评分。"""
 
     try:
+        # Phase 7B: 操作员鉴权 — 需 reviewer 及以上角色
+        identity = authenticate_request(dict(http_request.headers))
+        authorize_action(identity, OperatorRole.REVIEWER)
+
         payload = get_agent_evaluation_service().add_review(
             evaluation_id=evaluation_id,
             operator_id=request.operator_id,
@@ -524,6 +533,19 @@ async def create_agent_evaluation_review(evaluation_id: str, request: Evaluation
         return JSONResponse(status_code=404, content={"error": f"evaluation {evaluation_id} not found"})
     except Exception as exc:  # noqa: BLE001
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+# Phase 7B: OperatorAuthError 和 OperatorPermissionError 的全局异常处理
+@app.exception_handler(OperatorAuthError)
+async def operator_auth_handler(http_request: Request, exc: OperatorAuthError):
+    """认证失败返回 401。"""
+    return JSONResponse(status_code=401, content={"error": str(exc)})
+
+
+@app.exception_handler(OperatorPermissionError)
+async def operator_permission_handler(http_request: Request, exc: OperatorPermissionError):
+    """权限不足返回 403。"""
+    return JSONResponse(status_code=403, content={"error": str(exc)})
 
 
 @app.get("/api/review/llm/{room_id}")

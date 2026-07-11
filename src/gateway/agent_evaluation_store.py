@@ -14,6 +14,16 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+# Phase 7B ????????
+ALERT_TYPES = {
+    "APPROVAL_EXPIRED": "approval_expired",
+    "DUPLICATE_APPROVAL": "duplicate_approval",
+    "EVAL_RETRY_EXHAUSTED": "evaluation_retry_exhausted",
+    "AUDIT_WRITE_FAILURE": "audit_write_failure",
+    "REPLAY_FIDELITY_DEGRADED": "replay_fidelity_degraded",
+}
+
+
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -185,6 +195,47 @@ class InMemoryAgentEvaluationStore:
         self.get(evaluation_id)
         return list(self._reviews.get(evaluation_id, []))
 
+
+
+
+    def recover_stale_runs(self, max_lease_minutes: int = 5) -> tuple[int, int]:
+        """???? lease ???????????????????????????
+
+        Args:
+            max_lease_minutes: lease ??????? 5 ???
+
+        Returns:
+            (recovered_count, failed_count) ?? ????????????
+        """
+        now = datetime.now(timezone.utc)
+        recovered = 0
+        failed = 0
+        for evaluation_id, record in list(self._runs.items()):
+            if record.status != "running":
+                continue
+            if record.lease_until is None or record.lease_until > now:
+                continue
+            if record.retry_count < 3:
+                new_record = replace(
+                    record,
+                    status="queued",
+                    lease_owner=None,
+                    lease_until=None,
+                    retry_count=record.retry_count + 1,
+                    updated_at=now,
+                )
+                self._runs[evaluation_id] = new_record
+                recovered += 1
+            else:
+                new_record = replace(
+                    record,
+                    status="failed",
+                    error="max_retries_exceeded",
+                    updated_at=now,
+                )
+                self._runs[evaluation_id] = new_record
+                failed += 1
+        return recovered, failed
 
 class PostgresAgentEvaluationStore:
     """PostgreSQL 评估任务 Store。
@@ -479,6 +530,49 @@ class PostgresAgentEvaluationStore:
         )
 
 
+
+
+    def recover_stale_runs(self, max_lease_minutes: int = 5) -> tuple[int, int]:
+        """???? lease ????????? + ?? UPDATE?
+
+        Args:
+            max_lease_minutes: lease ??????? 5 ???
+
+        Returns:
+            (recovered_count, failed_count)?
+        """
+        sql_recover = """
+            WITH stale AS (
+                SELECT evaluation_id, retry_count
+                FROM live_agent_evaluation_runs
+                WHERE status = 'running'
+                  AND lease_until < NOW() - make_interval(mins => %(max_min)s)
+                LIMIT 100
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE live_agent_evaluation_runs target
+            SET status = CASE
+                    WHEN stale.retry_count < 3 THEN 'queued'
+                    ELSE 'failed'
+                END,
+                lease_owner = CASE WHEN stale.retry_count < 3 THEN NULL ELSE lease_owner END,
+                lease_until = CASE WHEN stale.retry_count < 3 THEN NULL ELSE lease_until END,
+                retry_count = CASE WHEN stale.retry_count < 3 THEN retry_count + 1 ELSE retry_count END,
+                error = CASE WHEN stale.retry_count >= 3 THEN 'max_retries_exceeded' ELSE error END,
+                updated_at = NOW()
+            FROM stale
+            WHERE target.evaluation_id = stale.evaluation_id
+            RETURNING target.evaluation_id, target.status;
+        """
+        with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql_recover, {"max_min": max_lease_minutes})
+                rows = cur.fetchall()
+            conn.commit()
+        recovered = sum(1 for row in rows if dict(row)["status"] == "queued")
+        failed = sum(1 for row in rows if dict(row)["status"] == "failed")
+        return recovered, failed
+
 def initialize_agent_evaluation_schema(settings: Settings) -> None:
     """初始化 Phase 7A Agent Evaluation 表结构。"""
 
@@ -488,3 +582,196 @@ def initialize_agent_evaluation_schema(settings: Settings) -> None:
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()
+
+
+# =============================================================================
+# Phase 7B ???? Store
+# =============================================================================
+
+@dataclass(frozen=True)
+class OperationalAlertRecord:
+    """??????????????worker ???????????"""
+
+    alert_id: str
+    alert_type: str
+    severity: str  # info / warning / error / critical
+    source: str
+    message: str
+    trace_id: str | None = None
+    evaluation_id: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+    status: str = "open"  # open / acknowledged / resolved
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InMemoryOperationalAlertStore:
+    """??????? Store?????????? demo?"""
+
+    def __init__(self) -> None:
+        self._alerts: dict[str, OperationalAlertRecord] = {}
+        self._order: list[str] = []
+
+    def create_alert(
+        self,
+        alert_type: str,
+        severity: str,
+        source: str,
+        message: str,
+        trace_id: str | None = None,
+        evaluation_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> OperationalAlertRecord:
+        """?????????"""
+        from uuid import uuid4
+        alert_id = f"alert-{uuid4()}"
+        now = datetime.now(timezone.utc)
+        record = OperationalAlertRecord(
+            alert_id=alert_id,
+            alert_type=alert_type,
+            severity=severity,
+            source=source,
+            message=message,
+            trace_id=trace_id,
+            evaluation_id=evaluation_id,
+            payload=payload or {},
+            created_at=now,
+            updated_at=now,
+        )
+        self._alerts[alert_id] = record
+        self._order.append(alert_id)
+        return record
+
+    def list_alerts(self, limit: int = 50, status: str | None = None, alert_type: str | None = None) -> list[OperationalAlertRecord]:
+        """???????? status ? alert_type ???"""
+        results = [self._alerts[aid] for aid in reversed(self._order)]
+        if status:
+            results = [r for r in results if r.status == status]
+        if alert_type:
+            results = [r for r in results if r.alert_type == alert_type]
+        return results[:limit]
+
+    def acknowledge_alert(self, alert_id: str) -> OperationalAlertRecord:
+        """???????? acknowledged??"""
+        record = self._alerts.get(alert_id)
+        if record is None:
+            raise KeyError(f"alert {alert_id} not found")
+        updated = replace(record, status="acknowledged", updated_at=datetime.now(timezone.utc))
+        self._alerts[alert_id] = updated
+        return updated
+
+    def resolve_alert(self, alert_id: str) -> OperationalAlertRecord:
+        """???????? resolved??"""
+        record = self._alerts.get(alert_id)
+        if record is None:
+            raise KeyError(f"alert {alert_id} not found")
+        updated = replace(record, status="resolved", updated_at=datetime.now(timezone.utc))
+        self._alerts[alert_id] = updated
+        return updated
+
+
+class PostgresOperationalAlertStore:
+    """PostgreSQL ????? Store??? live_agent_operational_alerts ??"""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def create_alert(
+        self,
+        alert_type: str,
+        severity: str,
+        source: str,
+        message: str,
+        trace_id: str | None = None,
+        evaluation_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """????????? PostgreSQL?"""
+        from uuid import uuid4
+        alert_id = f"alert-{uuid4()}"
+        sql = """
+            INSERT INTO live_agent_operational_alerts (
+                alert_id, alert_type, severity, source, message,
+                trace_id, evaluation_id, payload
+            )
+            VALUES (
+                %(alert_id)s, %(alert_type)s, %(severity)s, %(source)s, %(message)s,
+                %(trace_id)s, %(evaluation_id)s, %(payload)s
+            )
+            RETURNING *;
+        """
+        params = {
+            "alert_id": alert_id,
+            "alert_type": alert_type,
+            "severity": severity,
+            "source": source,
+            "message": message,
+            "trace_id": trace_id,
+            "evaluation_id": evaluation_id,
+            "payload": Jsonb(payload or {}),
+        }
+        with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+            conn.commit()
+        if row is None:
+            raise RuntimeError("failed to create operational alert")
+        return dict(row)
+
+    def list_alerts(self, limit: int = 50, status: str | None = None, alert_type: str | None = None) -> list[dict[str, Any]]:
+        """???????? status ? alert_type ???"""
+        conditions: list[str] = []
+        params: dict[str, Any] = {"limit": limit}
+        if status:
+            conditions.append("status = %(status)s")
+            params["status"] = status
+        if alert_type:
+            conditions.append("alert_type = %(alert_type)s")
+            params["alert_type"] = alert_type
+        where_clause = " AND ".join(conditions) if conditions else "TRUE"
+        sql = f"""
+            SELECT * FROM live_agent_operational_alerts
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            LIMIT %(limit)s;
+        """
+        with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def acknowledge_alert(self, alert_id: str) -> dict[str, Any]:
+        """?????"""
+        sql = """
+            UPDATE live_agent_operational_alerts
+            SET status = 'acknowledged', updated_at = NOW()
+            WHERE alert_id = %(alert_id)s
+            RETURNING *;
+        """
+        with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, {"alert_id": alert_id})
+                row = cur.fetchone()
+            conn.commit()
+        if row is None:
+            raise KeyError(f"alert {alert_id} not found")
+        return dict(row)
+
+    def resolve_alert(self, alert_id: str) -> dict[str, Any]:
+        """?????"""
+        sql = """
+            UPDATE live_agent_operational_alerts
+            SET status = 'resolved', updated_at = NOW()
+            WHERE alert_id = %(alert_id)s
+            RETURNING *;
+        """
+        with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, {"alert_id": alert_id})
+                row = cur.fetchone()
+            conn.commit()
+        if row is None:
+            raise KeyError(f"alert {alert_id} not found")
+        return dict(row)

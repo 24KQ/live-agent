@@ -120,6 +120,20 @@ class Settings(BaseSettings):
         validation_alias="LLM_TIMEOUT_SECONDS",
     )
 
+    # Phase 7B 生产硬化：操作员鉴权与 schema 初始化控制
+    operator_auth_enabled: bool = Field(
+        default=False,
+        validation_alias="OPERATOR_AUTH_ENABLED",
+    )
+    operator_tokens: str = Field(
+        default="",
+        validation_alias="OPERATOR_TOKENS",
+    )
+    auto_initialize_schema: bool = Field(
+        default=True,
+        validation_alias="AUTO_INITIALIZE_SCHEMA",
+    )
+
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
         """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。
