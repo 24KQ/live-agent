@@ -168,6 +168,16 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_simulator(args: argparse.Namespace) -> int:
+    """启动 Kafka 弹幕模拟生产者（需先启动 daemon）。"""
+    import sys
+    from scripts.run_simulator import DanmakuSimulator
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    sim = DanmakuSimulator(interval_seconds=args.interval)
+    sim.run(scenario=args.scenario)
+    return 0
+
 def cmd_demo(args: argparse.Namespace) -> int:
     """判断 PostgreSQL 是否可用，选择真实链路或降级模式。"""
     try:
@@ -203,6 +213,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("demo", help="端到端全链路演示")
     sub.add_parser("daemon", help="启动 Kafka 弹幕守护进程（阻塞，需另开终端）")
+    p_sim = sub.add_parser("simulator", help="启动 Kafka 弹幕模拟生产者（需先启动 daemon）")
+    p_sim.add_argument("--interval", type=int, default=3, help="发送间隔（秒）")
+    p_sim.add_argument("--scenario", default="normal", choices=["normal", "price_spike", "inventory_alert"], help="播中场景")
 
     p_up = sub.add_parser("up", help="migrate + seed + server 批量执行")
     p_up.add_argument("--dry-run", action="store_true")
@@ -222,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         "server": cmd_server,
         "demo": cmd_demo,
         "daemon": cmd_daemon,
+        "simulator": cmd_simulator,
         "up": cmd_up,
     }
     return command_map[args.command](args)
