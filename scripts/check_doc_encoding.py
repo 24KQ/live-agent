@@ -30,6 +30,9 @@ DEFAULT_ROOTS = (
 
 # 这些片段是典型的 UTF-8 被错误转写后留下的高风险字符。
 # 这里只保留少量高置信片段，宁可少报一点，也不要把正常中文误判太多。
+# Python docstring 中常见的中文 mojibake 片段（UTF-8 被误认为 GBK/Latin-1 解码后的残留）
+# 来源：反复出现的 docstring 乱码如 "þ����ڵ㡣"、"���ֻþ�" 等
+# 只保留高置信片段，宁可漏报也不误报
 MOJIBAKE_FRAGMENTS = (
     "锟斤拷",
     "鏂",
@@ -50,6 +53,11 @@ MOJIBAKE_FRAGMENTS = (
     "鏁",
     "鍙",
     "鐪",
+    # Python docstring 特有乱码（UTF-8 bytes 被 Latin-1 解码）
+    "þ",    # \xfe 或 \xc3\xbe 的残留
+    "��",   # Latin-1 解码 U+FFFD 后的二次乱码
+    "�þ�", # 常见 docstring 开头乱码模式
+    "���",  # 三个连续 replacement char（常见于大段中文损坏）
 )
 
 
@@ -153,6 +161,91 @@ def scan_file(path: Path) -> list[DocIssue]:
     return issues
 
 
+
+
+def scan_py_file(path: Path) -> list[DocIssue]:
+    """扫描 Python 文件的编码和 docstring 风险。
+
+    检查 BOM、换行符一致性、以及 docstring 中的 mojibake 片段。
+    """
+    issues: list[DocIssue] = []
+    raw = path.read_bytes()
+
+    # 检查 UTF-8 BOM
+    if raw.startswith(b"\xef\xbb\xbf"):
+        issues.append(
+            DocIssue(
+                path=path,
+                line_no=1,
+                severity="warning",
+                category="utf8_bom",
+                detail="文件带有 UTF-8 BOM，项目规范建议使用无 BOM UTF-8。",
+            )
+        )
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        issues.append(
+            DocIssue(
+                path=path,
+                line_no=None,
+                severity="error",
+                category="utf8_decode_error",
+                detail=str(exc),
+            )
+        )
+        text = raw.decode("utf-8", errors="replace")
+
+    # 换行符一致性检查
+    crlf_count = text.count("\r\n")
+    lf_only_count = text.count("\n") - crlf_count
+    if crlf_count > 0 and lf_only_count > 0:
+        issues.append(
+            DocIssue(
+                path=path,
+                line_no=None,
+                severity="warning",
+                category="mixed_line_endings",
+                detail=f"文件同时包含 CRLF ({crlf_count} 行) 和 LF ({lf_only_count} 行) 换行符。",
+            )
+        )
+
+    # 逐行扫描 docstring 中的 mojibake
+    # 对扫描脚本自身跳过 mojibake 检查（因为检查列表中的字符串字面量会被误报）
+    is_self = path.name == "check_doc_encoding.py"
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if "\ufffd" in line:
+            issues.append(
+                DocIssue(
+                    path=path,
+                    line_no=line_no,
+                    severity="error",
+                    category="replacement_char",
+                    detail=_summarize_line(line),
+                )
+            )
+
+        if not is_self:
+            fragments = [f for f in MOJIBAKE_FRAGMENTS if f in line]
+            if fragments:
+                issues.append(
+                    DocIssue(
+                        path=path,
+                        line_no=line_no,
+                        severity="warning",
+                        category="mojibake_fragment",
+                        detail=f"{_summarize_line(line)} | 命中片段: {', '.join(fragments[:4])}",
+                    )
+                )
+
+    return issues
+
+
 def scan_roots(roots: Iterable[Path]) -> list[DocIssue]:
     """扫描多个根目录。"""
 
@@ -205,6 +298,19 @@ def main(argv: list[str] | None = None) -> int:
 
     roots = [Path(path).resolve() for path in args.paths] if args.paths else list(DEFAULT_ROOTS)
     issues = scan_roots(roots)
+
+    # 也扫描 .py 文件（src/ tests/ scripts/）
+    py_roots = [
+        PROJECT_ROOT / "src",
+        PROJECT_ROOT / "tests",
+        PROJECT_ROOT / "scripts",
+    ]
+    for root in py_roots:
+        if not root.exists():
+            continue
+        for p in sorted(root.rglob("*.py")):
+            issues.extend(scan_py_file(p))
+
     print_report(issues)
     return 1 if any(issue.severity == "error" for issue in issues) else 0
 
