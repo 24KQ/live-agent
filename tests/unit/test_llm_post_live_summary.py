@@ -51,7 +51,8 @@ class TestLLMPostLiveSummary:
 
     def test_llm_unavailable_falls_back(self):
         """LLM 不可用时降级到结构化报告。"""
-        with patch.object(self.summarizer, "_call_llm", side_effect=Exception("API unavailable")):
+        from src.skills.llm_client import LLMResponse
+        with patch.object(self.summarizer._llm_client, "call", return_value=LLMResponse(content="", fallback_triggered=True)):
             report = self.summarizer.generate(
                 attribution={"total_decisions": 3, "adoption_rate": 0.33, "accuracy_rate": 0.67},
                 issues=[],
@@ -69,7 +70,8 @@ class TestLLMPostLiveSummary:
 
     def test_summary_includes_suggestion(self):
         """总结应包含后续建议。"""
-        with patch.object(self.summarizer, "_call_llm", return_value="本场直播表现良好，采纳率70%。建议：继续关注价格类弹幕。"):
+        from src.skills.llm_client import LLMResponse
+        with patch.object(self.summarizer._llm_client, "call", return_value=LLMResponse(content="本场直播表现良好，采纳率70%。建议：继续关注价格类弹幕。")):
             report = self.summarizer.generate(
                 attribution={"total_decisions": 3, "adoption_rate": 0.7, "accuracy_rate": 0.8},
                 issues=[],

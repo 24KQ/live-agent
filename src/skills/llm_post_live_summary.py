@@ -15,9 +15,9 @@ LLM 不可用时降级到确定性结构化模板，不阻塞播后流程。
 from __future__ import annotations
 
 import json
-import urllib.request
-import urllib.error
 from typing import Any
+
+from src.skills.llm_client import LLMClient
 
 from src.config.settings import Settings, get_settings
 
@@ -112,19 +112,27 @@ class LLMPostLiveSummary:
                 settings = None
 
         if settings is not None:
-            self._base_url = (settings.llm_api_base_url or "https://api.deepseek.com").rstrip("/")
-            self._api_key = settings.llm_api_key or ""
-            self._model = settings.llm_model or "deepseek-v4-flash"
-            self._max_tokens = settings.llm_max_tokens or 1000
-            self._temperature = settings.llm_temperature or 0.3
-            self._timeout = settings.llm_timeout_seconds or 15
+            base_url = (settings.llm_api_base_url or "https://api.deepseek.com").rstrip("/")
+            api_key_val = settings.llm_api_key or ""
+            model = settings.llm_model or "deepseek-v4-flash"
+            max_tokens = settings.llm_max_tokens or 1000
+            temperature = settings.llm_temperature or 0.3
+            timeout = settings.llm_timeout_seconds or 15
         else:
-            self._base_url = "https://api.deepseek.com"
-            self._api_key = ""
-            self._model = "deepseek-v4-flash"
-            self._max_tokens = 1000
-            self._temperature = 0.3
-            self._timeout = 15
+            base_url = "https://api.deepseek.com"
+            api_key_val = ""
+            model = "deepseek-v4-flash"
+            max_tokens = 1000
+            temperature = 0.3
+            timeout = 15
+        self._llm_client = LLMClient(
+            api_key=api_key_val,
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     def generate(self, attribution: dict[str, Any], issues: list[str]) -> str:
         """生成 LLM 复盘总结。
@@ -139,32 +147,15 @@ class LLMPostLiveSummary:
                 raise RuntimeError("LLM API key not configured")
 
             prompt = build_review_prompt(attribution, issues)
-            return self._call_llm(prompt)
+            resp = self._llm_client.call(
+                user_prompt=prompt,
+                system_prompt="你是一个直播复盘分析师。请基于数据生成自然语言的复盘总结。",
+            )
+            if resp.fallback_triggered:
+                raise RuntimeError("LLM call fallback: no api key or all retries exhausted")
+            return resp.content
 
         except Exception:
             return build_structured_fallback(attribution, issues)
 
-    def _call_llm(self, user_prompt: str) -> str:
-        """调用 DeepSeek chat completions API。"""
-        url = f"{self._base_url}/chat/completions"
-        body = json.dumps({
-            "model": self._model,
-            "messages": [
-                {"role": "system", "content": "你是一个直播复盘分析师。请基于数据生成自然语言的复盘总结。"},
-                {"role": "user", "content": user_prompt},
-            ],
-            "max_tokens": self._max_tokens,
-            "temperature": self._temperature,
-        }).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._api_key}",
-        }
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
-            raise RuntimeError(f"LLM API call failed: {exc}") from exc
 
-        return data["choices"][0]["message"]["content"]

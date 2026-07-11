@@ -130,7 +130,8 @@ def test_llm_valid_decision_is_used() -> None:
       "risk_level": "LOW"
     }
     """
-    with patch.object(planner, "_call_llm", return_value=llm_json):
+    from src.skills.llm_client import LLMResponse
+    with patch.object(planner._llm_client, "call", return_value=LLMResponse(content=llm_json)):
         decision = planner.plan_next_step(
             context=_context(),
             danmaku_summary=[{"category": "price", "count": 15}],
@@ -144,7 +145,8 @@ def test_llm_valid_decision_is_used() -> None:
 def test_llm_failure_falls_back_to_phase5f_planner() -> None:
     """LLM 失败时降级到 Phase 5F planner，并返回 fallback decision。"""
     planner = OnLiveHarnessPlanner(api_key="test-key")
-    with patch.object(planner, "_call_llm", side_effect=RuntimeError("api down")):
+    from src.skills.llm_client import LLMResponse
+    with patch.object(planner._llm_client, "call", return_value=LLMResponse(content="", fallback_triggered=True)):
         decision = planner.plan_next_step(
             context=_context(),
             danmaku_summary=[{"category": "price", "count": 15, "summary": "价格"}],

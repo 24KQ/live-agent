@@ -14,9 +14,9 @@ LLM 只负责生成受控 JSON；工具白名单、生命周期、风险等级�
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 from typing import Any, Literal
+
+from src.skills.llm_client import LLMClient
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -176,19 +176,27 @@ class OnLiveHarnessPlanner:
             except Exception:
                 settings = None
         if settings is not None:
-            self._base_url = (settings.llm_api_base_url or "https://api.deepseek.com").rstrip("/")
-            self._api_key = settings.llm_api_key or api_key
-            self._model = settings.llm_model or "deepseek-v4-flash"
-            self._max_tokens = settings.llm_max_tokens or 500
-            self._temperature = settings.llm_temperature or 0.2
-            self._timeout = settings.llm_timeout_seconds or 15
+            base_url = (settings.llm_api_base_url or "https://api.deepseek.com").rstrip("/")
+            api_key_val = settings.llm_api_key or api_key
+            model = settings.llm_model or "deepseek-v4-flash"
+            max_tokens = settings.llm_max_tokens or 500
+            temperature = settings.llm_temperature or 0.2
+            timeout = settings.llm_timeout_seconds or 15
         else:
-            self._base_url = "https://api.deepseek.com"
-            self._api_key = api_key
-            self._model = "deepseek-v4-flash"
-            self._max_tokens = 500
-            self._temperature = 0.2
-            self._timeout = 15
+            base_url = "https://api.deepseek.com"
+            api_key_val = api_key
+            model = "deepseek-v4-flash"
+            max_tokens = 500
+            temperature = 0.2
+            timeout = 15
+        self._llm_client = LLMClient(
+            api_key=api_key_val,
+            base_url=base_url,
+            model=model,
+            timeout_seconds=timeout,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
         self._fallback_planner = OnLiveLLMPlanner(settings=settings, api_key=api_key)
 
     def plan_next_step(
@@ -207,7 +215,7 @@ class OnLiveHarnessPlanner:
                 risk_level="LOW",
             )
         available_tools = _available_on_live_tools()
-        if self._api_key:
+        if self._llm_client.has_api_key:
             try:
                 prompt = build_harness_prompt(context, available_tools, observations)
                 return parse_harness_decision(self._call_llm(prompt))
@@ -216,33 +224,14 @@ class OnLiveHarnessPlanner:
         return self._fallback_decision(danmaku_summary, inventory_alerts, "missing api key")
 
     def _call_llm(self, user_prompt: str) -> str:
-        """调用 DeepSeek OpenAI 兼容 chat completions API。"""
-        url = self._base_url + "/chat/completions"
-        body = json.dumps(
-            {
-                "model": self._model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "你是直播播中 Harness Agent。只返回 JSON。",
-                    },
-                    {"role": "user", "content": user_prompt},
-                ],
-                "max_tokens": self._max_tokens,
-                "temperature": self._temperature,
-            }
-        ).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + self._api_key,
-        }
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.URLError, json.JSONDecodeError, OSError) as exc:
-            raise RuntimeError(f"LLM API call failed: {exc}") from exc
-        return data["choices"][0]["message"]["content"]
+        """通过 LLMClient 调用 DeepSeek API，带重试和异常分类。"""
+        resp = self._llm_client.call(
+            user_prompt=user_prompt,
+            system_prompt="你是直播播中 Harness Agent。只返回 JSON。",
+        )
+        if resp.fallback_triggered:
+            raise RuntimeError("LLM call fallback: no api key or all retries exhausted")
+        return resp.content
 
     def _fallback_decision(
         self,
