@@ -173,7 +173,7 @@ class AgentToolExecutor:
                     audit_id=None,
                 )
 
-            elif tool_name == "recommend_backup":
+            elif tool_name == "recommend_backup_product":
                 sold_out_product_id = arguments.get("sold_out_product_id", "")
                 return AgentObservation(
                     tool_name=tool_name,

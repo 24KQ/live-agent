@@ -96,7 +96,7 @@ class TestLocalServiceExecutor:
             current_product_id="prod-001",
         )
         result = executor.execute(
-            tool_name="recommend_backup",
+            tool_name="recommend_backup_product",
             arguments={"sold_out_product_id": "prod-001"},
             room_id="room-5e-test",
             trace_id="trace-5e-test",
