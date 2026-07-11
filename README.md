@@ -1,6 +1,6 @@
 # LiveAgent
 
-> 淘宝主播 AI 助手 -- 基于 LangGraph 的直播 Agent 系统
+> 淘宝主播 AI 助手 —— 基于 LangGraph 的直播 Agent 系统
 
 ## 架构总览
 
@@ -13,107 +13,121 @@ graph TD
         MO[MinIO]
     end
     subgraph LangGraph Agent Layer
-        PL[PreLiveAgent - Workflow]
-        OL[OnLiveHarnessAgent - StateGraph]
-        PSR[PostLive - Review + LLM]
-        EV[Evaluation - Replay + Score]
+        PL[PreLive Harness - Workflow]
+        OL[OnLive Harness Agent - StateGraph]
+        PSR[PostLive Review + LLM Summary]
+        EV[Agent Evaluation - Replay + Score]
     end
     subgraph Business Capability Layer
         PC[ProductCard + LiveReducer]
-        DA[DanmakuAggregator + Kafka]
+        DA[DanmakuAggregator + Kafka Daemon]
         MS[MemoryStore + TrustScore]
         TA[ToolCallAudit + DecisionTrace]
     end
     subgraph Web Presentation Layer
         API[FastAPI + REST + WebSocket]
-        FE[Dashboard + Evaluation UI]
+        FE[Dashboard + Evaluation + Human Approval]
     end
-    Infrastructure --> LangGraphAgentLayer
-    LangGraphAgentLayer --> BusinessCapabilityLayer
-    BusinessCapabilityLayer --> WebPresentationLayer
+    Infrastructure --> LangGraph Agent Layer
+    LangGraph Agent Layer --> Business Capability Layer
+    Business Capability Layer --> Web Presentation Layer
 ```
 
 ## 前置要求
 
-- Docker 25+ - 运行 PostgreSQL + Kafka + Zookeeper + MinIO
-- Python 3.12+ - 运行 Agent 和 API 服务
-- (可选) DeepSeek API Key - LLM 播后复盘需要
+- Docker 25+：运行 PostgreSQL 15 + Kafka 7.6 + Zookeeper
+- Python 3.12+：运行 Agent 引擎和 API 服务
+- （可选）DeepSeek API Key：开启 LLM 决策和播后总结，无 Key 时自动降级到规则引擎
 
 ## 快速开始
 
 ```bash
+# 1. 克隆项目
 git clone <repo-url>
 cd live-agent
+
+# 2. 安装依赖
 pip install -r requirements.txt
+
+# 3. 启动基础设施（PostgreSQL + Kafka）
 docker compose up -d
+
+# 4. 初始化数据库 + 启动 API
 python scripts/run_all.py up
+
+# 5. 打开 Web 副屏
 open http://localhost:8100
+
+# 6. （可选）启动端到端演示链路
+#    终端 A：python scripts/run_all.py daemon
+#    终端 B：python scripts/run_all.py simulator --scenario inventory_alert
 ```
 
-Windows: .\
-un.ps1 docker -> .\
-un.ps1 up
-无 Docker: python scripts/run_all.py demo
+> 无 Docker 环境时也可运行 mock 演示：
+> ```bash
+> python scripts/run_all.py demo
+> ```
 
 ## 演示场景
 
-| 场景 | 触发 | 展示 |
+| 场景 | 命令 | 效果 |
 |------|------|------|
-| 播前手卡 | 打开Web副屏 | 商品话术建议 |
-| 播中Agent | 弹幕入Kafka | 观察->决策->工具 |
-| 人审 | 高风险工具 | pending->批准/拒绝->恢复 |
-| 弹幕 | Kafka consumer | 5秒窗口写DB |
-| 播后复盘 | 直播结束 | 归因指标+LLM总结 |
-| Agent评估 | CLI或API | 回放+7维评分 |
+| 播前手卡生成 | 打开 Web 页面 | 查看排品方案和主播手卡 |
+| 播中 Agent 决策 | `simulator --scenario price_spike` | 弹幕聚合 → Agent 建议 |
+| 播中人工审批 | `simulator --scenario inventory_alert` | 售罄告警 → pending → 批准/拒绝 → 执行/跳过 |
+| 播后复盘 | 打开 Web 页面 | 采纳率、准确率、归因分析 |
+| Agent 评估 | 打开 /evaluation 页面 | 回放时间线、维度评分、Verdict |
 
 ## 核心功能
 
-| 阶段 | 能力 | 实现 |
-|------|------|------|
-| 播前 | Workflow手卡 | LangGraph + RulesPlanner |
-| 播中 | Agent决策 | Harness Agent + Interrupt/Resume |
-| 播中 | 弹幕捕获 | Kafka consumer + 5秒聚合 |
-| 播中 | Web人审 | FastAPI + Vanilla JS |
-| 播后 | 规则复盘 | PostLiveReview + Attribution |
-| 播后 | LLM总结 | DeepSeek降级模板 |
-| 评估 | Agent回放 | LangGraph get_state_history |
-| 评估 | 规则评分 | AgentRuleEvaluator 7维度 |
-| 评估 | LLM Judge | AgentLLMJudge partial |
-| 运维 | 操作员鉴权 | Header token校验 |
-| 运维 | 审批锁+TTL | 行级锁+10分钟过期 |
-| 运维 | 幂等审批 | Idempotency Key |
-| 运维 | Worker恢复告警 | lease过期+3次重试fail |
+| 阶段 | 能力 | 技术实现 |
+|------|------|---------|
+| 播前 | 排品方案 + 主播手卡 | LangGraph Workflow + RulesPlanner |
+| 播中 | 弹幕聚合 + Agent 决策 | Harness Agent Loop + LLM/规则降级 |
+| 播中 | 人审 interrupt/resume | LangGraph interrupt + Web 审批界面 |
+| 播中 | Kafka 弹幕通路 | DanmakuDaemon + 5s 窗口聚合 + 模拟生产者 |
+| 播后 | 结构化复盘 | PostLiveReview + Attribution |
+| 播后 | LLM 自然语言总结 | DeepSeek（不可用时降级到结构化模板） |
+| 评估 | 回放 + 规则评分 | AgentReplayService + AgentRuleEvaluator（7 维度） |
+| 评估 | LLM Judge（可选） | AgentLLMJudge（仅影响 10% 语义质量权重） |
+| 生产 | 工具安全门禁 | ToolRegistry + SecurityHook + LifecycleHook |
+| 生产 | 操作员鉴权 | Header token + 角色权限（operator/reviewer/admin） |
+| 生产 | 审批幂等/过期/锁定 | Idempotency Key + 10 分钟 TTL + Lock |
+| 生产 | LLM 调用健壮性 | 指数退避重试 + 异常细分 + Token 追踪 |
+| 生产 | 工具参数校验 | jsonschema 校验（可选依赖，不可用时跳过） |
 
-## API一览
+## API 一览
 
-| 端点 | 方法 | 作用 | 鉴权 |
+| 端点 | 方法 | 说明 | 鉴权 |
 |------|------|------|------|
-| /api/card/{id} | GET | 商品手卡 | 无 |
-| /api/danmaku/summary | GET | 弹幕摘要 | 无 |
-| /api/alert/{room_id} | GET | 库存告警 | 无 |
-| /api/review/{room_id} | GET | 播后复盘 | 无 |
-| /api/agent/harness/start | POST | 启动Harness | 无 |
-| /api/agent/harness/status | GET | 审批状态 | 无 |
-| /api/agent/harness/approval | POST | 提交审批 | operator |
-| /api/agent/evaluations | POST | 创建评估 | 无 |
-| /api/agent/evaluations/{id} | GET | 评估结果 | 无 |
-| /api/agent/evaluations/{id}/reviews | POST | 复核 | reviewer |
-| /api/agent/replays/{trace_id} | GET | 回放 | 无 |
-| /ws | WS | 实时推送 | 无 |
-| /evaluation | GET | 运维页面 | 无 |
+| /api/card/{id} | GET | 获取主播手卡 | 否 |
+| /api/danmaku/summary | GET | 弹幕聚合摘要 | 否 |
+| /api/alert/{room_id} | GET | 库存告警 | 否 |
+| /api/review/{room_id} | GET | 播后复盘数据 | 否 |
+| /api/agent/harness/start | POST | 启动 Harness Agent 会话 | 否 |
+| /api/agent/harness/status | GET | 查询 Agent 状态 | 否 |
+| /api/agent/harness/approval | POST | 提交人审结果 | operator |
+| /api/agent/evaluations | POST | 创建评估任务 | 否 |
+| /api/agent/evaluations/{id} | GET | 查询评估结果 | 否 |
+| /api/agent/evaluations/{id}/reviews | POST | 提交人工复核 | reviewer |
+| /api/agent/replays/{trace_id} | GET | 查询回放时间线 | 否 |
+| /ws | WS | 实时推送 | 否 |
 
 ## 项目结构
 
 ```text
 live-agent/
-  src/core/      LangGraph Agent编排
-  src/gateway/   API服务 持久化Store WebSocket
-  src/skills/    业务能力: 手卡 弹幕 LLM
-  src/config/    配置中心 Pydantic Settings
-  front/         Web副屏
-  scripts/       演示脚本
-  docker/        数据库init SQL
-  tests/         单元+集成测试
+  src/core/      LangGraph Agent 编排层（Graph、Hook、Audit、Replay）
+  src/gateway/   FastAPI 服务、Session Store、WebSocket、鉴权
+  src/skills/    业务能力层（手卡、弹幕、复盘、LLM）
+  src/config/    配置与工具注册表（ToolRegistry）
+  src/state/     领域模型与状态定义
+  src/audit/     审计记录存储
+  src/memory/    记忆与信任评分
+  front/         Web 副屏页面（Dashboard + Evaluation UI）
+  scripts/       CLI 工具、演示脚本、数据种子
+  docker/        PostgreSQL 初始化 DDL（9 个 init SQL）
+  tests/         单元测试（75）+ 集成测试（24）共 362 项
 ```
 
 ## 技术栈
@@ -123,16 +137,23 @@ LangGraph / FastAPI / PostgreSQL 15 / Kafka 7.6 / DeepSeek / pgvector / Redis / 
 ## 测试
 
 ```bash
+# 全量单元测试
 pytest tests/unit/ -v
+
+# 编码扫描
 python scripts/check_doc_encoding.py
+
+# 端到端 mock 演示
+python scripts/run_all.py demo
 ```
 
 ## 开发说明
 
-- 新增Agent: src/core/下定义StateGraph
-- 新增工具: agent_tool_executor.py注册
-- 数据库变更: docker/下init SQL + 迁移脚本
-- 编码: UTF-8 中文注释解释业务规则
+- 新增工具必须在 `ToolRegistry` 注册，声明生命周期、风险等级、参数 Schema 和门禁策略
+- 所有新增/修改代码使用 UTF-8 编码
+- 播前流程是 Workflow，不是 Agent；播中流程才是 LangGraph Agent
+- 高风险工具不自动执行，必须经过人审 interrupt
+- Agent 评估优先用规则评分，LLM Judge 只补充建议语义质量维度
 
 ## License
 
