@@ -66,6 +66,30 @@ class TestWebSocketManager:
         assert "payload" in sent
         assert "timestamp" in sent
 
+    def test_broadcast_supports_agent_harness_update_payload(self):
+        """Phase 6C Harness 状态推送应保留节点路径和审批信息。"""
+        ws = AsyncMock()
+        self.manager.connect(ws)
+
+        import asyncio
+        asyncio.run(
+            self.manager.broadcast(
+                {
+                    "type": "agent_harness_update",
+                    "payload": {
+                        "trace_id": "trace-ws-harness",
+                        "completed_nodes": ["load_context", "human_approval_interrupt"],
+                        "pending_approval": True,
+                    },
+                }
+            )
+        )
+
+        sent = ws.send_json.call_args[0][0]
+        assert sent["type"] == "agent_harness_update"
+        assert sent["payload"]["pending_approval"] is True
+        assert "human_approval_interrupt" in sent["payload"]["completed_nodes"]
+
     def test_broadcast_skips_disconnected(self):
         """已断开的连接应被跳过并移除。"""
         ws_ok = AsyncMock()

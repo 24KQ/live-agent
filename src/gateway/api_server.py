@@ -9,16 +9,74 @@ import asyncio
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
+from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config.settings import get_settings
+from src.gateway.harness_dashboard_service import (
+    create_default_harness_dashboard_service,
+    create_in_memory_harness_dashboard_service,
+)
+from src.gateway.harness_session_store import HarnessSessionNotFoundError
+from src.gateway.websocket_manager import WebSocketManager
 from src.skills.product_catalog import ProductCatalogRepository
 
 app = FastAPI(title="LiveAgent Dashboard", version="0.4.0")
 settings = get_settings()
+websocket_manager = WebSocketManager()
+_harness_dashboard_service = None
+
+
+class HarnessStartRequest(BaseModel):
+    """Web 副屏启动 Harness Agent 会话的请求体。"""
+
+    room_id: str = Field(..., min_length=1)
+    trace_id: str | None = None
+    anchor_id: str | None = "anchor-demo"
+
+
+class HarnessApprovalRequest(BaseModel):
+    """Web 副屏提交人工审批结果的请求体。"""
+
+    trace_id: str = Field(..., min_length=1)
+    room_id: str = Field(..., min_length=1)
+    tool_name: str = Field(..., min_length=1)
+    decision: Literal["approved", "rejected"]
+    operator_id: str = Field(..., min_length=1)
+    reason: str = Field(..., min_length=1)
+
+
+def set_harness_dashboard_service(service) -> None:
+    """替换 HarnessDashboardService，供单元测试注入内存版本。
+
+    生产运行时不调用该函数，默认懒加载 PostgreSQL 持久化版本。
+    """
+
+    global _harness_dashboard_service
+    _harness_dashboard_service = service
+
+
+def get_harness_dashboard_service():
+    """获取副屏 Harness 服务。
+
+    默认使用 PostgreSQL store + PostgreSQL checkpointer；如果调用方显式注入了
+    内存版本，则用于单元测试或无数据库演示。
+    """
+
+    global _harness_dashboard_service
+    if _harness_dashboard_service is None:
+        _harness_dashboard_service = create_default_harness_dashboard_service()
+    return _harness_dashboard_service
+
+
+async def _broadcast_harness_status(payload: dict) -> None:
+    """向副屏推送最新 Harness Agent 状态。"""
+
+    await websocket_manager.broadcast({"type": "agent_harness_update", "payload": payload})
 
 
 @app.get("/api/health")
@@ -260,6 +318,59 @@ async def get_agent_suggestion(room_id: str = ""):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@app.post("/api/agent/harness/start")
+async def start_harness_session(request: HarnessStartRequest):
+    """启动一条 Web 可观测的播中 Harness Agent 会话。
+
+    返回值会包含 LangGraph 节点路径、pending 审批信息和 trace_id。若触发高风险工具，
+    会话会停在 `pending_human`，等待 `/api/agent/harness/approval` 恢复。
+    """
+
+    try:
+        status = get_harness_dashboard_service().start_session(
+            room_id=request.room_id,
+            trace_id=request.trace_id,
+            anchor_id=request.anchor_id,
+        )
+        await _broadcast_harness_status(status)
+        return status
+    except Exception as exc:  # noqa: BLE001 - API 入口需要把底层异常转换成明确 JSON。
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/api/agent/harness/status")
+async def get_harness_status(trace_id: str):
+    """读取指定 trace_id 的 Harness Agent 会话状态。"""
+
+    try:
+        return get_harness_dashboard_service().get_status(trace_id)
+    except HarnessSessionNotFoundError:
+        return JSONResponse(status_code=404, content={"error": f"harness session {trace_id} not found"})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/api/agent/harness/approval")
+async def submit_harness_approval(request: HarnessApprovalRequest):
+    """提交 Web 人审结果，并用同一 thread_id 恢复 LangGraph。"""
+
+    try:
+        status = get_harness_dashboard_service().submit_approval(
+            trace_id=request.trace_id,
+            room_id=request.room_id,
+            tool_name=request.tool_name,
+            decision=request.decision,
+            operator_id=request.operator_id,
+            reason=request.reason,
+        )
+        await _broadcast_harness_status(status)
+        return status
+    except HarnessSessionNotFoundError:
+        return JSONResponse(status_code=404, content={"error": f"harness session {request.trace_id} not found"})
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @app.get("/api/review/llm/{room_id}")
 async def get_llm_review(room_id: str):
     """用 LLM 生成播后自然语言复盘总结。
@@ -328,6 +439,98 @@ async def get_llm_review(room_id: str):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@app.websocket("/ws")
+async def dashboard_websocket(websocket: WebSocket):
+    """副屏 WebSocket 入口。
+
+    连接建立后只负责接收保活消息并向连接池注册；业务数据由后台任务和审批接口通过
+    `WebSocketManager.broadcast()` 推送。
+    """
+
+    await websocket.accept()
+    websocket_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket)
+    except Exception:
+        websocket_manager.disconnect(websocket)
+
+
+async def _json_payload(value):
+    """把端点返回值整理成可广播 JSON。
+
+    部分历史端点在异常时返回 JSONResponse；后台推送不应该把 Response 对象直接发给前端，
+    因此这里统一降级为错误 payload。
+    """
+
+    if isinstance(value, JSONResponse):
+        return {"error": "endpoint returned JSONResponse", "status_code": value.status_code}
+    return value
+
+
+async def _push_agent_suggestion() -> None:
+    """周期推送旧版 Agent 建议，兼容现有前端面板。"""
+
+    while True:
+        await asyncio.sleep(5)
+        if websocket_manager.active_connections <= 0:
+            continue
+        payload = await _json_payload(await get_agent_suggestion(room_id="dashboard-room"))
+        await websocket_manager.broadcast({"type": "agent_suggestion", "payload": payload})
+
+
+async def _push_harness_status() -> None:
+    """周期推送最近一条 Harness 会话状态。
+
+    当还没有启动 6C 会话时静默跳过，避免副屏一打开就被无意义错误刷屏。
+    """
+
+    while True:
+        await asyncio.sleep(3)
+        if websocket_manager.active_connections <= 0:
+            continue
+        try:
+            payload = get_harness_dashboard_service().latest_for_room("room-dashboard-001")
+        except Exception:
+            continue
+        await _broadcast_harness_status(payload)
+
+
+async def _push_danmaku() -> None:
+    """周期推送弹幕聚合摘要。"""
+
+    while True:
+        await asyncio.sleep(5)
+        if websocket_manager.active_connections <= 0:
+            continue
+        payload = await _json_payload(await get_danmaku_summary(room_id="dashboard-room"))
+        await websocket_manager.broadcast({"type": "danmaku_update", "payload": payload})
+
+
+async def _push_alerts() -> None:
+    """周期推送库存/售罄告警。"""
+
+    while True:
+        await asyncio.sleep(5)
+        if websocket_manager.active_connections <= 0:
+            continue
+        payload = await _json_payload(await get_alerts(room_id="dashboard-room"))
+        await websocket_manager.broadcast({"type": "alert_update", "payload": payload})
+
+
+async def _push_review() -> None:
+    """周期推送播后 LLM 复盘摘要。"""
+
+    while True:
+        await asyncio.sleep(10)
+        if websocket_manager.active_connections <= 0:
+            continue
+        payload = await _json_payload(await get_llm_review(room_id="dashboard-room"))
+        await websocket_manager.broadcast({"type": "review_update", "payload": payload})
+
+
 
 
 @asynccontextmanager
@@ -335,6 +538,7 @@ async def lifespan(app: FastAPI):
     """启动后台推送任务。"""
     tasks = [
         asyncio.create_task(_push_agent_suggestion()),
+        asyncio.create_task(_push_harness_status()),
         asyncio.create_task(_push_danmaku()),
         asyncio.create_task(_push_alerts()),
         asyncio.create_task(_push_review()),
