@@ -46,11 +46,13 @@ _GENERATE_LIVE_PLAN_SCHEMA: dict = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["product_id", "title", "price"],
+                "required": ["product_id", "name", "category", "price", "inventory"],
                 "properties": {
                     "product_id": {"type": "string"},
-                    "title": {"type": "string"},
+                    "name": {"type": "string"},
+                    "category": {"type": "string"},
                     "price": {"type": "string"},
+                    "inventory": {"type": "integer"},
                 },
             },
         },
@@ -66,12 +68,15 @@ _GENERATE_PRODUCT_CARD_SCHEMA: dict = {
         "room_id": {"type": "string"},
         "product": {
             "type": "object",
-            "required": ["product_id", "title", "price"],
+            "required": ["product_id", "name", "category", "price", "inventory"],
             "properties": {
                 "product_id": {"type": "string"},
-                "title": {"type": "string"},
+                "name": {"type": "string"},
+                "category": {"type": "string"},
                 "price": {"type": "string"},
+                "inventory": {"type": "integer"},
             },
+            "additionalProperties": False,
         },
     },
     "additionalProperties": False,
@@ -80,7 +85,7 @@ _GENERATE_PRODUCT_CARD_SCHEMA: dict = {
 # setup_live_session：接收不可变计划快照
 _SETUP_LIVE_SESSION_SCHEMA: dict = {
     "type": "object",
-    "required": ["room_id", "plan", "idempotency_key"],
+    "required": ["room_id", "plan"],
     "properties": {
         "room_id": {"type": "string"},
         "plan": {
@@ -103,7 +108,7 @@ _SETUP_LIVE_SESSION_SCHEMA: dict = {
                 },
             },
         },
-        "idempotency_key": {"type": "string"},
+        
     },
     "additionalProperties": False,
 }
@@ -201,7 +206,7 @@ _MANIFESTS: list[SkillManifest] = [
                 "room_id": {"type": "string"},
                 "product_id": {"type": "string"},
                 "trace_id": {"type": "string"},
-                "idempotency_key": {"type": "string"},
+                
             },
         },
         gate_decision=GateDecision.AUTO,

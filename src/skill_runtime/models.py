@@ -16,6 +16,8 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from src.core.security_hooks import GateDecision
+from src.state.models import LifecycleStage, RiskLevel
 
 
 # ── 受控枚举 ──────────────────────────────────────────────────────────
@@ -55,30 +57,6 @@ class SkillErrorCode(StrEnum):
     APPROVAL_REJECTED = "APPROVAL_REJECTED"
     HANDLER_NOT_FOUND = "HANDLER_NOT_FOUND"
     HANDLER_FAILED = "HANDLER_FAILED"
-
-
-class LifecycleStage(StrEnum):
-    """与 src.state.models.LifecycleStage 对齐的能力生命周期。"""
-
-    PRE_LIVE = "PRE_LIVE"
-    ON_LIVE = "ON_LIVE"
-    POST_LIVE = "POST_LIVE"
-
-
-class RiskLevel(StrEnum):
-    """与 src.state.models.RiskLevel 对齐的风险等级。"""
-
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-
-
-class GateDecision(StrEnum):
-    """与 src.core.security_hooks.GateDecision 对齐的门禁策略。"""
-
-    AUTO = "AUTO"
-    SOFT_GATE = "SOFT_GATE"
-    HARD_GATE = "HARD_GATE"
 
 
 # ── 元数据模型 ─────────────────────────────────────────────────────────
