@@ -38,4 +38,3 @@ markers = [
     "integration: marks tests as integration tests",
     "external: marks tests that call external network/model services",
 ]
-
