@@ -23,6 +23,7 @@ from src.core.security_hooks import GateResult
 from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
+from src.skill_runtime.models import ApprovalContext, ApprovalSource
 from src.state.models import RiskLevel
 
 
@@ -62,6 +63,8 @@ class PreLiveBusinessServiceProtocol(Protocol):
         plan: LivePlanDraft,
         trace_id: str,
         confirmed_setup: bool,
+        *,
+        approval_context: ApprovalContext | None = None,
     ) -> tuple[GateResult, str | None]:
         """执行模拟建播 hard-gate，并在确认后写入审计。"""
         ...
@@ -323,6 +326,12 @@ def _setup_live_session_with_human_approval(
         plan=plan,
         trace_id=state["trace_id"],
         confirmed_setup=True,
+        approval_context=ApprovalContext(
+            source=ApprovalSource.HUMAN_INTERRUPT,
+            decision="APPROVED",
+            operator_id=approval_response.operator_id,
+            approval_audit_id=resume_audit_id,
+        ),
     )
     return {
         "approval_request": interrupt_payload,

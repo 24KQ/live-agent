@@ -1,4 +1,4 @@
-﻿"""LiveAgent 本地配置定义。
+"""LiveAgent 本地配置定义。
 
 本模块是 Phase 0 的配置中心，负责把 `.env` 或系统环境变量转换为
 类型明确的 Python 对象。生产代码不要直接读取环境变量，而应通过
@@ -7,7 +7,7 @@
 """
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -136,11 +136,11 @@ class Settings(BaseSettings):
     # ── Phase 11A Skill Runtime 路由配置 ──────────────────────────────────
     # 播前 generation 批次（query_products, generate_live_plan, generate_product_card）
     # 的路由选择。LEGACY 走原 PreLiveBusinessFlowService，SKILL_RUNTIME 走统一 Executor。
-    skill_route_prelive_generation: str = Field(
+    skill_route_prelive_generation: Literal["LEGACY", "SKILL_RUNTIME"] = Field(
         default="LEGACY", validation_alias="SKILL_ROUTE_PRELIVE_GENERATION"
     )
     # 播前 setup 批次（setup_live_session）的路由选择，独立于 generation 批次。
-    skill_route_prelive_setup: str = Field(
+    skill_route_prelive_setup: Literal["LEGACY", "SKILL_RUNTIME"] = Field(
         default="LEGACY", validation_alias="SKILL_ROUTE_PRELIVE_SETUP"
     )
 

@@ -22,6 +22,7 @@ from src.core.security_hooks import GateDecision, GateResult
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
+from src.skill_runtime.models import ApprovalContext, ApprovalSource
 
 
 class FakeInterruptPreLiveService:
@@ -34,6 +35,7 @@ class FakeInterruptPreLiveService:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.approval_events: list[dict[str, Any]] = []
+        self.received_approval_context: ApprovalContext | None = None
         self.products = [
             CatalogProduct(
                 product_id="p001",
@@ -99,10 +101,13 @@ class FakeInterruptPreLiveService:
         plan: LivePlanDraft,
         trace_id: str,
         confirmed_setup: bool,
+        *,
+        approval_context: ApprovalContext | None = None,
     ) -> tuple[GateResult, str | None]:
         """模拟建播 hard-gate，只有恢复批准后才允许执行。"""
 
         self.calls.append("setup_live_session")
+        self.received_approval_context = approval_context
         if confirmed_setup:
             return GateResult(True, GateDecision.HARD_GATE, False, "人工已批准，允许建播"), "audit-setup-001"
         return GateResult(False, GateDecision.HARD_GATE, True, "等待人工审批"), None
@@ -193,6 +198,12 @@ def test_pre_live_graph_resumes_with_approved_decision_and_executes_setup() -> N
     assert resumed["setup_audit_id"] == "audit-setup-001"
     assert resumed["approval_decision"] == "approved"
     assert resumed["approval_resume_audit_id"] == "audit-approval-approved"
+    assert service.received_approval_context == ApprovalContext(
+        source=ApprovalSource.HUMAN_INTERRUPT,
+        decision="APPROVED",
+        operator_id="operator-demo",
+        approval_audit_id="audit-approval-approved",
+    )
     assert service.calls == [
         "query_products",
         "generate_live_plan",

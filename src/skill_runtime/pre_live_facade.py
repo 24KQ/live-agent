@@ -1,248 +1,253 @@
 """Phase 11A 播前 Graph 兼容 Facade。
 
-RoutedPreLiveBusinessService 实现现有 Service Protocol，
-从 Settings 读取启动配置并形成不可变 RoutePolicy。
-
-Facade 负责：
-- 按批次路由选择 LEGACY 或 SKILL_RUNTIME
-- 为 confirmed_setup 构造 TRUSTED_COMPAT ApprovalContext
-- 不触发隐式 fallback（回滚由重启或重新装配实现）
+Facade 对外保持 PreLiveBusinessServiceProtocol 的领域模型接口，对内才把
+对象转换成 Skill Runtime 的 JSON 快照。路由在装配时冻结，Runtime 失败会显式
+抛错，不会隐式回退到 legacy 路径。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from src.config.settings import Settings
-from src.core.pre_live_business_flow import PreLiveBusinessFlowService
-from src.skills.product_catalog import ProductCatalogRepository
 from src.audit.tool_call_audit import ToolCallAuditStore
-from src.skill_runtime.executor import SyncSkillExecutorAdapter
+from src.config.settings import Settings
+from src.core.human_approval import HumanApprovalRequest, HumanApprovalResponse
+from src.core.pre_live_business_flow import PreLiveBusinessFlowService
+from src.core.security_hooks import GateDecision, GateResult
+from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
 from src.skill_runtime.models import (
     ApprovalContext,
-    ApprovalSource,
     SkillCall,
     SkillExecutionContext,
+    SkillExecutionResult,
     SkillExecutionRoute,
+    SkillExecutionStatus,
+    _build_trusted_compat_approval,
 )
 from src.skill_runtime.routing import RouteConfig, RoutePolicy
+from src.skills.live_plan_generator import LivePlanDraft
+from src.skills.product_card_generator import ProductCard
+from src.skills.product_catalog import CatalogProduct, ProductCatalogRepository
 
 
-# ── 审批证据工厂 ──────────────────────────────────────────────────────
+class SkillRuntimeCallError(RuntimeError):
+    """Skill Runtime 返回非成功结果时的受控异常。"""
+
+    def __init__(self, result: SkillExecutionResult) -> None:
+        self.skill_id = result.skill_id
+        self.status = result.status
+        self.error_code = result.error_code
+        super().__init__(
+            f"{result.skill_id} 执行失败: "
+            f"{result.error_code.value if result.error_code else result.status.value}; "
+            f"{result.summary}"
+        )
 
 
-def create_compat_approval(confirmed: bool = True) -> ApprovalContext | None:
-    """构造兼容适配用的 ApprovalContext。
-
-    当 confirmed=True 时，返回标记为 TRUSTED_COMPAT 的批准证据；
-    当 confirmed=False 时返回 None，Executor 会返回 pending。
-    """
-    if not confirmed:
-        return None
-    return ApprovalContext(
-        source=ApprovalSource.TRUSTED_COMPAT,
-        decision="APPROVED",
-        operator_id="compat_migration",
-        approval_audit_id="compat_setup_migration",
-    )
-
-
-# ── 播前跳过服务查询结果 ──────────────────────────────────────────────
+def _require_output(result: SkillExecutionResult, key: str) -> Any:
+    """读取成功结果中的必需字段，缺失时按 Runtime 契约错误处理。"""
+    if result.status != SkillExecutionStatus.SUCCESS:
+        raise SkillRuntimeCallError(result)
+    if result.output is None or key not in result.output:
+        raise ValueError(f"{result.skill_id} 成功结果缺少字段: {key}")
+    return result.output[key]
 
 
 class RoutedPreLiveBusinessService:
-    """实现播前 Graph Service Protocol 的兼容 Facade。
-
-    按批次选路，SKILL_RUNTIME 走统一 Executor，
-    LEGACY 走原有 PreLiveBusinessFlowService。
-    """
+    """按冻结批次路由实现现有播前业务服务协议。"""
 
     def __init__(
         self,
         policy: RoutePolicy,
         legacy_service: PreLiveBusinessFlowService,
         skill_executor: SyncSkillExecutorAdapter,
-        catalog_repository: ProductCatalogRepository,
     ) -> None:
         self.policy = policy
         self._legacy = legacy_service
         self._executor = skill_executor
-        self._catalog = catalog_repository
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> "RoutedPreLiveBusinessService":
-        """从 Settings 构造 Facade。"""
-        if settings is None:
-            settings = Settings()  # type: ignore[call-arg]
+        """从启动配置装配共享业务服务、Handler 和不可变路由。"""
+        resolved_settings = settings or Settings()  # type: ignore[call-arg]
         policy = RoutePolicy(
-            generation=RouteConfig(settings.skill_route_prelive_generation),
-            setup=RouteConfig(settings.skill_route_prelive_setup),
+            generation=resolved_settings.skill_route_prelive_generation,
+            setup=resolved_settings.skill_route_prelive_setup,
         )
-        catalog_repo = ProductCatalogRepository(settings)
-        audit_store = ToolCallAuditStore(settings)
-        legacy_service = PreLiveBusinessFlowService(catalog_repo, audit_store)
-        skill_executor = SyncSkillExecutorAdapter()
-        return cls(policy, legacy_service, skill_executor, catalog_repo)
+        catalog_repository = ProductCatalogRepository(resolved_settings)
+        audit_store = ToolCallAuditStore(resolved_settings)
+        legacy_service = PreLiveBusinessFlowService(catalog_repository, audit_store)
 
-    def query_products(self, room_id: str, trace_id: str) -> list[dict[str, Any]]:
-        """查询播前货盘。"""
-        if self.policy.generation == RouteConfig.SKILL_RUNTIME:
-            ctx = SkillExecutionContext(
-                room_id=room_id,
-                trace_id=trace_id,
-                lifecycle="PRE_LIVE",
-                execution_route=SkillExecutionRoute.SKILL_RUNTIME,
-            )
-            call = SkillCall(
+        # 使用实例局部 Handler 映射，避免并发装配 Facade 时覆盖其他实例。
+        from src.skill_runtime.pre_live_handlers import build_pre_live_handlers
+
+        skill_executor = SyncSkillExecutorAdapter(
+            SkillExecutor(handlers=build_pre_live_handlers(legacy_service))
+        )
+        return cls(policy, legacy_service, skill_executor)
+
+    @staticmethod
+    def _context(
+        room_id: str,
+        trace_id: str,
+        *,
+        idempotency_key: str | None = None,
+        approval: ApprovalContext | None = None,
+    ) -> SkillExecutionContext:
+        """构造不暴露给业务 arguments 的可信执行上下文。"""
+        return SkillExecutionContext(
+            room_id=room_id,
+            trace_id=trace_id,
+            lifecycle="PRE_LIVE",
+            execution_route=SkillExecutionRoute.SKILL_RUNTIME,
+            idempotency_key=idempotency_key,
+            approval=approval,
+        )
+
+    @staticmethod
+    def _create_compat_approval(confirmed: bool) -> ApprovalContext | None:
+        """仅在 Facade 兼容路径内把旧 confirmed_setup 转换为可信证据。"""
+        if not confirmed:
+            return None
+        return _build_trusted_compat_approval(
+            operator_id="compat_migration",
+            approval_audit_id="compat_setup_migration",
+        )
+
+    def query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
+        """查询货盘，Runtime 快照在 Facade 边界恢复成领域对象。"""
+        route = self.policy.generation
+        if route == RouteConfig.LEGACY:
+            return self._legacy.query_products(room_id, trace_id)
+
+        result = self._executor.execute(
+            SkillCall(
                 skill_id="query_products",
                 version="1.0.0",
-                context=ctx,
-                arguments={"room_id": room_id},
+                context=self._context(room_id, trace_id),
+                arguments={},
             )
-            result = self._executor.execute(call)
-            if result.status.value == "success" and result.output:
-                return result.output.get("products", [])
-            return []
-        return [p.model_dump(mode="json") for p in self._legacy.query_products(room_id, trace_id)]
+        )
+        return [
+            CatalogProduct.model_validate(snapshot)
+            for snapshot in _require_output(result, "products")
+        ]
 
     def generate_plan(
         self,
         room_id: str,
-        products: list[dict[str, Any]],
+        products: list[CatalogProduct],
         trace_id: str,
-    ) -> dict[str, Any]:
-        """生成排品计划。"""
-        if self.policy.generation == RouteConfig.SKILL_RUNTIME:
-            ctx = SkillExecutionContext(
-                room_id=room_id,
-                trace_id=trace_id,
-                lifecycle="PRE_LIVE",
-                execution_route=SkillExecutionRoute.SKILL_RUNTIME,
-            )
-            call = SkillCall(
+    ) -> LivePlanDraft:
+        """使用调用方给出的冻结商品列表生成计划，不重新查询货盘。"""
+        route = self.policy.generation
+        if route == RouteConfig.LEGACY:
+            return self._legacy.generate_plan(room_id, products, trace_id)
+
+        result = self._executor.execute(
+            SkillCall(
                 skill_id="generate_live_plan",
                 version="1.0.0",
-                context=ctx,
-                arguments={"room_id": room_id, "products": products},
+                context=self._context(room_id, trace_id),
+                arguments={
+                    "products": [
+                        product.model_dump(mode="json") for product in products
+                    ]
+                },
             )
-            result = self._executor.execute(call)
-            if result.status.value == "success" and result.output:
-                return result.output.get("plan", {})
-            return {"items": []}
-        return self._legacy.generate_plan(
-            room_id,
-            [self._catalog.get_product(p["product_id"]) if isinstance(p, dict) else self._catalog.get_product(p) for p in products],
-            trace_id,
-        ).model_dump(mode="json")
+        )
+        return LivePlanDraft.model_validate(_require_output(result, "plan"))
 
     def generate_cards(
         self,
         room_id: str,
-        plan: dict[str, Any],
-        products: list[dict[str, Any]],
+        plan: LivePlanDraft,
+        products: list[CatalogProduct],
         trace_id: str,
-    ) -> list[dict[str, Any]]:
-        """生成手卡，使用计划前三个商品。"""
-        if self.policy.generation == RouteConfig.SKILL_RUNTIME:
-            cards: list[dict[str, Any]] = []
-            for item in (plan.get("items", []) or [])[:3]:
-                product_id = item.get("product_id", "")
-                product = next((p for p in products if p.get("product_id") == product_id), None)
-                if product is None:
-                    continue
-                ctx = SkillExecutionContext(
-                    room_id=room_id,
-                    trace_id=trace_id,
-                    lifecycle="PRE_LIVE",
-                    execution_route=SkillExecutionRoute.SKILL_RUNTIME,
-                )
-                call = SkillCall(
+    ) -> list[ProductCard]:
+        """按计划前三项逐个调用原子手卡 Skill。"""
+        route = self.policy.generation
+        if route == RouteConfig.LEGACY:
+            return self._legacy.generate_cards(room_id, plan, products, trace_id)
+
+        product_map = {product.product_id: product for product in products}
+        cards: list[ProductCard] = []
+        for item in plan.items[:3]:
+            product = product_map.get(item.product_id)
+            if product is None:
+                raise ValueError(f"计划商品缺少对应快照: {item.product_id}")
+            result = self._executor.execute(
+                SkillCall(
                     skill_id="generate_product_card",
                     version="1.0.0",
-                    context=ctx,
-                    arguments={"room_id": room_id, "product": product},
+                    context=self._context(room_id, trace_id),
+                    arguments={"product": product.model_dump(mode="json")},
                 )
-                result = self._executor.execute(call)
-                if result.status.value == "success" and result.output:
-                    cards.append(result.output.get("card", {}))
-            return cards
-        return [
-            c.model_dump(mode="json")
-            for c in self._legacy.generate_cards(
-                room_id,
-                self._make_legacy_plan(plan, products),
-                [self._make_legacy_product(p) for p in products],
-                trace_id,
             )
-        ]
+            cards.append(ProductCard.model_validate(_require_output(result, "card")))
+        return cards
 
     def setup_live_session(
         self,
         room_id: str,
-        plan: dict[str, Any],
+        plan: LivePlanDraft,
         trace_id: str,
-        confirmed_setup: bool = False,
+        confirmed_setup: bool,
+        *,
         idempotency_key: str | None = None,
-    ) -> tuple[dict[str, Any], str | None]:
-        """模拟建播。RoutePolicy 决定是否使用 Runtime。"""
-        approval = create_compat_approval(confirmed=confirmed_setup)
-        if self.policy.setup == RouteConfig.SKILL_RUNTIME:
-            ctx = SkillExecutionContext(
+        approval_context: ApprovalContext | None = None,
+    ) -> tuple[GateResult, str | None]:
+        """执行建播路由，并消费人工或兼容审批证据。"""
+        route = self.policy.setup
+        if route == RouteConfig.LEGACY:
+            return self._legacy.setup_live_session(
                 room_id=room_id,
+                plan=plan,
                 trace_id=trace_id,
-                lifecycle="PRE_LIVE",
-                execution_route=SkillExecutionRoute.SKILL_RUNTIME,
+                confirmed_setup=confirmed_setup,
                 idempotency_key=idempotency_key,
-                approval=approval,
             )
-            call = SkillCall(
+
+        approval = approval_context or self._create_compat_approval(confirmed_setup)
+        effective_idempotency_key = idempotency_key or f"{trace_id}:setup_live_session"
+        result = self._executor.execute(
+            SkillCall(
                 skill_id="setup_live_session",
                 version="1.0.0",
-                context=ctx,
-                arguments={"room_id": room_id, "plan": plan},
+                context=self._context(
+                    room_id,
+                    trace_id,
+                    idempotency_key=effective_idempotency_key,
+                    approval=approval,
+                ),
+                arguments={"plan": plan.model_dump(mode="json")},
             )
-            result = self._executor.execute(call)
-            if result.status.value == "success" and result.output:
-                return {"allowed": True, "setup_status": "prepared"}, result.output.get("audit_id")
-            if result.status.value == "pending":
-                return {"allowed": False, "setup_status": "pending"}, None
-            return {"allowed": False, "setup_status": "error"}, None
-
-        from src.core.pre_live_business_flow import PreLiveBusinessFlowResult
-        legacy_plan = self._make_legacy_plan(plan, [])
-        gate, audit_id = self._legacy.setup_live_session(
-            room_id=room_id,
-            plan=legacy_plan,
-            trace_id=trace_id,
-            confirmed_setup=confirmed_setup,
-            idempotency_key=idempotency_key,
         )
-        return {"allowed": gate.allowed, "setup_status": "prepared" if gate.allowed else "blocked"}, audit_id
-
-    def _make_legacy_plan(self, plan_dict: dict, products: list[dict]) -> Any:
-        """从字典构造 LivePlanDraft。"""
-        from dataclasses import dataclass
-
-        @dataclass
-        class PlanItem:
-            item_id: str
-            product_id: str
-            start_time: str = ""
-            duration_seconds: int = 60
-
-        @dataclass
-        class LivePlanDraft:
-            plan_id: str
-            items: list[PlanItem]
-            room_id: str = ""
-
-        return LivePlanDraft(
-            plan_id=plan_dict.get("plan_id", ""),
-            items=[PlanItem(**item) for item in (plan_dict.get("items", []) or [])],
-            room_id=plan_dict.get("room_id", ""),
+        if result.status == SkillExecutionStatus.PENDING:
+            return (
+                GateResult(
+                    allowed=False,
+                    decision=GateDecision.HARD_GATE,
+                    requires_confirmation=True,
+                    reason=result.summary,
+                ),
+                None,
+            )
+        allowed = bool(_require_output(result, "allowed"))
+        return (
+            GateResult(
+                allowed=allowed,
+                decision=GateDecision.HARD_GATE,
+                requires_confirmation=not allowed,
+                reason=result.summary,
+            ),
+            result.audit_id,
         )
 
-    def _make_legacy_product(self, p: dict) -> Any:
-        """从字典构造 CatalogProduct。"""
-        from src.skills.product_catalog import CatalogProduct
-        return CatalogProduct(**p)
+    def record_setup_approval_event(
+        self,
+        request: HumanApprovalRequest,
+        response: HumanApprovalResponse | None,
+    ) -> str:
+        """审批审计继续委托原业务服务，保持 checkpoint 重放幂等语义。"""
+        return self._legacy.record_setup_approval_event(request, response)
