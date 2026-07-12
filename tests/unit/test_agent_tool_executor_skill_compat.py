@@ -119,6 +119,14 @@ class RaisingSkillExecutor:
         raise RuntimeError("db password=TOP_SECRET product_id=p-secret")
 
 
+class RaisingService(RecordingService):
+    """模拟隐藏货盘服务以 ValueError 失败，验证异常来源不会被误判为输入错误。"""
+
+    def query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
+        """服务异常携带敏感文本，兼容入口只能返回固定执行失败摘要。"""
+        raise ValueError("service token=TOP_SECRET-service")
+
+
 def test_normalizer_moves_identifiers_and_builds_complete_immutable_products() -> None:
     """旧标识进入 context，商品对象转换成字段完整且不可修改的 JSON 快照。"""
     service = RecordingService()
@@ -335,6 +343,107 @@ def test_setup_without_trusted_approval_stays_pending_even_when_legacy_flag_is_t
     assert runtime.calls[0].context.approval is None
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("query_products", {"unexpected": "TOP_SECRET-query"}),
+        ("generate_live_plan", {"unexpected": "TOP_SECRET-plan"}),
+        (
+            "generate_product_card",
+            {"product_id": "p001", "unexpected": "TOP_SECRET-card"},
+        ),
+        (
+            "setup_live_session",
+            {
+                "plan_item_ids": ["p001"],
+                "idempotency_key": "idem-unknown-key",
+                "unexpected": "TOP_SECRET-setup",
+            },
+        ),
+    ],
+)
+def test_core_compatibility_rejects_unknown_keys_before_enrichment_or_runtime(
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> None:
+    """未知旧参数必须在任何隐藏查询、计划生成和 Runtime 调用前失败关闭。"""
+    service = RecordingService()
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        tool_name,
+        arguments,
+        "room-unknown-key",
+        "trace-unknown-key",
+    )
+
+    assert observation.status == "error"
+    assert observation.summary == "INVALID_ARGUMENTS: invalid compatibility arguments"
+    assert "TOP_SECRET" not in observation.summary
+    assert service.calls == []
+    assert runtime.calls == []
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "secret"),
+    [
+        (
+            "generate_product_card",
+            {"product": {"product_id": "incomplete-TOP_SECRET"}},
+            "incomplete-TOP_SECRET",
+        ),
+        (
+            "generate_product_card",
+            {"product_id": "unknown-TOP_SECRET"},
+            "unknown-TOP_SECRET",
+        ),
+        (
+            "setup_live_session",
+            {
+                "plan": _explicit_plan("mismatch-TOP_SECRET", "trace-input-error"),
+                "idempotency_key": "idem-plan-mismatch",
+            },
+            "mismatch-TOP_SECRET",
+        ),
+        (
+            "generate_live_plan",
+            {"products": object()},
+            "object",
+        ),
+    ],
+)
+def test_compatibility_input_errors_are_classified_and_sanitized(
+    tool_name: str,
+    arguments: dict[str, Any],
+    secret: str,
+) -> None:
+    """领域校验、未知商品、计划错配和输入类型错误统一映射为脱敏参数错误。"""
+    service = RecordingService()
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        tool_name,
+        arguments,
+        "room-input-error",
+        "trace-input-error",
+    )
+
+    assert observation.status == "error"
+    assert observation.summary == "INVALID_ARGUMENTS: invalid compatibility arguments"
+    assert secret not in observation.summary
+    assert runtime.calls == []
+
+
 def test_runtime_error_maps_status_summary_audit_and_stable_error_code() -> None:
     """Runtime 的受控错误字段必须完整映射，错误码用稳定前缀供旧 planner 识别。"""
     runtime = RecordingSkillExecutor(
@@ -379,6 +488,28 @@ def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
     assert "p-secret" not in observation.summary
     assert len(runtime.calls) == 1
     assert service.calls == []
+
+
+def test_compatibility_service_value_error_remains_sanitized_handler_failure() -> None:
+    """隐藏服务的非输入 ValueError 必须保留执行失败分类，且不得调用 Runtime。"""
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        RaisingService(),
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "generate_live_plan",
+        {},
+        "room-service-error",
+        "trace-service-error",
+    )
+
+    assert observation.status == "error"
+    assert observation.summary == "HANDLER_FAILED: skill runtime execution failed"
+    assert "TOP_SECRET" not in observation.summary
+    assert runtime.calls == []
 
 
 NON_CORE_LEGACY_CASES: tuple[tuple[str, dict[str, Any], str, str, str], ...] = (

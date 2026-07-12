@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError
+
 # jsonschema is optional for parameter validation; skip when unavailable
 _HAVE_JSONSCHEMA: bool = False
 try:
@@ -133,7 +135,12 @@ class AgentToolExecutor:
         trace_id: str,
         lifecycle: LifecycleStage,
     ) -> AgentObservation:
-        """规范化并执行一个核心 Skill，异常时显式失败且绝不 legacy fallback。"""
+        """规范化并执行一个核心 Skill，异常时显式失败且绝不 legacy fallback。
+
+        兼容输入校验和 Runtime 执行使用两个独立异常边界：前者只把 Pydantic
+        校验、显式 ValueError 和输入类型错误归类为 INVALID_ARGUMENTS；隐藏服务
+        或 Runtime 的其他异常统一归类为 HANDLER_FAILED，且两类摘要都不回显输入。
+        """
         try:
             call = self._normalizer.normalize(
                 tool_name=tool_name,
@@ -142,12 +149,29 @@ class AgentToolExecutor:
                 trace_id=trace_id,
                 lifecycle=lifecycle,
             )
+        except (ValidationError, ValueError, TypeError):
+            return AgentObservation(
+                tool_name=tool_name,
+                status="error",
+                summary="INVALID_ARGUMENTS: invalid compatibility arguments",
+                audit_id=None,
+            )
+        except Exception:
+            # 规范化阶段可能调用旧服务补全货盘或计划；这类非输入异常属于服务失败，
+            # 必须保持 HANDLER_FAILED，且禁止退回 legacy 再执行一次业务逻辑。
+            return AgentObservation(
+                tool_name=tool_name,
+                status="error",
+                summary="HANDLER_FAILED: skill runtime execution failed",
+                audit_id=None,
+            )
+
+        try:
             result = self._skill_executor.execute(call)
             return observation_from_skill_result(tool_name, result)
         except Exception:
-            # 旧入口仍以 AgentObservation 表达失败，但不重试旧核心 service，避免一次
-            # Agent 决策产生两次业务执行或 Runtime 失败后悄悄改变语义。异常文本可能
-            # 包含凭据、商品标识或 Pydantic 输入，因此这里只返回受控错误码与固定摘要。
+            # Runtime 调用及结果映射中的异常都属于执行失败。固定摘要既避免泄露
+            # Handler、Pydantic 输出或业务参数，也保证一次 Agent 决策只执行一次。
             return AgentObservation(
                 tool_name=tool_name,
                 status="error",

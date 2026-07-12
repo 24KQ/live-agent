@@ -1,7 +1,7 @@
 """Phase 11A SkillExecutor。
 
 统一单次执行核心，按 Design 固定顺序校验：
-版本匹配 -> 生命周期 -> Schema -> 门禁/审批 -> 幂等键 -> Handler。
+Manifest -> 版本匹配 -> 生命周期 -> Schema -> 幂等键 -> 风险/审批 -> Handler。
 
 所有前置校验失败返回结构化的 SkillExecutionResult，不调用 Handler。
 异步入口使用 asyncio.to_thread；同步适配器直接调用内部核心。
@@ -91,12 +91,13 @@ class SkillExecutor:
     def _execute_once(self, call: SkillCall) -> SkillExecutionResult:
         """按固定顺序校验并执行。
 
-        1. 版本匹配
-        2. 生命周期匹配
-        3. Schema 参数校验
-        4. 门禁与审批
+        1. Manifest 查找
+        2. 版本匹配
+        3. 生命周期匹配
+        4. Schema 参数校验
         5. 幂等键检查
-        6. Handler 调用
+        6. 风险门禁与审批
+        7. Handler 调用、结果拆包与成功结果构造
         """
         # ── Step 1: 查找 Manifest ────────────────────────────────
         manifest = self._catalog.get(call.skill_id)
@@ -148,7 +149,20 @@ class SkillExecutor:
                     audit_id=None,
                 )
 
-        # ── Step 5: 门禁与审批 ───────────────────────────────────
+        # ── Step 5: 幂等键检查 ──────────────────────────────────
+        # 冻结 Design 要求幂等先于风险审批。二者同时缺失时稳定返回幂等错误，
+        # 避免调用方先补审批后才发现请求缺少防重复执行所需的关键上下文。
+        if manifest.requires_idempotency_key and not call.context.idempotency_key:
+            return SkillExecutionResult(
+                skill_id=call.skill_id,
+                version=call.version,
+                status=SkillExecutionStatus.ERROR,
+                error_code=SkillErrorCode.IDEMPOTENCY_REQUIRED,
+                summary="该 Skill 需要幂等键",
+                audit_id=None,
+            )
+
+        # ── Step 6: 风险门禁与审批 ──────────────────────────────
         approval = call.context.approval
         gate = evaluate_tool_gate(
             self._tool_registry.get(call.skill_id),
@@ -186,17 +200,6 @@ class SkillExecutor:
                 audit_id=None,
             )
 
-        # ── Step 6: 幂等键检查 ──────────────────────────────────
-        if manifest.requires_idempotency_key and not call.context.idempotency_key:
-            return SkillExecutionResult(
-                skill_id=call.skill_id,
-                version=call.version,
-                status=SkillExecutionStatus.ERROR,
-                error_code=SkillErrorCode.IDEMPOTENCY_REQUIRED,
-                summary="该 Skill 需要幂等键",
-                audit_id=None,
-            )
-
         # ── Step 7: Handler 查找与执行 ──────────────────────────
         handler = self._handlers.get(call.skill_id)
         if handler is None:
@@ -210,33 +213,36 @@ class SkillExecutor:
             )
 
         try:
+            # Handler 只能在本边界内调用一次。结果拆包和 Pydantic 成功结果构造也
+            # 位于同一边界，使非 JSON 输出与业务异常都转换为同一结构化失败。
             handler_result = handler.execute(call.skill_id, call.arguments, call.context)
-        except Exception as exc:
+            if isinstance(handler_result, _SkillHandlerResult):
+                output = handler_result.output
+                audit_id = handler_result.audit_id
+            else:
+                output = handler_result
+                audit_id = None
+
+            return SkillExecutionResult(
+                skill_id=call.skill_id,
+                version=call.version,
+                status=SkillExecutionStatus.SUCCESS,
+                output=output,
+                summary="执行成功",
+                audit_id=audit_id,
+            )
+        except Exception:
+            # 不回显异常类型、异常文本或非法输出 repr；这些内容可能携带参数、
+            # 凭据或内存地址。失败结果自身仅含静态 JSON-safe 字段，构造不会重试。
             return SkillExecutionResult(
                 skill_id=call.skill_id,
                 version=call.version,
                 status=SkillExecutionStatus.ERROR,
                 error_code=SkillErrorCode.HANDLER_FAILED,
-                summary=f"Handler 执行异常: {type(exc).__name__}",
+                summary="Handler execution failed",
                 output=None,
                 audit_id=None,
             )
-
-        if isinstance(handler_result, _SkillHandlerResult):
-            output = handler_result.output
-            audit_id = handler_result.audit_id
-        else:
-            output = handler_result
-            audit_id = None
-
-        return SkillExecutionResult(
-            skill_id=call.skill_id,
-            version=call.version,
-            status=SkillExecutionStatus.SUCCESS,
-            output=output,
-            summary="执行成功",
-            audit_id=audit_id,
-        )
 
 
 # ── 同步适配器 ────────────────────────────────────────────────────────

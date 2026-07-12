@@ -34,17 +34,23 @@ import src.skill_runtime.pre_live_handlers  # noqa: F401, E402
 
 
 class FakeHandler(_SkillHandler):
-    """记录调用次数并可选择抛错的测试 Handler。"""
+    """记录调用次数，并可配置异常或非法输出以验证单次受控执行边界。"""
 
-    def __init__(self, *, should_raise: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        should_raise: bool = False,
+        output: dict[str, Any] | None = None,
+    ) -> None:
         self.calls = 0
         self.should_raise = should_raise
+        self.output = {"ok": True} if output is None else output
 
     def execute(self, skill_id, arguments, context):
         self.calls += 1
         if self.should_raise:
             raise RuntimeError("测试异常不得泄漏到结果摘要")
-        return {"ok": True}
+        return self.output
 
 
 # ── 辅助：构建测试用的 SkillCall ──────────────────────────────────────
@@ -133,6 +139,25 @@ def test_missing_idempotency_key_fails_before_handler() -> None:
     assert result.error_code == SkillErrorCode.IDEMPOTENCY_REQUIRED
 
 
+def test_missing_idempotency_and_approval_reports_idempotency_first() -> None:
+    """冻结顺序要求幂等检查先于风险审批，二者同时缺失时 Handler 不得调用。"""
+    fake = FakeHandler()
+    executor = SyncSkillExecutorAdapter(
+        SkillExecutor(handlers={"set_product_price": fake})
+    )
+
+    result = executor.execute(
+        _build_call(
+            skill_id="set_product_price",
+            args={"product_id": "p1", "price": "99"},
+        )
+    )
+
+    assert result.status == SkillExecutionStatus.ERROR
+    assert result.error_code == SkillErrorCode.IDEMPOTENCY_REQUIRED
+    assert fake.calls == 0
+
+
 def test_hard_gate_without_approval_returns_pending() -> None:
     """高风险 Skill 缺少可信审批时返回 pending，不调用 Handler。"""
     executor = SyncSkillExecutorAdapter()
@@ -186,7 +211,7 @@ def test_missing_handler_returns_controlled_error() -> None:
 
 
 def test_handler_exception_is_sanitized() -> None:
-    """Handler 异常只暴露异常类型，不回显内部消息或业务参数。"""
+    """Handler 异常返回固定失败摘要，不回显异常类型、消息或业务参数。"""
     original = get_handler("query_products")
     fake = FakeHandler(should_raise=True)
     register_handler("query_products", fake)
@@ -200,8 +225,29 @@ def test_handler_exception_is_sanitized() -> None:
 
     assert result.error_code == SkillErrorCode.HANDLER_FAILED
     assert fake.calls == 1
-    assert "RuntimeError" in result.summary
+    assert result.summary == "Handler execution failed"
     assert "测试异常" not in result.summary
+
+
+@pytest.mark.parametrize("use_async", [False, True], ids=["sync", "async"])
+def test_non_json_handler_output_returns_controlled_failure(use_async: bool) -> None:
+    """Handler 返回非 JSON 对象时，两个入口都应单次执行并返回结构化失败。"""
+    fake = FakeHandler(output={"unsafe": object()})
+    executor = SkillExecutor(handlers={"query_products": fake})
+    call = _build_call(skill_id="query_products", args={})
+
+    result = (
+        asyncio.run(executor.execute(call))
+        if use_async
+        else SyncSkillExecutorAdapter(executor).execute(call)
+    )
+
+    assert result.status == SkillExecutionStatus.ERROR
+    assert result.error_code == SkillErrorCode.HANDLER_FAILED
+    assert result.output is None
+    assert result.summary == "Handler execution failed"
+    assert "object at" not in result.summary
+    assert fake.calls == 1
 
 
 def test_async_execute_uses_same_single_attempt_core() -> None:
