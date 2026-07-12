@@ -184,14 +184,9 @@ class PreLiveBusinessFlowService:
 
         if idempotency_key is None:
             idempotency_key = f"{trace_id}:setup_live_session"
-        existing_audit_id = self._find_existing_audit_id(
-            trace_id=trace_id,
-            tool_name=tool.name,
-            idempotency_key=idempotency_key,
-        )
-        if existing_audit_id is not None:
-            return gate, existing_audit_id
 
+        # 幂等判定统一交给 Audit Store 的数据库唯一约束和完整事实比较。这里不再做
+        # 仅按 trace/key 的预查，否则同一调用键携带不同排品方案时会错误返回旧 ID。
         audit_id = self._audit_store.record_event(
             AuditEvent(
                 trace_id=trace_id,
@@ -201,6 +196,7 @@ class PreLiveBusinessFlowService:
                 risk_level=tool.risk_level,
                 gate_decision=gate.decision,
                 operator_decision="approved",
+                idempotency_key=idempotency_key,
                 request_payload={
                     "room_id": room_id,
                     "idempotency_key": idempotency_key,
@@ -222,20 +218,13 @@ class PreLiveBusinessFlowService:
 
         `interrupt()` 恢复时会从当前节点开头重新执行，pending 审计写在 interrupt 前
         才能让人工看到“正在等待确认”的留痕。为避免恢复时重复插入 pending 记录，
-        这里使用 trace_id、工具名和审批状态组成 idempotency_key，写入前先检查同一
-        trace 下是否已经存在相同审批事件。
+        这里使用 trace_id、工具名和审批状态组成 idempotency_key，并交由 Audit Store
+        的全局唯一约束及完整事实比较处理重放，防止同键异审批内容被误判为成功。
         """
 
         tool = self._require_pre_live_tool(request.tool_name)
         status = "pending" if response is None else response.decision.value
         idempotency_key = f"{request.trace_id}:{request.tool_name}:approval:{status}"
-        existing_audit_id = self._find_existing_audit_id(
-            trace_id=request.trace_id,
-            tool_name=f"{request.tool_name}_approval",
-            idempotency_key=idempotency_key,
-        )
-        if existing_audit_id is not None:
-            return existing_audit_id
 
         is_approved = response is not None and response.decision == HumanApprovalDecision.APPROVED
         gate = evaluate_tool_gate(tool, confirmed=is_approved)
@@ -269,6 +258,7 @@ class PreLiveBusinessFlowService:
                 risk_level=tool.risk_level,
                 gate_decision=gate.decision,
                 operator_decision=operator_decision,
+                idempotency_key=idempotency_key,
                 request_payload=request_payload,
                 result_payload=result_payload,
             )
@@ -281,19 +271,3 @@ class PreLiveBusinessFlowService:
         if not self._registry.is_available(tool.name, LifecycleStage.PRE_LIVE):
             raise ValueError(f"tool {tool.name} is not available in PRE_LIVE")
         return tool
-
-    def _find_existing_audit_id(self, trace_id: str, tool_name: str, idempotency_key: str) -> str | None:
-        """按幂等键查找已有审批审计 ID。
-
-        审计表当前没有为 Phase 2F 单独新增唯一索引；为了保持迁移范围可控，这里在同一
-        trace_id 的审计链路内按 tool_name 和 request_payload.idempotency_key 查找。
-        这样既能保护审批 pending/resume，也能保护 approved 后的建播成功副作用。
-        后续如果审批量或外部写操作增大，可以再把该键提升为独立列或唯一约束。
-        """
-
-        for event in self._audit_store.list_events_by_trace_id(trace_id):
-            if event["tool_name"] != tool_name:
-                continue
-            if event["request_payload"].get("idempotency_key") == idempotency_key:
-                return event["audit_id"]
-        return None

@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS tool_call_audit (
 ALTER TABLE tool_call_audit
     ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
 
--- 相同工具与显式幂等键只允许一条审计事实。NULL 表示非幂等普通事件，
--- 不受唯一约束影响。Store 使用同一冲突目标原子返回原 audit_id。
+-- 相同工具与显式幂等键只允许一条不可覆盖的审计事实。NULL 表示非幂等普通事件，
+-- 不受唯一约束影响。Store 在冲突后读取胜者并比较完整语义，异请求必须失败关闭。
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tool_call_audit_tool_idempotency
     ON tool_call_audit (tool_name, idempotency_key)
     WHERE idempotency_key IS NOT NULL;
