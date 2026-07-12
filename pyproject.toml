@@ -18,6 +18,7 @@ dependencies = [
     "langgraph-checkpoint-postgres==3.1.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.30.0",
+    "jsonschema>=4.23.0"
 ]
 
 [project.optional-dependencies]
@@ -37,3 +38,5 @@ markers = [
     "integration: marks tests as integration tests",
     "external: marks tests that call external network/model services",
 ]
+
+
