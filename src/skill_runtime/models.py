@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from math import isfinite
 from typing import Any, Literal
@@ -111,6 +112,32 @@ class SkillExecutionStatus(StrEnum):
     ERROR = "error"
 
 
+class FailureCategory(StrEnum):
+    """外部或执行边界观察到的失败事实分类。
+
+    该枚举只描述已经发生的情况，不携带重试、重规划或人工处理等恢复动作。
+    恢复动作仍由后续 PlanEngine 的集中 FailurePolicy 决定，避免 Adapter 绕过
+    风险、幂等和审计约束。
+    """
+
+    TRANSIENT_INFRA = "TRANSIENT_INFRA"
+    RATE_LIMITED = "RATE_LIMITED"
+    INVALID_INPUT = "INVALID_INPUT"
+    BUSINESS_CONFLICT = "BUSINESS_CONFLICT"
+    POLICY_DENIED = "POLICY_DENIED"
+    VERSION_CONFLICT = "VERSION_CONFLICT"
+    SIDE_EFFECT_UNKNOWN = "SIDE_EFFECT_UNKNOWN"
+    INTERNAL_INVARIANT = "INTERNAL_INVARIANT"
+
+
+class SideEffectState(StrEnum):
+    """Adapter 对副作用发送边界的可确认状态。"""
+
+    NOT_SENT = "NOT_SENT"
+    CONFIRMED = "CONFIRMED"
+    UNKNOWN = "UNKNOWN"
+
+
 class SkillErrorCode(StrEnum):
     """受控错误码，不暴露内部异常细节。"""
 
@@ -143,6 +170,14 @@ class SkillManifest(BaseModel, frozen=True):
     parameter_schema: dict[str, Any] = Field(default_factory=dict, description="Draft 2020-12 JSON Schema")
     gate_decision: GateDecision = Field(default=GateDecision.AUTO, description="门禁策略")
     requires_idempotency_key: bool = Field(default=False, description="是否强制要求幂等键")
+    # 单次尝试上限属于 Manifest 契约。调用上下文的绝对 deadline 只能进一步缩短
+    # 预算，不能让调用方把单次外部操作扩展为无限等待。
+    max_attempt_seconds: int = Field(
+        default=15,
+        ge=1,
+        le=60,
+        description="单次 Handler/Adapter 尝试的最长秒数",
+    )
     compatibility_note: str | None = Field(default=None, description="受控 Schema 修正说明")
 
     @field_validator("parameter_schema", mode="after")
@@ -247,12 +282,83 @@ class SkillExecutionContext(BaseModel, frozen=True):
     execution_route: SkillExecutionRoute = Field(..., description="执行路由")
     idempotency_key: str | None = Field(default=None, description="用于幂等重放的键")
     approval: ApprovalContext | None = Field(default=None, description="审批证据")
+    # 旧同步入口尚未在 Task 1 完成前全面传递 deadline。这里提供可信的短时默认值，
+    # 让既有 Phase 11A 调用保持可用；Task 4/6 会在可信装配边界显式传入 deadline。
+    deadline_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc) + timedelta(seconds=15),
+        description="不可延长的绝对 UTC 执行 deadline",
+    )
     # D-049 要求隐藏查询和旧参数补全留下可序列化证据。默认 False 表示调用方已经
     # 提供 Runtime 所需的显式快照；兼容入口发生参数搬移或快照补全时必须显式置 True。
     compatibility_enriched: bool = Field(
         default=False,
         description="是否由旧入口执行过参数搬移、隐藏读取或领域快照补全",
     )
+
+    @field_validator("deadline_at")
+    @classmethod
+    def _require_timezone_aware_deadline(cls, value: datetime) -> datetime:
+        """拒绝无时区 deadline，防止机器本地时区改变执行预算含义。"""
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("deadline_at must include timezone information")
+        return value.astimezone(timezone.utc)
+
+
+class FailureFact(BaseModel, frozen=True):
+    """一次执行边界观察到的结构化失败事实。
+
+    external_code 只能是 Adapter 生成的稳定脱敏代码，不能放入供应商异常文本、
+    HTTP 响应体或业务参数。attempt_id 用于关联 Phase 11B Attempt Store，不是
+    一个恢复动作或新的幂等键。
+    """
+
+    category: FailureCategory = Field(..., description="固定失败事实分类")
+    external_code: str = Field(..., min_length=1, description="脱敏稳定外部错误码")
+    side_effect_state: SideEffectState = Field(..., description="副作用确认状态")
+    attempt_id: str = Field(..., min_length=1, description="关联的执行尝试 ID")
+    retry_after_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        description="外部限流事实提供的建议等待秒数",
+    )
+
+
+class AdapterRequest(BaseModel, frozen=True):
+    """Handler 交给业务域 Port 的可信单次请求。"""
+
+    operation_id: str = Field(..., min_length=1)
+    attempt_id: str = Field(..., min_length=1)
+    room_id: str = Field(..., min_length=1)
+    idempotency_key: str | None = None
+    deadline_at: datetime
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("deadline_at")
+    @classmethod
+    def _adapter_deadline_is_aware(cls, value: datetime) -> datetime:
+        """保持 Adapter 层和执行上下文相同的 UTC deadline 契约。"""
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("deadline_at must include timezone information")
+        return value.astimezone(timezone.utc)
+
+    @field_validator("payload", mode="after")
+    @classmethod
+    def _freeze_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """冻结请求快照，防止 Port 调用期间被调用方原地改写。"""
+        return _deep_freeze(value)
+
+
+class AdapterSuccess(BaseModel, frozen=True):
+    """Adapter 确认完成后的 JSON 安全业务事实。"""
+
+    output: dict[str, Any] = Field(default_factory=dict)
+    side_effect_state: SideEffectState = SideEffectState.CONFIRMED
+
+    @field_validator("output", mode="after")
+    @classmethod
+    def _freeze_output(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """冻结输出，保证审计与结果映射读取的是同一业务事实。"""
+        return _deep_freeze(value)
 
 
 # ── 调用记录 ─────────────────────────────────────────────────────────
@@ -286,9 +392,19 @@ class SkillExecutionResult(BaseModel, frozen=True):
     output: dict[str, Any] | None = Field(default=None, description="JSON 安全的业务输出")
     summary: str = Field(default="", description="执行摘要")
     audit_id: str | None = Field(default=None, description="审计记录 ID")
+    # Task 1 先提供兼容字段；Task 4 才由 Executor 用真实 Attempt Store 统一填充。
+    attempt_id: str | None = Field(default=None, description="Phase 11B 执行尝试 ID")
+    failure: FailureFact | None = Field(default=None, description="外部或执行边界失败事实")
 
     @field_validator("output", mode="after")
     @classmethod
     def _freeze_output(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
         """冻结执行结果，避免 checkpoint 或审计读取期间被调用方改写。"""
         return None if value is None else _deep_freeze(value)
+
+    @model_validator(mode="after")
+    def _success_cannot_carry_failure(self) -> "SkillExecutionResult":
+        """成功结果不得同时声称存在 FailureFact，避免调用方误判执行状态。"""
+        if self.status == SkillExecutionStatus.SUCCESS and self.failure is not None:
+            raise ValueError("success result cannot include failure fact")
+        return self

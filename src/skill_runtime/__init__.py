@@ -8,8 +8,13 @@
 # 已完成的 Runtime 模型，不提前暴露兼容构造能力。
 
 from src.skill_runtime.models import (
+    AdapterRequest,
+    AdapterSuccess,
     ApprovalContext,
     ApprovalSource,
+    FailureCategory,
+    FailureFact,
+    SideEffectState,
     SkillCall,
     SkillErrorCode,
     SkillExecutionContext,
@@ -20,8 +25,13 @@ from src.skill_runtime.models import (
 )
 
 __all__ = [
+    "AdapterRequest",
+    "AdapterSuccess",
     "ApprovalContext",
     "ApprovalSource",
+    "FailureCategory",
+    "FailureFact",
+    "SideEffectState",
     "SkillCall",
     "SkillErrorCode",
     "SkillExecutionContext",
