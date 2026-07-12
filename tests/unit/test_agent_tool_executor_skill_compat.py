@@ -137,6 +137,7 @@ def test_normalizer_moves_identifiers_and_builds_complete_immutable_products() -
     assert call.context.room_id == "room-001"
     assert call.context.trace_id == "trace-001"
     assert call.context.compatibility_enriched is True
+    assert call.context.model_dump(mode="json")["compatibility_enriched"] is True
     assert set(call.arguments) == {"products"}
     assert call.arguments["products"][0] == service.products[0].model_dump(mode="json")
     assert set(call.arguments["products"][0]) == set(CatalogProduct.model_fields)
@@ -229,6 +230,7 @@ def test_each_core_tool_calls_sync_skill_executor_exactly_once(
     assert observation.status in {"success", "pending"}
     assert len(runtime.calls) == 1
     assert runtime.calls[0].skill_id == tool_name
+    assert runtime.calls[0].context.compatibility_enriched is True
 
 
 def test_setup_without_trusted_approval_stays_pending_even_when_legacy_flag_is_true() -> None:
@@ -303,8 +305,95 @@ def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
     assert service.calls == []
 
 
-def test_non_core_tool_keeps_legacy_dispatch() -> None:
-    """未迁移工具继续使用现有 legacy 分支，不能误入 Skill Runtime。"""
+NON_CORE_LEGACY_CASES: tuple[tuple[str, dict[str, Any], str, str, str], ...] = (
+    (
+        "suggest_price_change",
+        {"product_id": "p001", "suggested_price": "35.90"},
+        "PRE_LIVE",
+        "error",
+        "not dispatchable",
+    ),
+    (
+        "set_product_price",
+        {"product_id": "p001", "price": "35.90"},
+        "PRE_LIVE",
+        "pending",
+        "requires human approval",
+    ),
+    (
+        "create_live_plan_draft",
+        {"room_id": "room-legacy"},
+        "PRE_LIVE",
+        "error",
+        "not dispatchable",
+    ),
+    (
+        "handle_sold_out_event",
+        {
+            "room_id": "room-legacy",
+            "product_id": "p001",
+            "trace_id": "trace-legacy",
+            "idempotency_key": "idem-sold-out-001",
+        },
+        "ON_LIVE",
+        "error",
+        "not dispatchable",
+    ),
+    (
+        "recommend_backup_product",
+        {"room_id": "room-legacy", "sold_out_product_id": "p001"},
+        "ON_LIVE",
+        "success",
+        "recommended backup",
+    ),
+    (
+        "generate_on_live_prompt",
+        {"room_id": "room-legacy", "sold_out_product_id": "p001"},
+        "ON_LIVE",
+        "success",
+        "generated on-live prompt",
+    ),
+    (
+        "aggregate_danmaku_questions",
+        {"room_id": "room-legacy", "trace_id": "trace-legacy", "events": []},
+        "ON_LIVE",
+        "error",
+        "not dispatchable",
+    ),
+    (
+        "generate_danmaku_reply",
+        {
+            "room_id": "room-legacy",
+            "trace_id": "trace-legacy",
+            "category": "价格",
+            "summary": "用户询问优惠",
+        },
+        "ON_LIVE",
+        "error",
+        "not dispatchable",
+    ),
+    (
+        "on_live_context_collect",
+        {"room_id": "room-legacy", "trace_id": "trace-legacy"},
+        "ON_LIVE",
+        "success",
+        "collected context",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments", "lifecycle", "expected_status", "summary_fragment"),
+    NON_CORE_LEGACY_CASES,
+)
+def test_every_non_core_skill_keeps_legacy_dispatch(
+    tool_name: str,
+    arguments: dict[str, Any],
+    lifecycle: str,
+    expected_status: str,
+    summary_fragment: str,
+) -> None:
+    """默认 Catalog 的九个非核心工具均保持既有门禁/派发语义且不调用 Runtime。"""
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
         get_default_tool_registry(),
@@ -313,13 +402,32 @@ def test_non_core_tool_keeps_legacy_dispatch() -> None:
     )
 
     observation = executor.execute(
-        "on_live_context_collect",
-        {"room_id": "room-live", "trace_id": "trace-live"},
-        "room-live",
-        "trace-live",
-        lifecycle="ON_LIVE",
+        tool_name,
+        arguments,
+        "room-legacy",
+        "trace-legacy",
+        lifecycle=lifecycle,
     )
 
-    assert observation.status == "success"
-    assert "collected context" in observation.summary
+    assert observation.status == expected_status
+    assert summary_fragment in observation.summary
     assert runtime.calls == []
+
+
+def test_non_core_legacy_cases_cover_exactly_the_default_catalog_remainder() -> None:
+    """参数化清单必须随默认 Catalog 变化而失败，防止新增非核心工具漏测路由。"""
+    from src.skill_runtime.catalog import get_default_skill_catalog
+
+    expected_non_core = {case[0] for case in NON_CORE_LEGACY_CASES}
+    catalog_non_core = {
+        manifest.skill_id
+        for manifest in get_default_skill_catalog()
+        if manifest.skill_id not in {
+            "query_products",
+            "generate_live_plan",
+            "generate_product_card",
+            "setup_live_session",
+        }
+    }
+
+    assert catalog_non_core == expected_non_core

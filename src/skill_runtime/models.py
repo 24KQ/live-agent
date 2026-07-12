@@ -223,6 +223,12 @@ class SkillExecutionContext(BaseModel, frozen=True):
     execution_route: SkillExecutionRoute = Field(..., description="执行路由")
     idempotency_key: str | None = Field(default=None, description="用于幂等重放的键")
     approval: ApprovalContext | None = Field(default=None, description="审批证据")
+    # D-049 要求隐藏查询和旧参数补全留下可序列化证据。默认 False 表示调用方已经
+    # 提供 Runtime 所需的显式快照；兼容入口发生参数搬移或快照补全时必须显式置 True。
+    compatibility_enriched: bool = Field(
+        default=False,
+        description="是否由旧入口执行过参数搬移、隐藏读取或领域快照补全",
+    )
 
 
 # ── 调用记录 ─────────────────────────────────────────────────────────

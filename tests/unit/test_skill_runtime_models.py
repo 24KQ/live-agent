@@ -38,6 +38,36 @@ def test_skill_call_is_immutable() -> None:
         call.context.execution_route = SkillExecutionRoute.SKILL_RUNTIME
 
 
+def test_compatibility_enriched_is_serializable_and_immutable_context_evidence() -> None:
+    """兼容补全证据必须有默认值、进入 JSON 契约，并随执行上下文一起冻结。
+
+    D-049 要求隐藏查询和旧参数补全可被审计，因此该标记不能依赖 Pydantic
+    未声明的动态属性；默认 Runtime 调用为 False，兼容入口必须显式设置 True。
+    """
+    from src.skill_runtime.models import SkillExecutionContext, SkillExecutionRoute
+
+    regular_context = SkillExecutionContext(
+        room_id="room-regular",
+        trace_id="trace-regular",
+        lifecycle="PRE_LIVE",
+        execution_route=SkillExecutionRoute.SKILL_RUNTIME,
+    )
+    compatibility_context = SkillExecutionContext(
+        room_id="room-compat",
+        trace_id="trace-compat",
+        lifecycle="PRE_LIVE",
+        execution_route=SkillExecutionRoute.SKILL_RUNTIME,
+        compatibility_enriched=True,
+    )
+
+    assert regular_context.compatibility_enriched is False
+    assert compatibility_context.compatibility_enriched is True
+    assert regular_context.model_dump(mode="json")["compatibility_enriched"] is False
+    assert compatibility_context.model_dump(mode="json")["compatibility_enriched"] is True
+    with pytest.raises(ValidationError):
+        compatibility_context.compatibility_enriched = False
+
+
 def test_skill_execution_result_status_controlled() -> None:
     """结果状态必须属于受控枚举，非法状态被拒绝。"""
     from src.skill_runtime.models import SkillExecutionResult, SkillExecutionStatus

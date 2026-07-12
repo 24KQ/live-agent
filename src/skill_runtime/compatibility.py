@@ -97,10 +97,10 @@ class CompatibilityArgumentNormalizer:
             ),
             # confirmed_setup 属于 LLM 可控业务参数，不能据此构造可信审批证据。
             approval=None,
+            # 四个核心工具进入本兼容边界时都会发生旧参数搬移；商品和计划路径还会
+            # 进行领域快照补全，因此统一记录为 True，满足 D-049 的审计要求。
+            compatibility_enriched=True,
         )
-        # 当前公共 Context 契约尚未扩大字段集合；model_copy 可在不削弱冻结模型、
-        # 不创建错误子类的前提下，为旧入口附加只读迁移证据。
-        context = context.model_copy(update={"compatibility_enriched": True})
         return SkillCall(
             skill_id=tool_name,
             version="1.0.0",
