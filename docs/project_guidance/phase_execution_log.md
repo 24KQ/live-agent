@@ -2130,3 +2130,36 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 - 366 个单元测试全部通过
 - python scripts/run_all.py demo 在无 DB 环境下成功输出 mock 链路
 - git 工作区干净
+
+---
+
+## Phase 11A：受控 Skill Runtime（2026-07-12）
+
+- **Design**：[Phase 11A 受控 Skill Runtime Design](../superpowers/specs/phase-11a-skill-runtime-design.md)
+- **Implementation Plan**：[Phase 11A Skill Runtime Implementation Plan](../superpowers/plans/2026-07-12-phase-11a-skill-runtime-plan.md)
+- **Acceptance**：[Phase 11A Skill Runtime Acceptance](../superpowers/reports/phase-11a-skill-runtime-acceptance.md)
+- **状态**：技术验收完成，待用户审核
+
+### 实际交付
+
+1. 13 个工具元数据统一由 `SkillManifest` 与 `SkillCatalog` 管理，ToolRegistry 改为只读兼容投影。
+2. 四个播前核心 Skill 使用显式快照和统一 `SkillExecutor`，保留现有 Graph、checkpoint 与 interrupt 协议。
+3. 读取/生成与 setup 两个迁移批次可独立切换和回滚，默认 legacy，无生产影子执行或隐式 fallback。
+4. AgentToolExecutor 四个核心工具收敛为兼容规范化与单一 Runtime dispatch，并记录 `compatibility_enriched` 证据。
+5. setup 审批证据与幂等键进入可信 Context；拒绝不执行，相同键重放不产生重复成功副作用。
+6. 新增隔离等价测试、四场景 Demo 和统一 `phase11a-demo` 入口。
+
+### 验收证据
+
+- Runtime 专项：`85 passed in 1.43s`，退出码 `0`。
+- 相关回归：`45 passed in 0.89s`，退出码 `0`。
+- 默认全量：`501 passed, 3 deselected, 9 warnings in 54.13s`，退出码 `0`。
+- 两个 Demo 均完成四种路由场景，退出码 `0`。
+- 全仓编码扫描退出码 `1`，报告 `4 errors/58 warnings`；4 个 error 来自扫描脚本自身 U+FFFD 示例，其他为历史 BOM/工作树混合换行，未声明通过。
+- Phase 11A 已提交代码、测试、Demo 的 canonical blob 与本轮 6 个目标文档严格 UTF-8 检查目标命中 `0`。
+- `git diff --check` 退出码 `0`；范围检索没有发现生产 `SHADOW_COMPARE`、热加载、PlanEngine 或 LiveOpsAgent 实现。
+
+### 后续边界
+
+- ToolRegistry 只读 API、`TRUSTED_COMPAT`、兼容参数补全和同步桥接仍为明确兼容债务。
+- Phase 11B 尚未开始。必须先由用户审核 Acceptance，再按 Just-in-Time 原则创建和审核独立 Design。
