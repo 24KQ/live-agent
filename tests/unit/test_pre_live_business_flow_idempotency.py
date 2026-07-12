@@ -16,7 +16,8 @@ from src.audit.tool_call_audit import AuditEvent
 from src.core.human_approval import HumanApprovalDecision, HumanApprovalRequest, HumanApprovalResponse
 from src.core.pre_live_business_flow import PreLiveBusinessFlowService
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
-from src.state.models import RiskLevel
+from src.core.security_hooks import GateDecision
+from src.state.models import ActionType, RiskLevel
 
 
 class FakeAuditStore:
@@ -37,15 +38,23 @@ class FakeAuditStore:
                 "trace_id": event.trace_id,
                 "room_id": event.room_id,
                 "tool_name": event.tool_name,
-                "action_type": event.action_type,
-                "risk_level": event.risk_level,
-                "gate_decision": event.gate_decision,
+                "action_type": event.action_type.value,
+                "risk_level": event.risk_level.value,
+                "gate_decision": event.gate_decision.value,
                 "operator_decision": event.operator_decision,
                 "idempotency_key": event.idempotency_key,
-                "request_payload": event.request_payload,
-                "result_payload": event.result_payload,
             }
-            if all(existing[field] == value for field, value in expected.items()):
+            # 标量按数据库行形状比较；JSON 载荷使用生产递归比较器，确保 bool 与
+            # number、数组顺序和对象字段变化都遵循真实 Store 的冲突语义。
+            scalars_match = all(existing[field] == value for field, value in expected.items())
+            payloads_match = tool_call_audit._json_values_semantically_equal(
+                existing["request_payload"],
+                event.request_payload,
+            ) and tool_call_audit._json_values_semantically_equal(
+                existing["result_payload"],
+                event.result_payload,
+            )
+            if scalars_match and payloads_match:
                 return existing["audit_id"]
             raise tool_call_audit.IdempotencyConflictError("conflicting audit idempotency replay")
 
@@ -56,9 +65,9 @@ class FakeAuditStore:
                 "trace_id": event.trace_id,
                 "room_id": event.room_id,
                 "tool_name": event.tool_name,
-                "action_type": event.action_type,
-                "risk_level": event.risk_level,
-                "gate_decision": event.gate_decision,
+                "action_type": event.action_type.value,
+                "risk_level": event.risk_level.value,
+                "gate_decision": event.gate_decision.value,
                 "request_payload": event.request_payload,
                 "result_payload": event.result_payload,
                 "operator_decision": event.operator_decision,
@@ -71,6 +80,41 @@ class FakeAuditStore:
         """按 trace_id 返回审计链路，模拟真实审计 Store 的查询接口。"""
 
         return [event for event in self.events if event["trace_id"] == trace_id]
+
+
+def test_fake_audit_store_distinguishes_json_boolean_from_integer() -> None:
+    """测试替身必须与生产 Store 一样区分 JSON true 和数字 1。"""
+
+    audit_store = FakeAuditStore()
+    original = AuditEvent(
+        trace_id="trace-fake-json-types",
+        room_id="room-fake-json-types",
+        tool_name="setup_live_session",
+        action_type=ActionType.SETUP_LIVE_SESSION,
+        risk_level=RiskLevel.HIGH,
+        gate_decision=GateDecision.HARD_GATE,
+        operator_decision="approved",
+        idempotency_key="idem-fake-json-types",
+        request_payload={"requires_confirmation": True},
+        result_payload={"status": "prepared"},
+    )
+    audit_store.record_event(original)
+
+    with pytest.raises(tool_call_audit.IdempotencyConflictError):
+        audit_store.record_event(
+            AuditEvent(
+                trace_id=original.trace_id,
+                room_id=original.room_id,
+                tool_name=original.tool_name,
+                action_type=original.action_type,
+                risk_level=original.risk_level,
+                gate_decision=original.gate_decision,
+                operator_decision=original.operator_decision,
+                idempotency_key=original.idempotency_key,
+                request_payload={"requires_confirmation": 1},
+                result_payload=original.result_payload,
+            )
+        )
 
 
 def _sample_plan(trace_id: str) -> LivePlanDraft:

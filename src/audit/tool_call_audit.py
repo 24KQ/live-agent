@@ -159,6 +159,10 @@ class ToolCallAuditStore:
                 **self._settings.postgres_connection_kwargs,
                 row_factory=dict_row,
             ) as connection:
+                # 幂等 INSERT 在唯一键冲突时会等待并发胜者提交，随后必须由下一条
+                # SELECT 获取新语句快照。显式固定 READ COMMITTED，避免数据库或连接
+                # 默认值被改为 REPEATABLE READ 后，读取不到刚提交的胜者事实并误报失败。
+                connection.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
                 with connection.cursor() as cursor:
                     if effective_idempotency_key is None:
                         cursor.execute(insert_sql, parameters)

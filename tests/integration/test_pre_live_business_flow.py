@@ -29,10 +29,12 @@ def test_pre_live_business_flow_generates_plan_cards_setup_and_audit() -> None:
         catalog_repository=ProductCatalogRepository(settings),
         audit_store=audit_store,
     )
+    # 每次运行使用独立 trace，使 setup 派生幂等键和整条审计链不受历史测试数据影响。
+    trace_id = f"trace-phase2-flow-{uuid4()}"
 
     result = service.prepare_room(
         room_id="room-demo-001",
-        trace_id="trace-phase2-flow",
+        trace_id=trace_id,
         confirmed_setup=True,
     )
 
@@ -42,7 +44,7 @@ def test_pre_live_business_flow_generates_plan_cards_setup_and_audit() -> None:
     assert result.setup_gate.allowed is True
     assert result.setup_audit_id is not None
 
-    events = audit_store.list_events_by_trace_id("trace-phase2-flow")
+    events = audit_store.list_events_by_trace_id(trace_id)
     assert {event["tool_name"] for event in events} >= {
         "query_products",
         "generate_live_plan",
