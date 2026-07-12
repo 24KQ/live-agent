@@ -170,7 +170,12 @@ class CompatibilityArgumentNormalizer:
         """验证完整计划，或用旧 plan_item_ids 从确定性计划中提取真实条目。"""
         raw_plan = arguments.get("plan")
         if raw_plan is not None:
-            return LivePlanDraft.model_validate(raw_plan)
+            plan = LivePlanDraft.model_validate(raw_plan)
+            # 完整计划虽然通过领域字段校验，仍属于调用方业务输入；其房间和追踪标识
+            # 必须绑定可信函数参数。发现不一致时拒绝执行，且错误中不回显任何输入值。
+            if plan.room_id != room_id or plan.trace_id != trace_id:
+                raise ValueError("计划快照与可信执行上下文不一致")
+            return plan
 
         plan_item_ids = arguments.get("plan_item_ids")
         if not isinstance(plan_item_ids, list) or not plan_item_ids:

@@ -144,13 +144,14 @@ class AgentToolExecutor:
             )
             result = self._skill_executor.execute(call)
             return observation_from_skill_result(tool_name, result)
-        except Exception as exc:
+        except Exception:
             # 旧入口仍以 AgentObservation 表达失败，但不重试旧核心 service，避免一次
-            # Agent 决策产生两次业务执行或 Runtime 失败后悄悄改变语义。
+            # Agent 决策产生两次业务执行或 Runtime 失败后悄悄改变语义。异常文本可能
+            # 包含凭据、商品标识或 Pydantic 输入，因此这里只返回受控错误码与固定摘要。
             return AgentObservation(
                 tool_name=tool_name,
                 status="error",
-                summary=f"skill runtime execution failed: {type(exc).__name__}: {exc}",
+                summary="HANDLER_FAILED: skill runtime execution failed",
                 audit_id=None,
             )
 

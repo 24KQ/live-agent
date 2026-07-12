@@ -109,14 +109,14 @@ class RecordingSkillExecutor:
 
 
 class RaisingSkillExecutor:
-    """模拟 Runtime 自身异常，用于证明核心工具不会自动回退 legacy。"""
+    """模拟携带敏感文本的 Runtime 异常，验证失败边界不会泄露内部数据。"""
 
     def __init__(self) -> None:
         self.calls: list[Any] = []
 
     def execute(self, call: Any) -> SkillExecutionResult:
         self.calls.append(call)
-        raise RuntimeError("runtime unavailable")
+        raise RuntimeError("db password=TOP_SECRET product_id=p-secret")
 
 
 def test_normalizer_moves_identifiers_and_builds_complete_immutable_products() -> None:
@@ -187,6 +187,78 @@ def test_normalizer_builds_setup_plan_and_moves_idempotency_key() -> None:
     assert call.context.approval is None
     assert call.context.compatibility_enriched is True
     assert set(call.arguments) == {"plan"}
+
+
+def _explicit_plan(room_id: str, trace_id: str) -> LivePlanDraft:
+    """构造调用方显式提供的完整计划，用于测试可信上下文绑定规则。"""
+    return LivePlanDraft(
+        room_id=room_id,
+        trace_id=trace_id,
+        items=[
+            LivePlanItem(
+                rank=1,
+                product_id="p001",
+                product_name="测试商品A",
+                role="引流款",
+                reason="显式计划",
+            )
+        ],
+    )
+
+
+def test_normalizer_rejects_explicit_plan_with_room_mismatch_without_echo() -> None:
+    """完整计划的 room_id 与可信参数不一致时必须拒绝，且不得回显攻击值。"""
+    attacker_room = "attacker-room-TOP_SECRET"
+
+    with pytest.raises(ValueError) as captured:
+        CompatibilityArgumentNormalizer(RecordingService()).normalize(
+            tool_name="setup_live_session",
+            arguments={
+                "plan": _explicit_plan(attacker_room, "trace-trusted"),
+                "idempotency_key": "idem-room-mismatch",
+            },
+            room_id="room-trusted",
+            trace_id="trace-trusted",
+            lifecycle="PRE_LIVE",
+        )
+
+    assert str(captured.value) == "计划快照与可信执行上下文不一致"
+    assert attacker_room not in str(captured.value)
+
+
+def test_normalizer_rejects_explicit_plan_with_trace_mismatch_without_echo() -> None:
+    """完整计划的 trace_id 与可信参数不一致时必须拒绝，且不得回显攻击值。"""
+    attacker_trace = "attacker-trace-TOP_SECRET"
+
+    with pytest.raises(ValueError) as captured:
+        CompatibilityArgumentNormalizer(RecordingService()).normalize(
+            tool_name="setup_live_session",
+            arguments={
+                "plan": _explicit_plan("room-trusted", attacker_trace),
+                "idempotency_key": "idem-trace-mismatch",
+            },
+            room_id="room-trusted",
+            trace_id="trace-trusted",
+            lifecycle="PRE_LIVE",
+        )
+
+    assert str(captured.value) == "计划快照与可信执行上下文不一致"
+    assert attacker_trace not in str(captured.value)
+
+
+def test_normalizer_accepts_explicit_plan_matching_trusted_context() -> None:
+    """room_id 与 trace_id 均匹配时保留调用方快照，不静默重写计划内容。"""
+    plan = _explicit_plan("room-trusted", "trace-trusted")
+
+    call = CompatibilityArgumentNormalizer(RecordingService()).normalize(
+        tool_name="setup_live_session",
+        arguments={"plan": plan, "idempotency_key": "idem-plan-match"},
+        room_id="room-trusted",
+        trace_id="trace-trusted",
+        lifecycle="PRE_LIVE",
+    )
+
+    assert call.arguments["plan"] == plan.model_dump(mode="json")
 
 
 @pytest.mark.parametrize(
@@ -287,7 +359,7 @@ def test_runtime_error_maps_status_summary_audit_and_stable_error_code() -> None
 
 
 def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
-    """Runtime 异常应显式失败，不能再次调用 legacy 核心服务造成双执行。"""
+    """Runtime 异常应固定摘要且不 fallback，也不能泄露异常中的敏感文本。"""
     service = RecordingService()
     runtime = RaisingSkillExecutor()
     executor = AgentToolExecutor(
@@ -301,6 +373,10 @@ def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
     )
 
     assert observation.status == "error"
+    assert observation.summary == "HANDLER_FAILED: skill runtime execution failed"
+    assert "TOP_SECRET" not in observation.summary
+    assert "password" not in observation.summary
+    assert "p-secret" not in observation.summary
     assert len(runtime.calls) == 1
     assert service.calls == []
 
