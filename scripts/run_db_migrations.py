@@ -93,6 +93,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 7B 生产硬化扩展（Harness 会话扩展 + 运维告警表）",
     ),
+    MigrationStep(
+        phase="phase11b",
+        sql_file="init_phase11b_skill_attempts.sql",
+        required=True,
+        description="Phase 11B Skill 执行尝试事实表（Operation + Attempt）",
+    ),
 ]
 
 
