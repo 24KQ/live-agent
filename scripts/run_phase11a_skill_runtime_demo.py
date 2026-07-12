@@ -29,7 +29,7 @@ from src.core.human_approval import (
 )
 from src.core.pre_live_business_flow import PreLiveBusinessFlowService
 from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
-from src.skill_runtime.models import ApprovalContext, ApprovalSource
+from src.skill_runtime.models import _build_human_interrupt_approval
 from src.skill_runtime.pre_live_facade import RoutedPreLiveBusinessService
 from src.skill_runtime.pre_live_handlers import build_pre_live_handlers
 from src.skill_runtime.routing import RouteConfig, RoutePolicy
@@ -202,8 +202,7 @@ def _run_scenario(name: str, policy: RoutePolicy) -> dict[str, Any]:
         trace_id=trace_id,
         confirmed_setup=True,
         idempotency_key=setup_idempotency_key,
-        approval_context=ApprovalContext(
-            source=ApprovalSource.HUMAN_INTERRUPT,
+        approval_context=_build_human_interrupt_approval(
             decision="APPROVED",
             operator_id=approval_response.operator_id,
             approval_audit_id=resume_audit_id,
@@ -219,8 +218,7 @@ def _run_scenario(name: str, policy: RoutePolicy) -> dict[str, Any]:
         trace_id=trace_id,
         confirmed_setup=True,
         idempotency_key=setup_idempotency_key,
-        approval_context=ApprovalContext(
-            source=ApprovalSource.HUMAN_INTERRUPT,
+        approval_context=_build_human_interrupt_approval(
             decision="APPROVED",
             operator_id=approval_response.operator_id,
             approval_audit_id=resume_audit_id,
