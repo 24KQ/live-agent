@@ -136,12 +136,44 @@ class PreLiveBusinessFlowService:
             )
         return cards
 
+    def generate_card(
+        self,
+        room_id: str,
+        product: CatalogProduct,
+        trace_id: str,
+    ) -> ProductCard:
+        """为单个商品生成手卡并写入审计。
+
+        这是 Phase 11A Skill Runtime 新增的显式单商品入口；
+        generate_cards 继续保留供旧 Workflow 使用。
+        """
+        tool = self._require_pre_live_tool("generate_product_card")
+        gate = evaluate_tool_gate(tool, confirmed=True)
+        card = generate_product_card(product)
+        self._audit_store.record_event(
+            AuditEvent(
+                trace_id=trace_id,
+                room_id=room_id,
+                tool_name=tool.name,
+                action_type=ActionType.GENERATE_PRODUCT_CARD,
+                risk_level=tool.risk_level,
+                gate_decision=gate.decision,
+                operator_decision="approved",
+                request_payload={"product_id": product.product_id},
+                result_payload={"title": card.title, "talking_point_count": len(card.talking_points)},
+            )
+        )
+        return card
+
+
+
     def setup_live_session(
         self,
         room_id: str,
         plan: LivePlanDraft,
         trace_id: str,
         confirmed_setup: bool,
+        idempotency_key: str | None = None,
     ) -> tuple[GateResult, str | None]:
         """模拟建播确认，并在确认后写入审计。"""
 
@@ -150,7 +182,8 @@ class PreLiveBusinessFlowService:
         if not gate.allowed:
             return gate, None
 
-        idempotency_key = f"{trace_id}:setup_live_session"
+        if idempotency_key is None:
+            idempotency_key = f"{trace_id}:setup_live_session"
         existing_audit_id = self._find_existing_audit_id(
             trace_id=trace_id,
             tool_name=tool.name,
