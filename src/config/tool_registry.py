@@ -60,208 +60,23 @@ class ToolRegistry:
 
 
 def get_default_tool_registry() -> ToolRegistry:
-    """构建默认工具注册表。"""
+    """从默认 Skill Catalog 生成兼容只读投影。
 
-    pre_live = {LifecycleStage.PRE_LIVE}
-    on_live = {LifecycleStage.ON_LIVE}
-    return ToolRegistry(
-        [
-            ToolMetadata(
-                name="query_products",
-                description="查询播前模拟商品货盘",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.LOW,
-                parameter_schema={"type": "object", "properties": {"room_id": {"type": "string"}}},
-                gate_decision=GateDecision.AUTO,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="suggest_price_change",
-                description="生成播前改价建议，不直接修改状态",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.MEDIUM,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["product_id", "suggested_price"],
-                    "properties": {
-                        "product_id": {"type": "string"},
-                        "suggested_price": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.SOFT_GATE,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="set_product_price",
-                description="执行商品改价",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.HIGH,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["product_id", "price"],
-                    "properties": {
-                        "product_id": {"type": "string"},
-                        "price": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.HARD_GATE,
-                requires_idempotency_key=True,
-            ),
-            ToolMetadata(
-                name="create_live_plan_draft",
-                description="生成播前排品草案，不执行建播写操作",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.MEDIUM,
-                parameter_schema={"type": "object", "properties": {"room_id": {"type": "string"}}},
-                gate_decision=GateDecision.SOFT_GATE,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="generate_live_plan",
-                description="基于本地样例货盘生成确定性播前排品方案",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.MEDIUM,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id"],
-                    "properties": {"room_id": {"type": "string"}},
-                },
-                gate_decision=GateDecision.SOFT_GATE,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="generate_product_card",
-                description="为指定商品生成确定性主播讲解手卡",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.MEDIUM,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["product_id"],
-                    "properties": {"product_id": {"type": "string"}},
-                },
-                gate_decision=GateDecision.SOFT_GATE,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="setup_live_session",
-                description="根据播前方案模拟建播配置写入",
-                lifecycle=pre_live,
-                risk_level=RiskLevel.HIGH,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "plan_item_ids", "idempotency_key"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "plan_item_ids": {"type": "array", "items": {"type": "string"}},
-                        "idempotency_key": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.HARD_GATE,
-                requires_idempotency_key=True,
-            ),
-            ToolMetadata(
-                name="handle_sold_out_event",
-                description="处理播中售罄事件，调用 Reducer 下架售罄商品",
-                lifecycle=on_live,
-                risk_level=RiskLevel.HIGH,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "product_id", "trace_id", "idempotency_key"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "product_id": {"type": "string"},
-                        "trace_id": {"type": "string"},
-                        "idempotency_key": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.AUTO,
-                requires_idempotency_key=True,
-            ),
-            ToolMetadata(
-                name="recommend_backup_product",
-                description="播中售罄后推荐仍可讲解的备选商品",
-                lifecycle=on_live,
-                risk_level=RiskLevel.MEDIUM,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "sold_out_product_id"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "sold_out_product_id": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.AUTO,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="generate_on_live_prompt",
-                description="生成播中主播提示文案，不直接修改状态",
-                lifecycle=on_live,
-                risk_level=RiskLevel.LOW,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "sold_out_product_id"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "sold_out_product_id": {"type": "string"},
-                        "backup_product_id": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.AUTO,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="aggregate_danmaku_questions",
-                description="按 5 秒窗口聚合播中弹幕同类问题，不修改状态",
-                lifecycle=on_live,
-                risk_level=RiskLevel.LOW,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "trace_id", "events"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "trace_id": {"type": "string"},
-                        "events": {"type": "array", "items": {"type": "object"}},
-                    },
-                },
-                gate_decision=GateDecision.AUTO,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="generate_danmaku_reply",
-                description="为聚合后的弹幕问题生成主播参考回复，不自动发送",
-                lifecycle=on_live,
-                risk_level=RiskLevel.MEDIUM,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "trace_id", "category", "summary"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "trace_id": {"type": "string"},
-                        "category": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                },
-                gate_decision=GateDecision.SOFT_GATE,
-                requires_idempotency_key=False,
-            ),
-            ToolMetadata(
-                name="on_live_context_collect",
-                description="播中收集弹幕聚合摘要和库存告警，不修改状态",
-                lifecycle=on_live,
-                risk_level=RiskLevel.LOW,
-                parameter_schema={
-                    "type": "object",
-                    "required": ["room_id", "trace_id"],
-                    "properties": {
-                        "room_id": {"type": "string"},
-                        "trace_id": {"type": "string"},
-                        "danmaku_summary": {"type": "array", "items": {"type": "object"}},
-                        "inventory_alerts": {"type": "array", "items": {"type": "object"}},
-                    },
-                },
-                gate_decision=GateDecision.AUTO,
-                requires_idempotency_key=False,
-            ),
-        ]
-    )
+    不再维护独立元数据；名称、生命周期、风险、门禁和幂等要求
+    全部从 Catalog Manifest 投影。
+    """
+    from src.skill_runtime.catalog import get_default_skill_catalog
+
+    manifests = get_default_skill_catalog()
+    tools: list[ToolMetadata] = []
+    for m in manifests:
+        tools.append(ToolMetadata(
+            name=m.skill_id,
+            description=m.description,
+            lifecycle=m.lifecycle,
+            risk_level=m.risk_level,
+            parameter_schema=m.parameter_schema,
+            gate_decision=m.gate_decision,
+            requires_idempotency_key=m.requires_idempotency_key,
+        ))
+    return ToolRegistry(tools)
