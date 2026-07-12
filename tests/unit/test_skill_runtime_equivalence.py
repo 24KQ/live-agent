@@ -27,18 +27,25 @@ from src.skills.product_catalog import CatalogProduct
 class FakeRepository:
     """返回构造时冻结商品快照的内存 Repository。
 
-    每次查询都返回新的列表，避免调用方修改列表结构时反向污染另一套执行栈；其中的
-    ``CatalogProduct`` 本身是不可变 Pydantic 模型，可以安全共享同一份业务快照内容。
+    Repository 在构造和查询边界都复制完整模型，确保可变的标签、卖点等嵌套容器
+    不会跨执行栈或跨查询共享；两套栈只共享值相同这一事实，不共享任何商品对象。
     """
 
     def __init__(self, products: tuple[CatalogProduct, ...]) -> None:
-        self._products = products
+        # 构造时先切断调用方快照与 Repository 内部快照的对象关系，避免来源对象随后
+        # 修改 tags/selling_points 时改变 Repository 已接收的测试夹具。
+        self._products = tuple(self._clone_product(product) for product in products)
         self.queried_room_ids: list[str] = []
 
     def list_room_products(self, room_id: str) -> list[CatalogProduct]:
-        """记录查询房间并返回固定商品快照的列表副本。"""
+        """记录查询房间，并为本次调用重建不共享嵌套容器的商品快照。"""
         self.queried_room_ids.append(room_id)
-        return list(self._products)
+        return [self._clone_product(product) for product in self._products]
+
+    @staticmethod
+    def _clone_product(product: CatalogProduct) -> CatalogProduct:
+        """经 JSON 领域快照重新校验模型，实现商品及其嵌套列表的真正深复制。"""
+        return CatalogProduct.model_validate(product.model_dump(mode="json"))
 
 
 class InMemoryAuditStore:
@@ -157,6 +164,29 @@ def _normalize_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{field: event[field] for field in compared_fields} for event in events]
 
 
+def test_fake_repositories_deeply_isolate_nested_product_snapshots() -> None:
+    """任一 Repository 返回值的嵌套列表变更不得污染来源、另一栈或后续查询。"""
+    source_products = _fixed_products()
+    legacy_repository = FakeRepository(source_products)
+    runtime_repository = FakeRepository(source_products)
+
+    legacy_first_read = legacy_repository.list_room_products("room-isolation")
+    runtime_first_read = runtime_repository.list_room_products("room-isolation")
+
+    assert legacy_first_read[0] is not runtime_first_read[0]
+    assert legacy_first_read[0].tags is not runtime_first_read[0].tags
+    assert legacy_first_read[0].selling_points is not runtime_first_read[0].selling_points
+
+    legacy_first_read[0].tags.append("legacy-only")
+    legacy_first_read[0].selling_points.append("legacy-only-point")
+
+    assert "legacy-only" not in source_products[0].tags
+    assert "legacy-only" not in runtime_first_read[0].tags
+    assert "legacy-only" not in legacy_repository.list_room_products("room-isolation")[0].tags
+    assert "legacy-only-point" not in source_products[0].selling_points
+    assert "legacy-only-point" not in runtime_first_read[0].selling_points
+
+
 def test_legacy_and_runtime_generation_are_equivalent_and_isolated() -> None:
     """两套独立依赖执行相同快照时，领域结果与规范化审计必须完全等价。"""
     room_id = "room-phase11a-equivalence"
@@ -222,6 +252,37 @@ def test_demo_exposes_four_reassembled_route_scenarios() -> None:
     assert all(summary["card_count"] == 3 for summary in summaries)
     assert all(summary["setup_status"] == "prepared" for summary in summaries)
     assert all(summary["audit_count"] == 8 for summary in summaries)
+
+
+def test_all_runtime_demo_replays_setup_with_the_same_audit(monkeypatch: Any) -> None:
+    """全 Runtime 场景必须把同一幂等键传入 Facade，并复用首次 setup 审计。"""
+    from scripts.run_phase11a_skill_runtime_demo import _run_scenario
+
+    original_setup = RoutedPreLiveBusinessService.setup_live_session
+    setup_calls: list[dict[str, Any]] = []
+
+    def recording_setup(self: RoutedPreLiveBusinessService, *args: Any, **kwargs: Any) -> Any:
+        """调用真实 Facade 后记录输入幂等键和返回值，不替换 Runtime 或 Store 行为。"""
+        result = original_setup(self, *args, **kwargs)
+        setup_calls.append({"idempotency_key": kwargs.get("idempotency_key"), "result": result})
+        return result
+
+    monkeypatch.setattr(RoutedPreLiveBusinessService, "setup_live_session", recording_setup)
+    summary = _run_scenario(
+        "all_runtime",
+        RoutePolicy(generation=RouteConfig.SKILL_RUNTIME, setup=RouteConfig.SKILL_RUNTIME),
+    )
+
+    assert len(setup_calls) == 2
+    assert setup_calls[0]["idempotency_key"] is not None
+    assert setup_calls[0]["idempotency_key"] == setup_calls[1]["idempotency_key"]
+    first_gate, first_audit_id = setup_calls[0]["result"]
+    replay_gate, replay_audit_id = setup_calls[1]["result"]
+    assert first_gate.allowed is True
+    assert replay_gate.allowed is True
+    assert first_audit_id is not None
+    assert replay_audit_id == first_audit_id
+    assert summary["audit_count"] == 8
 
 
 def test_demo_script_runs_directly_without_external_services() -> None:

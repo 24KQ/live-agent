@@ -195,12 +195,13 @@ def _run_scenario(name: str, policy: RoutePolicy) -> dict[str, Any]:
         ),
     )
     resume_audit_id = service.record_setup_approval_event(approval_request, approval_response)
-    gate, _ = service.setup_live_session(
+    setup_idempotency_key = f"{trace_id}:setup:approved"
+    gate, setup_audit_id = service.setup_live_session(
         room_id=room_id,
         plan=plan,
         trace_id=trace_id,
         confirmed_setup=True,
-        idempotency_key=f"{trace_id}:setup:approved",
+        idempotency_key=setup_idempotency_key,
         approval_context=ApprovalContext(
             source=ApprovalSource.HUMAN_INTERRUPT,
             decision="APPROVED",
@@ -208,6 +209,29 @@ def _run_scenario(name: str, policy: RoutePolicy) -> dict[str, Any]:
             approval_audit_id=resume_audit_id,
         ),
     )
+    audit_count_after_setup = len(audit_store.list_events_by_trace_id(trace_id))
+
+    # 使用完全相同的可信审批证据和幂等键重放 setup。Legacy 与 Runtime 路由都必须
+    # 返回首次 audit_id，保持 gate 已允许，并且不能向审计链追加第二条业务副作用。
+    replay_gate, replay_audit_id = service.setup_live_session(
+        room_id=room_id,
+        plan=plan,
+        trace_id=trace_id,
+        confirmed_setup=True,
+        idempotency_key=setup_idempotency_key,
+        approval_context=ApprovalContext(
+            source=ApprovalSource.HUMAN_INTERRUPT,
+            decision="APPROVED",
+            operator_id=approval_response.operator_id,
+            approval_audit_id=resume_audit_id,
+        ),
+    )
+    audit_count_after_replay = len(audit_store.list_events_by_trace_id(trace_id))
+    assert gate.allowed is True, f"{name}: 首次 setup 未通过安全门禁"
+    assert replay_gate.allowed is True, f"{name}: 幂等重放 setup 未保持允许状态"
+    assert setup_audit_id is not None, f"{name}: 首次 setup 缺少审计 ID"
+    assert replay_audit_id == setup_audit_id, f"{name}: 幂等重放未复用首次审计 ID"
+    assert audit_count_after_replay == audit_count_after_setup, f"{name}: 幂等重放增加了审计事件"
 
     return {
         "scenario": name,
@@ -216,8 +240,8 @@ def _run_scenario(name: str, policy: RoutePolicy) -> dict[str, Any]:
         "product_count": len(products),
         "plan_item_count": len(plan.items),
         "card_count": len(cards),
-        "setup_status": "prepared" if gate.allowed else "pending_confirmation",
-        "audit_count": len(audit_store.list_events_by_trace_id(trace_id)),
+        "setup_status": "prepared" if replay_gate.allowed else "pending_confirmation",
+        "audit_count": audit_count_after_replay,
     }
 
 
