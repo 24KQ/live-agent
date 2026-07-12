@@ -46,7 +46,8 @@ class FakeHandler(_SkillHandler):
         self.should_raise = should_raise
         self.output = {"ok": True} if output is None else output
 
-    def execute(self, skill_id, arguments, context):
+    async def execute(self, skill_id, arguments, context):
+        """模拟原生 async Handler，禁止 Executor 将其送入同步线程池。"""
         self.calls += 1
         if self.should_raise:
             raise RuntimeError("测试异常不得泄漏到结果摘要")

@@ -46,7 +46,13 @@ class _QueryProductsHandler(_SkillHandler):
     def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
         self._service = service
 
-    def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+    async def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> dict[str, Any]:
+        """在 Runtime 的原生 async 调用链中查询可信商品快照。"""
         service = self._service or _get_service()
         products = service.query_products(room_id=context.room_id, trace_id=context.trace_id)
         return {"products": [p.model_dump(mode="json") for p in products]}
@@ -58,7 +64,13 @@ class _GenerateLivePlanHandler(_SkillHandler):
     def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
         self._service = service
 
-    def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+    async def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> dict[str, Any]:
+        """在 Runtime 的原生 async 调用链中生成确定性排品计划。"""
         service = self._service or _get_service()
         # arguments 中的 products 是由 Schema 校验过的不可变快照
         products_raw = arguments.get("products", [])
@@ -78,7 +90,13 @@ class _GenerateProductCardHandler(_SkillHandler):
     def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
         self._service = service
 
-    def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+    async def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> dict[str, Any]:
+        """在 Runtime 的原生 async 调用链中生成单商品手卡。"""
         service = self._service or _get_service()
         product_raw = arguments.get("product", {})
         from src.skills.product_catalog import CatalogProduct
@@ -97,7 +115,13 @@ class _SetupLiveSessionHandler(_SkillHandler):
     def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
         self._service = service
 
-    def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+    async def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> _SkillHandlerResult:
+        """在审批已由 Executor 验证后执行一次兼容建播业务服务调用。"""
         service = self._service or _get_service()
         plan_raw = arguments.get("plan", {})
         from src.skills.live_plan_generator import LivePlanDraft
