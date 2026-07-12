@@ -2146,18 +2146,19 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 2. 四个播前核心 Skill 使用显式快照和统一 `SkillExecutor`，保留现有 Graph、checkpoint 与 interrupt 协议。
 3. 读取/生成与 setup 两个迁移批次可独立切换和回滚，默认 legacy，无生产影子执行或隐式 fallback。
 4. AgentToolExecutor 四个核心工具收敛为兼容规范化与单一 Runtime dispatch，并记录 `compatibility_enriched` 证据。
-5. setup 审批证据与幂等键进入可信 Context；拒绝不执行，相同键重放不产生重复成功副作用。
+5. setup 审批证据与幂等键进入可信 Context；拒绝不执行，相同键重放不产生重复成功副作用；跨 room、trace、计划或载荷重用同键受控冲突。
 6. 新增隔离等价测试、四场景 Demo 和统一 `phase11a-demo` 入口。
 
 ### 验收证据
 
-- Runtime 专项：`85 passed in 1.43s`，退出码 `0`。
-- 相关回归：`45 passed in 0.89s`，退出码 `0`。
-- 默认全量：`501 passed, 3 deselected, 9 warnings in 54.13s`，退出码 `0`。
+- Runtime 专项：`108 passed in 1.51s`，退出码 `0`。
+- 相关回归：`45 passed in 1.15s`，退出码 `0`。
+- 审计幂等专项：`28 passed in 5.48s`，退出码 `0`。
+- 默认全量：`541 passed, 3 deselected, 9 warnings in 61.51s`，退出码 `0`。
 - 同一四场景 Demo 的两个运行入口均执行完成，退出码 `0`。
-- 全仓编码扫描退出码 `1`，报告 `4 errors/58 warnings`；4 个 error 来自扫描脚本自身 U+FFFD 示例，其他为历史 BOM/工作树混合换行，未声明通过。
+- 全仓编码扫描退出码 `1`，报告 `4 errors/59 warnings`；4 个 error 来自扫描脚本自身 U+FFFD 示例，其他为历史 BOM/工作树混合换行，未声明通过。
 - Phase 11A 已提交代码、测试、Demo 的 canonical blob，以及 6 个 Task 9 文档和 3 个冻结事实源，严格 UTF-8 检查目标命中 `0`。
-- `git diff --check` 退出码 `0`；范围检索没有发现生产 `SHADOW_COMPARE`、热加载、PlanEngine 或 LiveOpsAgent 实现。
+- `git diff --check` 及全阶段范围检查退出码 `0`；范围检索没有发现生产 `SHADOW_COMPARE`、热加载、PlanEngine 或 LiveOpsAgent 实现。
 
 ### 后续边界
 

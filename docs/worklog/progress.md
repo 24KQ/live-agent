@@ -196,6 +196,15 @@
 - Task 9 已生成 Acceptance 并同步路线图、执行日志和 worklog；状态只能记为“技术验收完成，待用户审核”，Phase 11B 未开始。
 - Task 9 质量审查补充纳入冻结决策日志、Design 和 Plan，并为 Acceptance 增加两条完整 pytest 复现命令；本轮不重跑业务测试，沿用已记录的真实测试证据。
 
+## 2026-07-12 Phase 11A 验收前幂等复审整改进度
+
+- 审查发现审计 Store 的并发重放算法依赖 `READ COMMITTED`，已在首条 SQL 前显式固定连接隔离级别，并新增单元测试锁定该顺序。
+- 审计 Store 已对同工具同幂等键的重放比较完整事实；不同 room、trace、计划、载荷或 JSON 类型均 fail-closed，首次审计行保持不变。
+- 等价比较器与业务流 FakeAuditStore 已同步完整事实和 JSON 严格比较语义；真实播前集成流程改用 UUID trace，避免历史数据影响派生幂等键。
+- 本轮专项为 `28 passed`，Runtime 专项为 `108 passed`，相关回归为 `45 passed`，默认全量为 `541 passed, 3 deselected, 9 warnings`；两个四场景 Demo 均通过。
+- 全范围 `git diff --check 8f386cd^..HEAD` 已通过；全仓编码扫描仍为 `4 errors/59 warnings`，均按脚本自身样例或既有 BOM/混合换行记录，未修改业务范围外文件。
+- 当前仍是“Phase 11A 技术验收完成，待用户审核”，Phase 11B 未开始。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

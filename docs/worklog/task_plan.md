@@ -87,6 +87,7 @@
 - [x] 完成 Task 7：AgentToolExecutor 旧参数规范化、可信兼容证据与四个核心工具单一 Runtime dispatch；正式提交从 `4f77403` 开始，为 `4f77403`、`7e132f3`、`b60a85d`。`96a5adb` 属于提前错误实施，已由 `94e2766` 完整删除，不计入有效交付。
 - [x] 完成 Task 8：隔离等价测试、四场景 Demo 与统一入口；提交 `7154c89`、`fd54005`。
 - [x] 完成 Task 9：全量技术验收与阶段留迹；Acceptance 状态为“技术验收完成，待用户审核”。
+- [x] 完成验收前审计幂等复审整改：完整事实冲突检测、显式 `READ COMMITTED`、测试替身语义对齐、PostgreSQL 流程 trace 隔离和全阶段 diff 空白修复。
 - [ ] 用户审核 Phase 11A Acceptance；审核完成前不进入 Phase 11B。
 
 # 2026-07-11 Phase 7A 任务
