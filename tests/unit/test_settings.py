@@ -84,3 +84,23 @@ def test_langgraph_strict_msgpack_defaults_to_enabled() -> None:
     settings = build_test_settings()
 
     assert settings.langgraph_strict_msgpack is True
+
+def test_skill_route_defaults_to_legacy() -> None:
+    """Skill Runtime 路由默认值必须为 LEGACY，保证 Phase 11A 切换前行为不变。"""
+
+    settings = build_test_settings()
+
+    assert settings.skill_route_prelive_generation == "LEGACY"
+    assert settings.skill_route_prelive_setup == "LEGACY"
+
+
+def test_skill_route_can_be_set_via_environment_variable() -> None:
+    """路由字段可以通过环境变量独立配置 generation 和 setup。"""
+
+    settings = build_test_settings(
+        SKILL_ROUTE_PRELIVE_GENERATION="SKILL_RUNTIME",
+        SKILL_ROUTE_PRELIVE_SETUP="LEGACY",
+    )
+
+    assert settings.skill_route_prelive_generation == "SKILL_RUNTIME"
+    assert settings.skill_route_prelive_setup == "LEGACY"

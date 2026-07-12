@@ -133,6 +133,18 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="AUTO_INITIALIZE_SCHEMA",
     )
+    # ── Phase 11A Skill Runtime 路由配置 ──────────────────────────────────
+    # 播前 generation 批次（query_products, generate_live_plan, generate_product_card）
+    # 的路由选择。LEGACY 走原 PreLiveBusinessFlowService，SKILL_RUNTIME 走统一 Executor。
+    skill_route_prelive_generation: str = Field(
+        default="LEGACY", validation_alias="SKILL_ROUTE_PRELIVE_GENERATION"
+    )
+    # 播前 setup 批次（setup_live_session）的路由选择，独立于 generation 批次。
+    skill_route_prelive_setup: str = Field(
+        default="LEGACY", validation_alias="SKILL_ROUTE_PRELIVE_SETUP"
+    )
+
+
 
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
