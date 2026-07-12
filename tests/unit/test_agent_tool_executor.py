@@ -99,41 +99,37 @@ class TestAgentToolExecutor:
         assert obs.status == "error"
         assert "lifecycle" in obs.summary.lower() or "not available" in obs.summary.lower()
 
-    def test_generate_plan_returns_success(self):
-        """generate_live_plan 执行应返回 success。"""
+    def test_generate_plan_returns_runtime_success(self):
+        """generate_live_plan 应经统一 Runtime 执行并返回其稳定摘要。"""
         registry = get_default_tool_registry()
         service = FakeService()
         executor = AgentToolExecutor(registry=registry, pre_live_service=service)
-        from src.skills.live_plan_generator import LivePlanDraft
         obs = executor.execute(
             tool_name="generate_live_plan", arguments={"room_id": "room-001", "products": service.products},
             room_id="room-001", trace_id="trace-001",
         )
         assert obs.status == "success"
-        assert "plan" in obs.summary.lower()
+        assert obs.summary == "执行成功"
 
 
 class TestParamValidation:
     """参数 schema 校验测试。"""
 
-    def test_missing_required_param_returns_error(self):
-        """缺少必填参数时返回 error。"""
+    def test_setup_without_approval_returns_pending(self):
+        """兼容 setup 即使参数可补全，缺少可信审批也必须保持 pending。"""
         registry = get_default_tool_registry()
         service = FakeService()
         executor = AgentToolExecutor(registry=registry, pre_live_service=service)
-        from src.skills.live_plan_generator import LivePlanDraft
-        # setup_live_session 需要 room_id, plan_item_ids, idempotency_key
         obs = executor.execute(
-            tool_name="setup_live_session", arguments={},
+            tool_name="setup_live_session",
+            arguments={
+                "plan_item_ids": ["p001"],
+                "idempotency_key": "idem-agent-tool-001",
+            },
             room_id="room-001", trace_id="trace-001",
         )
-        # 有 jsonschema 时参数校验失败，无 jsonschema 时走原有逻辑
-        try:
-            import jsonschema
-            assert obs.status == "error"
-            assert "参数校验" in obs.summary or "schema" in obs.summary.lower()
-        except ImportError:
-            assert obs.status == "success" or obs.status == "pending"
+        assert obs.status == "pending"
+        assert "APPROVAL_REQUIRED" in obs.summary
 
     def test_valid_params_passes_schema_check(self):
         """合法参数应通过校验。"""

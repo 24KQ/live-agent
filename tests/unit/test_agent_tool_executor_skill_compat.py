@@ -1,0 +1,325 @@
+"""Phase 11A AgentToolExecutor 与 Skill Runtime 兼容收敛测试。
+
+本文件只验证旧 Agent 工具入口到统一 Skill Runtime 的兼容边界：旧参数必须先
+转换成完整、冻结的领域快照，四个核心工具只能调用一次同步适配器，未迁移工具
+仍保留 legacy 派发。测试使用记录型替身隔离数据库，避免把兼容行为和外部环境
+可用性混在一起。
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any
+
+import pytest
+
+from src.config.tool_registry import get_default_tool_registry
+from src.core.agent_tool_executor import AgentToolExecutor
+from src.skill_runtime.compatibility import CompatibilityArgumentNormalizer
+from src.skill_runtime.models import (
+    SkillExecutionResult,
+    SkillExecutionStatus,
+    SkillErrorCode,
+)
+from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
+from src.skills.product_catalog import CatalogProduct
+
+
+def _product(product_id: str, name: str) -> CatalogProduct:
+    """构造字段完整的冻结商品，确保测试会发现兼容层遗漏任何快照字段。"""
+    return CatalogProduct(
+        product_id=product_id,
+        name=name,
+        category="日用",
+        price=Decimal("39.90"),
+        inventory=100,
+        conversion_rate=Decimal("0.15"),
+        commission_rate=Decimal("0.05"),
+        tags=["引流"],
+        selling_points=["耐用", "易清洁"],
+        is_active=True,
+    )
+
+
+class RecordingService:
+    """记录兼容补全所需的只读货盘和排品调用，不执行真实数据库访问。"""
+
+    def __init__(self) -> None:
+        self.products = [_product("p001", "测试商品A"), _product("p002", "测试商品B")]
+        self.calls: list[tuple[Any, ...]] = []
+
+    def query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
+        """返回固定货盘，并记录兼容层是否为旧 ID 参数补全了快照。"""
+        self.calls.append(("query_products", room_id, trace_id))
+        return self.products
+
+    def generate_plan(
+        self,
+        room_id: str,
+        products: list[CatalogProduct],
+        trace_id: str,
+    ) -> LivePlanDraft:
+        """生成包含真实字段的计划草案，供 plan_item_ids 转换测试使用。"""
+        self.calls.append(("generate_plan", room_id, trace_id))
+        return LivePlanDraft(
+            room_id=room_id,
+            trace_id=trace_id,
+            items=[
+                LivePlanItem(
+                    rank=index,
+                    product_id=product.product_id,
+                    product_name=product.name,
+                    role="引流款",
+                    reason=f"兼容计划-{product.product_id}",
+                )
+                for index, product in enumerate(products, start=1)
+            ],
+        )
+
+
+class RecordingSkillExecutor:
+    """记录每个 SkillCall，并返回可配置的结构化 Runtime 结果。"""
+
+    def __init__(
+        self,
+        *,
+        status: SkillExecutionStatus = SkillExecutionStatus.SUCCESS,
+        error_code: SkillErrorCode | None = None,
+        summary: str = "runtime summary",
+        audit_id: str | None = "audit-runtime-001",
+    ) -> None:
+        self.calls: list[Any] = []
+        self.status = status
+        self.error_code = error_code
+        self.summary = summary
+        self.audit_id = audit_id
+
+    def execute(self, call: Any) -> SkillExecutionResult:
+        """严格记录一次调用；输出内容不参与本层 Observation 映射。"""
+        self.calls.append(call)
+        return SkillExecutionResult(
+            skill_id=call.skill_id,
+            version=call.version,
+            status=self.status,
+            error_code=self.error_code,
+            output={} if self.status == SkillExecutionStatus.SUCCESS else None,
+            summary=self.summary,
+            audit_id=self.audit_id,
+        )
+
+
+class RaisingSkillExecutor:
+    """模拟 Runtime 自身异常，用于证明核心工具不会自动回退 legacy。"""
+
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+
+    def execute(self, call: Any) -> SkillExecutionResult:
+        self.calls.append(call)
+        raise RuntimeError("runtime unavailable")
+
+
+def test_normalizer_moves_identifiers_and_builds_complete_immutable_products() -> None:
+    """旧标识进入 context，商品对象转换成字段完整且不可修改的 JSON 快照。"""
+    service = RecordingService()
+    call = CompatibilityArgumentNormalizer(service).normalize(
+        tool_name="generate_live_plan",
+        arguments={
+            "room_id": "untrusted-room",
+            "trace_id": "untrusted-trace",
+            "products": service.products,
+        },
+        room_id="room-001",
+        trace_id="trace-001",
+        lifecycle="PRE_LIVE",
+    )
+
+    assert call.context.room_id == "room-001"
+    assert call.context.trace_id == "trace-001"
+    assert call.context.compatibility_enriched is True
+    assert set(call.arguments) == {"products"}
+    assert call.arguments["products"][0] == service.products[0].model_dump(mode="json")
+    assert set(call.arguments["products"][0]) == set(CatalogProduct.model_fields)
+    with pytest.raises(TypeError):
+        call.arguments["products"][0]["name"] = "篡改"
+
+
+def test_normalizer_resolves_product_id_to_single_product_snapshot() -> None:
+    """旧 product_id 必须解析成目标商品的完整快照，而不是把整个货盘传入 Handler。"""
+    service = RecordingService()
+    call = CompatibilityArgumentNormalizer(service).normalize(
+        tool_name="generate_product_card",
+        arguments={"product_id": "p002"},
+        room_id="room-002",
+        trace_id="trace-002",
+        lifecycle="PRE_LIVE",
+    )
+
+    assert call.arguments == {"product": service.products[1].model_dump(mode="json")}
+    assert service.calls == [("query_products", "room-002", "trace-002")]
+    assert call.context.compatibility_enriched is True
+
+
+def test_normalizer_builds_setup_plan_and_moves_idempotency_key() -> None:
+    """setup 的旧商品 ID 列表转换为真实计划，幂等键只能存在于可信 context。"""
+    service = RecordingService()
+    call = CompatibilityArgumentNormalizer(service).normalize(
+        tool_name="setup_live_session",
+        arguments={
+            "room_id": "untrusted-room",
+            "trace_id": "untrusted-trace",
+            "plan_item_ids": ["p002", "p001"],
+            "idempotency_key": "idem-setup-001",
+            "confirmed_setup": True,
+        },
+        room_id="room-003",
+        trace_id="trace-003",
+        lifecycle="PRE_LIVE",
+    )
+
+    plan = LivePlanDraft.model_validate(call.arguments["plan"])
+    assert [item.product_id for item in plan.items] == ["p002", "p001"]
+    assert [item.rank for item in plan.items] == [1, 2]
+    assert plan.room_id == "room-003"
+    assert plan.trace_id == "trace-003"
+    assert call.context.idempotency_key == "idem-setup-001"
+    assert call.context.approval is None
+    assert call.context.compatibility_enriched is True
+    assert set(call.arguments) == {"plan"}
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("query_products", {"room_id": "legacy-room"}),
+        ("generate_live_plan", {"products": [_product("p001", "测试商品A")]}),
+        ("generate_product_card", {"product_id": "p001"}),
+        (
+            "setup_live_session",
+            {"plan_item_ids": ["p001"], "idempotency_key": "idem-core-001"},
+        ),
+    ],
+)
+def test_each_core_tool_calls_sync_skill_executor_exactly_once(
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> None:
+    """四个核心工具各自产生且只产生一个 Runtime 调用，禁止维护第二套 dispatch。"""
+    service = RecordingService()
+    runtime = RecordingSkillExecutor(
+        status=(
+            SkillExecutionStatus.PENDING
+            if tool_name == "setup_live_session"
+            else SkillExecutionStatus.SUCCESS
+        ),
+        error_code=(
+            SkillErrorCode.APPROVAL_REQUIRED
+            if tool_name == "setup_live_session"
+            else None
+        ),
+    )
+    executor = AgentToolExecutor(
+        registry=get_default_tool_registry(),
+        pre_live_service=service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(tool_name, arguments, "room-core", "trace-core")
+
+    assert observation.status in {"success", "pending"}
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0].skill_id == tool_name
+
+
+def test_setup_without_trusted_approval_stays_pending_even_when_legacy_flag_is_true() -> None:
+    """业务参数里的 confirmed_setup 不属于可信证据，不能让 setup 越过人审门禁。"""
+    service = RecordingService()
+    runtime = RecordingSkillExecutor(
+        status=SkillExecutionStatus.PENDING,
+        error_code=SkillErrorCode.APPROVAL_REQUIRED,
+        summary="高风险 Skill 需要审批",
+        audit_id=None,
+    )
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "setup_live_session",
+        {
+            "plan_item_ids": ["p001"],
+            "idempotency_key": "idem-pending-001",
+            "confirmed_setup": True,
+        },
+        "room-pending",
+        "trace-pending",
+    )
+
+    assert observation.status == "pending"
+    assert runtime.calls[0].context.approval is None
+
+
+def test_runtime_error_maps_status_summary_audit_and_stable_error_code() -> None:
+    """Runtime 的受控错误字段必须完整映射，错误码用稳定前缀供旧 planner 识别。"""
+    runtime = RecordingSkillExecutor(
+        status=SkillExecutionStatus.ERROR,
+        error_code=SkillErrorCode.INVALID_ARGUMENTS,
+        summary="参数不合法",
+        audit_id="audit-error-001",
+    )
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        RecordingService(),
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "query_products", {}, "room-error", "trace-error"
+    )
+
+    assert observation.status == "error"
+    assert observation.summary == "INVALID_ARGUMENTS: 参数不合法"
+    assert observation.audit_id == "audit-error-001"
+
+
+def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
+    """Runtime 异常应显式失败，不能再次调用 legacy 核心服务造成双执行。"""
+    service = RecordingService()
+    runtime = RaisingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "query_products", {}, "room-no-fallback", "trace-no-fallback"
+    )
+
+    assert observation.status == "error"
+    assert len(runtime.calls) == 1
+    assert service.calls == []
+
+
+def test_non_core_tool_keeps_legacy_dispatch() -> None:
+    """未迁移工具继续使用现有 legacy 分支，不能误入 Skill Runtime。"""
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        RecordingService(),
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "on_live_context_collect",
+        {"room_id": "room-live", "trace_id": "trace-live"},
+        "room-live",
+        "trace-live",
+        lifecycle="ON_LIVE",
+    )
+
+    assert observation.status == "success"
+    assert "collected context" in observation.summary
+    assert runtime.calls == []

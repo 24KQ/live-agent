@@ -14,7 +14,6 @@ LLM 不能直接写数据库或绕过安全 Hook。
 
 from __future__ import annotations
 
-from ast import literal_eval
 from typing import Any
 
 # jsonschema is optional for parameter validation; skip when unavailable
@@ -28,6 +27,13 @@ except ImportError:
 from src.config.tool_registry import ToolNotFoundError, ToolRegistry
 from src.core.agent_decision import AgentObservation
 from src.core.security_hooks import evaluate_tool_gate
+from src.skill_runtime.compatibility import (
+    CORE_SKILL_IDS,
+    CompatibilityArgumentNormalizer,
+    observation_from_skill_result,
+)
+from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
+from src.skill_runtime.pre_live_handlers import build_pre_live_handlers
 from src.state.models import LifecycleStage
 
 
@@ -42,9 +48,19 @@ class AgentToolExecutor:
         self,
         registry: ToolRegistry,
         pre_live_service: Any,
+        skill_executor: SyncSkillExecutorAdapter | None = None,
     ) -> None:
+        """保留原有两参数构造方式，并允许测试或装配层注入同步 Runtime 适配器。
+
+        默认适配器使用与 legacy 入口相同的播前服务实例创建四个 Handler，确保货盘、
+        审计和幂等存储保持一致；注入能力只用于隔离测试和上层显式装配。
+        """
         self._registry = registry
         self._service = pre_live_service
+        self._normalizer = CompatibilityArgumentNormalizer(pre_live_service)
+        self._skill_executor = skill_executor or SyncSkillExecutorAdapter(
+            SkillExecutor(handlers=build_pre_live_handlers(pre_live_service))
+        )
 
     def execute(
         self,
@@ -85,7 +101,18 @@ class AgentToolExecutor:
                 audit_id=None,
             )
 
-        # Step 3: 安全门禁（hard-gate 一直需要确认）
+        # 四个核心工具由统一 Runtime 完成 Schema、门禁、幂等和 Handler 校验。
+        # 这里不再预先拦截 setup，否则 Runtime 无法返回统一的 pending/error 契约。
+        if tool_name in CORE_SKILL_IDS:
+            return self._dispatch_core_via_runtime(
+                tool_name=tool_name,
+                arguments=arguments,
+                room_id=room_id,
+                trace_id=trace_id,
+                lifecycle=lifecycle_stage,
+            )
+
+        # Step 3: 未迁移工具继续沿用原安全门禁和 legacy 派发。
         gate = evaluate_tool_gate(tool, confirmed=False)
         if not gate.allowed and gate.requires_confirmation:
             return AgentObservation(
@@ -95,17 +122,46 @@ class AgentToolExecutor:
                 audit_id=None,
             )
 
-        # Step 4: 派发到具体 service 方法
-        return self._dispatch(tool_name, arguments, room_id, trace_id)
+        # Step 4: 派发到未迁移工具的 legacy 分支。
+        return self._dispatch_legacy(tool_name, arguments, room_id, trace_id)
 
-    def _dispatch(
+    def _dispatch_core_via_runtime(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        room_id: str,
+        trace_id: str,
+        lifecycle: LifecycleStage,
+    ) -> AgentObservation:
+        """规范化并执行一个核心 Skill，异常时显式失败且绝不 legacy fallback。"""
+        try:
+            call = self._normalizer.normalize(
+                tool_name=tool_name,
+                arguments=arguments,
+                room_id=room_id,
+                trace_id=trace_id,
+                lifecycle=lifecycle,
+            )
+            result = self._skill_executor.execute(call)
+            return observation_from_skill_result(tool_name, result)
+        except Exception as exc:
+            # 旧入口仍以 AgentObservation 表达失败，但不重试旧核心 service，避免一次
+            # Agent 决策产生两次业务执行或 Runtime 失败后悄悄改变语义。
+            return AgentObservation(
+                tool_name=tool_name,
+                status="error",
+                summary=f"skill runtime execution failed: {type(exc).__name__}: {exc}",
+                audit_id=None,
+            )
+
+    def _dispatch_legacy(
         self,
         tool_name: str,
         arguments: dict[str, Any],
         room_id: str,
         trace_id: str,
     ) -> AgentObservation:
-        """把工具名映射到 PreLiveBusinessFlowService 方法。"""
+        """派发九个尚未迁移的工具；四个核心工具不得出现在本方法中。"""
         # Step 4a: Parameter schema validation (optional dep, skip when no jsonschema)
         try:
             tool = self._registry.get(tool_name)
@@ -121,51 +177,8 @@ class AgentToolExecutor:
                 audit_id=None,
             )
         try:
-            if tool_name == "query_products":
-                products = self._service.query_products(room_id, trace_id)
-                return AgentObservation(
-                    tool_name=tool_name,
-                    status="success",
-                    summary=f"queried {len(products)} products",
-                    audit_id=None,
-                )
-
-            elif tool_name == "generate_live_plan":
-                products = arguments.get("products", self._service.query_products(room_id, trace_id))
-                plan = self._service.generate_plan(room_id, products, trace_id)
-                return AgentObservation(
-                    tool_name=tool_name,
-                    status="success",
-                    summary=f"generated plan with {len(plan.items)} items",
-                    audit_id=None,
-                )
-
-            elif tool_name == "generate_product_card":
-                products = arguments.get("products") or self._service.query_products(room_id, trace_id)
-                plan = self._service.generate_plan(room_id, products, trace_id)
-                cards = self._service.generate_cards(room_id, plan, products, trace_id)
-                return AgentObservation(
-                    tool_name=tool_name,
-                    status="success",
-                    summary=f"generated {len(cards)} product cards",
-                    audit_id=None,
-                )
-
-            elif tool_name == "setup_live_session":
-                products = self._service.query_products(room_id, trace_id)
-                plan = self._service.generate_plan(room_id, products, trace_id)
-                gate, audit_id = self._service.setup_live_session(
-                    room_id, plan, trace_id, confirmed_setup=True,
-                )
-                return AgentObservation(
-                    tool_name=tool_name,
-                    status="success" if gate.allowed else "pending",
-                    summary=f"setup status: {'allowed' if gate.allowed else 'pending'}",
-                    audit_id=audit_id,
-                )
-
             # === ON_LIVE 工具 ===
-            elif tool_name == "on_live_context_collect":
+            if tool_name == "on_live_context_collect":
                 danmaku = arguments.get("danmaku_summary", [])
                 alerts = arguments.get("inventory_alerts", [])
                 return AgentObservation(
