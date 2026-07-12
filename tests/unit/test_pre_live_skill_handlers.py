@@ -13,11 +13,11 @@ import pytest
 from src.skill_runtime.executor import register_handler
 from src.skill_runtime.models import (
     ApprovalContext,
-    ApprovalSource,
     SkillCall,
     SkillExecutionContext,
     SkillExecutionRoute,
     SkillExecutionStatus,
+    _build_human_interrupt_approval,
 )
 
 
@@ -187,8 +187,7 @@ def test_setup_live_session_with_approval_succeeds() -> None:
     from src.skill_runtime.executor import SyncSkillExecutorAdapter
 
     executor = SyncSkillExecutorAdapter()
-    approval = ApprovalContext(
-        source=ApprovalSource.HUMAN_INTERRUPT,
+    approval = _build_human_interrupt_approval(
         decision="APPROVED",
         operator_id="test_operator",
         approval_audit_id="aud_setup_001",
@@ -218,8 +217,7 @@ def test_setup_live_session_rejected() -> None:
     from src.skill_runtime.executor import SyncSkillExecutorAdapter
 
     executor = SyncSkillExecutorAdapter()
-    rejection = ApprovalContext(
-        source=ApprovalSource.HUMAN_INTERRUPT,
+    rejection = _build_human_interrupt_approval(
         decision="REJECTED",
         operator_id="test_operator",
         approval_audit_id="aud_rej_002",

@@ -23,7 +23,7 @@ from src.core.security_hooks import GateResult
 from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
-from src.skill_runtime.models import ApprovalContext, ApprovalSource
+from src.skill_runtime.models import ApprovalContext, _build_human_interrupt_approval
 from src.state.models import RiskLevel
 
 
@@ -326,8 +326,7 @@ def _setup_live_session_with_human_approval(
         plan=plan,
         trace_id=state["trace_id"],
         confirmed_setup=True,
-        approval_context=ApprovalContext(
-            source=ApprovalSource.HUMAN_INTERRUPT,
+        approval_context=_build_human_interrupt_approval(
             decision="APPROVED",
             operator_id=approval_response.operator_id,
             approval_audit_id=resume_audit_id,

@@ -24,15 +24,15 @@ CORE_SKILLS = frozenset({
 })
 
 FROZEN_NON_CORE_METADATA_HASHES = {
-    "aggregate_danmaku_questions": "1a1f44470d4f415edb74f4d2e8a034cce16c60a05dfb212186f1feb0443f2beb",
-    "create_live_plan_draft": "1ab6fe38da1234bfa1ac1ce9e3a16f3c42237e3fb450b3a7e5119b237d873d06",
-    "generate_danmaku_reply": "e1727ae1473b7dab800dd4b171c41e146e7ac020846d1dcc769685a4e6649236",
-    "generate_on_live_prompt": "0d672f0c10d987e57ce323b0d1c29cb5a7476118387593b50cdfce8995c83dc6",
-    "handle_sold_out_event": "f4309b7dce7c8e395c4098c97794691f7770b7010e05feffab32ba347efb7687",
-    "on_live_context_collect": "358c14982e737f1e4a3c16e266ec707414cfcc10b1f0466c4197e90cfcd24e1e",
-    "recommend_backup_product": "d336481bd650f551f3973c1b3500d1858408f96650ead2badf7b513f7ee6ab0b",
-    "set_product_price": "c4018de08afdd18a965581b8281f8388f92ea676fb4e5c6eae06e13cac7525e6",
-    "suggest_price_change": "722835a51161e7d531227a372e342e551b43e808eb8a0d5a01046ca61aa62b6d",
+    "aggregate_danmaku_questions": "8b4c4d02ff7895a555eaf82d3f09c9dbad25dd15fd41bf9b36eaecdda0b6cad7",
+    "create_live_plan_draft": "ba0638ea351ea0dc58820da3e06214a67dfc12445438ab5d39cb2eabe9de0a75",
+    "generate_danmaku_reply": "be8f8449906f2fb68910c2836c0c551ea24ed066b6a749e0f745a46e61abf1f6",
+    "generate_on_live_prompt": "4adfc3356a0ef922a328c02279cf618418304a490c9923d81669bc16084cc971",
+    "handle_sold_out_event": "e6dbc47e189db110e0e937fbb4198ee759e7a4ee2606dcd6ed2904a361f2d512",
+    "on_live_context_collect": "c57bd502ac5d2c4f9a8e105dabc390ed8c7899cdb521d9931b0d00e2a004f1c9",
+    "recommend_backup_product": "d45b7f40be744b4d19d7332d247efd1bf3c115b1a1089ab1ba7a74129fa96e98",
+    "set_product_price": "bfc67b37e6c87d24b0be4bea9a723da258c46e7ac4ffbd15ed2bfa818a1b707c",
+    "suggest_price_change": "c64994732b2a184bdc104b0809d6d218b42eed29c7408210113b7caf90dee977",
 }
 
 
@@ -89,6 +89,13 @@ def test_all_schemas_are_valid_draft202012() -> None:
             Draft202012Validator.check_schema(schema)
         except JsonSchemaError as exc:
             pytest.fail(f"{manifest.skill_id} schema invalid: {exc}")
+
+
+def test_all_skill_schemas_reject_undeclared_root_arguments() -> None:
+    """13 个 Skill 的根参数对象都必须 fail-closed，不能静默放过额外业务字段。"""
+
+    for manifest in get_default_skill_catalog():
+        assert manifest.parameter_schema.get("additionalProperties") is False, manifest.skill_id
 
 
 def test_non_core_skills_strict_match_frozen_metadata() -> None:

@@ -22,7 +22,7 @@ from src.core.security_hooks import GateDecision, GateResult
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
-from src.skill_runtime.models import ApprovalContext, ApprovalSource
+from src.skill_runtime.models import ApprovalContext, _build_human_interrupt_approval
 
 
 class FakeInterruptPreLiveService:
@@ -198,8 +198,7 @@ def test_pre_live_graph_resumes_with_approved_decision_and_executes_setup() -> N
     assert resumed["setup_audit_id"] == "audit-setup-001"
     assert resumed["approval_decision"] == "approved"
     assert resumed["approval_resume_audit_id"] == "audit-approval-approved"
-    assert service.received_approval_context == ApprovalContext(
-        source=ApprovalSource.HUMAN_INTERRUPT,
+    assert service.received_approval_context == _build_human_interrupt_approval(
         decision="APPROVED",
         operator_id="operator-demo",
         approval_audit_id="audit-approval-approved",

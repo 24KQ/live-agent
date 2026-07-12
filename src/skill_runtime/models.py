@@ -84,6 +84,8 @@ def _deep_freeze(value: Any) -> Any:
     raise ValueError(f"值不是 JSON-safe 类型: {type(value).__name__}")
 
 
+# 两种可放行审批都必须由受控流程创建；普通调用方不能仅凭字段形状伪造证据。
+_HUMAN_INTERRUPT_TOKEN = object()
 _TRUSTED_COMPAT_TOKEN = object()
 
 
@@ -166,19 +168,24 @@ class ApprovalContext(BaseModel, frozen=True):
     def _check_human_interrupt_evidence(self, info: ValidationInfo) -> "ApprovalContext":
         """校验审批证据来源与决定之间的信任边界。
 
-        HUMAN_INTERRUPT 必须携带操作员与审批审计 ID；TRUSTED_COMPAT
+        HUMAN_INTERRUPT 必须来自 Graph 在审批审计写入后的内部工厂；TRUSTED_COMPAT
         只能表示内部兼容入口已经确认的批准，不能承载拒绝或待定状态。
         """
+        context = info.context or {}
         if self.source == ApprovalSource.HUMAN_INTERRUPT:
             if not self.operator_id:
                 raise ValueError("HUMAN_INTERRUPT 来源必须提供 operator_id")
             if not self.approval_audit_id:
                 raise ValueError("HUMAN_INTERRUPT 来源必须提供 approval_audit_id")
+            if (
+                not self._provenance_verified
+                and context.get("human_interrupt_token") is not _HUMAN_INTERRUPT_TOKEN
+            ):
+                raise ValueError("HUMAN_INTERRUPT 只能由内部人工中断工厂构造")
             object.__setattr__(self, "_provenance_verified", True)
         if self.source == ApprovalSource.TRUSTED_COMPAT:
             if self.decision != "APPROVED":
                 raise ValueError("TRUSTED_COMPAT 来源只能表示 APPROVED")
-            context = info.context or {}
             if (
                 not self._provenance_verified
                 and context.get("trusted_compat_token") is not _TRUSTED_COMPAT_TOKEN
@@ -192,6 +199,23 @@ class ApprovalContext(BaseModel, frozen=True):
         """返回模型内部校验得到的来源可信标记。"""
         return self._provenance_verified
 
+
+def _build_human_interrupt_approval(
+    *,
+    decision: Literal["APPROVED", "REJECTED"],
+    operator_id: str,
+    approval_audit_id: str,
+) -> ApprovalContext:
+    """由 Graph 人审恢复路径构造已写入审计的人工审批证据。"""
+    return ApprovalContext.model_validate(
+        {
+            "source": ApprovalSource.HUMAN_INTERRUPT,
+            "decision": decision,
+            "operator_id": operator_id,
+            "approval_audit_id": approval_audit_id,
+        },
+        context={"human_interrupt_token": _HUMAN_INTERRUPT_TOKEN},
+    )
 
 
 def _build_trusted_compat_approval(

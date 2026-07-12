@@ -21,12 +21,12 @@ from src.skill_runtime.executor import (
 )
 from src.skill_runtime.models import (
     ApprovalContext,
-    ApprovalSource,
     SkillCall,
     SkillExecutionContext,
     SkillExecutionRoute,
     SkillExecutionStatus,
     SkillErrorCode,
+    _build_human_interrupt_approval,
 )
 
 # 确保四个核心 Handler 已注册，测试替换后可以恢复原实例。
@@ -127,8 +127,7 @@ def test_missing_idempotency_key_fails_before_handler() -> None:
     """需要幂等键但没有提供时在 Handler 之前失败。"""
     executor = SyncSkillExecutorAdapter()
     # set_product_price 需要幂等键，但先要过 hard-gate 审批
-    approval = ApprovalContext(
-        source=ApprovalSource.HUMAN_INTERRUPT,
+    approval = _build_human_interrupt_approval(
         decision="APPROVED",
         operator_id="test",
         approval_audit_id="aud_001",
@@ -170,8 +169,7 @@ def test_hard_gate_without_approval_returns_pending() -> None:
 def test_hard_gate_rejected_approval_fails() -> None:
     """拒绝审批不执行 Handler。"""
     executor = SyncSkillExecutorAdapter()
-    rejected = ApprovalContext(
-        source=ApprovalSource.HUMAN_INTERRUPT,
+    rejected = _build_human_interrupt_approval(
         decision="REJECTED",
         operator_id="auditor",
         approval_audit_id="aud_rej_001",

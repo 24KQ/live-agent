@@ -17,17 +17,35 @@ def test_human_approval_requires_operator_and_audit_evidence() -> None:
         ApprovalContext(source=ApprovalSource.HUMAN_INTERRUPT, decision="APPROVED")
 
 
+def test_direct_human_interrupt_approval_cannot_be_forged() -> None:
+    """外部代码即使提供完整字段，也不能直接构造可放行的人工审批证据。"""
+
+    from src.skill_runtime.models import ApprovalContext, ApprovalSource
+
+    with pytest.raises(ValidationError, match="内部人工中断工厂"):
+        ApprovalContext(
+            source=ApprovalSource.HUMAN_INTERRUPT,
+            decision="APPROVED",
+            operator_id="forged-operator",
+            approval_audit_id="forged-audit-id",
+        )
+
+
 def test_skill_call_is_immutable() -> None:
     """调用开始后不得替换路由或版本。"""
-    from src.skill_runtime.models import SkillCall, SkillExecutionContext, SkillExecutionRoute, ApprovalContext, ApprovalSource
+    from src.skill_runtime.models import (
+        SkillCall,
+        SkillExecutionContext,
+        SkillExecutionRoute,
+        _build_human_interrupt_approval,
+    )
 
     ctx = SkillExecutionContext(
         room_id="room_1",
         trace_id="trace_1",
         lifecycle="PRE_LIVE",
         execution_route=SkillExecutionRoute.LEGACY,
-        approval=ApprovalContext(
-            source=ApprovalSource.HUMAN_INTERRUPT,
+        approval=_build_human_interrupt_approval(
             decision="APPROVED",
             operator_id="system",
             approval_audit_id="compat_001",
