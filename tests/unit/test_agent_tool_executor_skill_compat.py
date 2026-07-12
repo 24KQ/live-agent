@@ -127,6 +127,36 @@ class RaisingService(RecordingService):
         raise ValueError("service token=TOP_SECRET-service")
 
 
+class MissingProductFieldsService(RecordingService):
+    """返回缺少必填字段的服务商品快照，用于区分补全失败与调用方输入错误。"""
+
+    def query_products(self, room_id: str, trace_id: str) -> list[dict[str, Any]]:
+        """返回携带敏感标识但字段不完整的商品，验证服务数据不会进入摘要。"""
+        self.calls.append(("query_products", room_id, trace_id))
+        return [{"product_id": "service-product-TOP_SECRET"}]
+
+
+class InvalidGeneratedPlanService(RecordingService):
+    """返回形状类似计划但条目为空的非法对象，模拟旧计划服务契约漂移。"""
+
+    class _InvalidPlan:
+        """故意不满足 LivePlanDraft 的最小条目约束。"""
+
+        room_id = "service-room-TOP_SECRET"
+        trace_id = "service-trace-TOP_SECRET"
+        items: list[Any] = []
+
+    def generate_plan(
+        self,
+        room_id: str,
+        products: list[CatalogProduct],
+        trace_id: str,
+    ) -> Any:
+        """记录隐藏生成调用并返回非法计划对象，不在替身内部主动抛错。"""
+        self.calls.append(("generate_plan", room_id, trace_id))
+        return self._InvalidPlan()
+
+
 def test_normalizer_moves_identifiers_and_builds_complete_immutable_products() -> None:
     """旧标识进入 context，商品对象转换成字段完整且不可修改的 JSON 快照。"""
     service = RecordingService()
@@ -415,6 +445,16 @@ def test_core_compatibility_rejects_unknown_keys_before_enrichment_or_runtime(
             {"products": object()},
             "object",
         ),
+        (
+            "generate_live_plan",
+            {"products": [{"product_id": "input-product-TOP_SECRET"}]},
+            "input-product-TOP_SECRET",
+        ),
+        (
+            "setup_live_session",
+            {"plan": {"room_id": "input-plan-TOP_SECRET"}},
+            "input-plan-TOP_SECRET",
+        ),
     ],
 )
 def test_compatibility_input_errors_are_classified_and_sanitized(
@@ -504,6 +544,47 @@ def test_compatibility_service_value_error_remains_sanitized_handler_failure() -
         {},
         "room-service-error",
         "trace-service-error",
+    )
+
+    assert observation.status == "error"
+    assert observation.summary == "HANDLER_FAILED: skill runtime execution failed"
+    assert "TOP_SECRET" not in observation.summary
+    assert runtime.calls == []
+
+
+@pytest.mark.parametrize(
+    ("service", "tool_name", "arguments"),
+    [
+        (MissingProductFieldsService(), "generate_live_plan", {}),
+        (
+            InvalidGeneratedPlanService(),
+            "setup_live_session",
+            {
+                "plan_item_ids": ["p001"],
+                "idempotency_key": "idem-invalid-service-plan",
+            },
+        ),
+    ],
+    ids=["missing-service-product-fields", "invalid-generated-plan"],
+)
+def test_invalid_enrichment_data_returns_sanitized_handler_failure(
+    service: RecordingService,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> None:
+    """旧服务返回非法补全数据时固定映射执行失败，且 Runtime 必须保持零调用。"""
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        tool_name,
+        arguments,
+        "room-invalid-enrichment",
+        "trace-invalid-enrichment",
     )
 
     assert observation.status == "error"

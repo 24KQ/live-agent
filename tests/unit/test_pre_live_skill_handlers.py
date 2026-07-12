@@ -174,6 +174,8 @@ def test_setup_live_session_without_approval_is_pending() -> None:
                 "items": [{"rank": 1, "product_id": "p1", "product_name": "测试商品", "role": "引流款", "reason": "测试"}],
             },
         },
+        # 本用例只验证缺审批语义；固定执行顺序要求先提供幂等键，才能到达审批检查。
+        idempotency_key="key_setup_without_approval",
     )
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.PENDING

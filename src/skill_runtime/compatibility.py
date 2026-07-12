@@ -57,8 +57,12 @@ CORE_COMPATIBILITY_ARGUMENT_KEYS: dict[str, frozenset[str]] = {
 }
 
 
-class CompatibilityServiceError(RuntimeError):
-    """标记兼容补全过程中的隐藏服务失败，避免按异常类型误判为用户输入错误。"""
+class CompatibilityEnrichmentError(RuntimeError):
+    """标记可信旧服务调用或返回数据校验失败，避免误判为调用方输入错误。
+
+    该类型只在兼容层内部跨越到 AgentToolExecutor；异常文本固定且不包含原始
+    服务数据。原异常仅通过异常链保留给受控调试环境，不进入 AgentObservation。
+    """
 
 
 def observation_from_skill_result(
@@ -171,18 +175,24 @@ class CompatibilityArgumentNormalizer:
         room_id: str,
         trace_id: str,
     ) -> list[CatalogProduct]:
-        """优先验证调用方商品列表，缺失时从旧服务读取完整货盘快照。"""
+        """分别验证调用方商品和服务补全商品，保留两种错误来源的稳定分类。"""
         raw_products = arguments.get("products")
-        if raw_products is None:
-            try:
-                raw_products = self._service.query_products(room_id, trace_id)
-            except Exception as exc:
-                # 服务可能使用 ValueError 表达内部状态异常；包装来源后，旧入口会把它
-                # 稳定映射为 HANDLER_FAILED，而不会与调用方参数 ValueError 混淆。
-                raise CompatibilityServiceError(
-                    "compatibility enrichment service failed"
-                ) from exc
-        return [CatalogProduct.model_validate(product) for product in raw_products]
+        if raw_products is not None:
+            # 调用方显式提供的快照仍属于业务输入；形状、字段或类型错误必须向上保留
+            # Pydantic/ValueError/TypeError，由旧入口映射为 INVALID_ARGUMENTS。
+            return [CatalogProduct.model_validate(product) for product in raw_products]
+
+        try:
+            service_products = self._service.query_products(room_id, trace_id)
+            # 服务返回值验证必须与服务调用处于同一补全边界。缺字段、非法容器和模型
+            # 校验失败均表示可信补全链路失败，而不是调用方传入了错误 products。
+            return [
+                CatalogProduct.model_validate(product) for product in service_products
+            ]
+        except Exception as exc:
+            raise CompatibilityEnrichmentError(
+                "compatibility enrichment failed"
+            ) from exc
 
     def _resolve_single_product(
         self,
@@ -230,12 +240,13 @@ class CompatibilityArgumentNormalizer:
 
         products = self._resolve_products(arguments, room_id, trace_id)
         try:
-            generated_plan = self._service.generate_plan(room_id, products, trace_id)
+            service_plan = self._service.generate_plan(room_id, products, trace_id)
+            # 即使旧服务没有抛异常，也必须重新验证返回对象的完整领域形状；空条目、
+            # 缺字段或错误类型都属于补全失败，不能随后被误判为 plan_item_ids 错误。
+            generated_plan = LivePlanDraft.model_validate(service_plan)
         except Exception as exc:
-            # 计划生成同属隐藏服务边界，任何服务实现异常都必须保持执行失败分类，
-            # 固定包装文本也避免原异常中的商品、房间或凭据进入上层观察结果。
-            raise CompatibilityServiceError(
-                "compatibility enrichment service failed"
+            raise CompatibilityEnrichmentError(
+                "compatibility enrichment failed"
             ) from exc
         generated_items = {item.product_id: item for item in generated_plan.items}
         missing_ids = [product_id for product_id in plan_item_ids if product_id not in generated_items]

@@ -32,6 +32,7 @@ from src.core.security_hooks import evaluate_tool_gate
 from src.skill_runtime.compatibility import (
     CORE_SKILL_IDS,
     CompatibilityArgumentNormalizer,
+    CompatibilityEnrichmentError,
     observation_from_skill_result,
 )
 from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
@@ -148,6 +149,15 @@ class AgentToolExecutor:
                 room_id=room_id,
                 trace_id=trace_id,
                 lifecycle=lifecycle,
+            )
+        except CompatibilityEnrichmentError:
+            # 可信旧服务的调用异常、返回形状错误和模型校验失败都属于补全链路失败。
+            # 固定摘要不得包含服务返回数据，也不得回退 legacy 或调用 Runtime。
+            return AgentObservation(
+                tool_name=tool_name,
+                status="error",
+                summary="HANDLER_FAILED: skill runtime execution failed",
+                audit_id=None,
             )
         except (ValidationError, ValueError, TypeError):
             return AgentObservation(
