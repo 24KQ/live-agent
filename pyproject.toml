@@ -39,4 +39,3 @@ markers = [
     "external: marks tests that call external network/model services",
 ]
 
-
