@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from jsonschema import Draft202012Validator, ValidationError as JsonSchemaError
+from jsonschema import Draft202012Validator, SchemaError as JsonSchemaError
 
 from src.core.security_hooks import GateDecision
 from src.state.models import LifecycleStage, RiskLevel
@@ -27,34 +27,54 @@ _BOTH = {LifecycleStage.PRE_LIVE, LifecycleStage.ON_LIVE}
 
 # ── 四个核心 Handler 的显式 Schema ──────────────────────────────────
 
+# 完整商品快照 Schema 与 CatalogProduct.model_dump(mode="json") 对齐。
+# 所有字段都由查询结果或调用方冻结快照提供，拒绝额外字段可避免 LLM
+# 在商品对象中夹带未治理的业务参数。
+_CATALOG_PRODUCT_SCHEMA: dict = {
+    "type": "object",
+    "required": [
+        "product_id",
+        "name",
+        "category",
+        "price",
+        "inventory",
+        "conversion_rate",
+        "commission_rate",
+        "tags",
+        "selling_points",
+        "is_active",
+    ],
+    "properties": {
+        "product_id": {"type": "string"},
+        "name": {"type": "string"},
+        "category": {"type": "string"},
+        "price": {"type": "string"},
+        "inventory": {"type": "integer"},
+        "conversion_rate": {"type": "string"},
+        "commission_rate": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "selling_points": {"type": "array", "items": {"type": "string"}},
+        "is_active": {"type": "boolean"},
+    },
+    "additionalProperties": False,
+}
+
+
 # query_products：无业务参数，房间信息来自可信上下文
 _QUERY_PRODUCTS_SCHEMA: dict = {
     "type": "object",
-    "properties": {
-        "room_id": {"type": "string"},
-    },
+    "properties": {},
     "additionalProperties": False,
 }
 
 # generate_live_plan：接收不可变商品快照列表
 _GENERATE_LIVE_PLAN_SCHEMA: dict = {
     "type": "object",
-    "required": ["room_id", "products"],
+    "required": ["products"],
     "properties": {
-        "room_id": {"type": "string"},
         "products": {
             "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["product_id", "name", "category", "price", "inventory"],
-                "properties": {
-                    "product_id": {"type": "string"},
-                    "name": {"type": "string"},
-                    "category": {"type": "string"},
-                    "price": {"type": "string"},
-                    "inventory": {"type": "integer"},
-                },
-            },
+            "items": _CATALOG_PRODUCT_SCHEMA,
         },
     },
     "additionalProperties": False,
@@ -63,21 +83,9 @@ _GENERATE_LIVE_PLAN_SCHEMA: dict = {
 # generate_product_card：接收单个不可变商品快照
 _GENERATE_PRODUCT_CARD_SCHEMA: dict = {
     "type": "object",
-    "required": ["room_id", "product"],
+    "required": ["product"],
     "properties": {
-        "room_id": {"type": "string"},
-        "product": {
-            "type": "object",
-            "required": ["product_id", "name", "category", "price", "inventory"],
-            "properties": {
-                "product_id": {"type": "string"},
-                "name": {"type": "string"},
-                "category": {"type": "string"},
-                "price": {"type": "string"},
-                "inventory": {"type": "integer"},
-            },
-            "additionalProperties": False,
-        },
+        "product": _CATALOG_PRODUCT_SCHEMA,
     },
     "additionalProperties": False,
 }
@@ -85,30 +93,32 @@ _GENERATE_PRODUCT_CARD_SCHEMA: dict = {
 # setup_live_session：接收不可变计划快照
 _SETUP_LIVE_SESSION_SCHEMA: dict = {
     "type": "object",
-    "required": ["room_id", "plan"],
+    "required": ["plan"],
     "properties": {
-        "room_id": {"type": "string"},
         "plan": {
             "type": "object",
-            "required": ["plan_id", "items"],
+            "required": ["room_id", "trace_id", "items"],
             "properties": {
-                "plan_id": {"type": "string"},
+                "room_id": {"type": "string"},
+                "trace_id": {"type": "string"},
                 "items": {
                     "type": "array",
                     "items": {
                         "type": "object",
-                        "required": ["item_id", "product_id"],
+                        "required": ["rank", "product_id", "product_name", "role", "reason"],
                         "properties": {
-                            "item_id": {"type": "string"},
+                            "rank": {"type": "integer", "minimum": 1},
                             "product_id": {"type": "string"},
-                            "start_time": {"type": "string"},
-                            "duration_seconds": {"type": "integer"},
+                            "product_name": {"type": "string"},
+                            "role": {"type": "string"},
+                            "reason": {"type": "string"},
                         },
+                        "additionalProperties": False,
                     },
                 },
             },
+            "additionalProperties": False,
         },
-        
     },
     "additionalProperties": False,
 }
@@ -116,7 +126,7 @@ _SETUP_LIVE_SESSION_SCHEMA: dict = {
 
 # ── 编译时 Manifest 列表 ──────────────────────────────────────────────
 
-_MANIFESTS: list[SkillManifest] = [
+_MANIFESTS: tuple[SkillManifest, ...] = (
     SkillManifest(
         skill_id="query_products",
         description="查询播前模拟商品货盘",
@@ -160,7 +170,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="create_live_plan_draft",
-        description="生成播前商品草案，不执行写操作",
+        description="生成播前排品草案，不执行建播写操作",
         lifecycle=_PRE,
         risk_level=RiskLevel.MEDIUM,
         parameter_schema={"type": "object", "properties": {"room_id": {"type": "string"}}},
@@ -168,7 +178,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="generate_live_plan",
-        description="基于当前货盘生成确定性播前排品计划",
+        description="基于本地样例货盘生成确定性播前排品方案",
         lifecycle=_PRE,
         risk_level=RiskLevel.MEDIUM,
         parameter_schema=_GENERATE_LIVE_PLAN_SCHEMA,
@@ -177,7 +187,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="generate_product_card",
-        description="为单商品生成确定性直播手卡",
+        description="为指定商品生成确定性主播讲解手卡",
         lifecycle=_PRE,
         risk_level=RiskLevel.MEDIUM,
         parameter_schema=_GENERATE_PRODUCT_CARD_SCHEMA,
@@ -186,7 +196,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="setup_live_session",
-        description="根据播前排品模拟建播写操作",
+        description="根据播前方案模拟建播配置写入",
         lifecycle=_PRE,
         risk_level=RiskLevel.HIGH,
         parameter_schema=_SETUP_LIVE_SESSION_SCHEMA,
@@ -196,7 +206,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="handle_sold_out_event",
-        description="处理播中售罄事件，触发 Reducer 下架商品",
+        description="处理播中售罄事件，调用 Reducer 下架售罄商品",
         lifecycle=_ON,
         risk_level=RiskLevel.HIGH,
         parameter_schema={
@@ -206,7 +216,7 @@ _MANIFESTS: list[SkillManifest] = [
                 "room_id": {"type": "string"},
                 "product_id": {"type": "string"},
                 "trace_id": {"type": "string"},
-                
+                "idempotency_key": {"type": "string"},
             },
         },
         gate_decision=GateDecision.AUTO,
@@ -214,7 +224,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="recommend_backup_product",
-        description="售罄时推荐可接盘的备选商品",
+        description="播中售罄后推荐仍可讲解的备选商品",
         lifecycle=_ON,
         risk_level=RiskLevel.MEDIUM,
         parameter_schema={
@@ -245,7 +255,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="aggregate_danmaku_questions",
-        description="在 5 秒窗口聚合播中弹幕同类型问题，不改状态",
+        description="按 5 秒窗口聚合播中弹幕同类问题，不修改状态",
         lifecycle=_ON,
         risk_level=RiskLevel.LOW,
         parameter_schema={
@@ -261,7 +271,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="generate_danmaku_reply",
-        description="为聚合后的弹幕问题生成友好参考回复文案",
+        description="为聚合后的弹幕问题生成主播参考回复，不自动发送",
         lifecycle=_ON,
         risk_level=RiskLevel.MEDIUM,
         parameter_schema={
@@ -278,7 +288,7 @@ _MANIFESTS: list[SkillManifest] = [
     ),
     SkillManifest(
         skill_id="on_live_context_collect",
-        description="被动收集弹幕摘要和库存警报，不改状态",
+        description="播中收集弹幕聚合摘要和库存告警，不修改状态",
         lifecycle=_ON,
         risk_level=RiskLevel.LOW,
         parameter_schema={
@@ -293,15 +303,16 @@ _MANIFESTS: list[SkillManifest] = [
         },
         gate_decision=GateDecision.AUTO,
     ),
-]
+)
 
 
 # ── 编译时校验 ──────────────────────────────────────────────────────
 
-def _validate() -> None:
-    """启动时校验所有 Manifest，fail-fast。"""
+def validate_manifests(manifests: Sequence[SkillManifest]) -> tuple[SkillManifest, ...]:
+    """校验并冻结一组 Manifest，供启动装配和失败测试复用。"""
     seen_ids: set[str] = set()
-    for mf in _MANIFESTS:
+    validated: list[SkillManifest] = []
+    for mf in manifests:
         if mf.skill_id in seen_ids:
             raise ValueError(f"重复 skill_id: {mf.skill_id}")
         seen_ids.add(mf.skill_id)
@@ -312,9 +323,11 @@ def _validate() -> None:
                 raise ValueError(f"{mf.skill_id} schema 不合规: {exc}") from exc
         if not mf.version:
             raise ValueError(f"{mf.skill_id} version 为空")
+        validated.append(mf)
+    return tuple(validated)
 
 
-_validate()
+_MANIFESTS = validate_manifests(_MANIFESTS)
 
 
 # ── 唯一公开查询函数 ──────────────────────────────────────────────────
@@ -326,4 +339,4 @@ def get_default_skill_catalog() -> Sequence[SkillManifest]:
     调用方不得修改返回值。Catalog 是唯一事实源，
     ToolRegistry 通过投影从本 Catalog 生成。
     """
-    return list(_MANIFESTS)
+    return _MANIFESTS

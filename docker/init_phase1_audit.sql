@@ -15,10 +15,21 @@ CREATE TABLE IF NOT EXISTS tool_call_audit (
     risk_level TEXT NOT NULL,
     gate_decision TEXT NOT NULL,
     operator_decision TEXT,
+    idempotency_key TEXT,
     request_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     result_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 兼容已经存在的 Phase 1 表；旧记录保持 NULL，不回填或删除历史审计。
+ALTER TABLE tool_call_audit
+    ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+
+-- 相同工具与显式幂等键只允许一条审计事实。NULL 表示非幂等普通事件，
+-- 不受唯一约束影响。Store 使用同一冲突目标原子返回原 audit_id。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tool_call_audit_tool_idempotency
+    ON tool_call_audit (tool_name, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 
 -- trace_id 是后续排查一次建议/确认/执行链路的核心入口，建立索引便于快速回放。
 CREATE INDEX IF NOT EXISTS idx_tool_call_audit_trace_id ON tool_call_audit (trace_id);

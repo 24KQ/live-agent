@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.skill_runtime.executor import register_handler
-from src.skill_runtime.executor import _SkillHandler
+from src.skill_runtime.executor import _SkillHandler, _SkillHandlerResult
 from src.skill_runtime.models import SkillExecutionContext
 
 from src.config.settings import Settings
@@ -43,86 +43,105 @@ def _get_service() -> PreLiveBusinessFlowService:
 class _QueryProductsHandler(_SkillHandler):
     """查询播前模拟商品货盘。"""
 
+    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
+        self._service = service
+
     def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
-        service = _get_service()
-        room_id = arguments.get("room_id", context.room_id)
-        products = service.query_products(room_id=room_id, trace_id=context.trace_id)
+        service = self._service or _get_service()
+        products = service.query_products(room_id=context.room_id, trace_id=context.trace_id)
         return {"products": [p.model_dump(mode="json") for p in products]}
 
 
 class _GenerateLivePlanHandler(_SkillHandler):
     """生成确定性播前排品计划。"""
 
+    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
+        self._service = service
+
     def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
-        service = _get_service()
-        room_id = arguments.get("room_id", context.room_id)
+        service = self._service or _get_service()
         # arguments 中的 products 是由 Schema 校验过的不可变快照
         products_raw = arguments.get("products", [])
         from src.skills.product_catalog import CatalogProduct
         products = [CatalogProduct(**p) for p in products_raw]
-        plan = service.generate_plan(room_id=room_id, products=products, trace_id=context.trace_id)
+        plan = service.generate_plan(
+            room_id=context.room_id,
+            products=products,
+            trace_id=context.trace_id,
+        )
         return {"plan": plan.model_dump(mode="json")}
 
 
 class _GenerateProductCardHandler(_SkillHandler):
     """为单商品生成确定性直播手卡。"""
 
+    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
+        self._service = service
+
     def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
-        service = _get_service()
-        room_id = arguments.get("room_id", context.room_id)
+        service = self._service or _get_service()
         product_raw = arguments.get("product", {})
         from src.skills.product_catalog import CatalogProduct
         product = CatalogProduct(**product_raw)
-        card = service.generate_card(room_id=room_id, product=product, trace_id=context.trace_id)
+        card = service.generate_card(
+            room_id=context.room_id,
+            product=product,
+            trace_id=context.trace_id,
+        )
         return {"card": card.model_dump(mode="json")}
 
 
 class _SetupLiveSessionHandler(_SkillHandler):
     """根据播前排品模拟建播写操作。"""
 
+    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
+        self._service = service
+
     def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
-        service = _get_service()
-        room_id = arguments.get("room_id", context.room_id)
+        service = self._service or _get_service()
         plan_raw = arguments.get("plan", {})
-        idempotency_key = context.idempotency_key or arguments.get("idempotency_key", "")
+        from src.skills.live_plan_generator import LivePlanDraft
 
-        # 先构建 LivePlanDraft 用于 setup
-        plan_items_raw = plan_raw.get("items", [])
-        from dataclasses import dataclass
-
-        @dataclass
-        class PlanItem:
-            item_id: str
-            product_id: str
-            start_time: str = ""
-            duration_seconds: int = 60
-
-        @dataclass
-        class LivePlanDraft:
-            plan_id: str
-            items: list[PlanItem]
-            room_id: str = ""
-
-        plan = LivePlanDraft(
-            plan_id=plan_raw.get("plan_id", ""),
-            items=[PlanItem(**item) for item in plan_items_raw],
-            room_id=room_id,
-        )
+        # 计划必须由统一领域模型恢复，避免 Runtime 与 Graph 各维护一套计划结构。
+        plan = LivePlanDraft.model_validate(plan_raw)
 
         gate, audit_id = service.setup_live_session(
-            room_id=room_id,
+            room_id=context.room_id,
             plan=plan,
             trace_id=context.trace_id,
             confirmed_setup=True,
-            idempotency_key=idempotency_key,
+            idempotency_key=context.idempotency_key,
         )
-        return {"allowed": gate.allowed, "setup_status": "prepared", "audit_id": audit_id}
+        return _SkillHandlerResult(
+            output={"allowed": gate.allowed, "setup_status": "prepared"},
+            audit_id=audit_id,
+        )
 
 
-# ── 启动时注册 ──────────────────────────────────────────────────────
+# ── 启动与装配注册 ──────────────────────────────────────────────────
 
 
-register_handler("query_products", _QueryProductsHandler())
-register_handler("generate_live_plan", _GenerateLivePlanHandler())
-register_handler("generate_product_card", _GenerateProductCardHandler())
-register_handler("setup_live_session", _SetupLiveSessionHandler())
+def build_pre_live_handlers(
+    service: PreLiveBusinessFlowService | None = None,
+) -> dict[str, _SkillHandler]:
+    """为单个 Executor 创建局部 Handler 映射，不读写全局注册状态。"""
+    return {
+        "query_products": _QueryProductsHandler(service),
+        "generate_live_plan": _GenerateLivePlanHandler(service),
+        "generate_product_card": _GenerateProductCardHandler(service),
+        "setup_live_session": _SetupLiveSessionHandler(service),
+    }
+
+
+def register_pre_live_handlers(service: PreLiveBusinessFlowService | None = None) -> None:
+    """注册四个播前 Handler。
+
+    默认导入路径使用惰性共享服务；Facade 装配时传入其 legacy service，
+    让 Runtime 与 legacy 共享相同 Repository 和 AuditStore，便于灰度比较
+    和测试隔离。重复注册会按 skill_id 覆盖旧实例。
+    """
+    for skill_id, handler in build_pre_live_handlers(service).items():
+        register_handler(skill_id, handler)
+
+
+register_pre_live_handlers()

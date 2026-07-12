@@ -34,6 +34,7 @@ class AuditEvent:
     risk_level: RiskLevel
     gate_decision: GateDecision
     operator_decision: str | None
+    idempotency_key: str | None = None
     request_payload: dict[str, Any] = field(default_factory=dict)
     result_payload: dict[str, Any] = field(default_factory=dict)
 
@@ -60,6 +61,7 @@ class ToolCallAuditStore:
                 risk_level,
                 gate_decision,
                 operator_decision,
+                idempotency_key,
                 request_payload,
                 result_payload
             )
@@ -71,9 +73,13 @@ class ToolCallAuditStore:
                 %(risk_level)s,
                 %(gate_decision)s,
                 %(operator_decision)s,
+                %(idempotency_key)s,
                 %(request_payload)s,
                 %(result_payload)s
             )
+            ON CONFLICT (tool_name, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
             RETURNING audit_id;
         """
         try:
@@ -89,6 +95,10 @@ class ToolCallAuditStore:
                             "risk_level": event.risk_level.value,
                             "gate_decision": event.gate_decision.value,
                             "operator_decision": event.operator_decision,
+                            "idempotency_key": (
+                                event.idempotency_key
+                                or event.request_payload.get("idempotency_key")
+                            ),
                             "request_payload": psycopg.types.json.Jsonb(event.request_payload),
                             "result_payload": psycopg.types.json.Jsonb(event.result_payload),
                         },
@@ -112,6 +122,7 @@ class ToolCallAuditStore:
                 risk_level,
                 gate_decision,
                 operator_decision,
+                idempotency_key,
                 request_payload,
                 result_payload,
                 created_at
@@ -143,6 +154,7 @@ class ToolCallAuditStore:
                 risk_level,
                 gate_decision,
                 operator_decision,
+                idempotency_key,
                 request_payload,
                 result_payload,
                 created_at

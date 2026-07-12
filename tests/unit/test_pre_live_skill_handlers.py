@@ -55,7 +55,18 @@ def _build_call(
 
 def _sample_product(override: dict | None = None) -> dict:
     """返回模拟商品快照（匹配 CatalogProduct 必需字段）。"""
-    base = {"product_id": "p1", "name": "测试商品", "category": "美妆", "price": "99.00", "inventory": 100}
+    base = {
+        "product_id": "p1",
+        "name": "测试商品",
+        "category": "美妆",
+        "price": "99.00",
+        "inventory": 100,
+        "conversion_rate": "0.1200",
+        "commission_rate": "0.0800",
+        "tags": ["测试"],
+        "selling_points": ["测试卖点"],
+        "is_active": True,
+    }
     if override:
         base.update(override)
     return base
@@ -94,7 +105,7 @@ def test_generate_live_plan_requires_products() -> None:
 
     executor = SyncSkillExecutorAdapter()
     # 缺少 products 参数
-    call = _build_call("generate_live_plan", args={"room_id": "room_1"})
+    call = _build_call("generate_live_plan")
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.ERROR
     assert result.error_code.name == "INVALID_ARGUMENTS"
@@ -107,7 +118,7 @@ def test_generate_live_plan_succeeds() -> None:
     executor = SyncSkillExecutorAdapter()
     call = _build_call(
         "generate_live_plan",
-        args={"room_id": "room_1", "products": _sample_products()},
+        args={"products": _sample_products()},
     )
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.SUCCESS
@@ -125,7 +136,7 @@ def test_generate_product_card_requires_product() -> None:
 
     executor = SyncSkillExecutorAdapter()
     # 缺少 product 参数
-    call = _build_call("generate_product_card", args={"room_id": "room_1"})
+    call = _build_call("generate_product_card")
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.ERROR
     assert result.error_code.name == "INVALID_ARGUMENTS"
@@ -138,7 +149,7 @@ def test_generate_product_card_succeeds() -> None:
     executor = SyncSkillExecutorAdapter()
     call = _build_call(
         "generate_product_card",
-        args={"room_id": "room_1", "product": _sample_product()},
+        args={"product": _sample_product()},
     )
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.SUCCESS
@@ -157,8 +168,11 @@ def test_setup_live_session_without_approval_is_pending() -> None:
     call = _build_call(
         "setup_live_session",
         args={
-            "room_id": "room_1",
-            "plan": {"plan_id": "plan_1", "items": [{"item_id": "i1", "product_id": "p1"}]},
+            "plan": {
+                "room_id": "room_1",
+                "trace_id": "trace_1",
+                "items": [{"rank": 1, "product_id": "p1", "product_name": "测试商品", "role": "引流款", "reason": "测试"}],
+            },
         },
     )
     result = executor.execute(call)
@@ -172,7 +186,7 @@ def test_setup_live_session_with_approval_succeeds() -> None:
 
     executor = SyncSkillExecutorAdapter()
     approval = ApprovalContext(
-        source=ApprovalSource.TRUSTED_COMPAT,
+        source=ApprovalSource.HUMAN_INTERRUPT,
         decision="APPROVED",
         operator_id="test_operator",
         approval_audit_id="aud_setup_001",
@@ -180,8 +194,11 @@ def test_setup_live_session_with_approval_succeeds() -> None:
     call = _build_call(
         "setup_live_session",
         args={
-            "room_id": "room_1",
-            "plan": {"plan_id": "plan_1", "items": [{"item_id": "i1", "product_id": "p1"}]},
+            "plan": {
+                "room_id": "room_1",
+                "trace_id": "trace_1",
+                "items": [{"rank": 1, "product_id": "p1", "product_name": "测试商品", "role": "引流款", "reason": "测试"}],
+            },
         },
         idempotency_key="key_setup_2",
         approval=approval,
@@ -190,6 +207,8 @@ def test_setup_live_session_with_approval_succeeds() -> None:
     assert result.status == SkillExecutionStatus.SUCCESS
     assert result.output is not None
     assert result.output.get("setup_status") == "prepared"
+    assert result.audit_id is not None
+    assert "audit_id" not in result.output
 
 
 def test_setup_live_session_rejected() -> None:
@@ -198,7 +217,7 @@ def test_setup_live_session_rejected() -> None:
 
     executor = SyncSkillExecutorAdapter()
     rejection = ApprovalContext(
-        source=ApprovalSource.TRUSTED_COMPAT,
+        source=ApprovalSource.HUMAN_INTERRUPT,
         decision="REJECTED",
         operator_id="test_operator",
         approval_audit_id="aud_rej_002",
@@ -206,8 +225,11 @@ def test_setup_live_session_rejected() -> None:
     call = _build_call(
         "setup_live_session",
         args={
-            "room_id": "room_1",
-            "plan": {"plan_id": "plan_1", "items": [{"item_id": "i1", "product_id": "p1"}]},
+            "plan": {
+                "room_id": "room_1",
+                "trace_id": "trace_1",
+                "items": [{"rank": 1, "product_id": "p1", "product_name": "测试商品", "role": "引流款", "reason": "测试"}],
+            },
         },
         idempotency_key="key_setup_3",
         approval=rejection,
@@ -215,3 +237,22 @@ def test_setup_live_session_rejected() -> None:
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.ERROR
     assert result.error_code.name == "APPROVAL_REJECTED"
+
+
+def test_build_pre_live_handlers_returns_instance_local_mappings() -> None:
+    """不同 Facade 的 Handler 映射不得共享实例或覆盖彼此 service。"""
+    from src.skill_runtime.pre_live_handlers import build_pre_live_handlers
+
+    first_service = object()
+    second_service = object()
+    first = build_pre_live_handlers(first_service)  # type: ignore[arg-type]
+    second = build_pre_live_handlers(second_service)  # type: ignore[arg-type]
+
+    assert first is not second
+    assert set(first) == set(second) == {
+        "query_products",
+        "generate_live_plan",
+        "generate_product_card",
+        "setup_live_session",
+    }
+    assert all(first[skill_id] is not second[skill_id] for skill_id in first)

@@ -87,3 +87,30 @@ def test_setup_live_session_reuses_existing_success_audit_for_same_idempotency_k
     assert len(audit_store.events) == 1
     assert audit_store.events[0]["tool_name"] == "setup_live_session"
     assert audit_store.events[0]["request_payload"]["idempotency_key"] == f"{trace_id}:setup_live_session"
+
+
+def test_setup_live_session_uses_explicit_idempotency_key_for_replay() -> None:
+    """Runtime 提供的显式幂等键必须写入审计，并用于复用同一成功结果。"""
+    audit_store = FakeAuditStore()
+    service = PreLiveBusinessFlowService(catalog_repository=object(), audit_store=audit_store)  # type: ignore[arg-type]
+    trace_id = "trace-phase11a-explicit-key"
+    plan = _sample_plan(trace_id)
+
+    first = service.setup_live_session(
+        room_id="room-demo-001",
+        plan=plan,
+        trace_id=trace_id,
+        confirmed_setup=True,
+        idempotency_key="setup-explicit-001",
+    )
+    second = service.setup_live_session(
+        room_id="room-demo-001",
+        plan=plan,
+        trace_id=trace_id,
+        confirmed_setup=True,
+        idempotency_key="setup-explicit-001",
+    )
+
+    assert first[1] == second[1] == "audit-1"
+    assert len(audit_store.events) == 1
+    assert audit_store.events[0]["request_payload"]["idempotency_key"] == "setup-explicit-001"

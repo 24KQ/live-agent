@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from src.audit.tool_call_audit import AuditEvent, ToolCallAuditStore
 from src.config.tool_registry import get_default_tool_registry
@@ -16,6 +17,9 @@ from src.skills.live_plan_generator import LivePlanDraft, generate_live_plan
 from src.skills.product_card_generator import ProductCard, generate_product_card
 from src.skills.product_catalog import CatalogProduct, ProductCatalogRepository
 from src.state.models import ActionType, LifecycleStage
+
+if TYPE_CHECKING:
+    from src.skill_runtime.models import ApprovalContext
 
 
 @dataclass(frozen=True)
@@ -114,24 +118,14 @@ class PreLiveBusinessFlowService:
     ) -> list[ProductCard]:
         """为排品前三个商品生成手卡并写入审计。"""
 
-        tool = self._require_pre_live_tool("generate_product_card")
-        gate = evaluate_tool_gate(tool, confirmed=True)
         product_map = {product.product_id: product for product in products}
         cards: list[ProductCard] = []
         for item in plan.items[:3]:
-            card = generate_product_card(product_map[item.product_id])
-            cards.append(card)
-            self._audit_store.record_event(
-                AuditEvent(
-                    trace_id=trace_id,
+            cards.append(
+                self.generate_card(
                     room_id=room_id,
-                    tool_name=tool.name,
-                    action_type=ActionType.GENERATE_PRODUCT_CARD,
-                    risk_level=tool.risk_level,
-                    gate_decision=gate.decision,
-                    operator_decision="approved",
-                    request_payload={"product_id": item.product_id},
-                    result_payload={"title": card.title, "talking_point_count": len(card.talking_points)},
+                    product=product_map[item.product_id],
+                    trace_id=trace_id,
                 )
             )
         return cards
@@ -173,9 +167,15 @@ class PreLiveBusinessFlowService:
         plan: LivePlanDraft,
         trace_id: str,
         confirmed_setup: bool,
+        *,
         idempotency_key: str | None = None,
+        approval_context: "ApprovalContext | None" = None,
     ) -> tuple[GateResult, str | None]:
-        """模拟建播确认，并在确认后写入审计。"""
+        """模拟建播确认，并在确认后写入审计。
+
+        approval_context 由 Runtime Facade 消费；legacy 服务保留该关键字仅为
+        Protocol 兼容，不据此绕过现有 confirmed_setup 安全门禁。
+        """
 
         tool = self._require_pre_live_tool("setup_live_session")
         gate = evaluate_tool_gate(tool, confirmed=confirmed_setup)

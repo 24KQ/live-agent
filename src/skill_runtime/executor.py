@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any
 
 from jsonschema import Draft202012Validator, ValidationError as JsonSchemaError
 
+from src.config.tool_registry import get_default_tool_registry
+from src.core.security_hooks import evaluate_tool_gate
 from src.skill_runtime.catalog import get_default_skill_catalog
 from src.skill_runtime.models import (
-    ApprovalSource,
     SkillCall,
     SkillExecutionResult,
     SkillExecutionStatus,
@@ -34,8 +37,21 @@ class _SkillHandler(ABC):
     """Skill Handler 抽象基类。具体 Handler 见 pre_live_handlers.py。"""
 
     @abstractmethod
-    def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+    def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> "_SkillHandlerResult | dict[str, Any]":
         """执行业务逻辑，返回 JSON 安全的结果字典。"""
+
+
+@dataclass(frozen=True)
+class _SkillHandlerResult:
+    """Handler 内部结果封装，把审计 ID 与业务 output 分层。"""
+
+    output: dict[str, Any]
+    audit_id: str | None = None
 
 
 # 全局 Handler 注册表，由预注册或外部装配填充
@@ -58,8 +74,11 @@ def get_handler(skill_id: str) -> _SkillHandler | None:
 class SkillExecutor:
     """唯一 Skill 执行器。异步入口和同步适配器共享同一内部核心。"""
 
-    def __init__(self) -> None:
+    def __init__(self, handlers: Mapping[str, _SkillHandler] | None = None) -> None:
         self._catalog = {m.skill_id: m for m in get_default_skill_catalog()}
+        self._tool_registry = get_default_tool_registry()
+        # 装配时复制 Handler 映射，防止后续 Facade 注册覆盖已开始服务的依赖。
+        self._handlers = dict(_HANDLERS if handlers is None else handlers)
 
     # ── 公开异步接口 ──────────────────────────────────────────────
 
@@ -130,11 +149,17 @@ class SkillExecutor:
                 )
 
         # ── Step 5: 门禁与审批 ───────────────────────────────────
-        from src.core.security_hooks import GateDecision
-
-        if manifest.gate_decision == GateDecision.HARD_GATE:
-            approval = call.context.approval
-            if approval is None:
+        approval = call.context.approval
+        gate = evaluate_tool_gate(
+            self._tool_registry.get(call.skill_id),
+            confirmed=(
+                approval is not None
+                and approval.provenance_verified
+                and approval.decision == "APPROVED"
+            ),
+        )
+        if not gate.allowed:
+            if gate.requires_confirmation and approval is None:
                 return SkillExecutionResult(
                     skill_id=call.skill_id,
                     version=call.version,
@@ -143,7 +168,7 @@ class SkillExecutor:
                     summary="高风险 Skill 需要审批",
                     audit_id=None,
                 )
-            if approval.decision != "APPROVED":
+            if gate.requires_confirmation and approval is not None:
                 return SkillExecutionResult(
                     skill_id=call.skill_id,
                     version=call.version,
@@ -152,6 +177,14 @@ class SkillExecutor:
                     summary=f"审批被拒绝: {approval.decision} (来源: {approval.source})",
                     audit_id=None,
                 )
+            return SkillExecutionResult(
+                skill_id=call.skill_id,
+                version=call.version,
+                status=SkillExecutionStatus.ERROR,
+                error_code=SkillErrorCode.APPROVAL_REJECTED,
+                summary=f"安全门禁拒绝执行: {gate.reason}",
+                audit_id=None,
+            )
 
         # ── Step 6: 幂等键检查 ──────────────────────────────────
         if manifest.requires_idempotency_key and not call.context.idempotency_key:
@@ -165,7 +198,7 @@ class SkillExecutor:
             )
 
         # ── Step 7: Handler 查找与执行 ──────────────────────────
-        handler = _HANDLERS.get(call.skill_id)
+        handler = self._handlers.get(call.skill_id)
         if handler is None:
             return SkillExecutionResult(
                 skill_id=call.skill_id,
@@ -177,7 +210,7 @@ class SkillExecutor:
             )
 
         try:
-            output = handler.execute(call.skill_id, call.arguments, call.context)
+            handler_result = handler.execute(call.skill_id, call.arguments, call.context)
         except Exception as exc:
             return SkillExecutionResult(
                 skill_id=call.skill_id,
@@ -189,13 +222,20 @@ class SkillExecutor:
                 audit_id=None,
             )
 
+        if isinstance(handler_result, _SkillHandlerResult):
+            output = handler_result.output
+            audit_id = handler_result.audit_id
+        else:
+            output = handler_result
+            audit_id = None
+
         return SkillExecutionResult(
             skill_id=call.skill_id,
             version=call.version,
             status=SkillExecutionStatus.SUCCESS,
             output=output,
             summary="执行成功",
-            audit_id=None,
+            audit_id=audit_id,
         )
 
 
