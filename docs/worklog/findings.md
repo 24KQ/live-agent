@@ -128,6 +128,8 @@
 - 审计表的幂等唯一键只能定位首次事实，不能单独证明重放等价；冲突后必须比较 room、trace、工具、门禁、操作员和请求/结果 JSON 的完整语义。
 - “冲突 INSERT 后再 SELECT”依赖每条语句的新快照，因此 Store 不能依赖数据库默认隔离级别，必须在连接上显式固定 `READ COMMITTED`。
 - 测试专用 AuditStore 也必须模拟完整冲突语义，尤其不能让 Python 的 `True == 1` 掩盖 JSON 类型差异；集成测试使用 UUID trace 以隔离历史审计行。
+- 人工审批字段完整不等于来源可信。`HUMAN_INTERRUPT` 必须从已校验响应与已写入的审批审计派生，普通 Pydantic 构造不能成为 hard-gate 放行凭据。
+- Manifest 是唯一运行时契约时，额外字段拒绝不能只在四个已迁移 Skill 上实现；所有 13 个根 Schema 都必须显式 fail-closed，安全修正作为 D-035 的受控例外留痕。
 
 # 2026-07-11 Phase 7A 发现
 

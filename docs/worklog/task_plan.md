@@ -88,6 +88,7 @@
 - [x] 完成 Task 8：隔离等价测试、四场景 Demo 与统一入口；提交 `7154c89`、`fd54005`。
 - [x] 完成 Task 9：全量技术验收与阶段留迹；Acceptance 状态为“技术验收完成，待用户审核”。
 - [x] 完成验收前审计幂等复审整改：完整事实冲突检测、显式 `READ COMMITTED`、测试替身语义对齐、PostgreSQL 流程 trace 隔离和全阶段 diff 空白修复。
+- [x] 完成最终审查 P1 整改：人工审批受控工厂、13 个 Manifest 根 Schema fail-closed、Demo 调用点收敛与 D-053 留迹。
 - [ ] 用户审核 Phase 11A Acceptance；审核完成前不进入 Phase 11B。
 
 # 2026-07-11 Phase 7A 任务

@@ -110,7 +110,7 @@ ApprovalContext 包含：
 - `operator_id`。
 - `approval_audit_id`。
 
-`HUMAN_INTERRUPT` 必须同时提供 operator_id 与 approval_audit_id。`TRUSTED_COMPAT` 只能由内部 Facade 根据旧 `confirmed_setup` 构造，并进入审计或执行证据；外部 arguments 无法指定来源。
+`HUMAN_INTERRUPT` 只能由 Graph 在审批响应校验和审批审计写入成功后调用内部工厂构造，必须同时提供 operator_id 与 approval_audit_id。`TRUSTED_COMPAT` 只能由内部 Facade 根据旧 `confirmed_setup` 构造，并进入审计或执行证据；外部 arguments 和普通对象构造均无法指定可信来源。
 
 ### 5.4 四个显式业务输入
 
@@ -150,7 +150,7 @@ SkillCatalog 负责：
 - 关联四个核心 Handler。
 - 生成 ToolMetadata 只读投影。
 
-9 个未迁移工具的七个 ToolMetadata 字段必须与冻结快照逐字段一致。4 个核心 Skill 使用本设计定义的新 parameter_schema，其他六个字段仍必须一致，并通过 `compatibility_note` 与白名单测试证明差异是有意修正。
+9 个未迁移工具的七个 ToolMetadata 字段必须与冻结快照逐字段一致。4 个核心 Skill 使用本设计定义的新 parameter_schema，其他六个字段仍必须一致，并通过 `compatibility_note` 与白名单测试证明差异是有意修正。D-053 对全部根 Schema 追加 `additionalProperties: false`，作为安全闭合的受控投影例外。
 
 现有 `ToolRegistry.get()`、`tool_names()` 和 `is_available()` 保持行为兼容；未知工具继续 fail-closed。ToolRegistry 不提供运行时注册或修改能力，并标记为 deprecated，保留至 Phase 12 验收。
 

@@ -205,6 +205,12 @@
 - 全范围 `git diff --check 8f386cd^..HEAD` 已通过；全仓编码扫描仍为 `4 errors/59 warnings`，均按脚本自身样例或既有 BOM/混合换行记录，未修改业务范围外文件。
 - 当前仍是“Phase 11A 技术验收完成，待用户审核”，Phase 11B 未开始。
 
+## 2026-07-12 Phase 11A 最终审查 P1 整改进度
+
+- 最终全阶段审查发现 `HUMAN_INTERRUPT` 可被普通对象直接伪造，以及 9 个未迁移 Manifest 根 Schema 未拒绝额外字段；Acceptance 未对这两项放行。
+- `HUMAN_INTERRUPT` 已改为仅能由 Graph 在审批响应校验和审计写入后使用内部工厂创建；全部 13 个 Manifest 根 Schema 显式 `additionalProperties: false`，并更新冻结哈希。
+- Demo 同步改用受控工厂。Runtime 专项为 `110 passed`，默认全量为 `543 passed, 3 deselected, 9 warnings`；Phase 11B 仍未开始。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。
