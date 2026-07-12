@@ -182,17 +182,7 @@ class CompatibilityArgumentNormalizer:
             # Pydantic/ValueError/TypeError，由旧入口映射为 INVALID_ARGUMENTS。
             return [CatalogProduct.model_validate(product) for product in raw_products]
 
-        try:
-            service_products = self._service.query_products(room_id, trace_id)
-            # 服务返回值验证必须与服务调用处于同一补全边界。缺字段、非法容器和模型
-            # 校验失败均表示可信补全链路失败，而不是调用方传入了错误 products。
-            return [
-                CatalogProduct.model_validate(product) for product in service_products
-            ]
-        except Exception as exc:
-            raise CompatibilityEnrichmentError(
-                "compatibility enrichment failed"
-            ) from exc
+        return self._query_products_for_enrichment(room_id, trace_id)
 
     def _resolve_single_product(
         self,
@@ -200,19 +190,85 @@ class CompatibilityArgumentNormalizer:
         room_id: str,
         trace_id: str,
     ) -> CatalogProduct:
-        """把完整 product 或旧 product_id 统一解析成单商品领域对象。"""
-        raw_product = arguments.get("product")
-        if raw_product is not None:
-            return CatalogProduct.model_validate(raw_product)
+        """解析显式商品，或按冻结 Planner 旧形状补全计划首项商品。
 
-        product_id = arguments.get("product_id")
-        if not isinstance(product_id, str) or not product_id:
-            raise ValueError("generate_product_card 缺少有效 product 或 product_id")
-        products = self._resolve_products(arguments, room_id, trace_id)
-        for product in products:
-            if product.product_id == product_id:
-                return product
-        raise ValueError(f"货盘中不存在商品: {product_id}")
+        显式 product/product_id 始终属于调用方输入；只有两个字段都不存在时，才
+        启动旧服务查询与计划补全。该分支最终仍只返回一个商品供一次 Runtime 调用。
+        """
+        if "product" in arguments:
+            return CatalogProduct.model_validate(arguments["product"])
+
+        if "product_id" in arguments:
+            product_id = arguments["product_id"]
+            if not isinstance(product_id, str) or not product_id:
+                raise ValueError("generate_product_card 的 product_id 不合法")
+            products = self._resolve_products(arguments, room_id, trace_id)
+            for product in products:
+                if product.product_id == product_id:
+                    return product
+            # 固定错误文本不回显调用方商品 ID；AgentToolExecutor 随后统一脱敏映射。
+            raise ValueError("货盘中不存在调用方指定商品")
+
+        products = self._query_products_for_enrichment(room_id, trace_id)
+        generated_plan = self._generate_plan_for_enrichment(
+            room_id,
+            products,
+            trace_id,
+        )
+        # rank 是计划的业务顺序事实源；若异常服务返回相同 rank，则稳定保留其列表
+        # 顺序。LivePlanDraft 已保证 items 非空，因此 min 不会产生裸异常。
+        first_item = min(
+            enumerate(generated_plan.items),
+            key=lambda indexed: (indexed[1].rank, indexed[0]),
+        )[1]
+        product_by_id = {product.product_id: product for product in products}
+        selected_product = product_by_id.get(first_item.product_id)
+        if selected_product is None:
+            raise CompatibilityEnrichmentError("compatibility enrichment failed")
+        return selected_product
+
+    def _query_products_for_enrichment(
+        self,
+        room_id: str,
+        trace_id: str,
+    ) -> list[CatalogProduct]:
+        """查询并验证可信旧货盘；调用异常、非法形状和空货盘统一视为补全失败。"""
+        try:
+            service_products = self._service.query_products(room_id, trace_id)
+            # 服务返回值验证必须与服务调用处于同一补全边界。缺字段、非法容器和模型
+            # 校验失败均表示可信补全链路失败，而不是调用方传入了错误 products。
+            products = [
+                CatalogProduct.model_validate(product) for product in service_products
+            ]
+            if not products:
+                raise ValueError("compatibility enrichment returned empty products")
+            return products
+        except CompatibilityEnrichmentError:
+            raise
+        except Exception as exc:
+            raise CompatibilityEnrichmentError(
+                "compatibility enrichment failed"
+            ) from exc
+
+    def _generate_plan_for_enrichment(
+        self,
+        room_id: str,
+        products: list[CatalogProduct],
+        trace_id: str,
+    ) -> LivePlanDraft:
+        """调用并验证可信旧计划服务，确保计划完整且绑定当前可信执行上下文。"""
+        try:
+            service_plan = self._service.generate_plan(room_id, products, trace_id)
+            generated_plan = LivePlanDraft.model_validate(service_plan)
+            if generated_plan.room_id != room_id or generated_plan.trace_id != trace_id:
+                raise ValueError("compatibility enrichment plan context mismatch")
+            return generated_plan
+        except CompatibilityEnrichmentError:
+            raise
+        except Exception as exc:
+            raise CompatibilityEnrichmentError(
+                "compatibility enrichment failed"
+            ) from exc
 
     def _resolve_plan(
         self,
@@ -239,15 +295,11 @@ class CompatibilityArgumentNormalizer:
             raise ValueError("plan_item_ids 不允许包含重复商品 ID")
 
         products = self._resolve_products(arguments, room_id, trace_id)
-        try:
-            service_plan = self._service.generate_plan(room_id, products, trace_id)
-            # 即使旧服务没有抛异常，也必须重新验证返回对象的完整领域形状；空条目、
-            # 缺字段或错误类型都属于补全失败，不能随后被误判为 plan_item_ids 错误。
-            generated_plan = LivePlanDraft.model_validate(service_plan)
-        except Exception as exc:
-            raise CompatibilityEnrichmentError(
-                "compatibility enrichment failed"
-            ) from exc
+        generated_plan = self._generate_plan_for_enrichment(
+            room_id,
+            products,
+            trace_id,
+        )
         generated_items = {item.product_id: item for item in generated_plan.items}
         missing_ids = [product_id for product_id in plan_item_ids if product_id not in generated_items]
         if missing_ids:

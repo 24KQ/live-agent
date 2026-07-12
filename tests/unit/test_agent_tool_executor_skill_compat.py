@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from src.config.tool_registry import get_default_tool_registry
+from src.core.agent_rules_planner import AgentRulesPlanner
 from src.core.agent_tool_executor import AgentToolExecutor
 from src.skill_runtime.compatibility import CompatibilityArgumentNormalizer
 from src.skill_runtime.models import (
@@ -137,14 +138,7 @@ class MissingProductFieldsService(RecordingService):
 
 
 class InvalidGeneratedPlanService(RecordingService):
-    """返回形状类似计划但条目为空的非法对象，模拟旧计划服务契约漂移。"""
-
-    class _InvalidPlan:
-        """故意不满足 LivePlanDraft 的最小条目约束。"""
-
-        room_id = "service-room-TOP_SECRET"
-        trace_id = "service-trace-TOP_SECRET"
-        items: list[Any] = []
+    """返回字段形状完整但条目为空的非法计划，模拟旧计划服务契约漂移。"""
 
     def generate_plan(
         self,
@@ -152,9 +146,48 @@ class InvalidGeneratedPlanService(RecordingService):
         products: list[CatalogProduct],
         trace_id: str,
     ) -> Any:
-        """记录隐藏生成调用并返回非法计划对象，不在替身内部主动抛错。"""
+        """记录隐藏生成调用并返回空计划字典，不在替身内部主动抛错。"""
         self.calls.append(("generate_plan", room_id, trace_id))
-        return self._InvalidPlan()
+        return {
+            "room_id": room_id,
+            "trace_id": "service-trace-TOP_SECRET",
+            "items": [],
+        }
+
+
+class EmptyCatalogService(RecordingService):
+    """返回空货盘，验证缺省手卡补全不会把空结果交给 Runtime。"""
+
+    def query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
+        """记录查询并返回空列表，不主动抛异常。"""
+        self.calls.append(("query_products", room_id, trace_id))
+        return []
+
+
+class MissingPlanProductService(RecordingService):
+    """生成引用货盘外商品的合法计划，验证商品映射缺失属于补全失败。"""
+
+    def generate_plan(
+        self,
+        room_id: str,
+        products: list[CatalogProduct],
+        trace_id: str,
+    ) -> LivePlanDraft:
+        """返回字段完整但无法映射到查询货盘的首项计划。"""
+        self.calls.append(("generate_plan", room_id, trace_id))
+        return LivePlanDraft(
+            room_id=room_id,
+            trace_id=trace_id,
+            items=[
+                LivePlanItem(
+                    rank=1,
+                    product_id="missing-service-product-TOP_SECRET",
+                    product_name="服务计划孤立商品",
+                    role="引流款",
+                    reason="服务计划与货盘不一致",
+                )
+            ],
+        )
 
 
 def test_normalizer_moves_identifiers_and_builds_complete_immutable_products() -> None:
@@ -197,6 +230,43 @@ def test_normalizer_resolves_product_id_to_single_product_snapshot() -> None:
     assert call.arguments == {"product": service.products[1].model_dump(mode="json")}
     assert service.calls == [("query_products", "room-002", "trace-002")]
     assert call.context.compatibility_enriched is True
+
+
+def test_rules_planner_card_call_enriches_first_planned_product_once() -> None:
+    """真实 Planner 的 room_id 单参数手卡调用应补全计划首项，并只执行一次 Runtime。"""
+    room_id = "room-planner-card"
+    trace_id = "trace-planner-card"
+    decision = AgentRulesPlanner().plan(room_id=room_id, trace_id=trace_id)
+    planner_call = next(
+        call for call in decision.tool_calls if call.tool_name == "generate_product_card"
+    )
+    assert planner_call.arguments == {"room_id": room_id}
+
+    service = RecordingService()
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        planner_call.tool_name,
+        planner_call.arguments,
+        decision.room_id,
+        decision.trace_id,
+    )
+
+    assert observation.status == "success"
+    assert service.calls == [
+        ("query_products", room_id, trace_id),
+        ("generate_plan", room_id, trace_id),
+    ]
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0].arguments["product"] == service.products[0].model_dump(
+        mode="json"
+    )
+    assert set(runtime.calls[0].arguments["product"]) == set(CatalogProduct.model_fields)
 
 
 def test_normalizer_builds_setup_plan_and_moves_idempotency_key() -> None:
@@ -585,6 +655,47 @@ def test_invalid_enrichment_data_returns_sanitized_handler_failure(
         arguments,
         "room-invalid-enrichment",
         "trace-invalid-enrichment",
+    )
+
+    assert observation.status == "error"
+    assert observation.summary == "HANDLER_FAILED: skill runtime execution failed"
+    assert "TOP_SECRET" not in observation.summary
+    assert runtime.calls == []
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        RaisingService(),
+        MissingProductFieldsService(),
+        InvalidGeneratedPlanService(),
+        EmptyCatalogService(),
+        MissingPlanProductService(),
+    ],
+    ids=[
+        "query-exception",
+        "invalid-query-product",
+        "invalid-generated-plan",
+        "empty-catalog",
+        "missing-plan-product-mapping",
+    ],
+)
+def test_planner_shape_card_enrichment_failures_are_sanitized(
+    service: RecordingService,
+) -> None:
+    """缺省手卡的查询、计划、空结果和映射失败均应脱敏，且 Runtime 保持零调用。"""
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        service,
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "generate_product_card",
+        {"room_id": "room-planner-shape"},
+        "room-planner-shape",
+        "trace-planner-shape",
     )
 
     assert observation.status == "error"
