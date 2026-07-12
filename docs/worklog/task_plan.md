@@ -84,7 +84,7 @@
 - [x] 完成 Task 5：Literal 启动配置、冻结 RoutePolicy、Graph 兼容 Facade、严格失败和两批独立路由。
 - [x] 完成 Task 6：LangGraph 批准恢复传递 HUMAN_INTERRUPT ApprovalContext，拒绝分支不执行 setup。
 - [x] 使用真实 PostgreSQL、审计 Store 和 LangGraph invoke/resume 验证 Runtime 批准与拒绝流程。
-- [x] 完成 Task 7：AgentToolExecutor 旧参数规范化、可信兼容证据与四个核心工具单一 Runtime dispatch；提交 `4f77403`、`7e132f3`、`b60a85d`，承接 `96a5adb`。
+- [x] 完成 Task 7：AgentToolExecutor 旧参数规范化、可信兼容证据与四个核心工具单一 Runtime dispatch；正式提交从 `4f77403` 开始，为 `4f77403`、`7e132f3`、`b60a85d`。`96a5adb` 属于提前错误实施，已由 `94e2766` 完整删除，不计入有效交付。
 - [x] 完成 Task 8：隔离等价测试、四场景 Demo 与统一入口；提交 `7154c89`、`fd54005`。
 - [x] 完成 Task 9：全量技术验收与阶段留迹；Acceptance 状态为“技术验收完成，待用户审核”。
 - [ ] 用户审核 Phase 11A Acceptance；审核完成前不进入 Phase 11B。

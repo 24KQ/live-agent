@@ -184,16 +184,17 @@
 
 ## 2026-07-12 Phase 11A Task 7-9 验收进度
 
-- Task 7 已完成 AgentToolExecutor 四个核心工具单一 Runtime dispatch、旧参数规范化、`compatibility_enriched` 证据和可信边界硬化；提交为 `4f77403`、`7e132f3`、`b60a85d`，并承接 `96a5adb`。
+- Task 7 已完成 AgentToolExecutor 四个核心工具单一 Runtime dispatch、旧参数规范化、`compatibility_enriched` 证据和可信边界硬化；正式提交从 `4f77403` 开始，为 `4f77403`、`7e132f3`、`b60a85d`。`96a5adb` 是提前错误实施，已由 `94e2766` 完整删除，不计入有效交付。
 - Task 8 已完成隔离等价测试、四场景 Demo 与 `run_all.py phase11a-demo` 入口；提交为 `7154c89`、`fd54005`。
 - Runtime 专项命令退出码 `0`：`85 passed in 1.43s`，无 deselected、无 warnings。
 - 相关回归命令退出码 `0`：`45 passed in 0.89s`，无 deselected、无 warnings。
 - `pytest -q` 退出码 `0`：`501 passed, 3 deselected, 9 warnings in 54.13s`；warnings 为现有 FastAPI/Starlette 与 Kafka 弃用告警。
 - `python scripts/run_phase11a_skill_runtime_demo.py` 退出码 `0`；全 legacy、第一批 Runtime、两批 Runtime、setup 回滚四场景均输出 4 商品、4 计划项、3 手卡、`prepared` 和 8 条审计。
-- `python scripts/run_all.py phase11a-demo` 退出码 `0`，复现相同四场景结果。
+- `python scripts/run_all.py phase11a-demo` 退出码 `0`，作为同一四场景 Demo 的统一运行入口复现相同结果。
 - `python scripts/check_doc_encoding.py` 退出码 `1`：`4 errors/58 warnings`。4 个 error 均命中扫描脚本自身 U+FFFD 示例；历史 BOM/工作树混合换行 warning 仍保留，本任务未修改脚本或顺手治理。
 - 初次 `git diff --check` 退出码 `0`，仅输出 Git 的 LF/CRLF 转换提示；范围检索只命中 `compatibility.py` 中“未来 PlanEngine 不应复用兼容层”的禁止说明，没有 PlanEngine 实现。
 - Task 9 已生成 Acceptance 并同步路线图、执行日志和 worklog；状态只能记为“技术验收完成，待用户审核”，Phase 11B 未开始。
+- Task 9 质量审查补充纳入冻结决策日志、Design 和 Plan，并为 Acceptance 增加两条完整 pytest 复现命令；本轮不重跑业务测试，沿用已记录的真实测试证据。
 
 # 2026-07-11 Phase 7A 进度
 

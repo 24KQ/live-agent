@@ -2154,9 +2154,9 @@ MockEmbeddingService 确保语义聚类阶段无需真实 API 即可演示。
 - Runtime 专项：`85 passed in 1.43s`，退出码 `0`。
 - 相关回归：`45 passed in 0.89s`，退出码 `0`。
 - 默认全量：`501 passed, 3 deselected, 9 warnings in 54.13s`，退出码 `0`。
-- 两个 Demo 均完成四种路由场景，退出码 `0`。
+- 同一四场景 Demo 的两个运行入口均执行完成，退出码 `0`。
 - 全仓编码扫描退出码 `1`，报告 `4 errors/58 warnings`；4 个 error 来自扫描脚本自身 U+FFFD 示例，其他为历史 BOM/工作树混合换行，未声明通过。
-- Phase 11A 已提交代码、测试、Demo 的 canonical blob 与本轮 6 个目标文档严格 UTF-8 检查目标命中 `0`。
+- Phase 11A 已提交代码、测试、Demo 的 canonical blob，以及 6 个 Task 9 文档和 3 个冻结事实源，严格 UTF-8 检查目标命中 `0`。
 - `git diff --check` 退出码 `0`；范围检索没有发现生产 `SHADOW_COMPARE`、热加载、PlanEngine 或 LiveOpsAgent 实现。
 
 ### 后续边界

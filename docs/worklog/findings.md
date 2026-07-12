@@ -122,7 +122,9 @@
 - 等价测试的隔离不仅是两个 AuditStore；Fake Repository 也必须深复制嵌套商品快照，否则一侧对 tags 等可变成员的修改会污染另一侧，制造伪等价证据。
 - 生产路由只允许 `LEGACY` 与 `SKILL_RUNTIME`。`SHADOW_COMPARE` 仅作为非法配置测试输入出现；PlanEngine 仅在兼容层“未来禁止复用”的说明中出现，没有对应实现。
 - 全仓编码扫描退出 `1`，报告 `4 errors/58 warnings`。4 个 error 来自扫描脚本自身的 U+FFFD 检测示例，warnings 是仓库既有 BOM 或工作树混合换行；不得写成编码扫描通过。
-- 已提交 Phase 11A 代码、测试和 Demo 的 Git canonical blob 与本轮 6 个目标文档需分层严格检查。这样既能验证交付对象的 UTF-8 规范，也不会掩盖工作树全仓扫描的历史告警。
+- 已提交 Phase 11A 代码、测试和 Demo 的 Git canonical blob，与 6 个 Task 9 文档及 3 个冻结事实源需分层严格检查。这样既能验证交付对象的 UTF-8 规范，也不会掩盖工作树全仓扫描的历史告警。
+- 提交历史必须区分被后续完整删除的提前实现与正式交付：`96a5adb` 已由 `94e2766` 删除，Task 7 的有效提交链从 `4f77403` 开始。
+- Acceptance 引用的冻结 Design、Plan 和决策日志必须与报告一起进入 Git；仅在工作树存在无法形成可独立复跑、可审计的阶段事实源。
 
 # 2026-07-11 Phase 7A 发现
 
