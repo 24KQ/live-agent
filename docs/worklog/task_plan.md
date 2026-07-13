@@ -101,7 +101,11 @@
 - [x] Phase 11B Task 4：原生 async Executor、deadline、Attempt Store 和 FailureFact 传播；提交 `8eff0b2`。
 - [x] Phase 11B Task 5 前置纠偏：新增 D-063，确认 `LiveOperationsPort.resolve_product_context` 为只读商品上下文解析契约。
 - [x] Phase 11B Task 5：统一 Handler 工厂、批次一 10 个 Skill 装配、只读商品上下文 Port 与播前兼容工厂收敛。
-- [ ] Phase 11B Task 6-9：三批路由迁移、批次二/三接入与 Demo。
+- [x] Phase 11B Task 6：三批启动冻结路由与 AgentToolExecutor 无 fallback 接入；提交 `edb27d6`。
+- [x] Phase 11B Task 7：批次二建播/售罄 Handler 与播中 Harness Runtime 接入；提交 `6908f41`。
+- [x] Phase 11B Task 8 前置契约纠偏：用户选择改价显式 `expected_version` + 单活 `1.1.0`，AgentToolExecutor 保持 pending；新增 D-064 并修订 Design/Implementation Plan/worklog。
+- [ ] Phase 11B Task 8：按修订后的 TDD 计划实施高风险改价 Runtime，尚未修改业务代码。
+- [ ] Phase 11B Task 9：测试比较器与六场景无外部依赖 Demo。
 - [ ] Phase 11B Task 10：专项、回归、全量验收与 Acceptance 留迹。
 
 # 2026-07-11 Phase 7A 任务

@@ -285,6 +285,14 @@
 - Task 5 专项与等价回归为 `38 passed`；AgentToolExecutor/Graph 相关回归为 `77 passed`；默认 unit 全量为 `517 passed, 4 warnings`。Warnings 为既有 FastAPI/Starlette 与 Kafka 弃用提示。
 - 已运行 `git diff --check`，仅出现 Windows 行尾提示，无尾随空白错误。未实现 Task 6 路由、批次二/三、PlanEngine、多 Agent 或真实淘宝 API。
 
+## 2026-07-13 Phase 11B Task 8 契约纠偏进度
+
+- Task 8 实施前发现 `set_product_price@1.0.0` 的 Manifest 没有 `expected_version`，但现有 ProductPricingPort 已以该资源版本执行 CAS；严格 Schema 下无法合法表达成功改价调用。
+- 用户选择方案 A：把 `expected_version` 作为显式业务参数，并把改价 Skill 升级为单活 `1.1.0`；旧 `1.0.0` 调用受控返回 `VERSION_MISMATCH`，资源版本过期仍由 Adapter 返回 `VERSION_CONFLICT`。
+- 用户选择 AgentToolExecutor 保持 pending：不新增批准参数或专用批准方法；可信批准只由内部 `SkillCall + ApprovalContext` 集成测试证明，未来 Graph/Facade 接入另行设计。
+- 发现冲突的首个 Task 8 实现代理在报告前未修改业务代码、测试、依赖或配置；本轮先持久化 D-064、Design、Implementation Plan 与工作日志，业务 TDD 尚未开始。
+- 本轮文档纠偏将完成后执行编号、UTF-8、编码扫描、`git diff --check` 和暂存范围验证，再以独立文档提交保存。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

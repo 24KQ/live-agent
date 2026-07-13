@@ -707,3 +707,14 @@
 - **未选理由**：直接读取旧 Graph State 或旧服务会绕过冻结的 Port 边界；伪造商品对象会制造不可审计的业务事实；新增第十四个 Skill 会扩大 Phase 11B 范围并破坏既有 Catalog 门禁。
 - **影响**：FakeLiveCommercePlatform 必须实现同名只读方法；`recommend_backup_product` 与 `generate_on_live_prompt` 的 Runtime Handler 必须经该 Port 获取商品快照，禁止隐式 Legacy fallback。若售罄商品不存在，应返回结构化 `INVALID_INPUT` 事实；只读解析不得修改库存、版本、价格或会话状态。
 - **重新评估条件**：真实平台提供独立且更细粒度的商品上下文查询 API，或 Phase 12 PlanEngine 需要把商品上下文解析拆为独立可计划节点时，可重新评估是否引入新的 Manifest 和版本。
+
+## D-064：set_product_price 资源版本契约与审批入口边界
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 11B Task 8 实施前审核发现，`ProductPricingPort.set_price` 已按商品资源版本执行 CAS，但 `set_product_price@1.0.0` 的 Manifest 只声明 `product_id` 与 `price`，调用方无法显式提供 `expected_version`。同时，批次三若让 AgentToolExecutor 接受批准参数，会把不可信兼容入口扩大为高风险审批来源，并混淆 Skill 版本错误与商品资源版本冲突。
+- **候选方案**：显式参数 + `1.1.0`，即把 `expected_version` 加入业务 arguments 并升级单活版本；资源版本放 `SkillExecutionContext`，保持业务 Schema 与 `1.0.0`；暂缓批次三，等待未来 Graph / Facade 审批入口一起设计。
+- **最终选择**：`set_product_price` 从单活 `1.0.0` 升级为单活 `1.1.0`；业务 arguments 固定为 `product_id: string`、`price: string`、`expected_version: integer` 且最小值为 `1`，根对象 `additionalProperties: false`。`idempotency_key`、`approval`、`room_id`、`trace_id`、deadline 和 route 只属于 `SkillExecutionContext`。调用旧 `set_product_price@1.0.0` 时，Runtime 必须在 Handler 与 Attempt 创建前返回 `SkillErrorCode.VERSION_MISMATCH`；调用 `1.1.0` 后发现商品 `expected_version` 过期时，由 Adapter 返回 `FailureFact`，其 `category=FailureCategory.VERSION_CONFLICT`，两者不得互换。AgentToolExecutor 不新增 `approval` 参数或 `execute_approved` 方法，只在构造时从 Catalog 冻结精确版本，并仅对 `set_product_price` 把兼容 arguments 中的 `idempotency_key` 搬入 Context；其 `approval` 保持 `None`，因此有效高风险调用只返回 `pending`，不创建 Attempt，也不调用 Port。可信批准路径本阶段只通过内部 `SkillCall`、受控 `ApprovalContext` 与 Fake Platform 集成测试证明，未来真实 Graph / Facade 接入另行设计。Runtime 失败不 fallback Legacy，批次三回滚仍通过启动冻结的 `LEGACY` 路由完成。
+- **选择理由**：`expected_version` 是改价 CAS 的可持久化业务前置条件，显式放入 arguments 才能参与 Schema 校验、审计、重放和输入摘要；新增必填参数是可观察契约变化，按 D-061 升级到 `1.1.0` 能保持精确版本钉住。AgentToolExecutor 保持无批准能力，可以继续复用既有兼容入口而不扩大 Phase 11A 已验收的审批信任边界。
+- **未选理由**：把资源版本放入 Context 会把业务并发条件混入跨 Skill 控制字段，并使重放证据依赖隐藏状态；继续使用 `1.0.0` 会违反 D-061 的可观察契约版本规则；暂缓批次三会在 Port、Fake 和单次尝试基础已经具备时阻断本阶段闭环，却不能替代未来真实批准入口的独立设计。
+- **影响**：D-061 继续有效，本决策是其在改价契约上的具体应用。D-035 所述 9 个未迁移工具逐字段冻结是 Phase 11A 的历史约束；D-064 生效后 `set_product_price` 退出该冻结集合，其余 8 个仍严格保持。D-043 所述“13 个首版均为 `1.0.0`”继续作为历史事实保留。Catalog 同时只注册 12 个 `1.0.0` 与一个 `set_product_price@1.1.0`；ToolRegistry 不增加 version 字段，只投影 `1.1.0` 的新 Schema。AgentToolExecutor 只能证明未批准调用返回 `pending`，不能成为批准入口。本阶段不实现重试、PlanEngine、真实淘宝 API、新 Graph 或多 Agent。
+- **重新评估条件**：未来需要真实 Graph / Facade 承接高风险改价批准、外部消费者需要版本范围协商，或平台 CAS 不再使用整数资源版本时，必须新增决策重新定义入口、版本兼容和资源冲突语义；在此之前不得扩大 AgentToolExecutor 的审批能力。

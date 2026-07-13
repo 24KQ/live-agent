@@ -409,48 +409,111 @@ git commit -m "feat: migrate session and sold-out skills"
 ## Task 8: 批次三高风险改价
 
 **Files:**
+- Modify: src/skill_runtime/catalog.py
 - Modify: src/skill_runtime/handlers.py
 - Modify: src/core/agent_tool_executor.py
-- Test: tests/unit/test_phase11b_handlers_batch3.py
-- Test: tests/integration/test_phase11b_price_flow.py
+- Modify: tests/unit/test_skill_catalog.py
+- Modify: tests/unit/test_phase11b_routing.py
+- Create: tests/unit/test_phase11b_handlers_batch3.py
+- Create: tests/integration/test_phase11b_price_flow.py
+- Regression: tests/unit/test_agent_tool_executor_skill_compat.py
 
-- [ ] **Step 1: 写审批、CAS、限流和未知副作用红灯测试。**
+- [ ] **Step 1: 写 Catalog 版本与改价 Schema 红灯测试。**
 
 ~~~python
-async def test_price_write_requires_human_approval() -> None:
-    result = await _runtime().execute(_set_price_call(approval=None))
-    assert result.status == SkillExecutionStatus.PENDING
+def test_catalog_has_twelve_v1_skills_and_price_v1_1() -> None:
+    versions = {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
+    assert list(versions.values()).count("1.0.0") == 12
+    assert versions["set_product_price"] == "1.1.0"
 
 
-async def test_price_conflict_does_not_change_product() -> None:
-    before = _platform().product("p001").price
-    result = await _runtime().execute(_set_price_call(expected_version=999))
-    assert result.failure.category == FailureCategory.VERSION_CONFLICT
-    assert _platform().product("p001").price == before
+def test_price_schema_requires_explicit_resource_version() -> None:
+    manifest = _manifest("set_product_price")
+    assert manifest.parameter_schema == {
+        "type": "object",
+        "required": ["product_id", "price", "expected_version"],
+        "properties": {
+            "product_id": {"type": "string"},
+            "price": {"type": "string"},
+            "expected_version": {"type": "integer", "minimum": 1},
+        },
+        "additionalProperties": False,
+    }
 ~~~
 
-- [ ] **Step 2: 验证红灯。**
+- [ ] **Step 2: 写版本、前置门禁和 Adapter 结果红灯测试。**
 
-Run: pytest tests/unit/test_phase11b_handlers_batch3.py -q
+`tests/unit/test_phase11b_handlers_batch3.py` 使用记录型 ProductPricingPort 和内存 Attempt Store。先固定所有 Handler / Attempt 前失败，再覆盖一次且仅一次的 Port 调用：
 
-Expected: FAIL，set_product_price 尚无 Runtime Handler/Port CAS。
+~~~python
+async def test_price_v1_is_rejected_before_handler_and_attempt() -> None:
+    runtime, port, store = _runtime()
+    result = await runtime.execute(_price_call(version="1.0.0"))
+    assert result.error_code == SkillErrorCode.VERSION_MISMATCH
+    assert port.calls == []
+    assert store.claims == 0
 
-- [ ] **Step 3: 实现严格高风险写路径。**
 
-改价必须包含可信审批、幂等键、商品 ID、价格和资源版本。缺少或过期版本返回 INVALID_INPUT 或 VERSION_CONFLICT，不采用最后写入获胜。限流返回 RATE_LIMITED + retry_after_seconds；发送后未知返回 SIDE_EFFECT_UNKNOWN，不允许第二次写入或 Legacy fallback。
+@pytest.mark.parametrize(
+    ("call", "status", "error_code"),
+    [
+        (_price_call(arguments={"product_id": "p001", "price": "39.90"}), SkillExecutionStatus.ERROR, SkillErrorCode.INVALID_ARGUMENTS),
+        (_price_call(idempotency_key=None), SkillExecutionStatus.ERROR, SkillErrorCode.IDEMPOTENCY_REQUIRED),
+        (_price_call(approval=None), SkillExecutionStatus.PENDING, SkillErrorCode.APPROVAL_REQUIRED),
+        (_price_call(approval=_rejected_approval()), SkillExecutionStatus.ERROR, SkillErrorCode.APPROVAL_REJECTED),
+    ],
+)
+async def test_price_preconditions_never_create_attempt_or_call_port(
+    call: SkillCall,
+    status: SkillExecutionStatus,
+    error_code: SkillErrorCode,
+) -> None:
+    runtime, port, store = _runtime()
+    result = await runtime.execute(call)
+    assert (result.status, result.error_code) == (status, error_code)
+    assert port.calls == []
+    assert store.claims == 0
+~~~
 
-- [ ] **Step 4: 写隔离比较测试。**
+`CountingAttemptStore` 只在测试内继承 `InMemoryAttemptStore` 并覆写
+`claim_or_replay()` 递增 `claims`；生产 Store 不增加测试专用的列表查询 API。
 
-批准后的成功路径使用两套独立 Fake/Attempt/Audit 栈对照业务结果；拒绝、冲突和未知路径证明没有第二次调用。
+`tests/integration/test_phase11b_price_flow.py` 通过内部 `SkillCall`、受控 `ApprovalContext` 和独立 Fake Platform / Attempt Store 覆盖成功、商品资源版本冲突、限流、发送后未知及同一 Operation 重放。冲突必须断言 `FailureCategory.VERSION_CONFLICT`，重放必须断言 Fake `set_price` 调用总数仍为 1。
 
-- [ ] **Step 5: 运行绿灯并提交。**
+`tests/unit/test_phase11b_routing.py` 固定 AgentToolExecutor 的批次三兼容边界：Runtime SkillCall 钉住 `1.1.0`，`idempotency_key` 只进入 Context，业务 arguments 只保留 `product_id`、`price`、`expected_version`；`approval is None`，结果为 `pending`，没有 Attempt / Port 调用，也没有 Legacy fallback。另测启动冻结 `LEGACY` 路由仍能显式回滚新调用。
+
+- [ ] **Step 3: 运行完整 RED，确认失败原因都来自尚未纠偏的版本与 Handler。**
+
+Run: pytest tests/unit/test_skill_catalog.py tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_phase11b_routing.py tests/unit/test_agent_tool_executor_skill_compat.py -q
+
+Expected: FAIL；Catalog 仍注册 `set_product_price@1.0.0` 且缺少 `expected_version`，AgentToolExecutor 仍硬编码 `1.0.0` 并保留兼容幂等字段，统一工厂仍装配未支持的批次三 Handler。
+
+- [ ] **Step 4: 实现 Catalog Schema、精确版本钉住与兼容参数搬移。**
+
+在 `catalog.py` 只把 `set_product_price` 单活版本升级为 `1.1.0`，并把 `expected_version: {"type": "integer", "minimum": 1}` 加入必填业务 Schema；根对象继续 `additionalProperties: false`。其余 12 个 Manifest 版本保持 `1.0.0`，D-035 冻结集合中剩余 8 个未迁移工具的元数据哈希严格保持。ToolRegistry 不新增 version 字段，只投影 Catalog 当前 Schema。
+
+AgentToolExecutor 在构造时从 Catalog 复制 `skill_id -> 精确单活 version` 的不可变映射，Runtime 调用不得再硬编码 `1.0.0`。兼容参数搬移只对白名单 `set_product_price` 生效：从副本中移除 `idempotency_key` 并写入 `SkillExecutionContext.idempotency_key`；其他 Skill 的 arguments 行为保持不变。不得新增 `approval` 参数、`execute_approved` 方法或任何可由 Agent 入口构造的批准证据，Context 的 `approval` 保持 `None`。
+
+- [ ] **Step 5: 实现 SetProductPriceHandler 的单次 CAS 调用。**
+
+用 `SetProductPriceHandler` 替换统一工厂中的 `_UnsupportedPhase11BHandler("set_product_price")`。Handler 只根据已校验 arguments 与 Context 构造一次 AdapterRequest，并恰好调用一次 `ProductPricingPort.set_price`；不得预读商品、内部重试、sleep、再次调用 Port 或 Legacy fallback。AdapterSuccess 原样映射业务输出；`VERSION_CONFLICT`、`RATE_LIMITED` 和 `SIDE_EFFECT_UNKNOWN` 原样作为 FailureFact 传播。
+
+失败语义固定如下：旧 Skill `1.0.0` 在 Handler / Attempt 前返回 `SkillErrorCode.VERSION_MISMATCH`；缺少 `expected_version` 返回 `INVALID_ARGUMENTS`；缺幂等键返回 `IDEMPOTENCY_REQUIRED`；缺批准返回 `PENDING + APPROVAL_REQUIRED`；拒绝返回 `APPROVAL_REJECTED`，以上均无 Attempt / Port。只有受控批准且通过前置校验的 `1.1.0` 调用创建 Attempt；商品 `expected_version` 过期由 Adapter 返回 `FailureFact`，其 `category=FailureCategory.VERSION_CONFLICT`。限流保留 `retry_after`，发送后未知保留 `SIDE_EFFECT_UNKNOWN`，Operation 重放返回首次终态且不产生第二次 Port 调用。
+
+- [ ] **Step 6: 运行 GREEN 与兼容回归。**
 
 Run: pytest tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_agent_tool_executor_skill_compat.py -q
 
 Expected: PASS。
 
+Run: pytest tests/unit/test_skill_catalog.py tests/unit/test_phase11b_routing.py -q
+
+Expected: PASS；Catalog 版本分布、Schema 投影、AgentToolExecutor `1.1.0` / `pending` / no fallback 与批次三 `LEGACY` 回滚全部锁定。
+
+- [ ] **Step 7: 只暂存 Task 8 业务与测试文件并提交。**
+
 ~~~bash
-git add src/skill_runtime/handlers.py src/core/agent_tool_executor.py tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py
+git add src/skill_runtime/catalog.py src/skill_runtime/handlers.py src/core/agent_tool_executor.py tests/unit/test_skill_catalog.py tests/unit/test_phase11b_routing.py tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_agent_tool_executor_skill_compat.py
 git commit -m "feat: migrate high-risk price skill"
 ~~~
 

@@ -160,6 +160,16 @@
 - 旧播前服务经 Product Port 适配后，仍必须使用原始 `trace_id` 写审计；若把 operation_id 当 trace 写入，会让 Runtime 结果正确但等价审计丢失 `query_products` 事件。
 - 统一 Handler 工厂可以复用确定性领域函数，但兼容装配下仍要调用 `PreLiveBusinessFlowService` 写排品和手卡审计；否则 Runtime 路径会少于 legacy 的审计证据。
 
+## 2026-07-13 Phase 11B Task 8 契约纠偏发现
+
+- `set_product_price@1.0.0` 的 Manifest 缺少 `expected_version`，而 `ProductPricingPort.set_price` 已使用商品资源版本执行 CAS；调用方无法表达预期版本时，改价 CAS 契约在 Runtime 入口不可实现。
+- 已选择把 `expected_version` 作为必填业务参数显式加入 Schema，并将 `set_product_price` 的单活版本升级到 `1.1.0`。这是公开输入契约变化，必须遵循 D-061，不能继续沿用 `1.0.0`。
+- 已拒绝把商品资源版本隐藏在 `SkillExecutionContext`。资源版本是可持久化的业务并发前置条件，应参与 Schema 校验、审计、重放和输入摘要；Context 只承载 room、trace、deadline、route、幂等键和批准等控制字段。
+- `AgentToolExecutor` 不扩展为可信批准入口：它只从 Catalog 冻结精确单活版本，并仅为 `set_product_price` 搬移 `idempotency_key`；`approval` 保持 `None`，因此 Runtime 路由下的改价调用保持 `pending`。
+- Task 8 原计划伪代码错误调用了生产 `InMemoryAttemptStore.list_attempts()`，但真实 Store 没有该 API。测试应定义 `CountingAttemptStore`，覆写 `claim_or_replay` 并维护 `claims` 计数，再对所有前置拒绝路径断言 `claims == 0`；不得为了测试给生产 Store 新增列表接口。
+- 真实 `SkillExecutor` 会在 Handler 执行和 `AttemptStore.claim_or_replay` 前完成版本、Schema、幂等键与审批校验，因此 `CountingAttemptStore.claims == 0` 可以直接证明这些前置路径没有创建 Attempt；当前 `AgentToolExecutor` 则确实硬编码 `1.0.0`，并在读取幂等键后把该控制字段继续留在业务 arguments 中。
+- `FakeLiveCommercePlatform` 的调用序号属于内部故障脚本状态，没有公开调用计数 API。Operation 重放的一次 Port 调用证据也应由测试内计数 Fake 或记录型 Port 提供，不能为了断言给生产 Fake 增加无关观测接口。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
