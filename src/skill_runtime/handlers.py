@@ -45,8 +45,8 @@ class SkillRuntimeDependencies:
     """统一 Handler 工厂的局部依赖。
 
     platform 同时实现三个业务域 Port 是 Phase 11B Fake 的当前装配方式；真实平台
-    接入时可以传入三个不同对象。legacy_pre_live_service 仅服务 setup 等后续兼容
-    路径，批次一读取平台状态时不得绕过 Port。
+    接入时可以传入三个不同对象。legacy_pre_live_service 只供仍需复用播前领域生成
+    逻辑的纯业务 Handler 使用；建播与售罄已分别收敛到会话和播中运营 Port。
     """
 
     platform: ProductPricingPort | LiveSessionPort | LiveOperationsPort
@@ -71,8 +71,8 @@ class SkillRuntimeDependencies:
 def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _SkillHandler]:
     """为一个 Runtime 实例构建局部 Handler 映射。
 
-    返回值包含全部 13 个 Skill 的装配入口；Task 5 只完整迁移批次一，批次二和
-    批次三先保留占位 Handler，后续任务会把它们接入对应 Port。
+    返回值包含全部 13 个 Skill 的装配入口。批次一和批次二已接入统一执行契约；
+    批次三改价在 Task 8 完成前保留显式占位 Handler，禁止静默回退旧执行路径。
     """
     batch_one: dict[str, _SkillHandler] = {
         "query_products": _QueryProductsHandler(dependencies.product_pricing_port),
@@ -91,12 +91,8 @@ def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _S
     }
     return {
         **batch_one,
-        "setup_live_session": (
-            _LegacySetupLiveSessionHandler(dependencies.legacy_pre_live_service)
-            if dependencies.legacy_pre_live_service is not None
-            else _UnsupportedPhase11BHandler("setup_live_session")
-        ),
-        "handle_sold_out_event": _UnsupportedPhase11BHandler("handle_sold_out_event"),
+        "setup_live_session": _SetupLiveSessionHandler(dependencies.live_session_port),
+        "handle_sold_out_event": _HandleSoldOutEventHandler(dependencies.live_operations_port),
         "set_product_price": _UnsupportedPhase11BHandler("set_product_price"),
     }
 
@@ -112,7 +108,7 @@ class _QueryProductsHandler(_SkillHandler):
         skill_id: str,
         arguments: dict[str, Any],
         context: SkillExecutionContext,
-    ) -> AdapterResult | dict[str, Any]:
+    ) -> AdapterResult | _SkillHandlerResult | dict[str, Any]:
         result = await self._port.list_products(_request(skill_id, arguments, context))
         if isinstance(result, FailureFact):
             return result
@@ -323,37 +319,75 @@ class _OnLiveContextCollectHandler(_SkillHandler):
         }
 
 
-class _LegacySetupLiveSessionHandler(_SkillHandler):
-    """Phase 11A 建播兼容 Handler，等待 Task 7 迁移到 LiveSessionPort。
+class _SetupLiveSessionHandler(_SkillHandler):
+    """通过 LiveSessionPort 执行建播准备。
 
-    Task 5 只迁移批次一，但旧播前 Graph 仍依赖 setup Handler。把兼容实现放在
-    统一工厂里，可以让 pre_live_handlers 不再维护第二套 Handler 逻辑；真正的
-    平台 Port 建播会在批次二替换该路径。
+    审批、幂等键和 Attempt 意图均由 SkillExecutor 在调用本 Handler 前处理。本类只
+    负责把已验证的计划快照交给会话 Port，并把平台确认的 session 事实映射回旧
+    Facade 仍需要的 allowed/setup_status 字段。
     """
 
-    def __init__(self, service: PreLiveBusinessFlowService | None) -> None:
-        if service is None:
-            raise ValueError("legacy pre-live service is required for setup compatibility")
-        self._service = service
+    def __init__(self, port: LiveSessionPort) -> None:
+        self._port = port
 
     async def execute(
         self,
         skill_id: str,
         arguments: dict[str, Any],
         context: SkillExecutionContext,
-    ) -> _SkillHandlerResult:
+    ) -> AdapterResult | dict[str, Any]:
         plan = LivePlanDraft.model_validate(arguments.get("plan", {}))
-        gate, audit_id = self._service.setup_live_session(
-            room_id=context.room_id,
-            plan=plan,
-            trace_id=context.trace_id,
-            confirmed_setup=True,
-            idempotency_key=context.idempotency_key,
+        result = await self._port.prepare_session(
+            _request(
+                skill_id,
+                {
+                    "plan": plan.model_dump(mode="json"),
+                    "idempotency_key": context.idempotency_key,
+                },
+                context,
+            )
         )
-        return _SkillHandlerResult(
-            output={"allowed": gate.allowed, "setup_status": "prepared"},
-            audit_id=audit_id,
-        )
+        if isinstance(result, FailureFact):
+            return result
+        session = result.output.get("session", {})
+        output = {
+            "allowed": True,
+            "setup_status": str(session.get("status") or "prepared"),
+            "session": session,
+        }
+        audit_id = result.output.get("audit_id")
+        if isinstance(audit_id, str):
+            return _SkillHandlerResult(output=output, audit_id=audit_id)
+        return output
+
+
+class _HandleSoldOutEventHandler(_SkillHandler):
+    """通过 LiveOperationsPort 处理售罄状态变化。
+
+    售罄是写操作，但恢复和重试策略不属于 Handler。Executor 已先写 Attempt 意图；
+    Port 返回成功事实或 FailureFact 后，本类只补充确定性主播提示，确保同一幂等键
+    重放时不会再次调用 Port。
+    """
+
+    def __init__(self, port: LiveOperationsPort) -> None:
+        self._port = port
+
+    async def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> AdapterResult | dict[str, Any]:
+        result = await self._port.mark_sold_out(_request(skill_id, arguments, context))
+        if isinstance(result, FailureFact):
+            return result
+        sold_out, backup = _products_from_context_output(result.output)
+        prompt = generate_sold_out_prompt(sold_out_product=sold_out, backup_product=backup)
+        return {
+            "sold_out_product": sold_out.model_dump(mode="json"),
+            "backup_product": None if backup is None else backup.model_dump(mode="json"),
+            "prompt": prompt.model_dump(mode="json"),
+        }
 
 
 class _UnsupportedPhase11BHandler(_SkillHandler):
@@ -383,7 +417,7 @@ def _request(
     """
     return AdapterRequest(
         operation_id=f"{context.trace_id}:{skill_id}",
-        attempt_id=f"{context.trace_id}:{skill_id}:attempt",
+        attempt_id=context.attempt_id or f"{context.trace_id}:{skill_id}:attempt",
         room_id=context.room_id,
         idempotency_key=context.idempotency_key,
         deadline_at=context.deadline_at,

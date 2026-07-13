@@ -176,6 +176,62 @@ def test_call_tool_path_executes_and_replans() -> None:
     assert "post_tool_call_hook" in result["completed_nodes"]
 
 
+def test_harness_graph_accepts_runtime_on_live_executor() -> None:
+    """Phase 11B：Harness Graph 不改拓扑即可消费 RuntimeOnLiveExecutor。"""
+    from decimal import Decimal
+
+    from src.core.on_live_agent_graph import RuntimeOnLiveExecutor
+    from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
+    from src.skill_runtime.fake_platform import (
+        FakeLiveCommercePlatform,
+        FakePlatformFixture,
+        FakePlatformProduct,
+    )
+    from src.skill_runtime.handlers import SkillRuntimeDependencies, build_skill_handlers
+
+    platform = FakeLiveCommercePlatform.from_fixture(
+        FakePlatformFixture(
+            room_id="room-5g",
+            products=(
+                FakePlatformProduct(
+                    product_id="p001",
+                    name="售罄商品",
+                    price=Decimal("39.90"),
+                    inventory=0,
+                    version=1,
+                    is_active=False,
+                ),
+                FakePlatformProduct(
+                    product_id="p002",
+                    name="备选商品",
+                    price=Decimal("59.90"),
+                    inventory=8,
+                    version=1,
+                ),
+            ),
+        )
+    )
+    executor = RuntimeOnLiveExecutor(
+        SyncSkillExecutorAdapter(
+            SkillExecutor(
+                handlers=build_skill_handlers(SkillRuntimeDependencies(platform=platform))
+            )
+        )
+    )
+    graph = build_on_live_harness_agent_graph(planner=ToolThenFinalPlanner(), executor=executor)
+    state = create_initial_on_live_harness_state(
+        room_id="room-5g",
+        trace_id="trace-5g",
+        inventory_alerts=[{"product_id": "p001", "severity": "sold_out"}],
+    )
+
+    result = graph.invoke(state)
+
+    assert result["agent_status"] == "final_answer"
+    assert result["executed_tools"][0]["status"] == "success"
+    assert result["executed_tools"][0]["backup_product_id"] == "p002"
+
+
 def test_high_risk_tool_pending_not_executed() -> None:
     """高风险工具只能 pending，不自动执行。"""
     executor = RecordingExecutor()
@@ -313,4 +369,3 @@ class SoldOutWithoutAlertPlanner:
             final_suggestion=None,
             risk_level="MEDIUM",
         )
-

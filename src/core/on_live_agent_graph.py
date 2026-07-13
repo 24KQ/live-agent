@@ -18,6 +18,18 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from src.core.agent_decision import AgentReplanRoute
+from src.skill_runtime.compatibility import observation_from_skill_result
+from src.skill_runtime.executor import SyncSkillExecutorAdapter
+from src.skill_runtime.models import (
+    ApprovalContext,
+    SkillCall,
+    SkillExecutionContext,
+    SkillExecutionResult,
+    SkillExecutionRoute,
+    SkillExecutionStatus,
+    _build_human_interrupt_approval,
+)
+from src.state.models import LifecycleStage
 
 
 class OnLiveAgentGraphState(TypedDict, total=False):
@@ -515,6 +527,141 @@ class _LocalServiceExecutor:
             "audit_ids": result.audit_ids,
         }
 
+
+class RuntimeOnLiveExecutor:
+    """播中 Runtime 执行器，保持旧 Graph executor 同步外观。
+
+    Graph 和 Harness 仍调用 execute(tool_name, arguments, room_id, trace_id, ...)，
+    本类只在边界内构造 ON_LIVE SkillCall 并委托 SyncSkillExecutorAdapter。它不做
+    重试、不 fallback 到 _LocalServiceExecutor，也不修改 LangGraph state 结构。
+    """
+
+    def __init__(self, skill_executor: SyncSkillExecutorAdapter) -> None:
+        self._skill_executor = skill_executor
+
+    def execute(
+        self,
+        tool_name: str,
+        arguments: dict,
+        room_id: str,
+        trace_id: str,
+        state: Any = None,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """执行播中 Skill，并返回旧节点可消费的 dict observation。
+
+        state 保持为显式兼容参数，使 Harness Graph Protocol、反射检查和后续类型
+        标注都能识别审批上下文；额外 kwargs 仅用于兼容历史调用，不参与信任判断。
+        """
+        try:
+            result = self._skill_executor.execute(
+                SkillCall(
+                    skill_id=tool_name,
+                    version="1.0.0",
+                    context=SkillExecutionContext(
+                        room_id=room_id,
+                        trace_id=trace_id,
+                        lifecycle=LifecycleStage.ON_LIVE,
+                        execution_route=SkillExecutionRoute.SKILL_RUNTIME,
+                        idempotency_key=self._idempotency_key(tool_name, arguments, trace_id),
+                        approval=self._approval_from_state(state),
+                    ),
+                    arguments=self._arguments(tool_name, arguments, room_id, trace_id),
+                )
+            )
+            return self._result_to_dict(tool_name, result)
+        except Exception:
+            # Runtime 边界异常必须脱敏为旧 executor 形状，避免 Graph 节点抛出后丢失
+            # checkpoint 观察事实；这里也绝不调用 legacy 作为 fallback。
+            return {
+                "tool_name": tool_name,
+                "status": "error",
+                "summary": "HANDLER_FAILED: on-live runtime execution failed",
+            }
+
+    @staticmethod
+    def _idempotency_key(tool_name: str, arguments: dict, trace_id: str) -> str | None:
+        """从旧参数读取幂等键；售罄若缺失则用 trace 生成稳定兼容键。"""
+        value = arguments.get("idempotency_key")
+        if isinstance(value, str) and value:
+            return value
+        if tool_name == "handle_sold_out_event":
+            return f"{trace_id}:handle_sold_out_event"
+        return None
+
+    @staticmethod
+    def _arguments(tool_name: str, arguments: dict, room_id: str, trace_id: str) -> dict:
+        """补齐旧播中调用常省略的 room_id/trace_id/idempotency_key 字段。"""
+        normalized = dict(arguments)
+        if tool_name in {
+            "recommend_backup_product",
+            "generate_on_live_prompt",
+        }:
+            normalized.setdefault("room_id", room_id)
+        if tool_name in {
+            "aggregate_danmaku_questions",
+            "generate_danmaku_reply",
+            "on_live_context_collect",
+        }:
+            normalized.setdefault("room_id", room_id)
+            normalized.setdefault("trace_id", trace_id)
+        if tool_name == "handle_sold_out_event":
+            normalized.setdefault("room_id", room_id)
+            normalized.setdefault("trace_id", trace_id)
+            normalized.setdefault("idempotency_key", f"{trace_id}:handle_sold_out_event")
+        return normalized
+
+    @staticmethod
+    def _approval_from_state(state: Any) -> ApprovalContext | None:
+        """从 Harness state 恢复可信审批证据；无审批时返回 None。
+
+        当前批次二的 handle_sold_out_event 是 AUTO gate，该逻辑主要保证后续高风险
+        播中写能力接入时不会把普通业务参数伪造成审批。
+        """
+        if not isinstance(state, dict):
+            return None
+        if state.get("approval_decision") != "approved":
+            return None
+        operator_id = state.get("approval_operator_id")
+        audit_id = state.get("approval_resume_audit_id")
+        if not isinstance(operator_id, str) or not isinstance(audit_id, str):
+            return None
+        return _build_human_interrupt_approval(
+            decision="APPROVED",
+            operator_id=operator_id,
+            approval_audit_id=audit_id,
+        )
+
+    @staticmethod
+    def _result_to_dict(tool_name: str, result: SkillExecutionResult) -> dict[str, Any]:
+        """把 Runtime 结果压缩为旧播中 executor 的 dict 契约。"""
+        observation = observation_from_skill_result(tool_name, result)
+        payload: dict[str, Any] = {
+            "tool_name": tool_name,
+            "status": observation.status,
+            "summary": observation.summary,
+            "audit_ids": [observation.audit_id] if observation.audit_id else [],
+            "attempt_id": result.attempt_id,
+        }
+        if result.status != SkillExecutionStatus.SUCCESS or result.output is None:
+            if result.failure is not None:
+                payload["failure_category"] = result.failure.category.value
+            return payload
+
+        output = result.output
+        if "backup_product" in output and output["backup_product"] is not None:
+            payload["backup_product_id"] = output["backup_product"].get("product_id")
+        if "prompt" in output:
+            payload["message"] = output["prompt"].get("message", "")
+            payload["severity"] = output["prompt"].get("severity")
+        if "reply" in output:
+            payload["message"] = output["reply"].get("message", "")
+        if "groups" in output:
+            payload["group_count"] = len(output["groups"])
+        if "suggestion" in output:
+            payload["suggestion"] = output["suggestion"]
+        payload["output"] = output
+        return payload
 
 
 class _DefaultExecutor:

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from inspect import signature
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -184,3 +185,128 @@ class TestGraphWithRealServices:
         result = graph.invoke(state)
         assert result is not None
         assert len(result.get("executed_tools", [])) > 0
+
+
+class TestRuntimeOnLiveExecutor:
+    """Phase 11B RuntimeOnLiveExecutor 播中兼容入口测试。"""
+
+    def test_runtime_executor_exposes_state_parameter_in_compatibility_signature(self):
+        """兼容入口应显式暴露 state，供 Graph Protocol 和静态检查识别。"""
+        from src.core.on_live_agent_graph import RuntimeOnLiveExecutor
+
+        parameter = signature(RuntimeOnLiveExecutor.execute).parameters.get("state")
+
+        assert parameter is not None
+        assert parameter.default is None
+
+    def test_runtime_executor_preserves_execute_dict_shape_for_sold_out(self):
+        """Runtime 执行器保持旧 execute(...) -> dict 外观，并返回售罄事实。"""
+        from decimal import Decimal
+
+        from src.core.on_live_agent_graph import RuntimeOnLiveExecutor
+        from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
+        from src.skill_runtime.fake_platform import (
+            FakeLiveCommercePlatform,
+            FakePlatformFixture,
+            FakePlatformProduct,
+        )
+        from src.skill_runtime.handlers import SkillRuntimeDependencies, build_skill_handlers
+
+        platform = FakeLiveCommercePlatform.from_fixture(
+            FakePlatformFixture(
+                room_id="room-runtime-on-live",
+                products=(
+                    FakePlatformProduct(
+                        product_id="p001",
+                        name="售罄商品",
+                        price=Decimal("39.90"),
+                        inventory=3,
+                        version=1,
+                    ),
+                    FakePlatformProduct(
+                        product_id="p002",
+                        name="备选商品",
+                        price=Decimal("59.90"),
+                        inventory=8,
+                        version=1,
+                    ),
+                ),
+            )
+        )
+        executor = RuntimeOnLiveExecutor(
+            SyncSkillExecutorAdapter(
+                SkillExecutor(
+                    handlers=build_skill_handlers(SkillRuntimeDependencies(platform=platform))
+                )
+            )
+        )
+
+        result = executor.execute(
+            tool_name="handle_sold_out_event",
+            arguments={"product_id": "p001", "idempotency_key": "idem-runtime-sold-out"},
+            room_id="room-runtime-on-live",
+            trace_id="trace-runtime-on-live",
+            state={"ignored": True},
+        )
+
+        assert result["tool_name"] == "handle_sold_out_event"
+        assert result["status"] == "success"
+        assert result["backup_product_id"] == "p002"
+        assert "售罄" in result["message"]
+        assert platform.product("p001").inventory == 0
+
+    def test_runtime_executor_preserves_sanitized_error_dict_without_fallback(self):
+        """Runtime 失败仍返回旧 dict 形状，且摘要不泄露原始商品参数。"""
+        from decimal import Decimal
+
+        from src.core.on_live_agent_graph import RuntimeOnLiveExecutor
+        from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
+        from src.skill_runtime.fake_platform import (
+            FakeLiveCommercePlatform,
+            FakePlatformFixture,
+            FakePlatformProduct,
+        )
+        from src.skill_runtime.handlers import SkillRuntimeDependencies, build_skill_handlers
+
+        platform = FakeLiveCommercePlatform.from_fixture(
+            FakePlatformFixture(
+                room_id="room-runtime-on-live-error",
+                products=(
+                    FakePlatformProduct(
+                        product_id="p001",
+                        name="正常商品",
+                        price=Decimal("39.90"),
+                        inventory=3,
+                        version=1,
+                    ),
+                ),
+            )
+        )
+        executor = RuntimeOnLiveExecutor(
+            SyncSkillExecutorAdapter(
+                SkillExecutor(
+                    handlers=build_skill_handlers(SkillRuntimeDependencies(platform=platform))
+                )
+            )
+        )
+        untrusted_product_id = "missing-sensitive-product"
+
+        result = executor.execute(
+            tool_name="handle_sold_out_event",
+            arguments={
+                "product_id": untrusted_product_id,
+                "idempotency_key": "idem-runtime-sold-out-error",
+            },
+            room_id="room-runtime-on-live-error",
+            trace_id="trace-runtime-on-live-error",
+            state={"ignored": True},
+        )
+
+        assert result["tool_name"] == "handle_sold_out_event"
+        assert result["status"] == "error"
+        assert result["failure_category"] == "INVALID_INPUT"
+        assert result["attempt_id"]
+        assert "HANDLER_FAILED" in result["summary"]
+        assert untrusted_product_id not in str(result)
+        # 不存在 Runtime -> Legacy fallback；失败调用不能凭空改动 Fake 平台状态。
+        assert platform.product("p001").inventory == 3

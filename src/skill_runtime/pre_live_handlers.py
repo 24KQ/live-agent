@@ -24,6 +24,7 @@ from src.skill_runtime.models import (
     SideEffectState,
 )
 from src.skill_runtime.platform_ports import AdapterResult
+from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_catalog import ProductCatalogRepository
 
 
@@ -44,9 +45,9 @@ def _get_service() -> PreLiveBusinessFlowService:
 class _PreLiveServiceProductPort:
     """把既有播前服务限制为兼容 Platform Port。
 
-    统一 Handler 查询货盘和解析播中只读商品上下文时复用旧播前货盘。这里显式拒绝
-    set_price、prepare_session 和 mark_sold_out 等写操作，避免兼容装配被误用为
-    高风险或状态变更路径；真正写能力会在后续批次通过平台 Port 和审批门禁实现。
+    统一 Handler 查询货盘和解析播中只读商品上下文时复用旧播前货盘；建播在
+    Runtime 完成审批、Schema、幂等和 Attempt 门禁后，允许经本 Port 调用旧服务以
+    保留 Phase 11A 审计链。改价和售罄仍显式拒绝，不能借兼容装配绕过专用平台 Port。
     """
 
     def __init__(self, service: PreLiveBusinessFlowService) -> None:
@@ -73,12 +74,27 @@ class _PreLiveServiceProductPort:
         )
 
     async def prepare_session(self, request: AdapterRequest) -> AdapterResult:
-        """兼容 Port 不执行建播写入；setup 暂由 legacy service Handler 处理。"""
-        return FailureFact(
-            category=FailureCategory.POLICY_DENIED,
-            external_code="pre_live_compat.prepare_session_denied",
-            side_effect_state=SideEffectState.NOT_SENT,
-            attempt_id=request.attempt_id,
+        """通过旧播前服务执行建播，保持 Phase 11A 审计链路。
+
+        Runtime Handler 已经完成可信审批、Schema、幂等和 Attempt 意图校验。兼容
+        Port 在这里只负责把计划快照恢复为领域对象，并调用旧服务的受控建播入口。
+        """
+        plan = LivePlanDraft.model_validate(request.payload.get("plan", {}))
+        trace_id = str(request.payload.get("__trace_id") or request.operation_id)
+        gate, audit_id = self._service.setup_live_session(
+            room_id=request.room_id,
+            plan=plan,
+            trace_id=trace_id,
+            confirmed_setup=True,
+            idempotency_key=request.idempotency_key,
+        )
+        return AdapterSuccess(
+            output={
+                "session": {"session_id": audit_id or request.operation_id, "status": "prepared"},
+                "allowed": gate.allowed,
+                "audit_id": audit_id,
+            },
+            side_effect_state=SideEffectState.CONFIRMED,
         )
 
     async def mark_sold_out(self, request: AdapterRequest) -> AdapterResult:

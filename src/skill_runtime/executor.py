@@ -146,11 +146,17 @@ class SkillExecutor:
                 summary="Skill deadline expired before handler execution",
             )
 
+        handler_context = (
+            call.context
+            if record is None
+            else call.context.model_copy(update={"attempt_id": record.attempt_id})
+        )
+
         try:
             # wait_for 只管理协作式 async 边界。它不会把超时解释为“未发生副作用”，
             # 因此 TimeoutError 必须按发送后未知闭合 Attempt，交由未来对账处理。
             outcome = await asyncio.wait_for(
-                handler.execute(call.skill_id, call.arguments, call.context),
+                handler.execute(call.skill_id, call.arguments, handler_context),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:

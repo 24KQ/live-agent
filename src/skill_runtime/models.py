@@ -282,6 +282,10 @@ class SkillExecutionContext(BaseModel, frozen=True):
     execution_route: SkillExecutionRoute = Field(..., description="执行路由")
     idempotency_key: str | None = Field(default=None, description="用于幂等重放的键")
     approval: ApprovalContext | None = Field(default=None, description="审批证据")
+    # Phase 11B 写操作在 Handler 前会由 Attempt Store 生成真实 attempt_id。该字段由
+    # SkillExecutor 注入，业务调用方不得自行依赖它构造幂等身份；Handler 只把它
+    # 传给 AdapterRequest，确保 FailureFact 能和当前 Operation 闭合。
+    attempt_id: str | None = Field(default=None, description="当前执行尝试 ID")
     # 旧同步入口尚未在 Task 1 完成前全面传递 deadline。这里提供可信的短时默认值，
     # 让既有 Phase 11A 调用保持可用；Task 4/6 会在可信装配边界显式传入 deadline。
     deadline_at: datetime = Field(
