@@ -157,6 +157,8 @@
 - 当前 `generate_on_live_prompt` 只有商品 ID，现有确定性领域函数需要售罄商品与可选备选商品的完整领域对象；在不改变 Skill 契约、也不增加可信读取 Port 的情况下，不能正确复用它。
 - 这是 Design/Port 契约遗漏，不应通过伪造文案、隐藏旧服务读取或新增未经决策的第十四个 Skill 绕过。Task 5 必须先完成最小设计纠正后才能继续。
 - 已确认的最小纠正是给 `LiveOperationsPort` 增加只读 `resolve_product_context`。它补平台状态读取边界，不产生副作用、不新增 Skill、不改变公开 Schema、不升级版本；Fake 与生产 Port 必须保持同一语义。
+- 旧播前服务经 Product Port 适配后，仍必须使用原始 `trace_id` 写审计；若把 operation_id 当 trace 写入，会让 Runtime 结果正确但等价审计丢失 `query_products` 事件。
+- 统一 Handler 工厂可以复用确定性领域函数，但兼容装配下仍要调用 `PreLiveBusinessFlowService` 写排品和手卡审计；否则 Runtime 路径会少于 legacy 的审计证据。
 
 # 2026-07-11 Phase 7A 发现
 

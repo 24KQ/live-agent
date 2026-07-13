@@ -276,6 +276,15 @@
 - 已新增 D-063：`LiveOperationsPort.resolve_product_context` 作为只读商品上下文解析方法，返回售罄商品和可选备选商品可信快照。
 - 该修正不新增 Skill、不改变公开参数 Schema、不升级 `1.0.0` 版本、不允许 Legacy fallback；接下来恢复 Task 5 的 RED/GREEN/REFACTOR。
 
+## 2026-07-13 Phase 11B Task 5 完成进度
+
+- 已按 TDD 新增 `tests/unit/test_phase11b_handlers_batch1.py`，红灯为缺少 `src.skill_runtime.handlers`；新增 Fake 只读上下文测试，红灯为缺少 `resolve_product_context`。
+- 已实现 `LiveOperationsPort.resolve_product_context` 和 Fake 同名只读方法；缺失售罄商品返回 `INVALID_INPUT`，成功解析不修改库存、价格、版本或会话状态。
+- 已新增统一 `build_skill_handlers()` 与 `SkillRuntimeDependencies`，批次一 10 个 Skill 均由局部工厂装配；`pre_live_handlers.py` 收敛为兼容装配层，不再维护第二套播前核心 Handler 逻辑。
+- 回归中发现 Runtime 生成路径审计少于 legacy，已修正为兼容装配下继续通过 `PreLiveBusinessFlowService` 写排品和手卡审计，并通过内部 `__trace_id` 保留原 trace。
+- Task 5 专项与等价回归为 `38 passed`；AgentToolExecutor/Graph 相关回归为 `77 passed`；默认 unit 全量为 `517 passed, 4 warnings`。Warnings 为既有 FastAPI/Starlette 与 Kafka 弃用提示。
+- 已运行 `git diff --check`，仅出现 Windows 行尾提示，无尾随空白错误。未实现 Task 6 路由、批次二/三、PlanEngine、多 Agent 或真实淘宝 API。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

@@ -38,5 +38,8 @@ class LiveOperationsPort(Protocol):
     async def mark_sold_out(self, request: AdapterRequest) -> AdapterResult:
         """把指定商品标记为售罄并返回更新后的业务事实。"""
 
+    async def resolve_product_context(self, request: AdapterRequest) -> AdapterResult:
+        """只读解析售罄商品与可选备选商品的可信快照。"""
+
     async def current_context(self, request: AdapterRequest) -> AdapterResult:
         """读取播中弹幕摘要和库存告警所需的可信状态。"""

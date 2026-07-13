@@ -100,7 +100,8 @@
 - [x] Phase 11B Task 3：有状态 Fake Platform、业务域 Port、Fixture 和声明式故障脚本；提交 `770ba8f`。
 - [x] Phase 11B Task 4：原生 async Executor、deadline、Attempt Store 和 FailureFact 传播；提交 `8eff0b2`。
 - [x] Phase 11B Task 5 前置纠偏：新增 D-063，确认 `LiveOperationsPort.resolve_product_context` 为只读商品上下文解析契约。
-- [ ] Phase 11B Task 5-9：统一 Handler 装配、三批路由迁移与 Demo。
+- [x] Phase 11B Task 5：统一 Handler 工厂、批次一 10 个 Skill 装配、只读商品上下文 Port 与播前兼容工厂收敛。
+- [ ] Phase 11B Task 6-9：三批路由迁移、批次二/三接入与 Demo。
 - [ ] Phase 11B Task 10：专项、回归、全量验收与 Acceptance 留迹。
 
 # 2026-07-11 Phase 7A 任务

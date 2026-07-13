@@ -1,33 +1,36 @@
-"""Phase 11A 播前核心 Handler。
+"""Phase 11B 播前 Handler 兼容装配。
 
-四个 Handler 注册到全局 Handler 注册表，使用显式快照输入
-并委托现有 PreLiveBusinessFlowService 执行。
-
-每个 Handler 是适配层，不包含独立业务逻辑。
+旧导入路径仍由 Graph、Facade 和测试使用，但这里不再维护第二套播前 Handler
+业务逻辑。实际 Handler 均来自统一 `build_skill_handlers()` 工厂；本文件只负责
+把既有 PreLiveBusinessFlowService 包装成只读 ProductPricingPort，并注册四个
+播前入口，保持 Phase 11A 外观不变。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from src.skill_runtime.executor import register_handler
-from src.skill_runtime.executor import _SkillHandler, _SkillHandlerResult
-from src.skill_runtime.models import SkillExecutionContext
-
+from src.audit.tool_call_audit import ToolCallAuditStore
 from src.config.settings import Settings
 from src.core.pre_live_business_flow import PreLiveBusinessFlowService
+from src.skill_runtime.executor import _SkillHandler, register_handler
+from src.skill_runtime.handlers import SkillRuntimeDependencies, build_skill_handlers
+from src.skill_runtime.models import (
+    AdapterRequest,
+    AdapterSuccess,
+    FailureCategory,
+    FailureFact,
+    SideEffectState,
+)
+from src.skill_runtime.platform_ports import AdapterResult
 from src.skills.product_catalog import ProductCatalogRepository
-from src.audit.tool_call_audit import ToolCallAuditStore
-
-
-# ── 内部共享服务 ──────────────────────────────────────────────────────
 
 
 _service: PreLiveBusinessFlowService | None = None
 
 
 def _get_service() -> PreLiveBusinessFlowService:
-    """获取或创建共享播前业务服务实例。"""
+    """获取共享旧播前服务，仅用于兼容默认导入注册。"""
     global _service
     if _service is None:
         settings = Settings()  # type: ignore[call-arg]
@@ -37,133 +40,59 @@ def _get_service() -> PreLiveBusinessFlowService:
     return _service
 
 
-# ── Handler 实现 ──────────────────────────────────────────────────────
+class _PreLiveServiceProductPort:
+    """把既有播前服务限制为只读商品 Port。
 
+    统一 Handler 查询货盘时只需要 ProductPricingPort.list_products。这里显式拒绝
+    set_price，避免兼容装配被误用为高风险改价路径；真正改价会在批次三通过平台
+    Port 和审批门禁实现。
+    """
 
-class _QueryProductsHandler(_SkillHandler):
-    """查询播前模拟商品货盘。"""
-
-    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
+    def __init__(self, service: PreLiveBusinessFlowService) -> None:
         self._service = service
 
-    async def execute(
-        self,
-        skill_id: str,
-        arguments: dict[str, Any],
-        context: SkillExecutionContext,
-    ) -> dict[str, Any]:
-        """在 Runtime 的原生 async 调用链中查询可信商品快照。"""
-        service = self._service or _get_service()
-        products = service.query_products(room_id=context.room_id, trace_id=context.trace_id)
-        return {"products": [p.model_dump(mode="json") for p in products]}
-
-
-class _GenerateLivePlanHandler(_SkillHandler):
-    """生成确定性播前排品计划。"""
-
-    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
-        self._service = service
-
-    async def execute(
-        self,
-        skill_id: str,
-        arguments: dict[str, Any],
-        context: SkillExecutionContext,
-    ) -> dict[str, Any]:
-        """在 Runtime 的原生 async 调用链中生成确定性排品计划。"""
-        service = self._service or _get_service()
-        # arguments 中的 products 是由 Schema 校验过的不可变快照
-        products_raw = arguments.get("products", [])
-        from src.skills.product_catalog import CatalogProduct
-        products = [CatalogProduct(**p) for p in products_raw]
-        plan = service.generate_plan(
-            room_id=context.room_id,
-            products=products,
-            trace_id=context.trace_id,
+    async def list_products(self, request: AdapterRequest) -> AdapterResult:
+        """通过旧服务读取商品，并转成 AdapterSuccess 事实。"""
+        products = self._service.query_products(
+            room_id=request.room_id,
+            trace_id=str(request.payload.get("__trace_id") or request.operation_id),
         )
-        return {"plan": plan.model_dump(mode="json")}
-
-
-class _GenerateProductCardHandler(_SkillHandler):
-    """为单商品生成确定性直播手卡。"""
-
-    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
-        self._service = service
-
-    async def execute(
-        self,
-        skill_id: str,
-        arguments: dict[str, Any],
-        context: SkillExecutionContext,
-    ) -> dict[str, Any]:
-        """在 Runtime 的原生 async 调用链中生成单商品手卡。"""
-        service = self._service or _get_service()
-        product_raw = arguments.get("product", {})
-        from src.skills.product_catalog import CatalogProduct
-        product = CatalogProduct(**product_raw)
-        card = service.generate_card(
-            room_id=context.room_id,
-            product=product,
-            trace_id=context.trace_id,
-        )
-        return {"card": card.model_dump(mode="json")}
-
-
-class _SetupLiveSessionHandler(_SkillHandler):
-    """根据播前排品模拟建播写操作。"""
-
-    def __init__(self, service: PreLiveBusinessFlowService | None = None) -> None:
-        self._service = service
-
-    async def execute(
-        self,
-        skill_id: str,
-        arguments: dict[str, Any],
-        context: SkillExecutionContext,
-    ) -> _SkillHandlerResult:
-        """在审批已由 Executor 验证后执行一次兼容建播业务服务调用。"""
-        service = self._service or _get_service()
-        plan_raw = arguments.get("plan", {})
-        from src.skills.live_plan_generator import LivePlanDraft
-
-        # 计划必须由统一领域模型恢复，避免 Runtime 与 Graph 各维护一套计划结构。
-        plan = LivePlanDraft.model_validate(plan_raw)
-
-        gate, audit_id = service.setup_live_session(
-            room_id=context.room_id,
-            plan=plan,
-            trace_id=context.trace_id,
-            confirmed_setup=True,
-            idempotency_key=context.idempotency_key,
-        )
-        return _SkillHandlerResult(
-            output={"allowed": gate.allowed, "setup_status": "prepared"},
-            audit_id=audit_id,
+        return AdapterSuccess(
+            output={"products": [product.model_dump(mode="json") for product in products]},
+            side_effect_state=SideEffectState.NOT_SENT,
         )
 
-
-# ── 启动与装配注册 ──────────────────────────────────────────────────
+    async def set_price(self, request: AdapterRequest) -> AdapterResult:
+        """播前兼容 Port 不允许执行价格写入。"""
+        return FailureFact(
+            category=FailureCategory.POLICY_DENIED,
+            external_code="pre_live_compat.set_price_denied",
+            side_effect_state=SideEffectState.NOT_SENT,
+            attempt_id=request.attempt_id,
+        )
 
 
 def build_pre_live_handlers(
     service: PreLiveBusinessFlowService | None = None,
 ) -> dict[str, _SkillHandler]:
-    """为单个 Executor 创建局部 Handler 映射，不读写全局注册状态。"""
+    """为单个 Executor 创建播前四个 Handler 的局部兼容映射。"""
+    resolved_service = service or _get_service()
+    handlers = build_skill_handlers(
+        SkillRuntimeDependencies(
+            platform=_PreLiveServiceProductPort(resolved_service),
+            legacy_pre_live_service=resolved_service,
+        )
+    )
     return {
-        "query_products": _QueryProductsHandler(service),
-        "generate_live_plan": _GenerateLivePlanHandler(service),
-        "generate_product_card": _GenerateProductCardHandler(service),
-        "setup_live_session": _SetupLiveSessionHandler(service),
+        "query_products": handlers["query_products"],
+        "generate_live_plan": handlers["generate_live_plan"],
+        "generate_product_card": handlers["generate_product_card"],
+        "setup_live_session": handlers["setup_live_session"],
     }
 
 
 def register_pre_live_handlers(service: PreLiveBusinessFlowService | None = None) -> None:
-    """注册四个播前 Handler。
-
-    默认导入路径使用惰性共享服务；Facade 装配时传入其 legacy service，
-    让 Runtime 与 legacy 共享相同 Repository 和 AuditStore，便于灰度比较
-    和测试隔离。重复注册会按 skill_id 覆盖旧实例。
-    """
+    """注册四个播前 Handler，保持既有导入副作用兼容。"""
     for skill_id, handler in build_pre_live_handlers(service).items():
         register_handler(skill_id, handler)
 

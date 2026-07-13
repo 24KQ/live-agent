@@ -223,6 +223,53 @@ class FakeLiveCommercePlatform(ProductPricingPort, LiveSessionPort, LiveOperatio
             side_effect_state=SideEffectState.CONFIRMED,
         )
 
+    async def resolve_product_context(self, request: AdapterRequest) -> AdapterResult:
+        """只读返回售罄商品与备选商品快照，供批次一确定性 Handler 使用。
+
+        该方法是 D-063 的最小 Port 修正：它不修改库存、价格、版本或会话状态，
+        只把 Fake 平台当前事实转换为可信快照。Handler 不能再从旧 Graph State
+        读取商品，也不能在缺失商品时伪造结果。
+        """
+        sold_out_product_id = str(request.payload.get("sold_out_product_id") or "")
+        failure = self._before_send_failure("resolve_product_context", sold_out_product_id, request)
+        if failure is not None:
+            return failure
+        sold_out_product = self._products.get(sold_out_product_id)
+        if sold_out_product is None:
+            return self._failure(
+                request,
+                FailureCategory.INVALID_INPUT,
+                "fake.product_not_found",
+                SideEffectState.NOT_SENT,
+            )
+
+        backup_product_id = request.payload.get("backup_product_id")
+        backup_product: FakePlatformProduct | None
+        if backup_product_id:
+            candidate = self._products.get(str(backup_product_id))
+            backup_product = (
+                candidate
+                if candidate is not None and candidate.product_id != sold_out_product_id
+                and candidate.is_active and candidate.inventory > 0
+                else None
+            )
+        else:
+            backup_product = next(
+                (
+                    item
+                    for item in sorted(self._products.values(), key=lambda value: value.product_id)
+                    if item.product_id != sold_out_product_id and item.is_active and item.inventory > 0
+                ),
+                None,
+            )
+        return AdapterSuccess(
+            output={
+                "sold_out_product": sold_out_product.model_dump(mode="json"),
+                "backup_product": None if backup_product is None else backup_product.model_dump(mode="json"),
+            },
+            side_effect_state=SideEffectState.NOT_SENT,
+        )
+
     async def current_context(self, request: AdapterRequest) -> AdapterResult:
         """返回 Fake 中可推导的库存告警，弹幕摘要保持由调用方显式提供。"""
         failure = self._before_send_failure("current_context", request.room_id, request)

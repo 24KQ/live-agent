@@ -175,6 +175,62 @@ def test_sold_out_returns_next_active_product_as_backup() -> None:
     assert result.output["backup_product"]["product_id"] == "p002"
 
 
+def test_resolve_product_context_is_read_only_and_returns_backup_snapshot() -> None:
+    """只读上下文解析应返回可信商品快照，且不得修改 Fake 平台状态。"""
+    sold_out = FakePlatformProduct(
+        product_id="p001",
+        name="售罄商品",
+        price=Decimal("39.90"),
+        inventory=0,
+        version=3,
+        is_active=False,
+    )
+    backup = FakePlatformProduct(
+        product_id="p002",
+        name="备选商品",
+        price=Decimal("59.90"),
+        inventory=8,
+        version=1,
+    )
+    platform = FakeLiveCommercePlatform.from_fixture(_fixture(products=(sold_out, backup)))
+    before_sold_out = platform.product("p001")
+    before_backup = platform.product("p002")
+
+    result = asyncio.run(
+        platform.resolve_product_context(
+            _request().model_copy(
+                update={
+                    "payload": {
+                        "sold_out_product_id": "p001",
+                        "backup_product_id": "p002",
+                    }
+                }
+            )
+        )
+    )
+
+    assert not isinstance(result, FailureFact)
+    assert result.output["sold_out_product"]["product_id"] == "p001"
+    assert result.output["backup_product"]["product_id"] == "p002"
+    assert platform.product("p001") == before_sold_out
+    assert platform.product("p002") == before_backup
+
+
+def test_resolve_product_context_rejects_missing_sold_out_product() -> None:
+    """售罄商品不存在时应返回 INVALID_INPUT，而不是伪造商品上下文。"""
+    platform = FakeLiveCommercePlatform.from_fixture(_fixture())
+
+    result = asyncio.run(
+        platform.resolve_product_context(
+            _request().model_copy(update={"payload": {"sold_out_product_id": "missing"}})
+        )
+    )
+
+    assert isinstance(result, FailureFact)
+    assert result.category == FailureCategory.INVALID_INPUT
+    assert result.side_effect_state == SideEffectState.NOT_SENT
+
+
 def test_prepare_session_replays_the_same_session_for_one_idempotency_key() -> None:
     """相同建播幂等键只能得到原会话，不能创建第二个外部建播副作用。"""
     platform = FakeLiveCommercePlatform.from_fixture(_fixture())
