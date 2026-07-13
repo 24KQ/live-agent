@@ -211,6 +211,71 @@
 - `HUMAN_INTERRUPT` 已改为仅能由 Graph 在审批响应校验和审计写入后使用内部工厂创建；全部 13 个 Manifest 根 Schema 显式 `additionalProperties: false`，并更新冻结哈希。
 - Demo 同步改用受控工厂。Runtime 专项为 `110 passed`，默认全量为 `543 passed, 3 deselected, 9 warnings`；Phase 11B 仍未开始。
 
+## 2026-07-12 Phase 11B Design 持久化进度
+
+- 用户已审核并接受 Phase 11A Acceptance，Phase 11A 正式完成。
+- 已按 Just-in-Time 原则完成 Phase 11B Design 讨论，并新增 D-054 至 D-062：业务域 Port、有状态 Fake、绝对 deadline、原生 async、FailureFact、Attempt Store、三批路由、不可达 switch_product 清理、版本规则和验收门槛。
+- 已生成 `docs/superpowers/specs/phase-11b-unified-execution-platform-contract-design.md`；当前状态为“Phase 11B Design 待用户审核”。
+- 本轮只修改架构文档，没有修改业务代码、测试、依赖、配置或用户既有未提交文件，也没有运行业务测试。
+
+## 下一步
+
+- 用户确认执行 Phase 11B Implementation Plan。
+- 执行前重新读取 Phase 11B Design、Plan、决策日志和 worklog；按 TDD 实施 Adapter、Attempt Store 和三批 Handler 迁移，不提前实现 PlanEngine 或多 Agent。
+
+## 2026-07-12 Phase 11B Design 审核与实施计划进度
+
+- 用户已审核并接受 Phase 11B Design，Design 状态改为已冻结。
+- 已生成 `docs/superpowers/plans/2026-07-12-phase-11b-unified-execution-platform-contract-plan.md`，覆盖 Runtime 模型、Attempt Store、有状态 Fake、三批 Handler/路由迁移、同步桥接、Demo 与最终验收。
+- 本轮只修改设计与计划文档，没有修改业务代码、测试、依赖、配置或用户既有未提交文件，也没有运行业务测试。
+
+## 下一步
+
+- 用户确认执行 Phase 11B Implementation Plan。
+- 执行中必须按每个 Task 的 RED、GREEN、REFACTOR 和独立提交边界推进；任一关键不变量失败不得进入后续批次。
+
+## 2026-07-12 Phase 11B Task 1 进度
+
+- 用户已批准执行 Phase 11B Implementation Plan，当前在 `main` 工作区按既有提交链推进。
+- 已按 TDD 新增 `test_phase11b_models.py`；首次运行因缺少 `FailureCategory` 在收集阶段失败，随后实现 FailureFact、时区感知 deadline、AdapterRequest/AdapterSuccess、尝试上限和结果关联字段。
+- Task 1 专项加既有 Executor/Catalog 回归为 `32 passed in 0.48s`，并完成 diff 审查。
+- 已提交 Task 1：`3e33ec3 feat: add phase 11b runtime contracts`。
+- 尚未开始 Attempt Store、Fake Adapter、async Executor、剩余 Handler、路由或任何 Phase 12 代码。
+
+## 2026-07-12 Phase 11B Task 2 进度
+
+- 已按 TDD 新增 Attempt Store 单元测试；首次因模块缺失在收集阶段失败，随后实现内存 Operation/Attempt Store。
+- 已新增 PostgreSQL 集成测试和独立 Attempt DDL。组合运行发现 unit/integration 同名测试模块冲突，已重命名集成文件为 `test_phase11b_postgres_attempt_store.py`。
+- 并发集成测试进一步发现 SQL 只处理业务唯一索引冲突、未处理确定性 Operation ID 主键冲突；已改为 `ON CONFLICT DO NOTHING` 后读取并校验首次意图，组合验证为 `10 passed in 0.95s`。
+- Task 2 专项为 `7 passed in 0.88s`，迁移 dry-run 包含 `phase11b`；已提交 `5033dcf feat: persist phase 11b execution attempts`。
+
+## 2026-07-12 Phase 11B Task 3 进度
+
+- 已按 TDD 建立三个原生 async 业务域 Port：商品与价格、直播会话、播中运营；新增实例级有状态 Fake、冻结 Fixture 和按操作、资源、调用序号匹配的声明式故障脚本。
+- 首轮红灯覆盖 Port/Fake 缺失；随后发现售罄写操作在 `UNKNOWN_AFTER_SEND` 时错误返回成功，已补回归测试并修正为“状态可见、结果未知”的 `SIDE_EFFECT_UNKNOWN` 事实。
+- Task 1 至 Task 3 聚焦验证为 `17 passed in 0.94s`；本任务代码提交前未运行全量业务测试，也未修改 PlanEngine、多 Agent、真实淘宝 API 或动态插件机制。
+- 下一项为 Task 4：将 SkillExecutor 收敛为原生 async 单次尝试，接入 deadline、Attempt Store 与 FailureFact 传播。
+
+## 2026-07-12 Phase 11B Task 4 进度
+
+- 已将 SkillExecutor 收敛为唯一原生 async 单次尝试核心；四个既有播前 Handler 改为 async 签名，旧同步 Graph 只经拒绝嵌套事件循环的 `SyncSkillExecutorAdapter` 调用该核心。
+- 对带幂等键的调用，Runtime 先写入或重放唯一 Operation；首次调用才检查 deadline。发送前 deadline 到期闭合为 `TRANSIENT_INFRA/NOT_SENT`，Handler 已开始后 timeout 闭合为 `SIDE_EFFECT_UNKNOWN/UNKNOWN`，两者均不调用 Legacy fallback 或重试。
+- 成功终态以 Runtime 私有包络持久化业务输出和兼容审计关联，重放可返回首次 `audit_id`，避免建播幂等重放丢失既有审计证据。
+- Task 4 专项为 `19 passed in 0.41s`；全量 unit 为 `501 passed, 4 warnings in 6.19s`，warnings 是现有 FastAPI/Starlette 与 Kafka 弃用提示。本任务未修改 PlanEngine、多 Agent、真实淘宝 API 或动态插件机制。
+- 下一项为 Task 5：建立 13 个 Handler 的统一局部装配，并迁移批次一能力到业务域 Port 与统一 Handler 工厂。
+
+## 2026-07-13 Phase 11B Task 5 暂停记录
+
+- 已按 TDD 写入批次一统一 Handler 装配红灯并验证当前缺少 `handlers.py`；在实现前对照三个 Port、Manifest 与既有播中领域函数，发现备选商品和主播提示两个批次一 Skill 缺少获得可信商品状态的契约。
+- 为避免工作树遗留预期失败测试，已撤回本次尚未对应生产实现的红灯测试；没有修改业务代码、没有提交 Task 5。
+- 等待确认最小 Design 修正后恢复 Task 5，不能通过旧 Graph 状态读取、模拟结果或隐式 Legacy fallback 绕过该缺口。
+
+## 2026-07-13 Phase 11B Task 5 设计纠偏进度
+
+- 用户已批准最小 Port 契约修正。
+- 已新增 D-063：`LiveOperationsPort.resolve_product_context` 作为只读商品上下文解析方法，返回售罄商品和可选备选商品可信快照。
+- 该修正不新增 Skill、不改变公开参数 Schema、不升级 `1.0.0` 版本、不允许 Legacy fallback；接下来恢复 Task 5 的 RED/GREEN/REFACTOR。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

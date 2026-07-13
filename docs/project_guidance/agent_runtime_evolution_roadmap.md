@@ -2,7 +2,7 @@
 
 更新日期：2026-07-12
 
-文档状态：Phase 11A 技术验收完成，Acceptance 待用户审核
+文档状态：Phase 11A 用户验收已接受，Phase 11B Design 待用户审核
 
 适用范围：Phase 11 及之后的 Agent Runtime 演进
 
@@ -235,8 +235,10 @@ docs/worklog/progress.md
 
 ## 9. 当前状态与下一步
 
-Phase 11A Design 已完成代码对照审核并冻结，详细选择见 D-035 至 D-049。实施依据为 [Phase 11A Skill Runtime Implementation Plan](../superpowers/plans/2026-07-12-phase-11a-skill-runtime-plan.md) 与 [Phase 11A Skill Runtime Design](../superpowers/specs/phase-11a-skill-runtime-design.md)，技术验收证据见 [Phase 11A Skill Runtime Acceptance](../superpowers/reports/phase-11a-skill-runtime-acceptance.md)。
+Phase 11A Design 已完成代码对照审核并冻结，实施依据为 [Phase 11A Skill Runtime Implementation Plan](../superpowers/plans/2026-07-12-phase-11a-skill-runtime-plan.md) 与 [Phase 11A Skill Runtime Design](../superpowers/specs/phase-11a-skill-runtime-design.md)，技术验收证据见 [Phase 11A Skill Runtime Acceptance](../superpowers/reports/phase-11a-skill-runtime-acceptance.md)。用户已经接受该验收，Phase 11A 正式完成。
 
-当前阶段为 Phase 11A 技术验收完成、Acceptance 待用户审核。Phase 11B 保持未开始，下一步仅审核 Acceptance；用户接受后才按 Just-in-Time 原则讨论独立 Phase 11B Design。
+Phase 11B 的讨论结论已写入 [Phase 11B Unified Execution and Platform Contract Design](../superpowers/specs/phase-11b-unified-execution-platform-contract-design.md)。详细选择见 D-054 至 D-063：全部 13 个 Skill 统一进入 deadline、FailureFact、Attempt 审计和批次路由契约；平台状态能力通过业务域 Port 和有状态 Fake Adapter 执行。Task 5 追加的 D-063 只补齐播中运营 Port 的只读商品上下文解析，不改变 Skill 数量、公开 Schema 或版本。
 
-Phase 11B 至 Phase 14 继续只保留需求、目标、依赖和决策门，不提前冻结实现细节。后续阶段均在前一阶段验收后采用 Just-in-Time 方式完成独立 Design。
+当前阶段为 Phase 11B Task 5 执行中。Task 1 至 Task 4 已提交，Task 5 在统一 Handler 装配前完成最小 Port 契约纠偏后继续按 TDD 推进。实施依据为 [Phase 11B Unified Execution and Platform Contract Implementation Plan](../superpowers/plans/2026-07-12-phase-11b-unified-execution-platform-contract-plan.md)。不得提前实现动态配置、PlanEngine、自动重试、Replan、真实淘宝 API 或多 Agent。
+
+Phase 12 至 Phase 14 继续只保留需求、目标、依赖和决策门，不提前冻结实现细节。后续阶段均在前一阶段验收后采用 Just-in-Time 方式完成独立 Design。

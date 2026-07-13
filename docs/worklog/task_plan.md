@@ -89,7 +89,19 @@
 - [x] 完成 Task 9：全量技术验收与阶段留迹；Acceptance 状态为“技术验收完成，待用户审核”。
 - [x] 完成验收前审计幂等复审整改：完整事实冲突检测、显式 `READ COMMITTED`、测试替身语义对齐、PostgreSQL 流程 trace 隔离和全阶段 diff 空白修复。
 - [x] 完成最终审查 P1 整改：人工审批受控工厂、13 个 Manifest 根 Schema fail-closed、Demo 调用点收敛与 D-053 留迹。
-- [ ] 用户审核 Phase 11A Acceptance；审核完成前不进入 Phase 11B。
+- [x] 用户审核并接受 Phase 11A Acceptance。
+- [x] 完成 Phase 11B 业务域 Adapter、Fake、deadline、FailureFact、Attempt Store、三批迁移和验收门槛讨论。
+- [x] 生成 Phase 11B Unified Execution and Platform Contract Design。
+- [x] 用户审核并接受 Phase 11B Design。
+- [x] 生成 `2026-07-12-phase-11b-unified-execution-platform-contract-plan.md`，按 TDD 拆分实施、回归和验收。
+- [x] 用户确认执行 Phase 11B Implementation Plan。
+- [x] Phase 11B Task 1：FailureFact、deadline、Adapter 公共模型与 Manifest 单次尝试上限；提交 `3e33ec3`。
+- [x] Phase 11B Task 2：独立 Attempt Store、PostgreSQL 迁移和并发 claim 语义；提交 `5033dcf`。
+- [x] Phase 11B Task 3：有状态 Fake Platform、业务域 Port、Fixture 和声明式故障脚本；提交 `770ba8f`。
+- [x] Phase 11B Task 4：原生 async Executor、deadline、Attempt Store 和 FailureFact 传播；提交 `8eff0b2`。
+- [x] Phase 11B Task 5 前置纠偏：新增 D-063，确认 `LiveOperationsPort.resolve_product_context` 为只读商品上下文解析契约。
+- [ ] Phase 11B Task 5-9：统一 Handler 装配、三批路由迁移与 Demo。
+- [ ] Phase 11B Task 10：专项、回归、全量验收与 Acceptance 留迹。
 
 # 2026-07-11 Phase 7A 任务
 

@@ -131,6 +131,33 @@
 - 人工审批字段完整不等于来源可信。`HUMAN_INTERRUPT` 必须从已校验响应与已写入的审批审计派生，普通 Pydantic 构造不能成为 hard-gate 放行凭据。
 - Manifest 是唯一运行时契约时，额外字段拒绝不能只在四个已迁移 Skill 上实现；所有 13 个根 Schema 都必须显式 fail-closed，安全修正作为 D-035 的受控例外留痕。
 
+## 2026-07-12 Phase 11B Design 发现
+
+- “统一全部 Skill”不等于给每个确定性计算伪造外部 Adapter。统一的是 Runtime 的 deadline、失败事实、尝试证据和路由契约；只有读取或修改平台状态的能力跨越业务域 Port。
+- 高保真 Fake 的价值来自可重放的状态和故障顺序，而不是模拟 HTTP 外观。实例级状态与版本化 Fixture 能覆盖建播重放、售罄、价格版本冲突、限流和副作用未知，且不会污染测试。
+- deadline 只有在 Adapter 原生 async、支持协作取消时才有可靠语义。线程池超时不能证明外部写操作已经停止，发送后无法确认的结果必须保留为 `SIDE_EFFECT_UNKNOWN`。
+- 既有 `tool_call_audit` 的幂等性与外部调用意图不是同一类事实。独立 Attempt Store 先记录意图、后闭合终态，才能为重复调用、崩溃恢复和后续人工对账提供证据。
+- `FailureFact` 只描述事实，不能承载自动重试或 Replan 决定；否则会提前绕过 Phase 12 的集中 FailurePolicy。
+- 不可达的 `switch_product` dispatch 说明历史代码不能因出现在文档或 Reducer 中就被当作正式 Skill。Catalog 是否注册、是否有调用入口和是否受测试约束才是当前迁移范围的依据。
+
+## 2026-07-12 Phase 11B Task 3 发现
+
+- `UNKNOWN_AFTER_SEND` 不是“没有结果”的成功分支。对于改价、售罄等写操作，Fake 必须保留已发生的状态变更，同时返回 `SIDE_EFFECT_UNKNOWN`，使上层在后续阶段进入对账而非自动重放。
+- 故障脚本的调用序号属于单次 Adapter 调用事实。前置检查和写后未知处理必须复用同一条已匹配规则，否则同一次调用会错误消耗两次序号并改变副作用语义。
+
+## 2026-07-12 Phase 11B Task 4 发现
+
+- 对同一幂等 Operation 的重放，已持久化成功、确定失败或副作用未知事实必须优先于调用时已经到期的 deadline；否则一次安全重放会被错误改写为新的超时结论。
+- 首次调用若在发送前到期，仍需为带幂等键的请求写入并闭合“未发送”终态。这样后续重复请求只重放该事实，不会因继续尝试而改变外部副作用边界。
+- 同步 Graph 只允许通过一个拒绝嵌套事件循环的桥接器调用 async Runtime。在线程池或嵌套 loop 中伪造同步成功会破坏 deadline 的可解释性。
+
+## 2026-07-13 Phase 11B Task 5 实施前发现
+
+- 当前 `recommend_backup_product` 只有 `room_id` 与 `sold_out_product_id` 输入，但 `LiveOperationsPort` 没有“查询备选商品”或“读取直播间商品状态”的方法；Handler 若直接读取旧 Graph State，会绕过已冻结的 Port 边界。
+- 当前 `generate_on_live_prompt` 只有商品 ID，现有确定性领域函数需要售罄商品与可选备选商品的完整领域对象；在不改变 Skill 契约、也不增加可信读取 Port 的情况下，不能正确复用它。
+- 这是 Design/Port 契约遗漏，不应通过伪造文案、隐藏旧服务读取或新增未经决策的第十四个 Skill 绕过。Task 5 必须先完成最小设计纠正后才能继续。
+- 已确认的最小纠正是给 `LiveOperationsPort` 增加只读 `resolve_product_context`。它补平台状态读取边界，不产生副作用、不新增 Skill、不改变公开 Schema、不升级版本；Fake 与生产 Port 必须保持同一语义。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

@@ -597,3 +597,113 @@
 - **未选理由**：仅在 Executor 临时补充会使 Manifest 不再是完整契约；维持旧 Schema 或仅校验字段完整性均为 fail-open。
 - **影响**：所有人工审批测试和 Demo 必须使用受控工厂；任何新增 Manifest 根 Schema 都必须拒绝未声明字段；Schema 快照测试必须覆盖 13 个 Skill。
 - **重新评估条件**：未来引入可验证的审批签名或独立 Approval Store 后，可将内部工厂替换为对签名或审计事实的验证，但不得降低当前 fail-closed 行为。
+
+## D-054：Phase 11B 业务域 Adapter 边界
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 11A 的四个核心 Handler 仍直接依赖播前服务，而余下九个能力尚未进入 Runtime。若只为遗留 Handler 新增 Adapter，会留下两套平台、超时和错误边界。
+- **候选方案**：只为余下九个 Handler 建 Adapter；使用单一巨型平台 Adapter；按商品与价格、直播会话、播中运营拆分业务域 Port。
+- **最终选择**：使用商品与价格、直播会话、播中运营三个业务域 Port。全部 13 个 Skill 统一使用 Runtime 的 deadline、失败事实、尝试审计和路由契约；纯确定性排品、手卡、文案与聚合能力不伪装成外部调用，但其平台状态输入只可经对应 Port 获得。
+- **选择理由**：既避免巨型接口和两套执行语义，也不为没有外部状态交互的确定性逻辑虚构平台 API。
+- **未选理由**：只迁移九个 Handler 不符合统一平台契约；单一 Adapter 会混合价格、建播和播中状态职责。
+- **影响**：Phase 11B 会重构四个既有 Handler 的依赖边界，但不改变其公开业务输入或 Phase 11A Graph 外观。
+- **重新评估条件**：真实平台 API 显示三个 Port 的资源所有权或认证边界明显不一致时，可在不改变 Skill 契约的前提下调整 Port 划分。
+
+## D-055：有状态 Fake Adapter 与 Fixture 生命周期
+
+- **状态**：`ACCEPTED`
+- **背景**：固定返回 Fixture 无法验证价格版本冲突、建播重放、售罄状态和副作用未知等跨调用语义；直接接入真实淘宝 API 不属于本周期验收范围。
+- **候选方案**：固定响应 Fixture；实例级内存状态加版本化 Fixture；复用 PostgreSQL 或全局单例状态。
+- **最终选择**：Fake Adapter 采用实例级、可重置的内存状态，初始直播间、商品、会话和故障脚本来自版本化 Fixture。故障采用按操作、资源键和调用序号匹配的声明式脚本。
+- **选择理由**：能够确定性复放状态变化和错误顺序，同时不把平台模拟与 PlanStore、新数据库迁移或测试间全局污染耦合。
+- **未选理由**：固定 Fixture 无法证明状态一致性；PostgreSQL 和全局单例会扩大阶段范围或污染测试。
+- **影响**：每个测试和 Demo 必须显式装配独立 Fake 实例；随机故障不得作为验收输入。
+- **重新评估条件**：获得稳定的正式平台 Sandbox 后，可比较 Sandbox 契约测试与 Fake Fixture 的偏差，但不以真实凭据替代本地回归。
+
+## D-056：Deadline、异步 Adapter 与同步桥接
+
+- **状态**：`ACCEPTED`
+- **背景**：各层各自使用 timeout 会累积超时预算；同步函数放入线程池后，即使上层超时也可能继续产生外部副作用。
+- **候选方案**：调用方绝对 deadline 加原生异步 Adapter；仅 Manifest timeout；同步线程池包装全部 Adapter。
+- **最终选择**：可信执行上下文携带不可延长的绝对 `deadline_at`，Manifest 只声明单次尝试上限，Executor 和 Adapter 使用两者剩余时间的较小值。Adapter 统一提供原生 async 单次尝试与协作取消；现有同步 Graph/Harness 仅通过受限桥接等待同一核心，不新增公共同步 Runtime API。
+- **选择理由**：避免嵌套 timeout 透支预算，并使取消语义能够与后续 PlanEngine 的租约和并发控制对齐。
+- **未选理由**：只有 Manifest timeout 无法约束全链路耗时；线程池包装不能可靠停止已发出的外部写操作。
+- **影响**：发送前 deadline 到期记录未发送失败；发送后超时或断连且无法确认结果时必须返回 `SIDE_EFFECT_UNKNOWN`，不得伪装为可安全重试。
+- **重新评估条件**：某个真实 SDK 无法协作取消时，必须先证明其副作用查询或幂等能力，再决定是否允许接入。
+
+## D-057：外部失败事实边界
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 11A 仍会把多数 Handler 异常压缩为 `HANDLER_FAILED`，这不足以表达限流、版本冲突和副作用未知，且会迫使后续 PlanEngine 解析自由文本。
+- **候选方案**：Adapter 返回 FailureFact；Adapter 抛分类型异常；仅统一错误码。
+- **最终选择**：Adapter 返回 `AdapterSuccess` 或受控 `FailureFact`。FailureFact 只描述发生事实，使用 D-023 的八类失败分类，并可携带稳定外部码、`retry_after`、`attempt_id` 和副作用确认状态；不携带恢复动作。
+- **选择理由**：结果式契约可直接做组合和回归测试，并保留 FailurePolicy 对恢复动作的唯一决策权。
+- **未选理由**：异常路径不利于普通契约测试；只统一错误码会丢失限流、发送边界和对账所需证据。
+- **影响**：Adapter、Handler、Executor 和客户端均不得隐藏重试；Phase 11B 只传播 FailureFact，不实现自动重试、Replan 或人工 Command Ledger。
+- **重新评估条件**：出现真实平台错误无法由既有八类描述时，先补充失败证据并按 D-023 的重审规则讨论，不为单一供应商新增顶层类别。
+
+## D-058：独立 Attempt Store 与单一 Operation 重放
+
+- **状态**：`ACCEPTED`
+- **背景**：外部写调用在请求发送后超时，只有成功后写一条工具审计无法证明是否已经产生副作用；直接扩展既有 `tool_call_audit` 会改变已验证的幂等唯一键语义。
+- **候选方案**：独立 Attempt Store；扩展 `tool_call_audit`；只在 Fake 内存中记录。
+- **最终选择**：新增独立 Attempt Store。Runtime 以 `skill_id + version + room_id + idempotency_key` 建立唯一 Operation；首次调用先持久化不可变意图和 `attempt_id`，再调用 Adapter，最后写成功、确定失败或副作用未知终态。重复或并发调用只返回原 Operation/Attempt，绝不产生第二次 Adapter 请求。
+- **选择理由**：同时保留外部执行证据、避免重复副作用，并保持现有工具审计和重放语义兼容。
+- **未选理由**：扩表会扩大 Phase 11A 审计回归面；只存内存无法处理重启后的对账与证据回放。
+- **影响**：`tool_call_audit` 继续保存兼容结果审计，且可用 `attempt_id` 关联 Attempt Store；副作用未知的重放必须 fail-closed，等待未来对账协议处理。
+- **重新评估条件**：Phase 12 的 PlanStore 已经具有等价且经过验证的 Operation/Attempt 证据模型时，可评估合并查询视图，但不得丢失独立事实或改变写入顺序。
+
+## D-059：Phase 11B 三批迁移与路由
+
+- **状态**：`ACCEPTED`
+- **背景**：一次性把十三个能力切到新平台契约会把低风险读取、可确认状态变更和高风险改价的回归风险混在一起。
+- **候选方案**：两批按播前/播中划分；一次性迁移；按风险和副作用分三批并使用启动冻结批次路由。
+- **最终选择**：采用三项 `LEGACY | SKILL_RUNTIME` 启动冻结路由。批次一为 `query_products`、`generate_live_plan`、`generate_product_card`、`suggest_price_change`、`create_live_plan_draft`、`recommend_backup_product`、`generate_on_live_prompt`、`aggregate_danmaku_questions`、`generate_danmaku_reply`、`on_live_context_collect`；批次二为 `setup_live_session`、`handle_sold_out_event`；批次三为 `set_product_price`。
+- **选择理由**：先验证低风险和确定性能力，再验证可确认的建播/售罄状态变化，最后单独承受价格写入的最高风险；每批都能部署级回滚。
+- **未选理由**：按场景划分会让同批风险差异过大；一次性切换不利于定位和回滚。
+- **影响**：路由在进程装配时冻结，调用开始时钉住对应批次；回滚只影响新调用，Runtime 失败绝不自动回退 Legacy。写操作只允许在隔离 Fake 中进行新旧结果比较。
+- **重新评估条件**：真实运行证据证明某批次吞吐、风险或依赖明显不适合当前组合时，可新增决策调整批次，但不得把动态逐 Skill 开关作为默认方案。
+
+## D-060：不可达 switch_product 分支的清理边界
+
+- **状态**：`ACCEPTED`
+- **背景**：`AgentToolExecutor` 保留 `switch_product` legacy dispatch，但该名称不在 13 个 Manifest、ToolRegistry 投影、Runtime 测试或实际调用入口中，形成未治理且不可达的历史代码。
+- **候选方案**：保留并标记弃用；补为第十四个 Skill；删除不可达 dispatch，保留 Reducer 领域原语。
+- **最终选择**：删除 `AgentToolExecutor` 中不可达的 `switch_product` dispatch，不把它纳入 Phase 11B 的十三个 Skill。Reducer 中的切品领域原语保留；未来若重新暴露切品能力，必须先新增 Manifest、风险门禁、Adapter 契约和独立决策。
+- **选择理由**：消除未受 Catalog 治理的误导性路径，同时不在本阶段无证据地扩大工具范围。
+- **未选理由**：保留死代码会让后续执行者误判迁移范围；直接新增第十四个 Skill 超出已接受的迁移和验收边界。
+- **影响**：播后锁对领域原语的保护不受影响；Phase 11B 测试应证明 Executor 只暴露 Catalog 的十三个能力。
+- **重新评估条件**：业务需求确实要求播中切品，且能够定义可信状态、审批、幂等和平台副作用契约时。
+
+## D-061：Phase 11B Skill 版本规则
+
+- **状态**：`ACCEPTED`
+- **背景**：Adapter、审计和路由的内部迁移不一定改变调用契约，但参数、结果、幂等或副作用承诺发生变化时，继续沿用版本会损害后续恢复和回放的精确钉住能力。
+- **候选方案**：全部统一升至 1.1.0；版本永远不变；只有公开契约变化才升级对应 Skill。
+- **最终选择**：纯内部 Adapter、审计和实现重构保持当前 `1.0.0`。参数 Schema、输出语义、幂等/副作用承诺或门禁语义变化时，受影响 Skill 才升级到 `1.1.0`，并明确旧版本的受控拒绝或兼容路径。
+- **选择理由**：让版本代表可观察契约而不是代码重构批次，维持 D-008 的单活精确版本语义。
+- **未选理由**：全部升级会制造无意义的恢复不兼容；版本永远不变会使精确钉住失去价值。
+- **影响**：Phase 11B Design 和后续 Implementation Plan 必须逐项记录是否发生契约变化，不能隐式升级或隐式兼容。
+- **重新评估条件**：所有 Skill 形成独立发布制品或外部消费者需要语义版本范围协商时。
+
+## D-062：Phase 11B 验收门槛
+
+- **状态**：`ACCEPTED`
+- **背景**：仅证明 Handler 能返回成功，无法证明 deadline、失败事实、外部副作用和批次回滚是否符合统一执行契约。
+- **候选方案**：只跑全量测试；只做 Fake Adapter 单测；契约、状态、失败、迁移和系统回归共同验收。
+- **最终选择**：采用共同验收：十三个 Handler/Port 装配；可重置 Fake 与声明式故障；deadline、限流、版本冲突和副作用未知传播；意图先写与单一 Operation 幂等；每批独立路由/回滚；播前 Graph、播中 Harness、Replay/Evaluation 回归；成功建播、售罄、限流、版本冲突、deadline、副作用未知六种无外部依赖 Demo；专项、相关与默认全量测试、`git diff --check` 和编码检查。
+- **选择理由**：该门槛同时覆盖 Runtime、平台契约、生产约束和三场景已有链路，且不把尚未开始的 PlanEngine 和真实淘宝 API 作为验收条件。
+- **未选理由**：单独全量或 Fake 单测无法证明写入顺序、运行时路由和系统集成行为。
+- **影响**：任一关键不变量失败，Phase 11B 不得生成 Acceptance 或进入 Phase 12A。
+- **重新评估条件**：获得真实 Sandbox、稳定延迟基线或正式平台限流契约后，可增加性能和契约兼容门槛，但不得弱化当前安全与幂等门禁。
+
+## D-063：LiveOperationsPort 只读商品上下文解析
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 11B Task 5 准备迁移批次一 Handler 时发现，`recommend_backup_product` 只有 `room_id` 与 `sold_out_product_id`，`generate_on_live_prompt` 只有售罄 / 备选商品 ID；但既有确定性领域函数需要完整 `Product` 快照。现有 `LiveOperationsPort` 只有售罄写入和播中上下文读取，无法在不绕过 Port 的情况下提供可信商品状态。
+- **候选方案**：直接读取旧 Graph State 或旧服务；伪造最小商品对象；新增第十四个 Skill 查询商品上下文；给 `LiveOperationsPort` 增加只读商品上下文解析方法。
+- **最终选择**：给 `LiveOperationsPort` 增加 `resolve_product_context(request)`，返回 `sold_out_product` 与可选 `backup_product` 的可信快照。该方法只读、不产生副作用、不新增 Skill、不修改既有 Skill 公开参数 Schema，也不升级当前 `1.0.0` Skill 版本。
+- **选择理由**：它补齐了批次一迁移所需的平台状态读取边界，同时保持 D-054 的三 Port 架构、D-059 的十三个 Skill 迁移范围和 D-061 的版本规则。Handler 仍复用确定性领域函数，只是把可信输入来源固定到 Port。
+- **未选理由**：直接读取旧 Graph State 或旧服务会绕过冻结的 Port 边界；伪造商品对象会制造不可审计的业务事实；新增第十四个 Skill 会扩大 Phase 11B 范围并破坏既有 Catalog 门禁。
+- **影响**：FakeLiveCommercePlatform 必须实现同名只读方法；`recommend_backup_product` 与 `generate_on_live_prompt` 的 Runtime Handler 必须经该 Port 获取商品快照，禁止隐式 Legacy fallback。若售罄商品不存在，应返回结构化 `INVALID_INPUT` 事实；只读解析不得修改库存、版本、价格或会话状态。
+- **重新评估条件**：真实平台提供独立且更细粒度的商品上下文查询 API，或 Phase 12 PlanEngine 需要把商品上下文解析拆为独立可计划节点时，可重新评估是否引入新的 Manifest 和版本。
