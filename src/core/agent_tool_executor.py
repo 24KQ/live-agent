@@ -16,15 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import jsonschema
 from pydantic import ValidationError
-
-# jsonschema is optional for parameter validation; skip when unavailable
-_HAVE_JSONSCHEMA: bool = False
-try:
-    import jsonschema
-    _HAVE_JSONSCHEMA = True
-except ImportError:
-    pass
 
 from src.config.tool_registry import ToolNotFoundError, ToolRegistry
 from src.core.agent_decision import AgentObservation
@@ -36,7 +29,9 @@ from src.skill_runtime.compatibility import (
     observation_from_skill_result,
 )
 from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
+from src.skill_runtime.models import SkillCall, SkillExecutionContext, SkillExecutionRoute
 from src.skill_runtime.pre_live_handlers import build_pre_live_handlers
+from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.state.models import LifecycleStage
 
 
@@ -52,6 +47,7 @@ class AgentToolExecutor:
         registry: ToolRegistry,
         pre_live_service: Any,
         skill_executor: SyncSkillExecutorAdapter | None = None,
+        route_policy: RoutePolicy | None = None,
     ) -> None:
         """保留原有两参数构造方式，并允许测试或装配层注入同步 Runtime 适配器。
 
@@ -60,6 +56,9 @@ class AgentToolExecutor:
         """
         self._registry = registry
         self._service = pre_live_service
+        # RoutePolicy 是启动装配快照；执行期间不重新读取 Settings 或环境变量。
+        # 默认全部 LEGACY，避免 Phase 11B 未显式灰度时自动进入新执行链。
+        self._route_policy = route_policy or RoutePolicy.default()
         self._normalizer = CompatibilityArgumentNormalizer(pre_live_service)
         self._skill_executor = skill_executor or SyncSkillExecutorAdapter(
             SkillExecutor(handlers=build_pre_live_handlers(pre_live_service))
@@ -104,10 +103,11 @@ class AgentToolExecutor:
                 audit_id=None,
             )
 
-        # 四个核心工具由统一 Runtime 完成 Schema、门禁、幂等和 Handler 校验。
-        # 这里不再预先拦截 setup，否则 Runtime 无法返回统一的 pending/error 契约。
-        if tool_name in CORE_SKILL_IDS:
-            return self._dispatch_core_via_runtime(
+        route = self._route_policy.route_for_skill(tool_name)
+        if route == RouteConfig.SKILL_RUNTIME:
+            # Runtime 路径负责 Schema、门禁、幂等和 Handler 校验。该分支返回后不会
+            # fallback 到 legacy，避免同一个 Agent 决策在失败时产生第二次外部动作。
+            return self._dispatch_via_runtime(
                 tool_name=tool_name,
                 arguments=arguments,
                 room_id=room_id,
@@ -115,7 +115,7 @@ class AgentToolExecutor:
                 lifecycle=lifecycle_stage,
             )
 
-        # Step 3: 未迁移工具继续沿用原安全门禁和 legacy 派发。
+        # Step 3: LEGACY 路径继续沿用原安全门禁和旧服务派发。
         gate = evaluate_tool_gate(tool, confirmed=False)
         if not gate.allowed and gate.requires_confirmation:
             return AgentObservation(
@@ -125,10 +125,10 @@ class AgentToolExecutor:
                 audit_id=None,
             )
 
-        # Step 4: 派发到未迁移工具的 legacy 分支。
+        # Step 4: 派发到 legacy 分支。
         return self._dispatch_legacy(tool_name, arguments, room_id, trace_id)
 
-    def _dispatch_core_via_runtime(
+    def _dispatch_via_runtime(
         self,
         tool_name: str,
         arguments: dict[str, Any],
@@ -136,20 +136,14 @@ class AgentToolExecutor:
         trace_id: str,
         lifecycle: LifecycleStage,
     ) -> AgentObservation:
-        """规范化并执行一个核心 Skill，异常时显式失败且绝不 legacy fallback。
+        """按 Runtime 契约执行一个 Skill，异常时显式失败且绝不 legacy fallback。
 
-        兼容输入校验和 Runtime 执行使用两个独立异常边界：前者只把 Pydantic
-        校验、显式 ValueError 和输入类型错误归类为 INVALID_ARGUMENTS；隐藏服务
-        或 Runtime 的其他异常统一归类为 HANDLER_FAILED，且两类摘要都不回显输入。
+        四个 Phase 11A 核心工具需要兼容旧参数形状，因此先进入规范化器；其余批次
+        一能力已经有显式 Runtime Schema，直接把业务参数交给 SkillCall。两类路径
+        都只调用一次 SyncSkillExecutorAdapter。
         """
         try:
-            call = self._normalizer.normalize(
-                tool_name=tool_name,
-                arguments=arguments,
-                room_id=room_id,
-                trace_id=trace_id,
-                lifecycle=lifecycle,
-            )
+            call = self._runtime_call(tool_name, arguments, room_id, trace_id, lifecycle)
         except CompatibilityEnrichmentError:
             # 可信旧服务的调用异常、返回形状错误和模型校验失败都属于补全链路失败。
             # 固定摘要不得包含服务返回数据，也不得回退 legacy 或调用 Runtime。
@@ -189,6 +183,105 @@ class AgentToolExecutor:
                 audit_id=None,
             )
 
+    def _runtime_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        room_id: str,
+        trace_id: str,
+        lifecycle: LifecycleStage,
+    ) -> SkillCall:
+        """构造 Runtime SkillCall，并隔离四个旧核心工具的兼容规范化边界。"""
+        if tool_name in CORE_SKILL_IDS:
+            return self._normalizer.normalize(
+                tool_name=tool_name,
+                arguments=arguments,
+                room_id=room_id,
+                trace_id=trace_id,
+                lifecycle=lifecycle,
+            )
+        return SkillCall(
+            skill_id=tool_name,
+            version="1.0.0",
+            context=SkillExecutionContext(
+                room_id=room_id,
+                trace_id=trace_id,
+                lifecycle=lifecycle,
+                execution_route=SkillExecutionRoute.SKILL_RUNTIME,
+                # Phase 11B 仍保留旧 AgentToolExecutor 参数形状；需要幂等的非核心
+                # Runtime Skill 先从旧 arguments 读取键，后续批次会把写操作参数收紧。
+                idempotency_key=(
+                    arguments.get("idempotency_key")
+                    if isinstance(arguments.get("idempotency_key"), str)
+                    else None
+                ),
+            ),
+            arguments=arguments,
+        )
+
+    def _legacy_product_from_arguments(
+        self,
+        arguments: dict[str, Any],
+        room_id: str,
+        trace_id: str,
+    ) -> Any:
+        """为 LEGACY 单商品手卡路径解析商品对象。
+
+        该 helper 只维护旧 AgentToolExecutor 的兼容外观；Runtime 路径仍由
+        CompatibilityArgumentNormalizer 生成冻结快照并接受严格 Schema 校验。
+        """
+        from src.skills.product_catalog import CatalogProduct
+
+        if "product" in arguments:
+            return CatalogProduct.model_validate(arguments["product"])
+        products = arguments.get("products")
+        if products is None:
+            products = self._service.query_products(room_id, trace_id)
+        catalog_products = [CatalogProduct.model_validate(product) for product in products]
+        product_id = arguments.get("product_id")
+        if product_id is None and catalog_products:
+            return catalog_products[0]
+        for product in catalog_products:
+            if product.product_id == product_id:
+                return product
+        raise ValueError("legacy product not found")
+
+    def _legacy_plan_from_arguments(
+        self,
+        arguments: dict[str, Any],
+        room_id: str,
+        trace_id: str,
+    ) -> Any:
+        """为 LEGACY setup 路径恢复旧计划对象。"""
+        from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
+        from src.skills.product_catalog import CatalogProduct
+
+        if "plan" in arguments:
+            return LivePlanDraft.model_validate(arguments["plan"])
+        products = arguments.get("products")
+        if products is None:
+            products = self._service.query_products(room_id, trace_id)
+        catalog_products = [CatalogProduct.model_validate(product) for product in products]
+        generated_plan = self._service.generate_plan(room_id, catalog_products, trace_id)
+        plan_item_ids = arguments.get("plan_item_ids")
+        if not plan_item_ids:
+            return generated_plan
+        generated_items = {item.product_id: item for item in generated_plan.items}
+        selected_items = [
+            LivePlanItem(
+                rank=index,
+                product_id=generated_items[product_id].product_id,
+                product_name=generated_items[product_id].product_name,
+                role=generated_items[product_id].role,
+                reason=generated_items[product_id].reason,
+            )
+            for index, product_id in enumerate(plan_item_ids, start=1)
+            if product_id in generated_items
+        ]
+        if len(selected_items) != len(plan_item_ids):
+            raise ValueError("legacy plan item not found")
+        return LivePlanDraft(room_id=room_id, trace_id=trace_id, items=selected_items)
+
     def _dispatch_legacy(
         self,
         tool_name: str,
@@ -196,11 +289,11 @@ class AgentToolExecutor:
         room_id: str,
         trace_id: str,
     ) -> AgentObservation:
-        """派发九个尚未迁移的工具；四个核心工具不得出现在本方法中。"""
-        # Step 4a: Parameter schema validation (optional dep, skip when no jsonschema)
+        """派发 LEGACY 路径工具；Runtime 路由失败不会进入本方法。"""
+        # Step 4a: jsonschema 是 Phase 11B 声明依赖，legacy 路径也必须强制校验。
         try:
             tool = self._registry.get(tool_name)
-            if _HAVE_JSONSCHEMA and tool.parameter_schema:
+            if tool.parameter_schema and tool_name not in CORE_SKILL_IDS:
                 jsonschema.validate(instance=arguments, schema=tool.parameter_schema)
         except ToolNotFoundError:
             pass  # already checked in execute()
@@ -212,6 +305,72 @@ class AgentToolExecutor:
                 audit_id=None,
             )
         try:
+            # === PRE_LIVE 核心 legacy 工具 ===
+            if tool_name == "query_products":
+                products = self._service.query_products(room_id, trace_id)
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success",
+                    summary=f"queried products: {len(products)}",
+                    audit_id=None,
+                )
+
+            elif tool_name == "generate_live_plan":
+                products = arguments.get("products")
+                if products is None:
+                    products = self._service.query_products(room_id, trace_id)
+                plan = self._service.generate_plan(room_id, products, trace_id)
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success",
+                    summary=f"generated live plan: {len(plan.items)} items",
+                    audit_id=None,
+                )
+
+            elif tool_name == "generate_product_card":
+                product = self._legacy_product_from_arguments(arguments, room_id, trace_id)
+                if hasattr(self._service, "generate_card"):
+                    self._service.generate_card(room_id, product, trace_id)
+                else:
+                    from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
+
+                    plan = LivePlanDraft(
+                        room_id=room_id,
+                        trace_id=trace_id,
+                        items=[
+                            LivePlanItem(
+                                rank=1,
+                                product_id=product.product_id,
+                                product_name=product.name,
+                                role="引流款",
+                                reason="legacy single card",
+                            )
+                        ],
+                    )
+                    self._service.generate_cards(room_id, plan, [product], trace_id)
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success",
+                    summary=f"generated product card: {product.product_id}",
+                    audit_id=None,
+                )
+
+            elif tool_name == "setup_live_session":
+                plan = self._legacy_plan_from_arguments(arguments, room_id, trace_id)
+                gate, audit_id = self._service.setup_live_session(
+                    room_id=room_id,
+                    plan=plan,
+                    trace_id=trace_id,
+                    confirmed_setup=bool(arguments.get("confirmed_setup", False)),
+                    idempotency_key=arguments.get("idempotency_key"),
+                )
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="success" if gate.allowed else "pending",
+                    summary=gate.reason,
+                    audit_id=audit_id,
+                )
+
             # === ON_LIVE 工具 ===
             if tool_name == "on_live_context_collect":
                 danmaku = arguments.get("danmaku_summary", [])
@@ -220,16 +379,6 @@ class AgentToolExecutor:
                     tool_name=tool_name,
                     status="success",
                     summary=f"collected context: {len(danmaku)} danmaku groups, {len(alerts)} alerts",
-                    audit_id=None,
-                )
-
-            elif tool_name == "switch_product":
-                # hard-gate 工具，需人审确认
-                product_id = arguments.get("product_id", "")
-                return AgentObservation(
-                    tool_name=tool_name,
-                    status="pending",
-                    summary=f"switch_product requires human approval (hard-gate): {product_id}",
                     audit_id=None,
                 )
 

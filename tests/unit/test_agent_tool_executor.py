@@ -10,7 +10,17 @@ from decimal import Decimal
 from src.config.tool_registry import get_default_tool_registry
 from src.core.agent_decision import AgentToolCall
 from src.core.agent_tool_executor import AgentToolExecutor
+from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.skills.product_catalog import CatalogProduct
+
+
+def _runtime_policy() -> RoutePolicy:
+    """需要验证 Runtime 摘要或门禁时，测试显式启用前两批新执行链。"""
+    return RoutePolicy(
+        batch1=RouteConfig.SKILL_RUNTIME,
+        batch2=RouteConfig.SKILL_RUNTIME,
+        batch3=RouteConfig.LEGACY,
+    )
 
 
 class FakeService:
@@ -103,7 +113,11 @@ class TestAgentToolExecutor:
         """generate_live_plan 应经统一 Runtime 执行并返回其稳定摘要。"""
         registry = get_default_tool_registry()
         service = FakeService()
-        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        executor = AgentToolExecutor(
+            registry=registry,
+            pre_live_service=service,
+            route_policy=_runtime_policy(),
+        )
         obs = executor.execute(
             tool_name="generate_live_plan", arguments={"room_id": "room-001", "products": service.products},
             room_id="room-001", trace_id="trace-001",
@@ -119,7 +133,11 @@ class TestParamValidation:
         """兼容 setup 即使参数可补全，缺少可信审批也必须保持 pending。"""
         registry = get_default_tool_registry()
         service = FakeService()
-        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        executor = AgentToolExecutor(
+            registry=registry,
+            pre_live_service=service,
+            route_policy=_runtime_policy(),
+        )
         obs = executor.execute(
             tool_name="setup_live_session",
             arguments={

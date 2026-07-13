@@ -199,8 +199,8 @@ def test_invalid_arguments_never_call_registered_handler() -> None:
 
 
 def test_missing_handler_returns_controlled_error() -> None:
-    """已注册 Manifest 但尚未迁移 Handler 时返回稳定错误码。"""
-    result = SyncSkillExecutorAdapter().execute(
+    """已注册 Manifest 但当前 Executor 未装配 Handler 时返回稳定错误码。"""
+    result = SyncSkillExecutorAdapter(SkillExecutor(handlers={})).execute(
         _build_call(
             skill_id="suggest_price_change",
             args={"product_id": "p001", "suggested_price": "29.90"},

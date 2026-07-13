@@ -70,10 +70,7 @@ class RoutedPreLiveBusinessService:
     def from_settings(cls, settings: Settings | None = None) -> "RoutedPreLiveBusinessService":
         """从启动配置装配共享业务服务、Handler 和不可变路由。"""
         resolved_settings = settings or Settings()  # type: ignore[call-arg]
-        policy = RoutePolicy(
-            generation=resolved_settings.skill_route_prelive_generation,
-            setup=resolved_settings.skill_route_prelive_setup,
-        )
+        policy = RoutePolicy.from_settings(resolved_settings)
         catalog_repository = ProductCatalogRepository(resolved_settings)
         audit_store = ToolCallAuditStore(resolved_settings)
         legacy_service = PreLiveBusinessFlowService(catalog_repository, audit_store)

@@ -76,6 +76,16 @@ def observation_from_skill_result(
     只能依赖易变的自然语言错误信息。
     """
     summary = result.summary
+    if result.failure is not None:
+        # AgentObservation 没有结构化 failure 字段；这里用稳定、脱敏的摘要片段保留
+        # FailureFact 的关键证据，供旧 planner、回放和人工排查识别失败类别与 Attempt。
+        evidence = [
+            result.failure.category.value,
+            f"attempt_id={result.failure.attempt_id}",
+        ]
+        summary = f"{summary} ({', '.join(evidence)})"
+    elif result.attempt_id is not None:
+        summary = f"{summary} (attempt_id={result.attempt_id})"
     if result.error_code is not None:
         summary = f"{result.error_code.value}: {summary}"
     return AgentObservation(

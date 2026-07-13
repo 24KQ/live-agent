@@ -22,8 +22,18 @@ from src.skill_runtime.models import (
     SkillExecutionStatus,
     SkillErrorCode,
 )
+from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
 from src.skills.product_catalog import CatalogProduct
+
+
+def _runtime_policy() -> RoutePolicy:
+    """Phase 11A 兼容测试显式开启前两批 Runtime，避免依赖 Task 6 默认路由。"""
+    return RoutePolicy(
+        batch1=RouteConfig.SKILL_RUNTIME,
+        batch2=RouteConfig.SKILL_RUNTIME,
+        batch3=RouteConfig.LEGACY,
+    )
 
 
 def _product(product_id: str, name: str) -> CatalogProduct:
@@ -248,6 +258,7 @@ def test_rules_planner_card_call_enriches_first_planned_product_once() -> None:
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -403,6 +414,7 @@ def test_each_core_tool_calls_sync_skill_executor_exactly_once(
         registry=get_default_tool_registry(),
         pre_live_service=service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(tool_name, arguments, "room-core", "trace-core")
@@ -426,6 +438,7 @@ def test_setup_without_trusted_approval_stays_pending_even_when_legacy_flag_is_t
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -473,6 +486,7 @@ def test_core_compatibility_rejects_unknown_keys_before_enrichment_or_runtime(
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -539,6 +553,7 @@ def test_compatibility_input_errors_are_classified_and_sanitized(
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -566,6 +581,7 @@ def test_runtime_error_maps_status_summary_audit_and_stable_error_code() -> None
         get_default_tool_registry(),
         RecordingService(),
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -585,6 +601,7 @@ def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -607,6 +624,7 @@ def test_compatibility_service_value_error_remains_sanitized_handler_failure() -
         get_default_tool_registry(),
         RaisingService(),
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -648,6 +666,7 @@ def test_invalid_enrichment_data_returns_sanitized_handler_failure(
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(
@@ -689,6 +708,7 @@ def test_planner_shape_card_enrichment_failures_are_sanitized(
         get_default_tool_registry(),
         service,
         skill_executor=runtime,
+        route_policy=_runtime_policy(),
     )
 
     observation = executor.execute(

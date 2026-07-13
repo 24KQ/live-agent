@@ -92,6 +92,9 @@ def test_skill_route_defaults_to_legacy() -> None:
 
     assert settings.skill_route_prelive_generation == "LEGACY"
     assert settings.skill_route_prelive_setup == "LEGACY"
+    assert settings.skill_route_phase11b_batch1 == "LEGACY"
+    assert settings.skill_route_phase11b_batch2 == "LEGACY"
+    assert settings.skill_route_phase11b_batch3 == "LEGACY"
 
 
 def test_skill_route_can_be_set_via_environment_variable() -> None:
@@ -100,7 +103,13 @@ def test_skill_route_can_be_set_via_environment_variable() -> None:
     settings = build_test_settings(
         SKILL_ROUTE_PRELIVE_GENERATION="SKILL_RUNTIME",
         SKILL_ROUTE_PRELIVE_SETUP="LEGACY",
+        SKILL_ROUTE_PHASE11B_BATCH1="LEGACY",
+        SKILL_ROUTE_PHASE11B_BATCH2="SKILL_RUNTIME",
+        SKILL_ROUTE_PHASE11B_BATCH3="SKILL_RUNTIME",
     )
 
     assert settings.skill_route_prelive_generation == "SKILL_RUNTIME"
     assert settings.skill_route_prelive_setup == "LEGACY"
+    assert settings.skill_route_phase11b_batch1 == "LEGACY"
+    assert settings.skill_route_phase11b_batch2 == "SKILL_RUNTIME"
+    assert settings.skill_route_phase11b_batch3 == "SKILL_RUNTIME"

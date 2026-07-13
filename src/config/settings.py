@@ -143,6 +143,19 @@ class Settings(BaseSettings):
     skill_route_prelive_setup: Literal["LEGACY", "SKILL_RUNTIME"] = Field(
         default="LEGACY", validation_alias="SKILL_ROUTE_PRELIVE_SETUP"
     )
+    # ── Phase 11B 三批启动冻结路由配置 ──────────────────────────────────
+    # 三批字段是后续统一执行契约的正式入口；旧 Phase 11A generation/setup 字段
+    # 只作为兼容别名保留到 Phase 12 验收。RoutePolicy.from_settings 会在“新批次
+    # 字段未显式配置”时读取旧别名，从而支持旧 .env 平滑过渡。
+    skill_route_phase11b_batch1: Literal["LEGACY", "SKILL_RUNTIME"] = Field(
+        default="LEGACY", validation_alias="SKILL_ROUTE_PHASE11B_BATCH1"
+    )
+    skill_route_phase11b_batch2: Literal["LEGACY", "SKILL_RUNTIME"] = Field(
+        default="LEGACY", validation_alias="SKILL_ROUTE_PHASE11B_BATCH2"
+    )
+    skill_route_phase11b_batch3: Literal["LEGACY", "SKILL_RUNTIME"] = Field(
+        default="LEGACY", validation_alias="SKILL_ROUTE_PHASE11B_BATCH3"
+    )
 
 
 

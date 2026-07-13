@@ -251,8 +251,17 @@ def test_build_pre_live_handlers_returns_instance_local_mappings() -> None:
     assert first is not second
     assert set(first) == set(second) == {
         "query_products",
+        "suggest_price_change",
+        "set_product_price",
+        "create_live_plan_draft",
         "generate_live_plan",
         "generate_product_card",
         "setup_live_session",
+        "handle_sold_out_event",
+        "recommend_backup_product",
+        "generate_on_live_prompt",
+        "aggregate_danmaku_questions",
+        "generate_danmaku_reply",
+        "on_live_context_collect",
     }
     assert all(first[skill_id] is not second[skill_id] for skill_id in first)
