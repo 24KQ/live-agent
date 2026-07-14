@@ -414,6 +414,8 @@ git commit -m "feat: migrate session and sold-out skills"
 - Modify: src/core/agent_tool_executor.py
 - Modify: tests/unit/test_skill_catalog.py
 - Modify: tests/unit/test_phase11b_routing.py
+- Modify: tests/unit/test_skill_executor.py
+- Modify: tests/unit/test_phase11b_executor.py
 - Create: tests/unit/test_phase11b_handlers_batch3.py
 - Create: tests/integration/test_phase11b_price_flow.py
 - Regression: tests/unit/test_agent_tool_executor_skill_compat.py
@@ -434,7 +436,7 @@ def test_price_schema_requires_explicit_resource_version() -> None:
         "required": ["product_id", "price", "expected_version"],
         "properties": {
             "product_id": {"type": "string"},
-            "price": {"type": "string"},
+            "price": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
             "expected_version": {"type": "integer", "minimum": 1},
         },
         "additionalProperties": False,
@@ -478,6 +480,8 @@ async def test_price_preconditions_never_create_attempt_or_call_port(
 `CountingAttemptStore` 只在测试内继承 `InMemoryAttemptStore` 并覆写
 `claim_or_replay()` 递增 `claims`；生产 Store 不增加测试专用的列表查询 API。
 
+非法价格（`Infinity`、`NaN`、负数、指数写法和空值）必须由 Schema 在 Attempt / Port 前返回 `INVALID_ARGUMENTS`；不得写入非有限 Decimal，也不得把未发送请求错误闭合为 `SIDE_EFFECT_UNKNOWN`。
+
 `tests/integration/test_phase11b_price_flow.py` 通过内部 `SkillCall`、受控 `ApprovalContext` 和独立 Fake Platform / Attempt Store 覆盖成功、商品资源版本冲突、限流、发送后未知及同一 Operation 重放。冲突必须断言 `FailureCategory.VERSION_CONFLICT`，重放必须断言 Fake `set_price` 调用总数仍为 1。
 
 `tests/unit/test_phase11b_routing.py` 固定 AgentToolExecutor 的批次三兼容边界：Runtime SkillCall 钉住 `1.1.0`，`idempotency_key` 只进入 Context，业务 arguments 只保留 `product_id`、`price`、`expected_version`；`approval is None`，结果为 `pending`，没有 Attempt / Port 调用，也没有 Legacy fallback。另测启动冻结 `LEGACY` 路由仍能显式回滚新调用。
@@ -502,7 +506,7 @@ AgentToolExecutor 在构造时从 Catalog 复制 `skill_id -> 精确单活 versi
 
 - [ ] **Step 6: 运行 GREEN 与兼容回归。**
 
-Run: pytest tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_agent_tool_executor_skill_compat.py -q
+Run: pytest tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_agent_tool_executor_skill_compat.py tests/unit/test_skill_executor.py tests/unit/test_phase11b_executor.py -q
 
 Expected: PASS。
 
@@ -513,7 +517,7 @@ Expected: PASS；Catalog 版本分布、Schema 投影、AgentToolExecutor `1.1.0
 - [ ] **Step 7: 只暂存 Task 8 业务与测试文件并提交。**
 
 ~~~bash
-git add src/skill_runtime/catalog.py src/skill_runtime/handlers.py src/core/agent_tool_executor.py tests/unit/test_skill_catalog.py tests/unit/test_phase11b_routing.py tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_agent_tool_executor_skill_compat.py
+git add src/skill_runtime/catalog.py src/skill_runtime/handlers.py src/skill_runtime/compatibility.py src/core/agent_tool_executor.py tests/unit/test_skill_catalog.py tests/unit/test_phase11b_routing.py tests/unit/test_skill_executor.py tests/unit/test_phase11b_executor.py tests/unit/test_phase11b_handlers_batch3.py tests/integration/test_phase11b_price_flow.py tests/unit/test_agent_tool_executor_skill_compat.py
 git commit -m "feat: migrate high-risk price skill"
 ~~~
 

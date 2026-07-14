@@ -59,7 +59,7 @@ ToolCallAudit: 兼容结果审计，使用 attempt_id 关联 Attempt Store
 
 `SkillExecutionContext` 增加可信的绝对 `deadline_at`。业务 arguments、LLM 输出和兼容参数规范化都不得覆盖该字段。Manifest 只声明单次尝试上限，实际 timeout 为该上限与剩余 deadline 的较小值。
 
-`set_product_price@1.1.0` 的业务 arguments 固定为 `product_id: string`、`price: string`、`expected_version: integer` 且 `minimum: 1`，三项全部必填，根对象 `additionalProperties: false`。`idempotency_key`、`approval`、`room_id`、`trace_id`、deadline（模型字段为 `deadline_at`）和 route（模型字段为 `execution_route`）只属于 `SkillExecutionContext`，不得出现在该业务 Schema 中。
+`set_product_price@1.1.0` 的业务 arguments 固定为 `product_id: string`、`price: string`、`expected_version: integer` 且 `minimum: 1`，三项全部必填，根对象 `additionalProperties: false`。`price` 只接受匹配 `^[0-9]+(?:\.[0-9]+)?$` 的非负普通十进制字符串，在 Attempt 前拒绝 `Infinity`、`NaN`、负数、指数写法和空值。`idempotency_key`、`approval`、`room_id`、`trace_id`、deadline（模型字段为 `deadline_at`）和 route（模型字段为 `execution_route`）只属于 `SkillExecutionContext`，不得出现在该业务 Schema 中。
 
 版本错误与资源冲突必须在不同层返回。调用已退出 Catalog 的 `set_product_price@1.0.0` 时，Executor 在 Handler 与 Attempt 前返回 `SkillErrorCode.VERSION_MISMATCH`；调用有效 `1.1.0` 后，如果 `expected_version` 已落后于商品当前版本，`ProductPricingPort` Adapter 返回 `FailureFact`，其 `category=FailureCategory.VERSION_CONFLICT`。Schema 缺少 `expected_version` 属于 `INVALID_ARGUMENTS`，不得伪装成资源冲突。
 
