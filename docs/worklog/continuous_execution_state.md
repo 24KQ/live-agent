@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12A Task 9 与 Acceptance（`c88efdf`） |
-| 下一任务 | Task 1：SkillPolicyView 与事件公共模型 |
+| 最近完成任务 | Phase 12B Task 1：SkillPolicyView 与事件公共模型（`d794ff3`） |
+| 下一任务 | Task 2：Event Inbox 内存 Store 与状态机 |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | Task 1 全部门禁通过，待核对缓存区、提交并推送 |
+| 当前子步骤 | Task 2 行为门禁通过，待最终静态检查、缓存区核对、提交并推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `c88efdf feat: add phase 12a plan engine demo` |
-| 远端状态 | `origin/main=c88efdf` |
+| 当前业务基线 | `d794ff3 feat: add phase 12b event contracts` |
+| 远端状态 | `origin/main=d794ff3` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 1
+Phase / Task: Phase 12B / Task 2
 状态: COMMIT
-目标: 建立只读 SkillPolicyView、严格事件事实、可信 provenance 与不可伪造事件授权
-禁止事项: 不提前切换 handle_sold_out_event@2.0.0；不实现 Event Store/Kafka/冻结；不改变现有售罄执行行为
-当前 HEAD: c88efdf
-本 Task 文件: policy_view.py、events.py、skill_runtime models/catalog、两份 Task 1 单元测试与状态文档
+目标: 建立线程安全内存 Event Inbox、Occurrence、Application、lease/fencing 与显式状态机
+禁止事项: 不写 PostgreSQL/Kafka；不创建紧急 DAG；不覆盖首次事件 payload；不允许过期 Worker 晚到提交
+当前 HEAD: d794ff3
+本 Task 文件: event_store.py、event_state_machine.py、test_phase12b_event_store.py 与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: RED 30 failed；补强 RED 2 failed；专项 43 passed；共享回归 106 passed；unit 859 passed；integration 78 passed, 3 deselected
-错误与尝试次数: 首个多文件补丁因 Catalog import 上下文不符整体拒绝；一次同名字段补丁误命中 ApprovalContext，逐行检查后在测试前恢复
-设计偏差与决策编号: 尚无；遵循 D-051、D-077、D-078 与冻结 Task 1 计划
-下一条精确操作: 重新执行目标严格检查，暂存 Task 1 文件，核对 cached diff 后提交推送
+最近命令与结果: RED 13 failed；三轮补强 RED 分别 1/1/2 failed；最终专项 16 passed；unit 875 passed；integration 78 passed, 3 deselected
+错误与尝试次数: 1 个状态补丁上下文错误；4 个审查缺口均通过新增红灯修复
+设计偏差与决策编号: 尚无；遵循 D-077、D-079、D-080 与冻结 Task 2 计划
+下一条精确操作: 运行最终严格 UTF-8、compileall、diff 和编码扫描，暂存 Task 2 文件并核对 cached diff
 模型费用累计: 0 元
 ```
 
@@ -85,6 +85,10 @@ Phase / Task: Phase 12B / Task 1
 | Phase 12B Task 1 专项/共享回归 | `43 passed` / `106 passed` |
 | Phase 12B Task 1 完整验证 | unit `859 passed`；integration `78 passed, 3 deselected` |
 | Phase 12B Task 1 静态门禁 | 11 文件严格 UTF-8、compileall、边界扫描、diff 通过；编码扫描仅既有 `4 errors/58 warnings` |
+| Phase 12B Task 1 提交与推送 | `d794ff3`，`origin/main=d794ff3` |
+| Phase 12B Task 2 专项/公共聚合 | `16 passed` / `94 passed` |
+| Phase 12B Task 2 完整验证 | unit `875 passed`；integration `78 passed, 3 deselected` |
+| Phase 12B Task 2 静态门禁 | 8 文件严格 UTF-8、compileall、diff 通过；编码扫描仅既有 `4 errors/58 warnings` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

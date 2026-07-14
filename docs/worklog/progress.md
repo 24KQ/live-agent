@@ -385,6 +385,16 @@
 - Task 1 完整单元测试为 `859 passed, 4 warnings`；完整集成测试为 `78 passed, 3 deselected, 5 warnings`。
 - 11 个 Task 1 目标文件严格 UTF-8 往返、无 BOM/U+FFFD/混合换行/尾随空白检查通过；`compileall`、Catalog 边界扫描和 `git diff --check` 退出码均为 `0`。
 - 全仓编码扫描仍为既有 `4 errors/58 warnings`，Task 1 目标文件命中为 0；没有修改历史编码文件。
+- Phase 12B Task 1 已以 `d794ff3 feat: add phase 12b event contracts` 提交并推送；用户既有文件未纳入提交。
+- 连续执行游标切换到 Task 2 `RED`，开始内存 Event Inbox、Occurrence、Application、lease/fencing 和显式状态机，不提前实现 PostgreSQL 或 Kafka。
+- 首次 Task 2 状态补丁因总控计划实际句子不是列表项而整体拒绝；按实际文本拆分后重新应用，没有产生部分状态更新。
+- Phase 12B Task 2 RED 为 `13 failed`：`event_store` 与 `event_state_machine` 尚不存在，失败原因与冻结计划一致；开始最小 GREEN。
+- Task 2 核心 GREEN 实现显式 Inbox/Application 状态机、线程安全内存 Store、首次/重复/冲突 occurrence、lease/fencing 和 event/root Application 唯一性，专项为 `13 passed`。
+- 质量审查新增回拨接收时钟事务红灯，得到 `1 failed, 14 passed`；登记调整为先验证全部快照、最后统一发布，并保持 `updated_at` 单调，随后为 `15 passed`。
+- 质量审查新增完整 EventStore Protocol 红灯，准确列出 6 个缺失声明；补齐与内存实现一致的查询、heartbeat 和转移签名后，Task 2 专项为 `16 passed`。
+- 最终审查新增 heartbeat 时间单调和 Application 关联事实 write-once 红灯，得到 `2 failed, 14 passed`；统一使用单调更新时间并拒绝覆盖 Impact/plan 关联后，专项恢复为 `16 passed`。
+- Task 1-2 公共契约聚合为 `94 passed`；最终完整单元测试为 `875 passed, 4 warnings`，完整集成测试为 `78 passed, 3 deselected, 5 warnings`。
+- Task 2 最终专项为 `16 passed`；8 个目标文件严格 UTF-8 往返、`compileall` 与 `git diff --check` 通过，全仓编码扫描仍只有既有 `4 errors/58 warnings`。
 
 # 2026-07-11 Phase 7A 进度
 

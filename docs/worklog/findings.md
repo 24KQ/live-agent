@@ -233,6 +233,16 @@
 - 事件 canonical JSON 不能依赖 `json.dumps` 的默认宽松转换；tuple、非字符串 key、NaN、Infinity 和非 JSON 类型必须在摘要前显式拒绝。
 - Task 1 只发布授权要求字段。现有两个 hard-gate Skill 标记 `HUMAN_APPROVAL`，售罄 Skill 继续保持 `1.0.0 + NONE`，避免在 Task 6 Handler 原子切换前破坏运行契约。
 
+## 2026-07-15 Phase 12B Task 2 发现
+
+- “同摘要重复事件”和“同一传输 delivery 崩溃重放”不是同一种幂等：前者必须追加 `DUPLICATE` occurrence，后者必须返回原 occurrence，避免数据库已提交但 offset 未提交时制造第二条投递事实。
+- 摘要冲突是对事件身份的安全否定，不能受普通业务状态机终态限制。Store 保留首次 payload，但可从任意当前状态收敛到 `CONFLICT`、清除 lease，并让旧 Worker 的状态/token 校验失败。
+- 内存 Store 也需要事务式构造顺序。先占用传输坐标、后构造 Pydantic 快照会在验证失败时留下部分状态；正确顺序是先构造全部新快照，最后在锁内一次性发布映射。
+- lease 到期本身就必须拒绝 Worker 晚到提交，不能等到另一个 Worker 重领后才依靠新 fencing token 拒绝；重领则进一步递增 token，形成双重保护。
+- `EventStore` Protocol 必须声明查询、heartbeat、Inbox/Application 转移的完整契约，否则 PostgreSQL 实现可能在类型层漏掉恢复能力，即使内存实现已经存在这些方法。
+- Store 的审计时间必须单调。墙钟回拨时 heartbeat 可以保持现有 lease，但不能把 `updated_at` 写回更早时刻；所有记录更新取旧值与新时刻的最大值。
+- EventApplication 的 ImpactAnalysis、emergency plan ID 和 applied version 是关联事实，不是可变缓存。字段一旦写入只能重复相同值，后续状态转移不得覆盖，否则恢复查询会失去原处理证据。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
