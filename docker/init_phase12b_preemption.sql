@@ -56,6 +56,36 @@ ALTER TABLE plan_versions
     ADD COLUMN IF NOT EXISTS change_reason TEXT NOT NULL DEFAULT 'INITIAL',
     ADD COLUMN IF NOT EXISTS source_event_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
+-- 在途节点不强制取消。冻结事务先标记当前 NodeRun，Worker 仍可在原 lease/deadline
+-- 内写回完整结果；Replan 只读取 superseded=false 的可复用成功事实。
+ALTER TABLE node_runs
+    ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS superseded_by_event_id TEXT
+        REFERENCES plan_event_inbox(event_id) ON DELETE RESTRICT,
+    ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'node_runs_superseded_shape_check'
+          AND conrelid = 'node_runs'::regclass
+    ) THEN
+        ALTER TABLE node_runs
+            ADD CONSTRAINT node_runs_superseded_shape_check CHECK (
+                (superseded
+                    AND superseded_by_event_id IS NOT NULL
+                    AND superseded_at IS NOT NULL)
+                OR
+                (NOT superseded
+                    AND superseded_by_event_id IS NULL
+                    AND superseded_at IS NULL)
+            );
+    END IF;
+END
+$$;
+
 CREATE TABLE IF NOT EXISTS plan_event_occurrences (
     occurrence_id TEXT PRIMARY KEY,
     event_id TEXT NOT NULL
@@ -147,3 +177,7 @@ CREATE INDEX IF NOT EXISTS plan_runs_root_priority_idx
 CREATE INDEX IF NOT EXISTS plan_runs_trigger_event_idx
     ON plan_runs (trigger_event_id)
     WHERE trigger_event_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS node_runs_superseded_idx
+    ON node_runs (plan_run_id, superseded_by_event_id, node_id)
+    WHERE superseded;

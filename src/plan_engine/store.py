@@ -45,6 +45,7 @@ if TYPE_CHECKING:
         PlanCommandLedgerView,
         PlanCommandResult,
     )
+    from src.plan_engine.impact import ImpactAnalysis
 
 
 class PlanStoreInvariantError(RuntimeError):
@@ -338,6 +339,17 @@ class PlanStore(Protocol):
     def freeze_plan(self, *, plan_run_id: str) -> PlanRunView:
         """按 D-015 约束冻结 PlanRun。"""
 
+    def apply_impact_freeze(
+        self,
+        *,
+        plan_run_id: str,
+        expected_plan_version: int,
+        event_id: str,
+        analysis: "ImpactAnalysis",
+        now: datetime,
+    ) -> tuple[PlanNodeView, ...]:
+        """按确定性影响分析原子冻结分支，并标记受影响执行事实。"""
+
     def list_node_runs(self, plan_run_id: str, node_id: str | None = None) -> tuple[ClaimedNodeRunView, ...]:
         """列出独立保留的历史 NodeRun 视图。"""
 
@@ -482,6 +494,9 @@ class _NodeRunRecord:
     skill_version: str | None
     input_fingerprint: str | None
     deadline_at: datetime | None
+    superseded: bool = False
+    superseded_by_event_id: str | None = None
+    superseded_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -921,6 +936,11 @@ class InMemoryPlanStore:
                 raise PlanStoreInvariantError("旧 fencing token 不能调度重试")
             if node_run.state is not PlanNodeState.RUNNING:
                 raise PlanStoreInvariantError("只有 RUNNING NodeRun 可以调度重试")
+            # Impact freeze 允许当前 attempt 写回真实终态，但 superseded 已明确表示
+            # 该输入不再适用于当前计划。生成 RETRY_WAIT 会在稍后派生第二次外部调用，
+            # 因而必须在修改 NodeRun/PlanNode 前 fail-closed。
+            if node_run.superseded:
+                raise PlanStoreInvariantError("superseded NodeRun 禁止调度重试")
             if normalized_now >= node_run.lease_until:
                 raise PlanStoreInvariantError("租约已过期，禁止迟到重试调度")
 
@@ -1003,6 +1023,11 @@ class InMemoryPlanStore:
                 raise PlanStoreInvariantError("只能回收节点的当前 NodeRun")
             if record.state is not PlanNodeState.RUNNING:
                 raise PlanStoreInvariantError("只有 RUNNING NodeRun 可以回收")
+            # 过期只代表 Worker 丢失执行权，不会撤销售罄事件已经写入的 superseded
+            # 事实。受影响节点只能由后续不可变 Replan 创建新版本，普通 reclaim 不能
+            # 在旧版本复制输入并再次触发副作用。
+            if record.superseded:
+                raise PlanStoreInvariantError("superseded NodeRun 禁止 reclaim")
             if normalized_now < record.lease_until:
                 raise PlanStoreInvariantError("NodeRun 租约尚未过期，禁止 reclaim")
             locked_resource_keys = self._locked_resource_keys(normalized_now)
@@ -1133,18 +1158,21 @@ class InMemoryPlanStore:
                         plan_run,
                         state=PlanRunState.SUCCEEDED,
                     )
-            elif target_state is PlanNodeState.FAILED:
+            elif target_state is PlanNodeState.FAILED and not completed_run.superseded:
                 plan_run = self._plan_runs[record.plan_run_id]
                 self._plan_runs[record.plan_run_id] = replace(
                     plan_run,
                     state=PlanRunState.FAILED,
                 )
-            elif target_state is PlanNodeState.FROZEN:
+            elif target_state is PlanNodeState.FROZEN and not completed_run.superseded:
                 plan_run = self._plan_runs[record.plan_run_id]
                 self._plan_runs[record.plan_run_id] = replace(
                     plan_run,
                     state=PlanRunState.FROZEN,
                 )
+            # superseded NodeRun 的终态仍完整保存在 NodeRun 与 PlanNode，但它对应的
+            # 输入已被事件失效。PRODUCT 局部影响不能再通过旧 attempt 的 FAILED/FROZEN
+            # 结果升级为整张 PlanRun 失败或冻结，否则无关商品分支也会被错误阻断。
             return self._node_run_view(completed_run)
 
     def freeze_plan(self, *, plan_run_id: str) -> PlanRunView:
@@ -1168,6 +1196,108 @@ class InMemoryPlanStore:
             )
             self._plan_runs[plan_run_id] = frozen
             return self._plan_run_view(frozen)
+
+    def apply_impact_freeze(
+        self,
+        *,
+        plan_run_id: str,
+        expected_plan_version: int,
+        event_id: str,
+        analysis: "ImpactAnalysis",
+        now: datetime,
+    ) -> tuple[PlanNodeView, ...]:
+        """在单一 Store 锁内应用局部或全局协作式冻结。
+
+        尚未产生外部执行的节点进入 ``FROZEN``；已有 NodeRun 的受影响节点保留原
+        状态和输出通道，但最新执行事实先写入 superseded 关联。RUNNING Worker 仍须
+        通过原 lease/fencing 提交，冻结本身不伪造终态或取消外部调用。
+        """
+        from src.plan_engine.events import ImpactScope
+        from src.plan_engine.impact import ImpactAnalysis
+
+        normalized_now = self._aware_utc(now, "影响冻结时间")
+        selected_version = self._validate_version_number(expected_plan_version)
+        if not event_id:
+            raise PlanStoreInvariantError("event_id 不能为空")
+        if not isinstance(analysis, ImpactAnalysis):
+            raise PlanStoreInvariantError("必须使用 ImpactAnalysis 冻结计划")
+        with self._lock:
+            plan_run = self._plan_runs.get(plan_run_id)
+            if plan_run is None:
+                raise PlanStoreInvariantError("PlanRun 不存在")
+            self._validate_impact_identity(
+                plan_run=plan_run,
+                selected_version=selected_version,
+                event_id=event_id,
+                analysis=analysis,
+            )
+            affected_ids = set(analysis.affected_node_ids)
+            current_ids = set(
+                self._node_ids_by_plan_version[(plan_run_id, selected_version)]
+            )
+            if not affected_ids or not affected_ids <= current_ids:
+                raise PlanStoreInvariantError(
+                    "ImpactAnalysis 节点不属于当前 PlanVersion"
+                )
+
+            if analysis.scope in {ImpactScope.ROOM, ImpactScope.PLATFORM}:
+                if plan_run.state is PlanRunState.ACTIVE:
+                    plan_run = replace(plan_run, state=PlanRunState.FROZEN)
+                    self._plan_runs[plan_run_id] = plan_run
+                elif plan_run.state is not PlanRunState.FROZEN:
+                    raise PlanStoreInvariantError("终态 PlanRun 不能应用全局影响冻结")
+            elif plan_run.state not in {PlanRunState.ACTIVE, PlanRunState.FROZEN}:
+                raise PlanStoreInvariantError("终态 PlanRun 不能应用局部影响冻结")
+
+            freezable_states = {
+                PlanNodeState.PENDING,
+                PlanNodeState.READY,
+                PlanNodeState.RETRY_WAIT,
+                PlanNodeState.WAITING_APPROVAL,
+            }
+            for node_id in sorted(affected_ids):
+                node = self._nodes[node_id]
+                historical_ids = self._node_run_ids_by_node[node_id]
+                if historical_ids:
+                    current_run_id = historical_ids[-1]
+                    current_run = self._node_runs[current_run_id]
+                    if not current_run.superseded:
+                        self._node_runs[current_run_id] = replace(
+                            current_run,
+                            superseded=True,
+                            superseded_by_event_id=event_id,
+                            superseded_at=normalized_now,
+                        )
+                if node.state in freezable_states:
+                    self._nodes[node_id] = replace(
+                        node,
+                        state=PlanStateMachine.transition_node(
+                            node.state,
+                            PlanNodeState.FROZEN,
+                        ),
+                    )
+            return tuple(
+                self._node_view(self._nodes[node_id])
+                for node_id in sorted(affected_ids)
+            )
+
+    @staticmethod
+    def _validate_impact_identity(
+        *,
+        plan_run: _PlanRunRecord,
+        selected_version: int,
+        event_id: str,
+        analysis: "ImpactAnalysis",
+    ) -> None:
+        """冻结前闭合 event/plan/version，禁止搬运其他计划的分析结果。"""
+        if plan_run.current_version != selected_version:
+            raise PlanStoreInvariantError("ImpactAnalysis 计划版本已过期")
+        if (
+            analysis.event_id != event_id
+            or analysis.plan_run_id != plan_run.plan_run_id
+            or analysis.plan_version != selected_version
+        ):
+            raise PlanStoreInvariantError("ImpactAnalysis 身份与冻结请求不一致")
 
     def reconcile_plan_reference(
         self,
@@ -1794,6 +1924,10 @@ class InMemoryPlanStore:
             state=record.state,
             skill_id=record.skill_id,
             input_bindings=record.input_bindings,
+            # ImpactAnalyzer 必须只读取 Store 的权威投影。依赖边和资源键如果在
+            # 投影层丢失，商品级事件会被误判为边界不明并提升成整房间冻结。
+            depends_on=record.depends_on,
+            resource_keys=record.capability.resource_keys,
         )
 
     @staticmethod
@@ -1816,6 +1950,9 @@ class InMemoryPlanStore:
             skill_version=record.skill_version,
             input_fingerprint=record.input_fingerprint,
             deadline_at=record.deadline_at,
+            superseded=record.superseded,
+            superseded_by_event_id=record.superseded_by_event_id,
+            superseded_at=record.superseded_at,
         )
 
 
@@ -2517,6 +2654,13 @@ class PostgresPlanStore:
                         now=normalized_now,
                         operation="重试调度",
                     )
+                    # 冻结事务和本事务都先锁 PlanRun，再锁最新 NodeRun，因此这里读取
+                    # 到的 superseded 不会在后续状态更新前失效。旧版本受影响 attempt
+                    # 只允许闭合结果，不能再进入 RETRY_WAIT 派生新请求。
+                    if node_run.superseded:
+                        raise PlanStoreInvariantError(
+                            "superseded NodeRun 禁止调度重试"
+                        )
                     node = self._load_node_record(
                         cursor,
                         node_run.node_id,
@@ -2652,6 +2796,15 @@ class PostgresPlanStore:
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
+                    # 先无锁读取不可变归属，再和 claim/freeze/result 一样先锁 PlanRun。
+                    # 若 reclaim 先赢，它创建的新 attempt 会在冻结事务随后读取“最新
+                    # NodeRun”时被标记；若冻结先赢，本事务重读到 superseded 后拒绝。
+                    discovered = self._load_node_run(cursor, node_run_id)
+                    self._load_plan_run(
+                        cursor,
+                        discovered.plan_run_id,
+                        for_update=True,
+                    )
                     record = self._load_node_run(
                         cursor,
                         node_run_id,
@@ -2661,6 +2814,12 @@ class PostgresPlanStore:
                         raise PlanStoreInvariantError("只能回收节点的当前 NodeRun")
                     if record.state is not PlanNodeState.RUNNING:
                         raise PlanStoreInvariantError("只有 RUNNING NodeRun 可以回收")
+                    # SELECT FOR UPDATE 会观察冻结事务已提交的 superseded 标记。即使
+                    # 原租约已经过期，也不能复制这份失效输入创建更高 fencing attempt。
+                    if record.superseded:
+                        raise PlanStoreInvariantError(
+                            "superseded NodeRun 禁止 reclaim"
+                        )
                     if normalized_now < record.lease_until:
                         raise PlanStoreInvariantError(
                             "NodeRun 租约尚未过期，禁止 reclaim"
@@ -2845,20 +3004,22 @@ class PostgresPlanStore:
                             plan_run_id=node_run.plan_run_id,
                             now=normalized_now,
                         )
-                    elif target_state is PlanNodeState.FAILED:
+                    elif target_state is PlanNodeState.FAILED and not node_run.superseded:
                         self._update_plan_run_state(
                             cursor,
                             node_run.plan_run_id,
                             PlanRunState.FAILED,
                             normalized_now,
                         )
-                    elif target_state is PlanNodeState.FROZEN:
+                    elif target_state is PlanNodeState.FROZEN and not node_run.superseded:
                         self._update_plan_run_state(
                             cursor,
                             node_run.plan_run_id,
                             PlanRunState.FROZEN,
                             normalized_now,
                         )
+                    # superseded 终态只闭合旧 NodeRun/PlanNode，不改变 PlanRun 聚合。
+                    # 后续不可变 Replan 会基于事件和该失败证据决定新版本节点。
                     completed = self._load_node_run(cursor, node_run_id)
                 connection.commit()
                 return self._node_run_view(completed)
@@ -2946,6 +3107,197 @@ class PostgresPlanStore:
             raise
         except psycopg.Error as exc:
             raise PlanStoreInvariantError("冻结 PlanRun 失败") from exc
+
+    def apply_impact_freeze(
+        self,
+        *,
+        plan_run_id: str,
+        expected_plan_version: int,
+        event_id: str,
+        analysis: "ImpactAnalysis",
+        now: datetime,
+    ) -> tuple[PlanNodeView, ...]:
+        """用单一 PostgreSQL 事务应用协作式影响冻结。
+
+        所有会和 Worker 交错的路径统一采用 ``PlanRun -> 最新 NodeRun -> PlanNode``
+        锁序。这样 claim 如果先提交，冻结事务一定能看到并标记新建的 NodeRun；冻结
+        如果先提交，后续 claim 则只能看到已经 FROZEN 的节点。RUNNING 节点不会被
+        强制取消，其 Worker 仍可使用原 fencing token 写回完整结果，但该结果已经由
+        superseded 事实排除在未来 Replan 复用集合之外。
+        """
+        from src.plan_engine.events import ImpactScope
+        from src.plan_engine.impact import ImpactAnalysis
+
+        normalized_now = self._aware_utc(now, "影响冻结时间")
+        selected_version = self._validate_version_number(expected_plan_version)
+        if not isinstance(event_id, str) or not event_id:
+            raise PlanStoreInvariantError("event_id 不能为空")
+        if not isinstance(analysis, ImpactAnalysis):
+            raise PlanStoreInvariantError("必须使用 ImpactAnalysis 冻结计划")
+        affected_ids = tuple(sorted(set(analysis.affected_node_ids)))
+        if not affected_ids:
+            raise PlanStoreInvariantError("ImpactAnalysis 必须包含受影响节点")
+
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    # PlanRun 行锁既保护 current_version，也和 claim、结果提交及人工命令
+                    # 建立统一串行化边界。身份检查必须在任何 superseded 写入之前完成。
+                    plan_run = self._load_plan_run(
+                        cursor,
+                        plan_run_id,
+                        for_update=True,
+                    )
+                    if plan_run.current_version != selected_version:
+                        raise PlanStoreInvariantError("ImpactAnalysis 计划版本已过期")
+                    if (
+                        analysis.event_id != event_id
+                        or analysis.plan_run_id != plan_run.plan_run_id
+                        or analysis.plan_version != selected_version
+                    ):
+                        raise PlanStoreInvariantError(
+                            "ImpactAnalysis 身份与冻结请求不一致"
+                        )
+                    if plan_run.state not in {
+                        PlanRunState.ACTIVE,
+                        PlanRunState.FROZEN,
+                    }:
+                        raise PlanStoreInvariantError("终态 PlanRun 不能应用影响冻结")
+
+                    cursor.execute(
+                        """
+                        SELECT node_id::text AS node_id
+                        FROM plan_nodes
+                        WHERE plan_run_id = %(plan_run_id)s::uuid
+                          AND version_number = %(version_number)s
+                          AND node_id = ANY(%(affected_ids)s::uuid[])
+                        ORDER BY node_id;
+                        """,
+                        {
+                            "plan_run_id": plan_run_id,
+                            "version_number": selected_version,
+                            "affected_ids": list(affected_ids),
+                        },
+                    )
+                    persisted_ids = tuple(
+                        str(row["node_id"]) for row in cursor.fetchall()
+                    )
+                    if persisted_ids != affected_ids:
+                        raise PlanStoreInvariantError(
+                            "ImpactAnalysis 节点不属于当前 PlanVersion"
+                        )
+
+                    # 每个受影响节点只锁最新 attempt。旧 NodeRun 已经是永久历史，不能
+                    # 因新事件被追溯改写；当前 attempt 才决定 late result 能否复用。
+                    cursor.execute(
+                        """
+                        SELECT current_run.node_run_id::text AS node_run_id
+                        FROM node_runs AS current_run
+                        WHERE current_run.node_id = ANY(%(affected_ids)s::uuid[])
+                          AND current_run.attempt_number = (
+                              SELECT max(candidate.attempt_number)
+                              FROM node_runs AS candidate
+                              WHERE candidate.node_id = current_run.node_id
+                          )
+                        ORDER BY current_run.node_id
+                        FOR UPDATE OF current_run;
+                        """,
+                        {"affected_ids": list(affected_ids)},
+                    )
+                    latest_node_run_ids = tuple(
+                        str(row["node_run_id"]) for row in cursor.fetchall()
+                    )
+
+                    # NodeRun 锁全部取得后才锁 PlanNode，保持与 record_node_result 一致
+                    # 的全局顺序。排序使多个影响事务面对相同节点集合时不会锁序反转。
+                    cursor.execute(
+                        """
+                        SELECT node_id::text AS node_id
+                        FROM plan_nodes
+                        WHERE node_id = ANY(%(affected_ids)s::uuid[])
+                        ORDER BY node_id
+                        FOR UPDATE;
+                        """,
+                        {"affected_ids": list(affected_ids)},
+                    )
+                    locked_ids = tuple(str(row["node_id"]) for row in cursor.fetchall())
+                    if locked_ids != affected_ids:
+                        raise PlanStoreInvariantError(
+                            "受影响节点在冻结事务中发生身份漂移"
+                        )
+
+                    if latest_node_run_ids:
+                        cursor.execute(
+                            """
+                            UPDATE node_runs
+                            SET superseded = TRUE,
+                                superseded_by_event_id = %(event_id)s,
+                                superseded_at = %(now)s,
+                                updated_at = GREATEST(updated_at, %(now)s)
+                            WHERE node_run_id = ANY(%(node_run_ids)s::uuid[])
+                              AND superseded = FALSE;
+                            """,
+                            {
+                                "event_id": event_id,
+                                "now": normalized_now,
+                                "node_run_ids": list(latest_node_run_ids),
+                            },
+                        )
+
+                    # PENDING/READY/等待重试或审批都尚未开始本次副作用，可以安全进入
+                    # FROZEN。RUNNING、SUCCEEDED 和其他终态保持原状态，由协作式闭合
+                    # 保存真实输出；状态白名单与 PlanStateMachine 的 D-015 迁移一致。
+                    freezable_states = (
+                        PlanNodeState.PENDING,
+                        PlanNodeState.READY,
+                        PlanNodeState.RETRY_WAIT,
+                        PlanNodeState.WAITING_APPROVAL,
+                    )
+                    for state in freezable_states:
+                        PlanStateMachine.transition_node(state, PlanNodeState.FROZEN)
+                    cursor.execute(
+                        """
+                        UPDATE plan_nodes
+                        SET state = %(frozen)s,
+                            updated_at = GREATEST(updated_at, %(now)s)
+                        WHERE node_id = ANY(%(affected_ids)s::uuid[])
+                          AND state = ANY(%(freezable_states)s::text[]);
+                        """,
+                        {
+                            "frozen": PlanNodeState.FROZEN.value,
+                            "now": normalized_now,
+                            "affected_ids": list(affected_ids),
+                            "freezable_states": [
+                                state.value for state in freezable_states
+                            ],
+                        },
+                    )
+
+                    if analysis.scope in {ImpactScope.ROOM, ImpactScope.PLATFORM}:
+                        if plan_run.state is PlanRunState.ACTIVE:
+                            self._update_plan_run_state(
+                                cursor,
+                                plan_run_id,
+                                PlanRunState.FROZEN,
+                                normalized_now,
+                            )
+
+                    records = self._load_node_records(
+                        cursor,
+                        plan_run_id,
+                        selected_version,
+                    )
+                    records_by_id = {record.node_id: record for record in records}
+                    frozen_views = tuple(
+                        self._node_view(records_by_id[node_id])
+                        for node_id in affected_ids
+                    )
+                connection.commit()
+                return frozen_views
+        except PlanStoreInvariantError:
+            raise
+        except psycopg.Error as exc:
+            raise PlanStoreInvariantError("应用影响冻结失败") from exc
 
     def reconcile_plan_reference(
         self,
@@ -3761,7 +4113,12 @@ class PostgresPlanStore:
 
     @staticmethod
     def _node_run_record(row: Any) -> _NodeRunRecord:
-        """把数据库 NodeRun 行转换为不可变执行事实。"""
+        """把数据库 NodeRun 行转换为不可变执行事实。
+
+        Phase 12A 的独立迁移测试会故意只安装基础表。读取这类历史数据库时，
+        Phase 12B 新增的 superseded 列尚不存在，因此这里使用显式默认值；一旦
+        Phase 12B 迁移生效，真实列值仍完整进入领域记录，不能被默认值覆盖。
+        """
         raw_input = row["input_snapshot"]
         return _NodeRunRecord(
             node_run_id=str(row["node_run_id"]),
@@ -3784,6 +4141,9 @@ class PostgresPlanStore:
             ),
             input_fingerprint=row["input_fingerprint"],
             deadline_at=row["deadline_at"],
+            superseded=bool(row.get("superseded", False)),
+            superseded_by_event_id=row.get("superseded_by_event_id"),
+            superseded_at=row.get("superseded_at"),
         )
 
     @staticmethod
@@ -4135,6 +4495,8 @@ class PostgresPlanStore:
             state=record.state,
             skill_id=record.skill_id,
             input_bindings=record.input_bindings,
+            depends_on=record.depends_on,
+            resource_keys=record.capability.resource_keys,
         )
 
     @staticmethod
@@ -4157,6 +4519,9 @@ class PostgresPlanStore:
             skill_version=record.skill_version,
             input_fingerprint=record.input_fingerprint,
             deadline_at=record.deadline_at,
+            superseded=record.superseded,
+            superseded_by_event_id=record.superseded_by_event_id,
+            superseded_at=record.superseded_at,
         )
 
 

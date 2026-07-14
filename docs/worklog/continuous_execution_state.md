@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 3：PostgreSQL Event Store 与计划 lineage（`25793f2`） |
-| 下一任务 | Task 4：Kafka 入站与 Trust Profile |
+| 最近完成任务 | Phase 12B Task 4：Kafka 入站与 Trust Profile（`0762c2c`） |
+| 下一任务 | Task 5：ImpactAnalyzer 与协作式冻结 |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | 全部门禁通过，显式暂存 Task 4 目标文件并核对 cached diff |
+| 当前子步骤 | 全部门禁通过，显式暂存 Task 5 的 12 个目标文件并审查 cached diff |
 | 当前分支 | `main` |
-| 当前业务基线 | `25793f2 feat: persist phase 12b event facts` |
-| 远端状态 | `origin/main=25793f2` |
+| 当前业务基线 | `0762c2c feat: ingest durable inventory events` |
+| 远端状态 | `origin/main=0762c2c` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 4
+Phase / Task: Phase 12B / Task 5
 状态: COMMIT
-目标: 建立启动冻结 Trust Profile 与先落 Inbox、后提交 offset 的 Kafka 入站 Adapter
-禁止事项: 不直接驱动 PlanEngine；不让 payload 自报信任；数据库失败不得提交 offset；不改旧一次性 Consumer 语义
-当前 HEAD: 25793f2
-本 Task 文件: inventory_event_ingress.py、kafka_consumer.py、settings.py、Task 4 测试与状态文档
+目标: 建立确定性 ImpactAnalyzer、版本内局部冻结、整计划冻结与晚到结果 superseded 证据
+禁止事项: 不强制取消 RUNNING；不让 LLM 控制 scope/resource；不创建紧急 DAG 或新 PlanVersion
+当前 HEAD: 0762c2c
+本 Task 文件: impact.py、store.py、state_machine.py、Plan 视图/DDL、Task 5 测试与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: RED 9 failed；Task unit 9 passed；真实 Kafka 2 passed；完整 unit 890 passed；integration 86 passed, 3 deselected；新增 warning 0
-错误与尝试次数: 1 次相关单元命令引用不存在文件；1 个全局 Inbox 测试隔离缺口，均已定位并修正
-设计偏差与决策编号: 尚无；遵循 D-077、D-078、D-079 与冻结 Task 4 计划
-下一条精确操作: 严格检查 10 个目标文件，只暂存目标并提交推送 origin/main
+最近命令与结果: RED 10 failed；审查新增 RED 4 failed 与 2 failed；最终专项 16 passed；unit 900 passed；integration 92 passed, 3 deselected；严格编码/compileall/diff/migration dry-run 通过
+错误与尝试次数: 2 次命令路径错误均已按真实文件清单修正；1 次补丁上下文误命中在测试前自检发现并精确移除
+设计偏差与决策编号: 尚无；遵循 D-027、D-081 与冻结 Task 5 计划
+下一条精确操作: 只暂存 12 个 Task 5 文件，核对 staged 文件列表与 cached diff 后提交推送
 模型费用累计: 0 元
 ```
 
@@ -97,6 +97,12 @@ Phase / Task: Phase 12B / Task 4
 | Phase 12B Task 4 RED/GREEN | `9 failed`；unit `9 passed`；真实 Kafka/PostgreSQL `2 passed` |
 | Phase 12B Task 4 当前完整验证 | unit `890 passed`；integration `86 passed, 3 deselected` |
 | Phase 12B Task 4 编码与静态门禁 | compileall/diff 通过；全仓历史 `4 errors/56 warnings`，目标命中 0 |
+| Phase 12B Task 4 提交与推送 | `0762c2c`，`origin/main=0762c2c` |
+| Phase 12B Task 5 RED/GREEN | `10 failed`；Task 聚合 `10 passed` |
+| Phase 12B Task 5 相关回归 | Phase 12A Store/状态机/迁移/PostgreSQL `155 passed` |
+| Phase 12B Task 5 最终专项 | `16 passed`，包含 superseded 禁止重试/回收与局部失败隔离 |
+| Phase 12B Task 5 完整验证 | unit `900 passed`；integration `92 passed, 3 deselected` |
+| Phase 12B Task 5 静态门禁 | 12 文件严格 UTF-8、compileall、migration dry-run、diff 通过；历史编码 `4 errors/56 warnings`，目标命中 0 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

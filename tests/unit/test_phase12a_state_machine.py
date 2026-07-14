@@ -1,4 +1,4 @@
-"""Phase 12A D-015 节点与 PlanRun 状态机的契约测试。"""
+"""Phase 12A D-015 与 Phase 12B 协作冻结的集中状态机契约测试。"""
 
 from itertools import product
 
@@ -23,9 +23,13 @@ from src.plan_engine.state_machine import (
         (PlanNodeState.RUNNING, PlanNodeState.WAITING_APPROVAL),
         (PlanNodeState.RUNNING, PlanNodeState.WAITING_RECONCILIATION),
         (PlanNodeState.RUNNING, PlanNodeState.FROZEN),
+        (PlanNodeState.PENDING, PlanNodeState.FROZEN),
+        (PlanNodeState.READY, PlanNodeState.FROZEN),
         (PlanNodeState.RETRY_WAIT, PlanNodeState.READY),
+        (PlanNodeState.RETRY_WAIT, PlanNodeState.FROZEN),
         (PlanNodeState.RETRY_WAIT, PlanNodeState.FAILED),
         (PlanNodeState.WAITING_APPROVAL, PlanNodeState.READY),
+        (PlanNodeState.WAITING_APPROVAL, PlanNodeState.FROZEN),
         (PlanNodeState.WAITING_APPROVAL, PlanNodeState.FAILED),
         (PlanNodeState.WAITING_RECONCILIATION, PlanNodeState.SUCCEEDED),
         (PlanNodeState.WAITING_RECONCILIATION, PlanNodeState.FAILED),
@@ -34,11 +38,11 @@ from src.plan_engine.state_machine import (
         (PlanNodeState.FROZEN, PlanNodeState.INVALIDATED),
     ],
 )
-def test_state_machine_allows_only_d015_transitions(
+def test_state_machine_allows_only_registered_transitions(
     current: PlanNodeState,
     target: PlanNodeState,
 ) -> None:
-    """D-015 的每条白名单边必须由同一集中状态机接受。"""
+    """D-015 与协作冻结新增的每条白名单边都必须由集中状态机接受。"""
     assert PlanStateMachine.transition_node(current, target) is target
 
 
@@ -58,12 +62,14 @@ def test_state_machine_allows_remaining_d015_invalidation_edges(
     assert PlanStateMachine.transition_node(current, target) is target
 
 
-_D015_ALLOWED_TRANSITIONS: frozenset[tuple[PlanNodeState, PlanNodeState]] = frozenset(
+_ALLOWED_TRANSITIONS: frozenset[tuple[PlanNodeState, PlanNodeState]] = frozenset(
     {
         (PlanNodeState.PENDING, PlanNodeState.READY),
+        (PlanNodeState.PENDING, PlanNodeState.FROZEN),
         (PlanNodeState.PENDING, PlanNodeState.INVALIDATED),
         (PlanNodeState.PENDING, PlanNodeState.SKIPPED),
         (PlanNodeState.READY, PlanNodeState.RUNNING),
+        (PlanNodeState.READY, PlanNodeState.FROZEN),
         (PlanNodeState.READY, PlanNodeState.INVALIDATED),
         (PlanNodeState.READY, PlanNodeState.SKIPPED),
         (PlanNodeState.RUNNING, PlanNodeState.SUCCEEDED),
@@ -73,8 +79,10 @@ _D015_ALLOWED_TRANSITIONS: frozenset[tuple[PlanNodeState, PlanNodeState]] = froz
         (PlanNodeState.RUNNING, PlanNodeState.WAITING_RECONCILIATION),
         (PlanNodeState.RUNNING, PlanNodeState.FROZEN),
         (PlanNodeState.RETRY_WAIT, PlanNodeState.READY),
+        (PlanNodeState.RETRY_WAIT, PlanNodeState.FROZEN),
         (PlanNodeState.RETRY_WAIT, PlanNodeState.FAILED),
         (PlanNodeState.WAITING_APPROVAL, PlanNodeState.READY),
+        (PlanNodeState.WAITING_APPROVAL, PlanNodeState.FROZEN),
         (PlanNodeState.WAITING_APPROVAL, PlanNodeState.FAILED),
         (PlanNodeState.WAITING_RECONCILIATION, PlanNodeState.SUCCEEDED),
         (PlanNodeState.WAITING_RECONCILIATION, PlanNodeState.FAILED),
@@ -89,14 +97,14 @@ _D015_ALLOWED_TRANSITIONS: frozenset[tuple[PlanNodeState, PlanNodeState]] = froz
     [
         (current, target)
         for current, target in product(PlanNodeState, repeat=2)
-        if (current, target) not in _D015_ALLOWED_TRANSITIONS
+        if (current, target) not in _ALLOWED_TRANSITIONS
     ],
 )
-def test_state_machine_rejects_every_non_d015_transition(
+def test_state_machine_rejects_every_unregistered_transition(
     current: PlanNodeState,
     target: PlanNodeState,
 ) -> None:
-    """穷举 11x11 状态矩阵的补集，避免未来新增未经审查的迁移边。"""
+    """穷举 11x11 状态矩阵补集，继续拒绝协作冻结之外的未审查迁移边。"""
     with pytest.raises(PlanInvariantError, match="不允许"):
         PlanStateMachine.transition_node(current, target)
 

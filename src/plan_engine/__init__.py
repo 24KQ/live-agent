@@ -25,6 +25,7 @@ from src.plan_engine.proposal import (
     CanonicalCardBatchProposalProvider,
     PlanProposalProvider,
 )
+from src.plan_engine.impact import ImpactAnalysis, ImpactAnalyzer
 
 __all__ = [
     "CandidatePlanNode",
@@ -33,6 +34,8 @@ __all__ = [
     "CardBatchPlanningInput",
     "InputBinding",
     "InputBindingKind",
+    "ImpactAnalysis",
+    "ImpactAnalyzer",
     "NodeRunView",
     "PlanCommandType",
     "PlanNodeKind",

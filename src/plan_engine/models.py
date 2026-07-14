@@ -519,12 +519,28 @@ class PlanNodeView(_JsonSafeView):
     state: PlanNodeState
     skill_id: str | None = None
     input_bindings: Any = Field(default_factory=_frozen_empty_json_object)
+    depends_on: tuple[str, ...] = Field(default_factory=tuple)
+    resource_keys: tuple[str, ...] = Field(default_factory=tuple)
 
     @field_validator("input_bindings", mode="after")
     @classmethod
     def _freeze_input_bindings(cls, value: Any) -> JsonSafeValue:
         """防止读取节点视图的调用方原地篡改后续审计显示。"""
         return _freeze_json(value)
+
+    @field_validator("depends_on", "resource_keys")
+    @classmethod
+    def _node_string_sets_are_unique(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """依赖和资源键保留声明顺序，但拒绝空值与重复身份。"""
+        normalized = tuple(value)
+        if any(not item for item in normalized):
+            raise ValueError("节点依赖或资源键不能包含空字符串")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("节点依赖或资源键不能重复")
+        return normalized
 
 
 class NodeRunView(_JsonSafeView):
@@ -537,9 +553,35 @@ class NodeRunView(_JsonSafeView):
     state: PlanNodeState
     input_snapshot: Any = Field(default_factory=_frozen_empty_json_object)
     output: Any | None = None
+    superseded: bool = False
+    superseded_by_event_id: str | None = Field(default=None, min_length=1)
+    superseded_at: datetime | None = None
 
     @field_validator("input_snapshot", "output", mode="after")
     @classmethod
     def _freeze_node_run_json(cls, value: Any) -> JsonSafeValue:
         """输入与输出都必须是冻结 JSON，确保 NodeRun 可跨进程复盘。"""
         return _freeze_json(value)
+
+    @field_validator("superseded_at")
+    @classmethod
+    def _superseded_at_is_aware(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        """superseded 时间统一为 UTC，供 Replan 判断事件先后。"""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("superseded_at 必须包含时区")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _superseded_shape_is_closed(self) -> "NodeRunView":
+        """superseded 布尔值必须与来源事件和时间同时存在或同时为空。"""
+        evidence = (self.superseded_by_event_id, self.superseded_at)
+        if self.superseded and any(value is None for value in evidence):
+            raise ValueError("superseded NodeRun 必须闭合事件与时间")
+        if not self.superseded and any(value is not None for value in evidence):
+            raise ValueError("非 superseded NodeRun 不得携带 superseded 证据")
+        return self

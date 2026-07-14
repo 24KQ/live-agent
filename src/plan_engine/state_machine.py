@@ -20,10 +20,20 @@ class PlanStateMachine:
 
     _ALLOWED_NODE_TRANSITIONS: Mapping[PlanNodeState, frozenset[PlanNodeState]] = {
         PlanNodeState.PENDING: frozenset(
-            {PlanNodeState.READY, PlanNodeState.INVALIDATED, PlanNodeState.SKIPPED}
+            {
+                PlanNodeState.READY,
+                PlanNodeState.FROZEN,
+                PlanNodeState.INVALIDATED,
+                PlanNodeState.SKIPPED,
+            }
         ),
         PlanNodeState.READY: frozenset(
-            {PlanNodeState.RUNNING, PlanNodeState.INVALIDATED, PlanNodeState.SKIPPED}
+            {
+                PlanNodeState.RUNNING,
+                PlanNodeState.FROZEN,
+                PlanNodeState.INVALIDATED,
+                PlanNodeState.SKIPPED,
+            }
         ),
         PlanNodeState.RUNNING: frozenset(
             {
@@ -35,9 +45,11 @@ class PlanStateMachine:
                 PlanNodeState.FROZEN,
             }
         ),
-        PlanNodeState.RETRY_WAIT: frozenset({PlanNodeState.READY, PlanNodeState.FAILED}),
+        PlanNodeState.RETRY_WAIT: frozenset(
+            {PlanNodeState.READY, PlanNodeState.FROZEN, PlanNodeState.FAILED}
+        ),
         PlanNodeState.WAITING_APPROVAL: frozenset(
-            {PlanNodeState.READY, PlanNodeState.FAILED}
+            {PlanNodeState.READY, PlanNodeState.FROZEN, PlanNodeState.FAILED}
         ),
         PlanNodeState.WAITING_RECONCILIATION: frozenset(
             {PlanNodeState.SUCCEEDED, PlanNodeState.FAILED}

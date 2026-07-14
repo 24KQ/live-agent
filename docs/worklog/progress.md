@@ -417,6 +417,18 @@
 - 已修改的历史 `kafka_consumer.py` 原带 UTF-8 BOM；目标文件严格检查将其提升为本 Task 阻断项，机械移除 BOM 后首字节恢复为 ASCII 文档字符串，代码内容未改变。
 - Task 4 提交前最终完整回归：unit `890 passed, 4 warnings`；integration `86 passed, 3 deselected, 5 warnings`，5 条均为既有 Kafka 测试弃用提示，本 Task 新增 warning 为 0。
 - `compileall` 与 `git diff --check` 通过；全仓编码扫描由既有 `4 errors/58 warnings` 收敛为 `4 errors/56 warnings`，减少项正是本次已修改 Consumer 的历史 BOM/混合换行，Task 4 目标文件命中为 0。
+- Phase 12B Task 4 已以 `0762c2c feat: ingest durable inventory events` 独立提交并推送；连续执行游标进入 Task 5 `RED`。
+- Phase 12B Task 5 RED 为 `10 failed`：ImpactAnalyzer、未开始节点冻结、NodeRun superseded 列与内存/PostgreSQL Store 原语均尚未闭合，失败面与冻结计划一致。
+- Task 5 核心 GREEN 实现确定性 PRODUCT/ROOM/PLATFORM 分析、依赖闭包与稳定摘要；冻结事务采用 PlanRun、最新 NodeRun、PlanNode 锁序，PRODUCT 保持局部运行，ROOM/PLATFORM 阻断整计划新 claim。
+- 规格复核发现 Store 只读投影遗漏依赖、资源键和 superseded 证据，导致商品事件被保守提升为 ROOM 且调用方看不到废弃标记；补齐投影后 Task 聚合为 `10 passed`。
+- Phase 12A 状态机穷举回归准确捕获四条 Phase 12B 新冻结边未加入测试白名单；更新受控白名单后 Store、状态机、迁移与 PostgreSQL 回归为 `155 passed`，其余 11x11 非法迁移仍全部拒绝。
+- 一次相关回归命令误写不存在的 `test_phase12a_store.py`，使用 `rg --files` 找到真实 `test_phase12a_plan_store.py` 后重跑；该命令错误未用于调整生产行为。
+- 质量审查新增 superseded attempt 禁止重试/租约回收红灯，得到 `4 failed, 10 passed`；内存与 PostgreSQL Store 均在创建第二次执行前 fail-closed，专项恢复为 `14 passed`。
+- 二次审查发现 superseded 失败仍会把 PRODUCT 局部风险升级为整计划 `FAILED`，新增内存/PostgreSQL 红灯得到 `2 failed, 14 passed`；修复后失败 NodeRun/节点证据保留，PlanRun 继续 ACTIVE，无关分支可 claim。
+- PostgreSQL reclaim 同步调整为 PlanRun-first 锁序，避免冻结事务等待旧 NodeRun 时遗漏并发新建 attempt；一次补丁上下文误命中 `record_node_input`，在运行测试前通过源码扫描发现并精确移除，未留下无关锁范围变化。
+- Task 5 最终专项 `16 passed`；完整 unit `900 passed, 4 warnings`；完整 integration `92 passed, 3 deselected, 5 warnings`，新增 warning 为 0。
+- 12 个目标文件严格 UTF-8 往返、无 BOM/U+FFFD/混合换行/尾随空白；`compileall`、迁移 dry-run 和 `git diff --check` 通过。全仓编码扫描仍为历史 `4 errors/56 warnings`，Task 5 目标命中 0。
+- 一次迁移预览命令误写不存在的 `scripts/run_migrations.py`，读取现有入口后使用 `scripts/run_db_migrations.py --dry-run` 成功识别 12 个迁移步骤；错误命令未触发文件修改。
 
 # 2026-07-11 Phase 7A 进度
 
