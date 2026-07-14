@@ -4,8 +4,8 @@
 # 统一 SkillExecutor、播前 Handler、路由策略和兼容适配层。
 #
 # ToolRegistry 将逐步降级为由 Manifest 生成的只读兼容投影；
-# AgentToolExecutor 的旧参数兼容属于后续 Task 7；当前公共导出面只包含
-# 已完成的 Runtime 模型，不提前暴露兼容构造能力。
+# AgentToolExecutor 的参数补全仍属于兼容层，但审批来源已经在 Phase 12A 收敛为
+# HUMAN_INTERRUPT；公共导出面不提供任何可把普通参数升级成审批证据的工厂。
 
 from src.skill_runtime.models import (
     AdapterRequest,

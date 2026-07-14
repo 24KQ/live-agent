@@ -133,17 +133,11 @@ def test_human_interrupt_requires_operator() -> None:
         )
 
 
-def test_trusted_compat_only_accepts_approved_decision() -> None:
-    """直接构造拒绝的兼容来源必须失败。"""
-    from src.skill_runtime.models import ApprovalContext, ApprovalSource
+def test_approval_source_only_keeps_human_interrupt() -> None:
+    """Phase 12A 验收前审批来源必须只剩真实人工中断。"""
+    from src.skill_runtime.models import ApprovalSource
 
-    with pytest.raises(ValidationError):
-        ApprovalContext(
-            source=ApprovalSource.TRUSTED_COMPAT,
-            decision="REJECTED",
-            operator_id="compat_migration",
-            approval_audit_id="audit-rejected",
-        )
+    assert [source.value for source in ApprovalSource] == ["HUMAN_INTERRUPT"]
 
 
 def test_approval_decision_rejects_uncontrolled_text() -> None:
@@ -159,13 +153,14 @@ def test_approval_decision_rejects_uncontrolled_text() -> None:
         )
 
 
-def test_trusted_compat_cannot_use_public_constructor() -> None:
-    """普通调用方不能直接伪造 TRUSTED_COMPAT 审批来源。"""
-    from src.skill_runtime.models import ApprovalContext, ApprovalSource
+def test_trusted_compat_factory_and_string_source_no_longer_exist() -> None:
+    """旧兼容工厂必须删除，字符串来源也不能绕过枚举校验。"""
+    import src.skill_runtime.models as models
 
+    assert not hasattr(models, "_build_trusted_compat_approval")
     with pytest.raises(ValidationError):
-        ApprovalContext(
-            source=ApprovalSource.TRUSTED_COMPAT,
+        models.ApprovalContext(
+            source="TRUSTED_COMPAT",
             decision="APPROVED",
             operator_id="caller",
             approval_audit_id="forged-audit",

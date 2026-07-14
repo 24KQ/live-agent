@@ -133,8 +133,8 @@
 ## 2026-07-15 Phase 12A-14 正式连续实施
 
 - [x] Phase 12A Task 6：Checkpoint 一致性与人工命令恢复（`6029ad3` 已推送）。
-- [x] Phase 12A Task 7：播前 Graph 局部路由（验证完成，待提交推送）。
-- [ ] Phase 12A Task 8：移除 `TRUSTED_COMPAT`。
+- [x] Phase 12A Task 7：播前 Graph 局部路由（`7cbf026` 已推送）。
+- [x] Phase 12A Task 8：移除 `TRUSTED_COMPAT`（验证完成，待提交推送）。
 - [ ] Phase 12A Task 9：Demo、全量验收与 Acceptance。
 - [ ] Phase 12B：Event Inbox、抢占、紧急 DAG 与增量 Replan。
 - [ ] Phase 13：三个 Specialist Agent 候选评估与条件化去留。

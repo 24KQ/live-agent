@@ -73,7 +73,7 @@ class PreLiveBusinessServiceProtocol(Protocol):
         *,
         approval_context: ApprovalContext | None = None,
     ) -> tuple[GateResult, str | None]:
-        """执行模拟建播 hard-gate，并在确认后写入审计。"""
+        """执行模拟建播 hard-gate；Runtime 放行只依赖 approval_context。"""
         ...
 
     def record_setup_approval_event(
@@ -421,6 +421,8 @@ def _setup_live_session_with_human_approval(
         room_id=state["room_id"],
         plan=plan,
         trace_id=state["trace_id"],
+        # confirmed_setup=True 仅满足旧 Protocol；真正 Runtime 权限来自下面经过
+        # pending/resume 审计闭环后构造的 HUMAN_INTERRUPT ApprovalContext。
         confirmed_setup=True,
         approval_context=_build_human_interrupt_approval(
             decision="APPROVED",

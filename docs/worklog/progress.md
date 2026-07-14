@@ -360,6 +360,11 @@
 - 自审新增“候选绑定冻结输入外商品”红灯，确认原实现会创建无效 PlanRun；最小修复后在 Store 前拒绝，测试由 `1 failed` 转为 `1 passed`。
 - 旧播前 Graph/checkpoint/interrupt/Skill Runtime 回归 `18 passed`，Phase 12A 聚合 `266 passed`；进入完整验证。
 - Task 7 提交前完整验证：默认单元测试 `824 passed, 4 warnings`，完整集成测试 `78 passed, 3 deselected, 5 warnings`；9 个目标文件严格 UTF-8、`compileall` 和 `git diff --check` 均通过。
+- Task 7 已以 `7cbf026 feat: route pre-live cards through plan engine` 提交并推送 `origin/main`；用户既有脏文件未纳入提交。
+- 连续执行游标切换到 Task 8 `RED`，开始清点并退役 `TRUSTED_COMPAT`，保持 Legacy 显式回滚路径不变。
+- Task 8 RED 为 `3 failed, 26 passed`：兼容枚举、内部工厂和 Facade 的 `confirmed_setup` 提权均被新测试准确捕获；开始最小 GREEN 删除。
+- Task 8 GREEN 删除兼容 token、枚举值、内部工厂和 Facade 映射；Runtime 分支只转发显式 `approval_context`，Legacy 仍消费旧 `confirmed_setup`。专项回归 `31 passed`，`src` 中兼容标识扫描为 0 命中。
+- Task 8 提交前完整验证：默认单元测试 `824 passed, 4 warnings`，完整集成测试 `78 passed, 3 deselected, 5 warnings`；11 个审批链目标文件严格 UTF-8、`compileall` 与 `git diff --check` 均通过。
 
 # 2026-07-11 Phase 7A 进度
 

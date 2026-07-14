@@ -22,7 +22,6 @@ from src.skill_runtime.models import (
     SkillExecutionResult,
     SkillExecutionRoute,
     SkillExecutionStatus,
-    _build_trusted_compat_approval,
 )
 from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.skills.live_plan_generator import LivePlanDraft
@@ -99,16 +98,6 @@ class RoutedPreLiveBusinessService:
             execution_route=SkillExecutionRoute.SKILL_RUNTIME,
             idempotency_key=idempotency_key,
             approval=approval,
-        )
-
-    @staticmethod
-    def _create_compat_approval(confirmed: bool) -> ApprovalContext | None:
-        """仅在 Facade 兼容路径内把旧 confirmed_setup 转换为可信证据。"""
-        if not confirmed:
-            return None
-        return _build_trusted_compat_approval(
-            operator_id="compat_migration",
-            approval_audit_id="compat_setup_migration",
         )
 
     def query_products(self, room_id: str, trace_id: str) -> list[CatalogProduct]:
@@ -194,7 +183,7 @@ class RoutedPreLiveBusinessService:
         idempotency_key: str | None = None,
         approval_context: ApprovalContext | None = None,
     ) -> tuple[GateResult, str | None]:
-        """执行建播路由，并消费人工或兼容审批证据。"""
+        """执行建播路由；Runtime 只消费显式传入的真实人工审批证据。"""
         route = self.policy.setup
         if route == RouteConfig.LEGACY:
             return self._legacy.setup_live_session(
@@ -205,7 +194,6 @@ class RoutedPreLiveBusinessService:
                 idempotency_key=idempotency_key,
             )
 
-        approval = approval_context or self._create_compat_approval(confirmed_setup)
         effective_idempotency_key = idempotency_key or f"{trace_id}:setup_live_session"
         result = self._executor.execute(
             SkillCall(
@@ -215,7 +203,9 @@ class RoutedPreLiveBusinessService:
                     room_id,
                     trace_id,
                     idempotency_key=effective_idempotency_key,
-                    approval=approval,
+                    # confirmed_setup 只为 Legacy Protocol 保留，绝不能在 Runtime
+                    # 路径升级成权限；缺少 HUMAN_INTERRUPT 时 Executor 返回 pending。
+                    approval=approval_context,
                 ),
                 arguments={"plan": plan.model_dump(mode="json")},
             )

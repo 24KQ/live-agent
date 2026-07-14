@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12A |
-| 最近完成任务 | Task 6：Checkpoint 一致性与人工命令恢复（`6029ad3`） |
-| 下一任务 | Task 7：启动冻结路由与播前 Graph 局部接入 |
+| 最近完成任务 | Task 7：启动冻结路由与播前 Graph 局部接入（`7cbf026`） |
+| 下一任务 | Task 8：移除 `TRUSTED_COMPAT` 审批兼容 |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | Task 7：全部验证通过，待边界检查、提交并推送 |
+| 当前子步骤 | Task 8：全部验证通过，待边界检查、提交并推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `6029ad3 feat: reconcile phase 12a plan checkpoints` |
-| 远端状态 | `origin/main=6029ad3` |
+| 当前业务基线 | `7cbf026 feat: route pre-live cards through plan engine` |
+| 远端状态 | `origin/main=7cbf026` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12A / Task 7
+Phase / Task: Phase 12A / Task 8
 状态: COMMIT
-目标: 实现启动冻结的 LEGACY | PLAN_ENGINE 手卡路由与播前 Graph 局部接入
-禁止事项: 不接管查询、排品或建播；不做生产双执行；PlanEngine 失败不得 fallback Legacy
-当前 HEAD: 6029ad3
-本 Task 文件: routing.py、service.py、settings.py、pre_live_graph.py 与两个 Task 7 测试文件
+目标: 删除 TRUSTED_COMPAT 构造能力，让 Runtime 建播只接受 HUMAN_INTERRUPT
+禁止事项: 不削弱 hard-gate；不让 confirmed_setup 普通参数升级为审批；Legacy 显式路由保持兼容
+当前 HEAD: 7cbf026
+本 Task 文件: models.py、pre_live_facade.py、pre_live_graph.py、skill_runtime/__init__.py 与审批测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 7 专项 9 passed；播前 Graph 回归 18 passed；Phase 12A 聚合 266 passed；全量 unit 824 passed；全量 integration 78 passed, 3 deselected；compileall、严格 UTF-8 与 git diff --check 通过
-错误与尝试次数: 0 个非预期实现错误；自审新增候选越界测试先 1 failed 后 1 passed
-设计偏差与决策编号: 尚无；遵循 D-065、D-070 与冻结 Task 7 计划
-下一条精确操作: 只暂存 Task 7 目标文件，核对 cached diff，提交并推送
+最近命令与结果: Task 8 RED 3 failed, 26 passed；专项 31 passed；全量 unit 824 passed；全量 integration 78 passed, 3 deselected；src 兼容标识 0 命中；compileall、严格 UTF-8 与 git diff --check 通过
+错误与尝试次数: 0 个非预期错误；RED 与 D-075 的退役范围一致
+设计偏差与决策编号: 尚无；遵循 D-045、D-075 与冻结 Task 8 计划
+下一条精确操作: 只暂存 Task 8 目标文件，核对 cached diff，提交并推送
 模型费用累计: 0 元
 ```
 
@@ -71,6 +71,10 @@ Phase / Task: Phase 12A / Task 7
 | Phase 12A Task 7 专项 | `9 passed` |
 | Task 7 后默认单元测试 | `824 passed, 4 warnings` |
 | Task 7 后完整集成测试 | `78 passed, 3 deselected, 5 warnings` |
+| Task 7 提交与推送 | `7cbf026`，`origin/main=7cbf026` |
+| Phase 12A Task 8 专项 | `31 passed`，生产 `TRUSTED_COMPAT` 0 命中 |
+| Task 8 后默认单元测试 | `824 passed, 4 warnings` |
+| Task 8 后完整集成测试 | `78 passed, 3 deselected, 5 warnings` |
 
 表中前八项保留进入正式实施前的基线，后三项是 Task 6 提交前重新取得的业务验证证据。
 

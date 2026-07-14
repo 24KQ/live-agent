@@ -85,9 +85,8 @@ def _deep_freeze(value: Any) -> Any:
     raise ValueError(f"值不是 JSON-safe 类型: {type(value).__name__}")
 
 
-# 两种可放行审批都必须由受控流程创建；普通调用方不能仅凭字段形状伪造证据。
+# 唯一可放行审批必须由真实人工中断流程创建；普通调用方不能凭字段形状伪造证据。
 _HUMAN_INTERRUPT_TOKEN = object()
-_TRUSTED_COMPAT_TOKEN = object()
 
 
 class SkillExecutionRoute(StrEnum):
@@ -98,10 +97,9 @@ class SkillExecutionRoute(StrEnum):
 
 
 class ApprovalSource(StrEnum):
-    """审批来源：人工中断恢复或可信兼容适配。"""
+    """审批来源只允许已经写入审计的人工中断恢复。"""
 
     HUMAN_INTERRUPT = "HUMAN_INTERRUPT"
-    TRUSTED_COMPAT = "TRUSTED_COMPAT"
 
 
 class SkillExecutionStatus(StrEnum):
@@ -191,7 +189,7 @@ class SkillManifest(BaseModel, frozen=True):
 
 
 class ApprovalContext(BaseModel, frozen=True):
-    """可信审批证据。来源为 HUMAN_INTERRUPT 时必须包含 operator_id 和 approval_audit_id。"""
+    """可信人工审批证据，必须包含操作员和审批审计记录。"""
 
     source: ApprovalSource = Field(..., description="审批来源")
     decision: Literal["APPROVED", "REJECTED"] = Field(..., description="受控审批决定")
@@ -201,11 +199,7 @@ class ApprovalContext(BaseModel, frozen=True):
 
     @model_validator(mode="after")
     def _check_human_interrupt_evidence(self, info: ValidationInfo) -> "ApprovalContext":
-        """校验审批证据来源与决定之间的信任边界。
-
-        HUMAN_INTERRUPT 必须来自 Graph 在审批审计写入后的内部工厂；TRUSTED_COMPAT
-        只能表示内部兼容入口已经确认的批准，不能承载拒绝或待定状态。
-        """
+        """要求 HUMAN_INTERRUPT 来自 Graph 写入审批审计后的内部工厂。"""
         context = info.context or {}
         if self.source == ApprovalSource.HUMAN_INTERRUPT:
             if not self.operator_id:
@@ -217,15 +211,6 @@ class ApprovalContext(BaseModel, frozen=True):
                 and context.get("human_interrupt_token") is not _HUMAN_INTERRUPT_TOKEN
             ):
                 raise ValueError("HUMAN_INTERRUPT 只能由内部人工中断工厂构造")
-            object.__setattr__(self, "_provenance_verified", True)
-        if self.source == ApprovalSource.TRUSTED_COMPAT:
-            if self.decision != "APPROVED":
-                raise ValueError("TRUSTED_COMPAT 来源只能表示 APPROVED")
-            if (
-                not self._provenance_verified
-                and context.get("trusted_compat_token") is not _TRUSTED_COMPAT_TOKEN
-            ):
-                raise ValueError("TRUSTED_COMPAT 只能由内部兼容工厂构造")
             object.__setattr__(self, "_provenance_verified", True)
         return self
 
@@ -250,23 +235,6 @@ def _build_human_interrupt_approval(
             "approval_audit_id": approval_audit_id,
         },
         context={"human_interrupt_token": _HUMAN_INTERRUPT_TOKEN},
-    )
-
-
-def _build_trusted_compat_approval(
-    *,
-    operator_id: str,
-    approval_audit_id: str,
-) -> ApprovalContext:
-    """仅供内部兼容 Facade 使用，不属于 skill_runtime 公共导出面。"""
-    return ApprovalContext.model_validate(
-        {
-            "source": ApprovalSource.TRUSTED_COMPAT,
-            "decision": "APPROVED",
-            "operator_id": operator_id,
-            "approval_audit_id": approval_audit_id,
-        },
-        context={"trusted_compat_token": _TRUSTED_COMPAT_TOKEN},
     )
 
 

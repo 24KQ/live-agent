@@ -1,6 +1,6 @@
-"""Phase 11A 路由策略与播前 Facade 测试。
+"""Phase 11A/12A 路由策略与播前 Facade 测试。
 
-测试覆盖：默认路由、独立批次切换、Facade 申请 TRUSTED_COMPAT 审批、
+测试覆盖：默认路由、独立批次切换、Facade 不再从 confirmed_setup 提权、
 Facade 运行时失败不 fallback 到 legacy。
 """
 
@@ -13,6 +13,8 @@ from pydantic import ValidationError
 
 from src.config.settings import Settings
 from src.core.security_hooks import GateDecision, GateResult
+from src.skill_runtime.attempt_store import InMemoryAttemptStore, OperationRequest
+from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
 from src.skill_runtime.models import SkillExecutionResult, SkillExecutionStatus
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
 from src.skills.product_catalog import CatalogProduct
@@ -57,6 +59,31 @@ class FakeExecutor:
     def execute(self, call):
         self.calls.append(call)
         return self.result
+
+
+class _CountingAttemptStore(InMemoryAttemptStore):
+    """记录意图 claim，证明审批不足在 Attempt Store 之前终止。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.claims = 0
+
+    def claim_or_replay(self, request: OperationRequest):
+        """只有 Executor 真正准备执行高风险 Handler 时才递增。"""
+        self.claims += 1
+        return super().claim_or_replay(request)
+
+
+class _CountingSetupHandler:
+    """记录建播执行次数，代表 Runtime 后方的高风险业务/Port 边界。"""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, skill_id, arguments, context):
+        """若门禁错误放行则返回成功，让测试能明确观察越权。"""
+        self.calls += 1
+        return {"allowed": True, "setup_status": "prepared"}
 
 
 def _product() -> CatalogProduct:
@@ -120,17 +147,16 @@ def test_policy_is_immutable_after_construction() -> None:
         policy.generation = RouteConfig.SKILL_RUNTIME  # type: ignore[misc]
 
 
-def test_facade_creates_trusted_compat_approval_when_confirmed() -> None:
-    """confirmed_setup=True 时 Facade 构造 TRUSTED_COMPAT ApprovalContext。"""
+def test_confirmed_setup_cannot_create_runtime_approval_or_attempt() -> None:
+    """普通 confirmed_setup=True 不能提权，Runtime 必须 pending 且零副作用。"""
     from src.skill_runtime.pre_live_facade import RoutedPreLiveBusinessService
 
-    executor = FakeExecutor(
-        SkillExecutionResult(
-            skill_id="setup_live_session",
-            version="1.0.0",
-            status=SkillExecutionStatus.SUCCESS,
-            output={"allowed": True, "setup_status": "prepared"},
-            audit_id="audit-runtime",
+    attempt_store = _CountingAttemptStore()
+    handler = _CountingSetupHandler()
+    executor = SyncSkillExecutorAdapter(
+        SkillExecutor(
+            handlers={"setup_live_session": handler},  # type: ignore[dict-item]
+            attempt_store=attempt_store,
         )
     )
     service = RoutedPreLiveBusinessService(
@@ -138,13 +164,18 @@ def test_facade_creates_trusted_compat_approval_when_confirmed() -> None:
         legacy_service=FakeLegacyService(),
         skill_executor=executor,
     )
-    service.setup_live_session("room-001", _plan(), "trace-001", True)
+    gate, audit_id = service.setup_live_session(
+        "room-001",
+        _plan(),
+        "trace-001",
+        True,
+    )
 
-    approval = executor.calls[0].context.approval
-    assert approval is not None
-    assert approval.source.value == "TRUSTED_COMPAT"
-    assert approval.decision == "APPROVED"
-    assert approval.operator_id == "compat_migration"
+    assert gate.allowed is False
+    assert gate.requires_confirmation is True
+    assert audit_id is None
+    assert attempt_store.claims == 0
+    assert handler.calls == 0
 
 
 def test_facade_returns_none_when_not_confirmed() -> None:
