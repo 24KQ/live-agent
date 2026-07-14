@@ -99,6 +99,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 11B Skill 执行尝试事实表（Operation + Attempt）",
     ),
+    MigrationStep(
+        phase="phase12a",
+        sql_file="init_phase12a_plan_engine.sql",
+        required=True,
+        description="Phase 12A DAG PlanEngine 权威事实表（Plan + NodeRun + Command）",
+    ),
 ]
 
 
