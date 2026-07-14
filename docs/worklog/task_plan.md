@@ -110,7 +110,9 @@
 - [x] 用户审核并接受 Phase 11B Acceptance，Phase 11B 正式完成。
 - [x] 重新读取 Phase 12A 高层大纲、D-009 至 D-034 和 Phase 11B Acceptance，完成 Phase 12A Design 的 Just-in-Time 讨论。
 - [x] 生成 `phase-12a-dag-plan-engine-design.md`，新增 D-065 至 D-072，固定首期 DAG、PlanStore、Worker、Command Ledger 和验收边界。
-- [ ] 用户审核 Phase 12A Design 后，再决定是否生成 Implementation Plan；当前不实施 PlanEngine。
+- [x] 用户审核并接受 Phase 12A Design。
+- [x] 生成 `2026-07-14-phase-12a-dag-plan-engine-plan.md`，等待用户确认执行。
+- [ ] 用户确认执行 Phase 12A Implementation Plan 后，才开始 PlanEngine 业务代码实施。
 
 # 2026-07-11 Phase 7A 任务
 

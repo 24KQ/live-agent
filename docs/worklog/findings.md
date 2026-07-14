@@ -192,6 +192,11 @@
 - 关系表负责 lease、fencing、版本和依赖查询，JSONB 负责快照与证据；把完整计划塞入单行 JSONB 或只依赖 Skill Attempt 都会丢失并发与调度事实。
 - 首期只读手卡不自然触发审批，但 Command Ledger 不能因此延后：它是 D-033 的跨场景基础设施，必须用合成节点验证命令去重、旧版本拒绝和 fail-closed TTL。
 
+## 2026-07-14 Phase 12A Design 审核结论
+
+- 用户已接受 Phase 12A Design。后续实现计划必须保持 Graph 手卡节点局部接入，禁止把 PlanEngine 塞入现有 `RoutedPreLiveBusinessService.generate_cards()`，否则会丢失 PlanRun、版本和 checkpoint 一致性证据。
+- Phase 12A 实现计划必须把 `plan_engine_card_execution_route` 与既有 `skill_route_phase11b_batch1` 分离；后者同时控制查询和排品，不能承担“只接管手卡批次”的路由语义。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

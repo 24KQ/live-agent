@@ -309,7 +309,8 @@
 
 - 已完成 Phase 12A Just-in-Time Design 讨论：首期为冻结排品后的手卡批次，使用固定候选 DAG、类型化绑定、关系行 + JSONB PlanStore、独立 Worker、Capability Profile 资源锁、默认 Legacy 路由和通用 Command Ledger。
 - 已生成 `docs/superpowers/specs/phase-12a-dag-plan-engine-design.md`，并新增 D-065 至 D-072；本轮未修改业务代码、未生成 Implementation Plan、未进入 Phase 12B。
-- 用户审核 Phase 12A Design 后，才决定是否生成 Implementation Plan；当前不实施 PlanEngine。
+- 用户已于 2026-07-14 审核并接受 Phase 12A Design，并已生成 `docs/superpowers/plans/2026-07-14-phase-12a-dag-plan-engine-plan.md`；当前仍未实施 PlanEngine。
+- Implementation Plan 生成后等待用户确认执行；未确认前不修改 PlanEngine 业务代码。
 
 # 2026-07-11 Phase 7A 进度
 

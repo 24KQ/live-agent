@@ -1,6 +1,6 @@
 # Phase 12A DAG PlanEngine Design
 
-- 状态：Design 已生成，待用户审核
+- 状态：用户已审核并接受
 - 设计日期：2026-07-14
 - 前置阶段：[Phase 11B Acceptance](../reports/phase-11b-unified-execution-platform-contract-acceptance.md)
 - 决策依据：D-009 至 D-034、D-065 至 D-072
@@ -125,4 +125,4 @@ PlanNode 使用 D-015 的受控状态集：`PENDING`、`READY`、`RUNNING`、`WA
 
 ## 9. 后续步骤
 
-本 Design 需要用户审核。审核通过后，才生成 Phase 12A Implementation Plan；在此之前不修改 PlanEngine 业务代码。Phase 12B 再设计售罄事件、协作式冻结、紧急 DAG、依赖闭包失效和增量 Replan。
+用户已于 2026-07-14 审核并接受本 Design。实施依据为 [Phase 12A DAG PlanEngine Implementation Plan](../plans/2026-07-14-phase-12a-dag-plan-engine-plan.md)；在用户确认执行该计划前，不修改 PlanEngine 业务代码。Phase 12B 再设计售罄事件、协作式冻结、紧急 DAG、依赖闭包失效和增量 Replan。
