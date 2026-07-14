@@ -302,12 +302,13 @@
 - 默认全量退出码 `0`：`636 passed, 3 deselected, 9 warnings in 63.48s`；warning 为既有 FastAPI/Starlette 与 Kafka 弃用提示。
 - 直接 Demo 与 `run_all.py phase11b-demo` 均退出码 `0`，按固定顺序输出建播成功、售罄、限流、版本冲突、deadline 和副作用未知六个场景。
 - `git diff --check` 退出码 `0`；全仓编码扫描退出码 `1`，仍为 `4 errors/59 warnings`。4 个 error 来自扫描脚本自身 U+FFFD 示例，warning 为历史 BOM/混合换行，本阶段目标文件命中为 0。
-- 已生成 Phase 11B Acceptance，并把路线图状态更新为“技术验收完成，待用户审核”。当前未进入 Phase 12A，也未实现 PlanEngine、自动重试、真实淘宝 API 或多 Agent。
+- 已生成 Phase 11B Acceptance，并完成专项、系统回归、全量、Demo 和文档验收留迹。
+- 用户已于 2026-07-14 审核并接受 Phase 11B Acceptance，Phase 11B 正式完成。当前尚未实施 PlanEngine、自动重试、真实淘宝 API 或多 Agent。
 
 ## 下一步
 
-- 用户审核 `phase-11b-unified-execution-platform-contract-acceptance.md` 并决定是否接受。
-- 只有用户明确接受后，才按 Just-in-Time 原则讨论和生成 Phase 12A Design。
+- 重新读取 Phase 12A 高层大纲、D-009 至 D-034 和 Phase 11B Acceptance，开始 Just-in-Time Design 讨论。
+- Phase 12A Design 经用户审核后，才决定是否生成 Implementation Plan；当前不修改业务代码。
 
 # 2026-07-11 Phase 7A 进度
 

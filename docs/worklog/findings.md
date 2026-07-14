@@ -180,6 +180,11 @@
 - Implementation Plan 中的 PostgreSQL Attempt Store 集成测试文件名已过期。验收命令必须先用 `rg --files` 对照仓库事实，再把计划偏差写入 Acceptance，不能以“文件不存在”代替系统回归。
 - `run_all.py phase11b-demo` 是人类可读统一入口，保留既有 `[INFO]` 包装日志；恰好六行机器可读 JSON 的契约属于直接 Demo 脚本。
 
+## 2026-07-14 Phase 11B 用户验收结论
+
+- 用户已明确接受 Phase 11B Acceptance，Skill Runtime 与统一平台执行契约可以作为 Phase 12A Design 的稳定前置基线。
+- 阶段验收通过只解除 Phase 12A Design 的进入门，不等于授权实施 PlanEngine。必须先按 Just-in-Time 原则复核 D-009 至 D-034，并完成独立 Design 审核。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

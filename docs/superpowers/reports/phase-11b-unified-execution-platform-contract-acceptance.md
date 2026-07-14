@@ -1,6 +1,6 @@
 # Phase 11B 统一执行与平台契约 Acceptance
 
-- 状态：技术验收完成，待用户审核
+- 状态：用户已审核并接受
 - 验收日期：2026-07-14
 - Design：[Phase 11B 统一执行与平台契约 Design](../specs/phase-11b-unified-execution-platform-contract-design.md)
 - Plan：[Phase 11B Unified Execution and Platform Contract Implementation Plan](../plans/2026-07-12-phase-11b-unified-execution-platform-contract-plan.md)
@@ -10,7 +10,7 @@
 
 Phase 11B 已取得可复核的技术验收证据：13 个 Skill 均由统一 Handler 工厂装配；三批启动冻结路由、原生 async 单次尝试、绝对 deadline、FailureFact、Attempt 意图先写与终态重放、有状态 Fake Platform 和六场景 Demo 均有自动化测试。相关系统回归与默认全量测试通过。
 
-本报告尚未获得用户验收。当前状态只能记为“Phase 11B 技术验收完成，Acceptance 待用户审核”；在用户明确接受前，不进入 Phase 12A Design，不实现 PlanEngine、自动重试、Replan、真实淘宝 API 或多 Agent。
+用户已于 2026-07-14 审核并明确接受本报告，Phase 11B 正式完成。现在可以按 Just-in-Time 原则进入 Phase 12A Design 讨论；本次接受不构成 Phase 12A 代码实施授权，在 Design 经用户审核前，不实现 PlanEngine、自动重试、Replan、真实淘宝 API 或多 Agent。
 
 ## 2. 实际交付
 
@@ -124,15 +124,15 @@ pytest tests/unit/test_skill_executor.py tests/unit/test_pre_live_skill_handlers
 
 ## 11. Phase 12A 进入条件
 
-1. 用户审核并明确接受本 Acceptance；当前尚未满足。
+1. 用户已审核并明确接受本 Acceptance；该条件于 2026-07-14 满足。
 2. Phase 11B 的 Skill 契约、FailureFact、Attempt Store、Fake Adapter、三批路由和兼容债务保持稳定。
-3. 重新读取 Phase 12A 高层大纲、D-009 至 D-034 的 PlanEngine 决策和本报告，按 Just-in-Time 原则生成独立 Phase 12A Design。
+3. 下一步重新读取 Phase 12A 高层大纲、D-009 至 D-034 的 PlanEngine 决策和本报告，按 Just-in-Time 原则讨论并生成独立 Phase 12A Design。
 4. 在 Phase 12A Design 审核前，不实现数据库物理 Schema、DAG 校验器、调度进程、PlanStore 查询 API、自动重试或 Replan。
 
 ## 12. 用户审核
 
-- [ ] 用户已审核技术验收证据。
-- [ ] 用户已确认接受 Phase 11B Acceptance。
-- [ ] 用户已授权进入 Phase 12A Design。
+- [x] 用户已审核技术验收证据。
+- [x] 用户已确认接受 Phase 11B Acceptance。
+- [x] 用户已授权进入 Phase 12A Design 讨论。
 
-当前审核结论：等待用户审核。
+当前审核结论：用户已接受 Phase 11B Acceptance，Phase 11B 正式完成。
