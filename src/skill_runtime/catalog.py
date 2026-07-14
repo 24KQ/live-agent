@@ -156,14 +156,24 @@ _MANIFESTS: tuple[SkillManifest, ...] = (
     SkillManifest(
         skill_id="set_product_price",
         description="执行商品改价",
+        # expected_version 是可审计、可重放的 CAS 业务前置条件。新增该必填输入属于
+        # 公开调用契约变化，因此只保留单活 1.1.0；旧 1.0.0 由 Executor 明确拒绝。
+        version="1.1.0",
         lifecycle=_PRE,
         risk_level=RiskLevel.HIGH,
         parameter_schema={
             "type": "object",
-            "required": ["product_id", "price"],
+            "required": ["product_id", "price", "expected_version"],
             "properties": {
                 "product_id": {"type": "string"},
-                "price": {"type": "string"},
+                # 价格继续使用字符串以避免二进制浮点误差，但只接受非负普通十进制。
+                # 这会在 Attempt 创建前拒绝 Infinity、NaN、负值和指数写法，避免
+                # 非有限 Decimal 进入 Adapter 后被误判为副作用未知。
+                "price": {
+                    "type": "string",
+                    "pattern": r"^[0-9]+(?:\.[0-9]+)?$",
+                },
+                "expected_version": {"type": "integer", "minimum": 1},
             },
             "additionalProperties": False,
         },

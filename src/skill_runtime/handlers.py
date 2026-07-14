@@ -71,8 +71,8 @@ class SkillRuntimeDependencies:
 def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _SkillHandler]:
     """为一个 Runtime 实例构建局部 Handler 映射。
 
-    返回值包含全部 13 个 Skill 的装配入口。批次一和批次二已接入统一执行契约；
-    批次三改价在 Task 8 完成前保留显式占位 Handler，禁止静默回退旧执行路径。
+    返回值包含全部 13 个 Skill 的装配入口。批次一、批次二和批次三均已接入统一
+    执行契约；每个外部能力只经对应业务域 Port，禁止静默回退旧执行路径。
     """
     batch_one: dict[str, _SkillHandler] = {
         "query_products": _QueryProductsHandler(dependencies.product_pricing_port),
@@ -93,7 +93,7 @@ def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _S
         **batch_one,
         "setup_live_session": _SetupLiveSessionHandler(dependencies.live_session_port),
         "handle_sold_out_event": _HandleSoldOutEventHandler(dependencies.live_operations_port),
-        "set_product_price": _UnsupportedPhase11BHandler("set_product_price"),
+        "set_product_price": _SetProductPriceHandler(dependencies.product_pricing_port),
     }
 
 
@@ -390,19 +390,27 @@ class _HandleSoldOutEventHandler(_SkillHandler):
         }
 
 
-class _UnsupportedPhase11BHandler(_SkillHandler):
-    """后续批次占位，防止统一工厂遗漏 13 个 Skill 的装配键。"""
+class _SetProductPriceHandler(_SkillHandler):
+    """执行单次、带资源版本保护的高风险改价。
 
-    def __init__(self, skill_id: str) -> None:
-        self._skill_id = skill_id
+    SkillExecutor 已在进入本 Handler 前校验精确 Skill 版本、Schema、幂等键和可信
+    审批，并写入 Operation intent。本类因此不能预读商品、重试、睡眠或 fallback，
+    只能把已冻结业务参数与可信 Context 组装为一次 AdapterRequest 后调用 Port。
+    ProductPricingPort 返回的成功事实或 FailureFact 必须原样交回 Executor，以保留
+    VERSION_CONFLICT、RATE_LIMITED 和 SIDE_EFFECT_UNKNOWN 的恢复语义。
+    """
+
+    def __init__(self, port: ProductPricingPort) -> None:
+        self._port = port
 
     async def execute(
         self,
         skill_id: str,
         arguments: dict[str, Any],
         context: SkillExecutionContext,
-    ) -> dict[str, Any]:
-        raise RuntimeError(f"{self._skill_id} 尚未在当前 Phase 11B 任务迁移")
+    ) -> AdapterResult:
+        """仅执行一次 CAS 改价 Port 调用，禁止在 Handler 层隐藏恢复策略。"""
+        return await self._port.set_price(_request(skill_id, arguments, context))
 
 
 def _request(

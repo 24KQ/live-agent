@@ -114,6 +114,8 @@ class CompatibilityArgumentNormalizer:
         room_id: str,
         trace_id: str,
         lifecycle: str | LifecycleStage,
+        *,
+        version: str = "1.0.0",
     ) -> SkillCall:
         """根据核心工具名称构造版本固定、上下文显式且参数冻结的调用。
 
@@ -153,7 +155,9 @@ class CompatibilityArgumentNormalizer:
         )
         return SkillCall(
             skill_id=tool_name,
-            version="1.0.0",
+            # 版本由装配期冻结的 Catalog 投影传入；默认值只保留给既有直接调用方，
+            # 当前四个核心 Skill 都是 1.0.0，未来升级时无需在兼容层复制版本常量。
+            version=version,
             context=context,
             arguments=normalized_arguments,
         )

@@ -133,7 +133,12 @@ def test_missing_idempotency_key_fails_before_handler() -> None:
         operator_id="test",
         approval_audit_id="aud_001",
     )
-    call = _build_call(skill_id="set_product_price", args={"product_id": "p1", "price": "99"}, approval=approval)
+    call = _build_call(
+        skill_id="set_product_price",
+        version="1.1.0",
+        args={"product_id": "p1", "price": "99", "expected_version": 1},
+        approval=approval,
+    )
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.ERROR
     assert result.error_code == SkillErrorCode.IDEMPOTENCY_REQUIRED
@@ -149,7 +154,8 @@ def test_missing_idempotency_and_approval_reports_idempotency_first() -> None:
     result = executor.execute(
         _build_call(
             skill_id="set_product_price",
-            args={"product_id": "p1", "price": "99"},
+            version="1.1.0",
+            args={"product_id": "p1", "price": "99", "expected_version": 1},
         )
     )
 
@@ -161,7 +167,12 @@ def test_missing_idempotency_and_approval_reports_idempotency_first() -> None:
 def test_hard_gate_without_approval_returns_pending() -> None:
     """高风险 Skill 缺少可信审批时返回 pending，不调用 Handler。"""
     executor = SyncSkillExecutorAdapter()
-    call = _build_call(skill_id="set_product_price", args={"product_id": "p1", "price": "99"}, idempotency_key="key1")
+    call = _build_call(
+        skill_id="set_product_price",
+        version="1.1.0",
+        args={"product_id": "p1", "price": "99", "expected_version": 1},
+        idempotency_key="key1",
+    )
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.PENDING
     assert result.error_code == SkillErrorCode.APPROVAL_REQUIRED
@@ -175,7 +186,13 @@ def test_hard_gate_rejected_approval_fails() -> None:
         operator_id="auditor",
         approval_audit_id="aud_rej_001",
     )
-    call = _build_call(skill_id="set_product_price", args={"product_id": "p1", "price": "99"}, idempotency_key="key2", approval=rejected)
+    call = _build_call(
+        skill_id="set_product_price",
+        version="1.1.0",
+        args={"product_id": "p1", "price": "99", "expected_version": 1},
+        idempotency_key="key2",
+        approval=rejected,
+    )
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.ERROR
     assert result.error_code == SkillErrorCode.APPROVAL_REJECTED

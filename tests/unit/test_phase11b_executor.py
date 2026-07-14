@@ -60,8 +60,10 @@ def _price_call(*, deadline_at: datetime | None = None) -> SkillCall:
     """构造已具备可信审批和幂等键的高风险改价调用。"""
     return SkillCall(
         skill_id="set_product_price",
-        version="1.0.0",
-        arguments={"product_id": "p001", "price": "19.90"},
+        # 改价公开契约已升级为 1.1.0；这些测试仍只验证 Executor 的 Attempt/deadline
+        # 顺序，因此显式提供有效 CAS 参数，避免在版本或 Schema 门禁提前终止。
+        version="1.1.0",
+        arguments={"product_id": "p001", "price": "19.90", "expected_version": 1},
         context=SkillExecutionContext(
             room_id="room-001",
             trace_id="trace-001",

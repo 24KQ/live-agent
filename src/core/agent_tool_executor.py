@@ -14,6 +14,7 @@ LLM 不能直接写数据库或绕过安全 Hook。
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Any
 
 import jsonschema
@@ -22,6 +23,7 @@ from pydantic import ValidationError
 from src.config.tool_registry import ToolNotFoundError, ToolRegistry
 from src.core.agent_decision import AgentObservation
 from src.core.security_hooks import evaluate_tool_gate
+from src.skill_runtime.catalog import get_default_skill_catalog
 from src.skill_runtime.compatibility import (
     CORE_SKILL_IDS,
     CompatibilityArgumentNormalizer,
@@ -60,6 +62,11 @@ class AgentToolExecutor:
         # 默认全部 LEGACY，避免 Phase 11B 未显式灰度时自动进入新执行链。
         self._route_policy = route_policy or RoutePolicy.default()
         self._normalizer = CompatibilityArgumentNormalizer(pre_live_service)
+        # Catalog 是唯一版本事实源。装配时复制成只读快照，确保同一 Executor 生命周期
+        # 内的调用不会因外部配置或 Catalog 重装配而悄然改变 Skill 版本钉住结果。
+        self._skill_versions = MappingProxyType(
+            {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
+        )
         self._skill_executor = skill_executor or SyncSkillExecutorAdapter(
             SkillExecutor(handlers=build_pre_live_handlers(pre_live_service))
         )
@@ -192,6 +199,11 @@ class AgentToolExecutor:
         lifecycle: LifecycleStage,
     ) -> SkillCall:
         """构造 Runtime SkillCall，并隔离四个旧核心工具的兼容规范化边界。"""
+        version = self._skill_versions.get(tool_name)
+        if version is None:
+            # execute() 已完成 ToolRegistry 校验；此分支防御 Catalog/Registry 装配漂移。
+            # 不猜测版本或回退 legacy，避免一个未治理调用绕开精确版本约束。
+            raise ValueError("runtime skill version is not registered")
         if tool_name in CORE_SKILL_IDS:
             return self._normalizer.normalize(
                 tool_name=tool_name,
@@ -199,24 +211,31 @@ class AgentToolExecutor:
                 room_id=room_id,
                 trace_id=trace_id,
                 lifecycle=lifecycle,
+                version=version,
             )
+        runtime_arguments = dict(arguments)
+        idempotency_key = (
+            runtime_arguments.get("idempotency_key")
+            if isinstance(runtime_arguments.get("idempotency_key"), str)
+            else None
+        )
+        if tool_name == "set_product_price":
+            # 幂等键属于执行控制证据而非改价业务字段。仅批次三迁移该历史参数，
+            # 其余九个尚未迁移 Skill 维持现有 arguments 兼容形状，避免扩大范围。
+            runtime_arguments.pop("idempotency_key", None)
         return SkillCall(
             skill_id=tool_name,
-            version="1.0.0",
+            version=version,
             context=SkillExecutionContext(
                 room_id=room_id,
                 trace_id=trace_id,
                 lifecycle=lifecycle,
                 execution_route=SkillExecutionRoute.SKILL_RUNTIME,
-                # Phase 11B 仍保留旧 AgentToolExecutor 参数形状；需要幂等的非核心
-                # Runtime Skill 先从旧 arguments 读取键，后续批次会把写操作参数收紧。
-                idempotency_key=(
-                    arguments.get("idempotency_key")
-                    if isinstance(arguments.get("idempotency_key"), str)
-                    else None
-                ),
+                # 高风险改价的幂等键已从业务 arguments 搬入此可信 Context；其他非
+                # 核心 Skill 仍保持当前兼容入口语义，待各自迁移批次再逐项收紧。
+                idempotency_key=idempotency_key,
             ),
-            arguments=arguments,
+            arguments=runtime_arguments,
         )
 
     def _legacy_product_from_arguments(

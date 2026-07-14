@@ -31,9 +31,12 @@ FROZEN_NON_CORE_METADATA_HASHES = {
     "handle_sold_out_event": "e6dbc47e189db110e0e937fbb4198ee759e7a4ee2606dcd6ed2904a361f2d512",
     "on_live_context_collect": "c57bd502ac5d2c4f9a8e105dabc390ed8c7899cdb521d9931b0d00e2a004f1c9",
     "recommend_backup_product": "d45b7f40be744b4d19d7332d247efd1bf3c115b1a1089ab1ba7a74129fa96e98",
-    "set_product_price": "bfc67b37e6c87d24b0be4bea9a723da258c46e7ac4ffbd15ed2bfa818a1b707c",
     "suggest_price_change": "c64994732b2a184bdc104b0809d6d218b42eed29c7408210113b7caf90dee977",
 }
+
+# 改价 Skill 在 Phase 11B 因新增 CAS 业务前置条件而升级公开契约；它不再属于
+# Phase 11A 冻结的未迁移元数据集合，其余八项仍必须逐字段保持不变。
+VERSIONED_SKILLS = frozenset({"set_product_price"})
 
 
 def _manifest(skill_id: str) -> SkillManifest:
@@ -70,11 +73,12 @@ def test_all_skill_ids_are_unique() -> None:
     assert len(ids) == len(set(ids))
 
 
-def test_all_versions_are_1_0_0() -> None:
-    """13 个工具首版均为 1.0.0。"""
-    catalog = get_default_skill_catalog()
-    for manifest in catalog:
-        assert manifest.version == "1.0.0", f"{manifest.skill_id} version != 1.0.0"
+def test_catalog_has_twelve_v1_skills_and_price_v1_1() -> None:
+    """改价新增显式 CAS 输入后，只有它升级为单活 1.1.0。"""
+    versions = {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
+
+    assert list(versions.values()).count("1.0.0") == 12
+    assert versions["set_product_price"] == "1.1.0"
 
 
 def test_all_schemas_are_valid_draft202012() -> None:
@@ -99,9 +103,11 @@ def test_all_skill_schemas_reject_undeclared_root_arguments() -> None:
 
 
 def test_non_core_skills_strict_match_frozen_metadata() -> None:
-    """9 个未迁移工具的所有字段必须与冻结 ToolMetadata 完全一致。"""
+    """剩余 8 个未迁移工具的字段必须与冻结 ToolMetadata 完全一致。"""
     manifests = {item.skill_id: item for item in get_default_skill_catalog()}
-    assert set(FROZEN_NON_CORE_METADATA_HASHES) == set(manifests) - CORE_SKILLS
+    assert set(FROZEN_NON_CORE_METADATA_HASHES) == (
+        set(manifests) - CORE_SKILLS - VERSIONED_SKILLS
+    )
 
     for skill_id, expected_hash in FROZEN_NON_CORE_METADATA_HASHES.items():
         manifest = manifests[skill_id]
@@ -155,6 +161,33 @@ def test_core_skill_arguments_exclude_trusted_context_fields() -> None:
         assert "room_id" not in properties, f"{skill_id} 泄漏了可信 room_id 到业务参数"
         assert "trace_id" not in properties, f"{skill_id} 泄漏了可信 trace_id 到业务参数"
         assert "idempotency_key" not in properties, f"{skill_id} 泄漏了幂等键到业务参数"
+
+
+def test_price_schema_requires_explicit_resource_version() -> None:
+    """改价 Schema 必须显式约束 CAS 版本，且不接受执行控制字段。"""
+    schema = _manifest("set_product_price").parameter_schema
+
+    assert schema == {
+        "type": "object",
+        "required": ["product_id", "price", "expected_version"],
+        "properties": {
+            "product_id": {"type": "string"},
+            "price": {"type": "string", "pattern": r"^[0-9]+(?:\.[0-9]+)?$"},
+            "expected_version": {"type": "integer", "minimum": 1},
+        },
+        "additionalProperties": False,
+    }
+
+
+@pytest.mark.parametrize("invalid_price", ["Infinity", "-0.01", "NaN", "1e2", ""])
+def test_price_schema_rejects_non_decimal_or_negative_values(invalid_price: str) -> None:
+    """高风险改价必须在 Runtime Schema 层拒绝非有限值、负数和指数写法。"""
+    validator = Draft202012Validator(_manifest("set_product_price").parameter_schema)
+
+    with pytest.raises(JsonSchemaError):
+        validator.validate(
+            {"product_id": "p001", "price": invalid_price, "expected_version": 1}
+        )
 
 
 def test_product_snapshot_schema_accepts_full_catalog_product_and_rejects_unknown_fields() -> None:

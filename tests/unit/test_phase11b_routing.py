@@ -321,3 +321,73 @@ def test_failure_fact_is_sanitized_into_agent_observation() -> None:
     assert observation.audit_id == "audit-runtime-1"
     assert runtime.calls
     assert legacy.calls == []
+
+
+def test_batch3_runtime_uses_catalog_version_and_moves_idempotency_to_context() -> None:
+    """批次三兼容入口必须钉住单活版本，且不泄漏幂等键到业务参数。"""
+    executor, legacy, runtime = _executor(
+        policy=RoutePolicy(batch3=RouteConfig.SKILL_RUNTIME),
+        runtime_result=SkillExecutionResult(
+            skill_id="set_product_price",
+            version="1.1.0",
+            status=SkillExecutionStatus.PENDING,
+            error_code=SkillErrorCode.APPROVAL_REQUIRED,
+            summary="高风险 Skill 需要审批",
+        ),
+    )
+
+    observation = executor.execute(
+        "set_product_price",
+        {
+            "product_id": "p001",
+            "price": "35.90",
+            "expected_version": 1,
+            "idempotency_key": "idem-price-001",
+        },
+        "room-1",
+        "trace-1",
+        lifecycle="PRE_LIVE",
+    )
+
+    assert observation.status == "pending"
+    assert len(runtime.calls) == 1
+    call = runtime.calls[0]
+    assert call.version == "1.1.0"
+    assert call.arguments == {
+        "product_id": "p001",
+        "price": "35.90",
+        "expected_version": 1,
+    }
+    assert call.context.idempotency_key == "idem-price-001"
+    assert call.context.approval is None
+    assert legacy.calls == []
+
+
+def test_batch3_legacy_route_does_not_dispatch_runtime() -> None:
+    """批次三回滚只由启动冻结 LEGACY 路由控制，不能在同次调用内隐式回退。"""
+    executor, legacy, runtime = _executor(
+        policy=RoutePolicy(batch3=RouteConfig.LEGACY),
+        runtime_result=SkillExecutionResult(
+            skill_id="set_product_price",
+            version="1.1.0",
+            status=SkillExecutionStatus.SUCCESS,
+            summary="runtime should not run",
+        ),
+    )
+
+    observation = executor.execute(
+        "set_product_price",
+        {
+            "product_id": "p001",
+            "price": "35.90",
+            "expected_version": 1,
+            "idempotency_key": "idem-price-legacy",
+        },
+        "room-1",
+        "trace-1",
+        lifecycle="PRE_LIVE",
+    )
+
+    assert observation.status == "pending"
+    assert runtime.calls == []
+    assert legacy.calls == []
