@@ -395,6 +395,16 @@
 - 最终审查新增 heartbeat 时间单调和 Application 关联事实 write-once 红灯，得到 `2 failed, 14 passed`；统一使用单调更新时间并拒绝覆盖 Impact/plan 关联后，专项恢复为 `16 passed`。
 - Task 1-2 公共契约聚合为 `94 passed`；最终完整单元测试为 `875 passed, 4 warnings`，完整集成测试为 `78 passed, 3 deselected, 5 warnings`。
 - Task 2 最终专项为 `16 passed`；8 个目标文件严格 UTF-8 往返、`compileall` 与 `git diff --check` 通过，全仓编码扫描仍只有既有 `4 errors/58 warnings`。
+- Phase 12B Task 2 已以 `8b1600b feat: add phase 12b event inbox` 提交并推送，`main` 与 `origin/main` 在 Task 3 开始前一致。
+- 连续执行游标已切换到 Phase 12B Task 3。RED 为 `11 failed`，失败点明确是 Phase 12B 迁移未注册、DDL 文件缺失、`initialize_event_store_schema` 与 `PostgresEventStore` 尚未实现。
+- Task 3 新增三张权威事件表，扩展 PlanRun kind/priority/root/parent/trigger 与 PlanVersion change reason/source events；迁移保持 Phase 12A 旧 insert shape 可用。
+- `PostgresEventStore` 已实现完整 EventStore Protocol：原子登记、精确重放、冲突 occurrence、查询、SKIP LOCKED claim、heartbeat、lease/fencing 终态、event/root Application 和关联事实 write-once。
+- lineage 公开投影补充红灯确认 `PlanRunView` 缺少 `plan_kind`；随后增加受控 `PlanRunKind` 与 PlanVersion 来源事件冻结视图。PostgreSQL 查询使用动态 JSON 行投影，避免 Phase 12A 独立表结构反向依赖 Phase 12B。
+- Task 3 当前证据：迁移契约 `6 passed`，PostgreSQL 专项 `6 passed`，PlanStore/EventStore 相关单元回归 `51 passed`，完整单元 `881 passed, 4 warnings`，Phase 12A/12B PostgreSQL 聚合 `16 passed`。
+- Task 3 完整 integration 已独立重跑并取得明确退出码 `0`：`84 passed, 3 deselected, 5 warnings`。此前并行验证只保留点号、没有完整汇总，因此未把那次输出计入最终证据。
+- Task 3 迁移 dry-run 已识别 12 个步骤并包含 required Phase 12B；9 个当时目标文件严格 UTF-8、无 BOM/U+FFFD/混合换行/尾随空白。全仓编码扫描仍为历史 `4 errors/58 warnings`，目标文件命中为 0。
+- 最终工作日志更新后复核 12 个 Task 3 目标文件：严格 UTF-8 往返、BOM/U+FFFD/混合换行/尾随空白均为 0；`compileall`、11 个 EventStore 方法签名等价检查和 `git diff --check` 通过。
+- 一次相关单元回归命令误写不存在的 `test_phase12a_models.py`，未收集测试；读取仓库真实文件清单后改为 `test_phase12a_plan_models.py` 并取得 `51 passed`，没有据此修改业务实现。
 
 # 2026-07-11 Phase 7A 进度
 

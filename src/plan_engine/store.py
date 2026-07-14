@@ -31,6 +31,7 @@ from src.plan_engine.models import (
     PlanNodeKind,
     PlanNodeState,
     PlanNodeView,
+    PlanRunKind,
     PlanRunState,
     PlanRunView,
     PlanVersionView,
@@ -418,6 +419,11 @@ class _PlanRunRecord:
     current_version: int
     state: PlanRunState
     planning_input: dict[str, Any]
+    plan_kind: PlanRunKind = PlanRunKind.CARD_BATCH
+    priority: int = 0
+    root_plan_run_id: str | None = None
+    parent_plan_run_id: str | None = None
+    trigger_event_id: str | None = None
     reconciliation_required: bool = False
     reconciliation_failure: dict[str, Any] | None = None
     reconciliation_signature: str | None = None
@@ -434,6 +440,8 @@ class _PlanVersionRecord:
     provider_id: str
     provider_version: str
     proposal: dict[str, Any]
+    change_reason: str = "INITIAL"
+    source_event_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -675,6 +683,8 @@ class InMemoryPlanStore:
                 provider_id=record.provider_id,
                 provider_version=record.provider_version,
                 proposal=record.proposal,
+                change_reason=record.change_reason,
+                source_event_ids=record.source_event_ids,
             )
 
     def list_nodes(
@@ -1760,6 +1770,11 @@ class InMemoryPlanStore:
             current_version=record.current_version,
             state=record.state,
             planning_input=record.planning_input,
+            plan_kind=record.plan_kind,
+            priority=record.priority,
+            root_plan_run_id=record.root_plan_run_id,
+            parent_plan_run_id=record.parent_plan_run_id,
+            trigger_event_id=record.trigger_event_id,
             reconciliation_required=record.reconciliation_required,
             reconciliation_failure=record.reconciliation_failure,
             reconciliation_signature=record.reconciliation_signature,
@@ -2159,6 +2174,8 @@ class PostgresPlanStore:
                     provider_id=record.provider_id,
                     provider_version=record.provider_version,
                     proposal=record.proposal,
+                    change_reason=record.change_reason,
+                    source_event_ids=record.source_event_ids,
                 )
         except PlanStoreInvariantError:
             raise
@@ -3500,6 +3517,13 @@ class PostgresPlanStore:
             SELECT
                 plan_run_id::text AS plan_run_id, room_id, trace_id,
                 run_key, current_version, state, planning_input,
+                COALESCE(to_jsonb(plan_runs)->>'plan_kind', 'CARD_BATCH')
+                    AS plan_kind,
+                COALESCE(to_jsonb(plan_runs)->>'priority', '0')::integer
+                    AS priority,
+                to_jsonb(plan_runs)->>'root_plan_run_id' AS root_plan_run_id,
+                to_jsonb(plan_runs)->>'parent_plan_run_id' AS parent_plan_run_id,
+                to_jsonb(plan_runs)->>'trigger_event_id' AS trigger_event_id,
                 reconciliation_required, reconciliation_failure,
                 reconciliation_signature, reconciliation_attempt_count,
                 last_reconciled_at
@@ -3520,6 +3544,23 @@ class PostgresPlanStore:
             current_version=int(row["current_version"]),
             state=PlanRunState(str(row["state"])),
             planning_input=dict(row["planning_input"]),
+            plan_kind=PlanRunKind(str(row["plan_kind"])),
+            priority=int(row["priority"]),
+            root_plan_run_id=(
+                None
+                if row["root_plan_run_id"] is None
+                else str(row["root_plan_run_id"])
+            ),
+            parent_plan_run_id=(
+                None
+                if row["parent_plan_run_id"] is None
+                else str(row["parent_plan_run_id"])
+            ),
+            trigger_event_id=(
+                None
+                if row["trigger_event_id"] is None
+                else str(row["trigger_event_id"])
+            ),
             reconciliation_required=bool(row["reconciliation_required"]),
             reconciliation_failure=(
                 None
@@ -3548,7 +3589,13 @@ class PostgresPlanStore:
             """
             SELECT
                 plan_run_id::text AS plan_run_id, version_number,
-                provider_id, provider_version, proposal
+                provider_id, provider_version, proposal,
+                COALESCE(to_jsonb(plan_versions)->>'change_reason', 'INITIAL')
+                    AS change_reason,
+                COALESCE(
+                    to_jsonb(plan_versions)->'source_event_ids',
+                    '[]'::jsonb
+                ) AS source_event_ids
             FROM plan_versions
             WHERE plan_run_id::text = %(plan_run_id)s
               AND version_number = %(version_number)s;
@@ -3567,6 +3614,8 @@ class PostgresPlanStore:
             provider_id=str(row["provider_id"]),
             provider_version=str(row["provider_version"]),
             proposal=dict(row["proposal"]),
+            change_reason=str(row["change_reason"]),
+            source_event_ids=tuple(str(item) for item in row["source_event_ids"]),
         )
 
     def _load_node_records(
@@ -4062,6 +4111,11 @@ class PostgresPlanStore:
             current_version=record.current_version,
             state=record.state,
             planning_input=record.planning_input,
+            plan_kind=record.plan_kind,
+            priority=record.priority,
+            root_plan_run_id=record.root_plan_run_id,
+            parent_plan_run_id=record.parent_plan_run_id,
+            trigger_event_id=record.trigger_event_id,
             reconciliation_required=record.reconciliation_required,
             reconciliation_failure=record.reconciliation_failure,
             reconciliation_signature=record.reconciliation_signature,

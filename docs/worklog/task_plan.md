@@ -138,7 +138,8 @@
 - [x] Phase 12A Task 9：Demo、全量验收与 Acceptance（技术门禁通过）。
 - [ ] Phase 12B：Event Inbox、抢占、紧急 DAG 与增量 Replan（实施中）。
   - [x] Task 1：SkillPolicyView 与事件公共模型（`d794ff3` 已推送）。
-  - [x] Task 2：Event Inbox 内存 Store 与状态机（验证完成，待提交推送）。
+  - [x] Task 2：Event Inbox 内存 Store 与状态机（`8b1600b` 已推送）。
+  - [x] Task 3：PostgreSQL Event Store 与计划 lineage（实现与技术门禁完成，待提交推送）。
 - [ ] Phase 13：三个 Specialist Agent 候选评估与条件化去留。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 

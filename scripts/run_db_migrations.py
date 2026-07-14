@@ -105,6 +105,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 12A DAG PlanEngine 权威事实表（Plan + NodeRun + Command）",
     ),
+    MigrationStep(
+        phase="phase12b",
+        sql_file="init_phase12b_preemption.sql",
+        required=True,
+        description="Phase 12B 售罄事件事实、投递记录与计划 lineage",
+    ),
 ]
 
 

@@ -144,6 +144,13 @@ class PlanRunState(StrEnum):
     FAILED = "FAILED"
 
 
+class PlanRunKind(StrEnum):
+    """Phase 12B 引入的计划用途，用于区分普通批次与售罄紧急 child。"""
+
+    CARD_BATCH = "CARD_BATCH"
+    EMERGENCY_SOLD_OUT = "EMERGENCY_SOLD_OUT"
+
+
 class PlanNodeState(StrEnum):
     """D-015 规定的节点状态集合，具体转换由后续状态机集中约束。"""
 
@@ -412,6 +419,11 @@ class PlanRunView(_JsonSafeView):
     current_version: int = Field(..., ge=1)
     state: PlanRunState
     planning_input: Any = Field(default_factory=_frozen_empty_json_object)
+    plan_kind: PlanRunKind = PlanRunKind.CARD_BATCH
+    priority: int = Field(default=0, ge=0, strict=True)
+    root_plan_run_id: str | None = Field(default=None, min_length=1)
+    parent_plan_run_id: str | None = Field(default=None, min_length=1)
+    trigger_event_id: str | None = Field(default=None, min_length=1)
     reconciliation_required: bool = False
     reconciliation_failure: Any | None = None
     reconciliation_signature: str | None = Field(
@@ -432,6 +444,23 @@ class PlanRunView(_JsonSafeView):
     def _freeze_reconciliation_failure(cls, value: Any | None) -> JsonSafeValue:
         """事故事实必须是不可变严格 JSON，防止查询方修改权威失败证据。"""
         return None if value is None else _freeze_json(value)
+
+    @model_validator(mode="after")
+    def _lineage_matches_plan_kind(self) -> "PlanRunView":
+        """普通计划不得伪装 child，紧急计划必须闭合 root/parent/event 事实。"""
+        lineage = (
+            self.root_plan_run_id,
+            self.parent_plan_run_id,
+            self.trigger_event_id,
+        )
+        if self.plan_kind is PlanRunKind.CARD_BATCH:
+            if self.priority != 0 or any(value is not None for value in lineage):
+                raise ValueError("CARD_BATCH 必须使用 priority 0 且不携带 child lineage")
+        elif self.priority != 100 or any(value is None for value in lineage):
+            raise ValueError(
+                "EMERGENCY_SOLD_OUT 必须使用 priority 100 并闭合 root/parent/event"
+            )
+        return self
 
     @field_validator("last_reconciled_at")
     @classmethod
@@ -455,12 +484,28 @@ class PlanVersionView(_JsonSafeView):
     provider_id: str = Field(..., min_length=1)
     provider_version: str = Field(..., min_length=1)
     proposal: Any = Field(default_factory=_frozen_empty_json_object)
+    change_reason: str = Field(default="INITIAL", min_length=1)
+    source_event_ids: tuple[str, ...] = Field(default_factory=tuple)
 
     @field_validator("proposal", mode="after")
     @classmethod
     def _freeze_proposal(cls, value: Any) -> JsonSafeValue:
         """Provider 候选投影必须是 JSON-safe，避免查询层泄漏运行对象。"""
         return _freeze_json(value)
+
+    @field_validator("source_event_ids")
+    @classmethod
+    def _source_events_are_unique(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        """来源事件保持有序不可变，拒绝空 ID 和重复 lineage。"""
+        normalized = tuple(value)
+        if any(not event_id for event_id in normalized):
+            raise ValueError("source_event_ids 不能包含空 ID")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("source_event_ids 不能重复")
+        return normalized
 
 
 class PlanNodeView(_JsonSafeView):

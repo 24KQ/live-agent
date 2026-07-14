@@ -151,6 +151,13 @@
 - 首次调用若在发送前到期，仍需为带幂等键的请求写入并闭合“未发送”终态。这样后续重复请求只重放该事实，不会因继续尝试而改变外部副作用边界。
 - 同步 Graph 只允许通过一个拒绝嵌套事件循环的桥接器调用 async Runtime。在线程池或嵌套 loop 中伪造同步成功会破坏 deadline 的可解释性。
 
+## 2026-07-15 Phase 12B Task 3 发现
+
+- Event Inbox 的并发幂等不能只依赖 Python 锁，也不能只做“先查再写”。PostgreSQL 实现以关系唯一约束作为最终权威，并按稳定顺序取得事件、occurrence 和传输坐标的事务级 advisory lock，才能同时闭合首次登记、精确 delivery 重放与不同摘要冲突。
+- `FOR UPDATE SKIP LOCKED` 只负责 Worker claim；heartbeat 和终态提交仍必须在行锁内同时核对 state、lease owner、绝对过期时间与 fencing token。仅比较 token 会让租约已经过期但尚未被重领的 Worker 继续晚到提交。
+- Phase 12B 给 `plan_runs` 和 `plan_versions` 增加 lineage 后，Phase 12A 的独立 Schema 测试仍应可运行。查询端通过 `to_jsonb(table_row)` 读取可选列并提供 `CARD_BATCH / 0 / INITIAL` 默认值，可以兼容尚未执行 Phase 12B 迁移的历史表，而不把未来迁移复制回 Phase 12A DDL。
+- PostgreSQL 集成测试的 Event Inbox 是全局队列。测试必须只清理自己的专用 event ID 前缀，既避免前次失败留下的 VERIFIED 事件干扰 claim，又不能通过全表 TRUNCATE 破坏其他阶段的持久化证据。
+
 ## 2026-07-13 Phase 11B Task 5 实施前发现
 
 - 当前 `recommend_backup_product` 只有 `room_id` 与 `sold_out_product_id` 输入，但 `LiveOperationsPort` 没有“查询备选商品”或“读取直播间商品状态”的方法；Handler 若直接读取旧 Graph State，会绕过已冻结的 Port 边界。
