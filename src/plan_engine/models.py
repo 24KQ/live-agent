@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from enum import StrEnum
 from hashlib import sha256
 import json
@@ -411,12 +412,39 @@ class PlanRunView(_JsonSafeView):
     current_version: int = Field(..., ge=1)
     state: PlanRunState
     planning_input: Any = Field(default_factory=_frozen_empty_json_object)
+    reconciliation_required: bool = False
+    reconciliation_failure: Any | None = None
+    reconciliation_signature: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    reconciliation_attempt_count: int = Field(default=0, ge=0, strict=True)
+    last_reconciled_at: datetime | None = None
 
     @field_validator("planning_input", mode="after")
     @classmethod
     def _freeze_planning_input(cls, value: Any) -> JsonSafeValue:
         """视图返回的冻结输入必须仍是严格 JSON，供 API/Graph 安全重放。"""
         return _freeze_json(value)
+
+    @field_validator("reconciliation_failure", mode="after")
+    @classmethod
+    def _freeze_reconciliation_failure(cls, value: Any | None) -> JsonSafeValue:
+        """事故事实必须是不可变严格 JSON，防止查询方修改权威失败证据。"""
+        return None if value is None else _freeze_json(value)
+
+    @field_validator("last_reconciled_at")
+    @classmethod
+    def _last_reconciled_at_must_be_aware(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        """最近对账时间统一规范为 UTC，避免跨 Worker 时区造成扫描顺序漂移。"""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("last_reconciled_at 必须包含时区")
+        return value.astimezone(timezone.utc)
 
 
 class PlanVersionView(_JsonSafeView):

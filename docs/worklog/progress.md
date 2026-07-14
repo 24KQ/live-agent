@@ -340,6 +340,20 @@
 - 只暂存本轮文档，提交 `docs: persist agent runtime completion plan` 并推送 `origin/main`。
 - 文档提交后保持 `AWAITING_IMPLEMENTATION_AUTHORIZATION`，等待用户单独授权正式实施。
 
+## 2026-07-15 Phase 12A-14 正式连续实施启动
+
+- 用户已明确授权从 Phase 12A Task 6 连续执行至 Phase 14 Final Acceptance，阶段技术门禁通过后不再逐阶段等待确认。
+- 调整策略为受控自主调整：设计内修正可直接推进；公开接口、Schema、状态机、数据库或安全边界变化先写决策日志；不得放宽安全、预算和 Agent 去留门槛。
+- 已恢复并核对 `HEAD=27a20e4`、`origin/main=27a20e4`，最新业务代码基线为 `37d6f8a`；用户既有 7 个脏文件保持未暂存。
+- 当前进入 Phase 12A Task 6 `RED`，下一步只编写 checkpoint 双向不一致和命令前对账失败测试，不提前修改生产代码。
+- Task 6 RED 已确认：单元与 DDL 契约命令得到 `7 failed, 5 passed`；六项失败明确指向缺少 `src.plan_engine.reconciliation`，一项失败指向 `plan_runs` 尚无 reconciliation 持久化字段。
+- Task 6 GREEN 已实现：PlanRun 对账字段、内存/PostgreSQL Store、公开 checkpointer 读取、启动/周期/命令前三类入口和普通命令 fail-closed 门禁。
+- 自审发现非法 checkpoint 引用原先只抛校验异常，新增红灯测试后改为持久化 `INTERNAL_INVARIANT` 并冻结活动计划。
+- Task 6 相关回归为 `59 passed`；默认单元测试为 `816 passed, 4 warnings`；完整集成测试为 `77 passed, 3 deselected, 5 warnings`。
+- PowerShell 不展开传给 pytest 的 glob，首次专项聚合命令退出 `4`，已改用 `Get-ChildItem` 生成精确文件数组并得到 `256 passed`。本机未安装 `ruff`，使用 compileall、完整测试、差异审阅与编码检查替代。
+- Task 6 提交前重新取得新鲜证据：专项 `16 passed`、完整单元 `816 passed, 4 warnings`、完整集成 `77 passed, 3 deselected, 5 warnings`；严格 UTF-8、`compileall` 与 `git diff --check` 均通过。
+- 一次完整集成测试的输出句柄因任务中断丢失，未将该次运行计入验收；确认无残留 pytest 进程后独立重跑并取得明确退出码 `0`。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

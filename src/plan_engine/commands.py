@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from math import isfinite
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -158,12 +158,24 @@ class PlanCommandLedgerView(BaseModel):
         return value.astimezone(timezone.utc)
 
 
+class CommandReconciler(Protocol):
+    """CommandService 使用的最小一致性入口，不暴露 checkpointer 实现。"""
+
+    def reconcile_before_command(self, command: PlanCommand) -> Any:
+        """在命令进入权威账本前检查目标计划与 checkpoint。"""
+
+
 class CommandService:
     """人工命令的薄服务层，把所有权威判断委托给 PlanStore。"""
 
-    def __init__(self, store: PlanStore) -> None:
-        """注入唯一 PlanStore，服务实例不维护进程内幂等缓存。"""
+    def __init__(
+        self,
+        store: PlanStore,
+        reconciler: CommandReconciler | None = None,
+    ) -> None:
+        """注入权威 Store 与可选统一对账入口，不维护进程内幂等缓存。"""
         self._store = store
+        self._reconciler = reconciler
 
     def submit(
         self,
@@ -172,5 +184,9 @@ class CommandService:
         now: datetime | None = None,
     ) -> PlanCommandResult:
         """提交命令并返回首次账本结果；可注入时钟仅用于确定性测试。"""
+        if self._reconciler is not None:
+            # 对账发生在 Store 的任何命令状态修改前。异常直接向上传播并阻止命令
+            # 入账，不能在一致性状态未知时尝试“先执行再补检查”。
+            self._reconciler.reconcile_before_command(command)
         submitted_at = now or datetime.now(timezone.utc)
         return self._store.submit_command(command=command, now=submitted_at)

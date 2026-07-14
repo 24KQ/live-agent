@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from uuid import uuid4
 
 import psycopg
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, ValidationError, field_validator
 from psycopg.rows import dict_row
 
 from src.plan_engine.bindings import MaterializedNodeInput
@@ -27,6 +27,7 @@ from src.plan_engine.models import (
     CardBatchPlanningInput,
     FrozenDict,
     NodeRunView,
+    PlanCommandType,
     PlanNodeKind,
     PlanNodeState,
     PlanNodeView,
@@ -47,6 +48,44 @@ if TYPE_CHECKING:
 
 class PlanStoreInvariantError(RuntimeError):
     """表示写入请求与 Store 已保存的权威计划事实发生冲突。"""
+
+
+def _reconciliation_failure_snapshot(failure: dict[str, Any]) -> dict[str, Any]:
+    """用 PlanRunView 的严格 JSON 边界复制对账失败事实。
+
+    Store 的内存和 PostgreSQL 实现必须共享完全相同的输入校验。借助冻结视图重建
+    JSON 可以拒绝非字符串 key、非有限浮点和任意 Python 对象，并切断调用方引用。
+    """
+    if not isinstance(failure, dict):
+        raise PlanStoreInvariantError("reconciliation_failure 必须是 JSON object")
+    try:
+        validated = PlanRunView(
+            plan_run_id="validation-plan-run",
+            room_id="validation-room",
+            trace_id="validation-trace",
+            run_key="validation-run-key",
+            current_version=1,
+            state=PlanRunState.ACTIVE,
+            reconciliation_failure=failure,
+        ).reconciliation_failure
+        return json.loads(
+            json.dumps(validated, ensure_ascii=False, allow_nan=False)
+        )
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise PlanStoreInvariantError(
+            "reconciliation_failure 必须是严格 JSON object"
+        ) from exc
+
+
+def _validate_reconciliation_signature(signature: str) -> str:
+    """事故签名固定为小写 SHA-256，防止重复扫描使用不稳定身份。"""
+    if (
+        not isinstance(signature, str)
+        or len(signature) != 64
+        or any(character not in "0123456789abcdef" for character in signature)
+    ):
+        raise PlanStoreInvariantError("reconciliation_signature 必须是小写 SHA-256")
+    return signature
 
 
 @dataclass(frozen=True)
@@ -200,6 +239,27 @@ class PlanStore(Protocol):
 
     def get_plan_run(self, plan_run_id: str) -> PlanRunView:
         """读取一个 PlanRun 的 JSON-safe 冻结视图。"""
+
+    def list_plan_runs(self, *, include_terminal: bool = False) -> tuple[PlanRunView, ...]:
+        """列出可扫描计划；默认只返回非终态或仍有对账事故的计划。"""
+
+    def record_reconciliation_failure(
+        self,
+        *,
+        plan_run_id: str,
+        failure: dict[str, Any],
+        signature: str,
+        now: datetime,
+    ) -> PlanRunView:
+        """持久化 checkpoint 对账事故并按安全状态冻结计划。"""
+
+    def clear_reconciliation_failure(
+        self,
+        *,
+        plan_run_id: str,
+        now: datetime,
+    ) -> PlanRunView:
+        """证据重新一致后清除当前阻断，但保留累计对账次数。"""
 
     def get_plan_version(self, plan_run_id: str, version_number: int) -> PlanVersionView:
         """读取指定不可变 PlanVersion。"""
@@ -358,6 +418,11 @@ class _PlanRunRecord:
     current_version: int
     state: PlanRunState
     planning_input: dict[str, Any]
+    reconciliation_required: bool = False
+    reconciliation_failure: dict[str, Any] | None = None
+    reconciliation_signature: str | None = None
+    reconciliation_attempt_count: int = 0
+    last_reconciled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -514,6 +579,88 @@ class InMemoryPlanStore:
             if record is None:
                 raise PlanStoreInvariantError("PlanRun 不存在")
             return self._plan_run_view(record)
+
+    def list_plan_runs(
+        self,
+        *,
+        include_terminal: bool = False,
+    ) -> tuple[PlanRunView, ...]:
+        """按稳定 ID 返回扫描候选，终态且无事故的计划默认不参与后台扫描。"""
+        with self._lock:
+            records = sorted(
+                self._plan_runs.values(),
+                key=lambda item: item.plan_run_id,
+            )
+            selected = (
+                records
+                if include_terminal
+                else [
+                    record
+                    for record in records
+                    if record.state in {PlanRunState.ACTIVE, PlanRunState.FROZEN}
+                    or record.reconciliation_required
+                ]
+            )
+            return tuple(self._plan_run_view(record) for record in selected)
+
+    def record_reconciliation_failure(
+        self,
+        *,
+        plan_run_id: str,
+        failure: dict[str, Any],
+        signature: str,
+        now: datetime,
+    ) -> PlanRunView:
+        """原子记录当前事故；相同签名重扫只增加次数，不创建第二份事故。"""
+        failure_snapshot = _reconciliation_failure_snapshot(failure)
+        validated_signature = _validate_reconciliation_signature(signature)
+        normalized_now = self._aware_utc(now, "对账时间")
+        with self._lock:
+            plan_run = self._plan_runs.get(plan_run_id)
+            if plan_run is None:
+                raise PlanStoreInvariantError("PlanRun 不存在")
+            target_state = (
+                validate_plan_run_state(PlanRunState.FROZEN)
+                if plan_run.state is PlanRunState.ACTIVE
+                else plan_run.state
+            )
+            updated = replace(
+                plan_run,
+                state=target_state,
+                reconciliation_required=True,
+                reconciliation_failure=failure_snapshot,
+                reconciliation_signature=validated_signature,
+                reconciliation_attempt_count=(
+                    plan_run.reconciliation_attempt_count + 1
+                ),
+                last_reconciled_at=normalized_now,
+            )
+            self._plan_runs[plan_run_id] = updated
+            return self._plan_run_view(updated)
+
+    def clear_reconciliation_failure(
+        self,
+        *,
+        plan_run_id: str,
+        now: datetime,
+    ) -> PlanRunView:
+        """一致后清除当前事故，不重置累计次数，也不自动解冻业务计划。"""
+        normalized_now = self._aware_utc(now, "对账时间")
+        with self._lock:
+            plan_run = self._plan_runs.get(plan_run_id)
+            if plan_run is None:
+                raise PlanStoreInvariantError("PlanRun 不存在")
+            if not plan_run.reconciliation_required:
+                return self._plan_run_view(plan_run)
+            updated = replace(
+                plan_run,
+                reconciliation_required=False,
+                reconciliation_failure=None,
+                reconciliation_signature=None,
+                last_reconciled_at=normalized_now,
+            )
+            self._plan_runs[plan_run_id] = updated
+            return self._plan_run_view(updated)
 
     def get_plan_version(self, plan_run_id: str, version_number: int) -> PlanVersionView:
         """返回指定版本的审计快照，不回退到当前版本或其他 PlanRun。"""
@@ -1134,6 +1281,22 @@ class InMemoryPlanStore:
                     node_id=command.node_id,
                     completed_at=normalized_now,
                 )
+            elif (
+                plan_run.reconciliation_required
+                and command.command_type is not PlanCommandType.RECONCILE
+            ):
+                # checkpoint 事故属于 PlanRun 级 fail-closed 门禁。普通审批、拒绝和
+                # RESUME 均不能绕过；拒绝结果仍进入 Command Ledger，供重放审计。
+                result = PlanCommandResult(
+                    command_id=command.command_id,
+                    command_type=command.command_type,
+                    plan_run_id=command.plan_run_id,
+                    accepted=False,
+                    reason="RECONCILIATION_REQUIRED",
+                    plan_version=plan_run.current_version,
+                    node_id=command.node_id,
+                    completed_at=normalized_now,
+                )
             else:
                 result = self._apply_first_command(
                     command=command,
@@ -1597,6 +1760,11 @@ class InMemoryPlanStore:
             current_version=record.current_version,
             state=record.state,
             planning_input=record.planning_input,
+            reconciliation_required=record.reconciliation_required,
+            reconciliation_failure=record.reconciliation_failure,
+            reconciliation_signature=record.reconciliation_signature,
+            reconciliation_attempt_count=record.reconciliation_attempt_count,
+            last_reconciled_at=record.last_reconciled_at,
         )
 
     @staticmethod
@@ -1839,6 +2007,135 @@ class PostgresPlanStore:
             raise
         except psycopg.Error as exc:
             raise PlanStoreInvariantError("读取 PlanRun 失败") from exc
+
+    def list_plan_runs(
+        self,
+        *,
+        include_terminal: bool = False,
+    ) -> tuple[PlanRunView, ...]:
+        """列出后台对账候选，默认排除无事故的成功/失败终态计划。"""
+        predicate = (
+            "TRUE"
+            if include_terminal
+            else "(state IN ('ACTIVE', 'FROZEN') OR reconciliation_required)"
+        )
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT plan_run_id::text AS plan_run_id
+                        FROM plan_runs
+                        WHERE {predicate}
+                        ORDER BY plan_run_id;
+                        """
+                    )
+                    plan_run_ids = [str(row["plan_run_id"]) for row in cursor.fetchall()]
+                    records = tuple(
+                        self._load_plan_run(cursor, plan_run_id)
+                        for plan_run_id in plan_run_ids
+                    )
+                connection.commit()
+                return tuple(self._plan_run_view(record) for record in records)
+        except PlanStoreInvariantError:
+            raise
+        except psycopg.Error as exc:
+            raise PlanStoreInvariantError("列出 PlanRun 失败") from exc
+
+    def record_reconciliation_failure(
+        self,
+        *,
+        plan_run_id: str,
+        failure: dict[str, Any],
+        signature: str,
+        now: datetime,
+    ) -> PlanRunView:
+        """在 PlanRun 行锁内记录事故、累计扫描次数并安全冻结活动计划。"""
+        failure_snapshot = _reconciliation_failure_snapshot(failure)
+        validated_signature = _validate_reconciliation_signature(signature)
+        normalized_now = self._aware_utc(now, "对账时间")
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    plan_run = self._load_plan_run(
+                        cursor,
+                        plan_run_id,
+                        for_update=True,
+                    )
+                    target_state = (
+                        PlanRunState.FROZEN
+                        if plan_run.state is PlanRunState.ACTIVE
+                        else plan_run.state
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE plan_runs
+                        SET state = %(state)s,
+                            reconciliation_required = TRUE,
+                            reconciliation_failure = %(failure)s,
+                            reconciliation_signature = %(signature)s,
+                            reconciliation_attempt_count =
+                                reconciliation_attempt_count + 1,
+                            last_reconciled_at = %(now)s,
+                            updated_at = %(now)s
+                        WHERE plan_run_id = %(plan_run_id)s::uuid;
+                        """,
+                        {
+                            "state": target_state.value,
+                            "failure": self._jsonb(failure_snapshot),
+                            "signature": validated_signature,
+                            "now": normalized_now,
+                            "plan_run_id": plan_run_id,
+                        },
+                    )
+                    if cursor.rowcount != 1:
+                        raise PlanStoreInvariantError("记录 PlanRun 对账事故失败")
+                    updated = self._load_plan_run(cursor, plan_run_id)
+                connection.commit()
+                return self._plan_run_view(updated)
+        except PlanStoreInvariantError:
+            raise
+        except psycopg.Error as exc:
+            raise PlanStoreInvariantError("持久化 PlanRun 对账事故失败") from exc
+
+    def clear_reconciliation_failure(
+        self,
+        *,
+        plan_run_id: str,
+        now: datetime,
+    ) -> PlanRunView:
+        """证据一致后清除当前事故字段，累计次数和业务状态保持不变。"""
+        normalized_now = self._aware_utc(now, "对账时间")
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    plan_run = self._load_plan_run(
+                        cursor,
+                        plan_run_id,
+                        for_update=True,
+                    )
+                    if plan_run.reconciliation_required:
+                        cursor.execute(
+                            """
+                            UPDATE plan_runs
+                            SET reconciliation_required = FALSE,
+                                reconciliation_failure = NULL,
+                                reconciliation_signature = NULL,
+                                last_reconciled_at = %(now)s,
+                                updated_at = %(now)s
+                            WHERE plan_run_id = %(plan_run_id)s::uuid;
+                            """,
+                            {"now": normalized_now, "plan_run_id": plan_run_id},
+                        )
+                        if cursor.rowcount != 1:
+                            raise PlanStoreInvariantError("清除 PlanRun 对账事故失败")
+                    updated = self._load_plan_run(cursor, plan_run_id)
+                connection.commit()
+                return self._plan_run_view(updated)
+        except PlanStoreInvariantError:
+            raise
+        except psycopg.Error as exc:
+            raise PlanStoreInvariantError("清除 PlanRun 对账事故失败") from exc
 
     def get_plan_version(
         self,
@@ -2758,6 +3055,22 @@ class PostgresPlanStore:
                             node_id=command.node_id,
                             completed_at=normalized_now,
                         )
+                    elif (
+                        plan_run.reconciliation_required
+                        and command.command_type is not PlanCommandType.RECONCILE
+                    ):
+                        # 与内存 Store 保持一致：事故期间只有 RECONCILE 有资格进入
+                        # 后续状态校验，其他命令以首次拒绝事实写入账本。
+                        result = PlanCommandResult(
+                            command_id=command.command_id,
+                            command_type=command.command_type,
+                            plan_run_id=command.plan_run_id,
+                            accepted=False,
+                            reason="RECONCILIATION_REQUIRED",
+                            plan_version=plan_run.current_version,
+                            node_id=command.node_id,
+                            completed_at=normalized_now,
+                        )
                     else:
                         result = self._apply_command_sql(
                             cursor,
@@ -3186,7 +3499,10 @@ class PostgresPlanStore:
             f"""
             SELECT
                 plan_run_id::text AS plan_run_id, room_id, trace_id,
-                run_key, current_version, state, planning_input
+                run_key, current_version, state, planning_input,
+                reconciliation_required, reconciliation_failure,
+                reconciliation_signature, reconciliation_attempt_count,
+                last_reconciled_at
             FROM plan_runs
             WHERE plan_run_id::text = %(plan_run_id)s
             {lock_clause};
@@ -3204,6 +3520,21 @@ class PostgresPlanStore:
             current_version=int(row["current_version"]),
             state=PlanRunState(str(row["state"])),
             planning_input=dict(row["planning_input"]),
+            reconciliation_required=bool(row["reconciliation_required"]),
+            reconciliation_failure=(
+                None
+                if row["reconciliation_failure"] is None
+                else dict(row["reconciliation_failure"])
+            ),
+            reconciliation_signature=(
+                None
+                if row["reconciliation_signature"] is None
+                else str(row["reconciliation_signature"])
+            ),
+            reconciliation_attempt_count=int(
+                row["reconciliation_attempt_count"]
+            ),
+            last_reconciled_at=row["last_reconciled_at"],
         )
 
     def _load_plan_version(
@@ -3731,6 +4062,11 @@ class PostgresPlanStore:
             current_version=record.current_version,
             state=record.state,
             planning_input=record.planning_input,
+            reconciliation_required=record.reconciliation_required,
+            reconciliation_failure=record.reconciliation_failure,
+            reconciliation_signature=record.reconciliation_signature,
+            reconciliation_attempt_count=record.reconciliation_attempt_count,
+            last_reconciled_at=record.last_reconciled_at,
         )
 
     @staticmethod

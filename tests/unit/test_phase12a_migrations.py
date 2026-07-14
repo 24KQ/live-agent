@@ -62,6 +62,22 @@ def test_phase12a_sql_keeps_identity_state_and_json_evidence_constraints() -> No
     assert "check (state in" in sql
 
 
+def test_phase12a_sql_persists_checkpoint_reconciliation_facts() -> None:
+    """checkpoint 事故必须落在 PlanRun 权威行，不能只存在进程内日志。"""
+    sql = _normalized_sql()
+
+    for column in (
+        "reconciliation_required boolean not null default false",
+        "reconciliation_failure jsonb",
+        "reconciliation_signature text",
+        "reconciliation_attempt_count integer not null default 0",
+        "last_reconciled_at timestamptz",
+    ):
+        assert column in sql
+
+    assert "alter table plan_runs" in sql
+
+
 def test_phase12a_sql_has_ready_lease_dependency_and_resource_indexes() -> None:
     """READY 调度、依赖推进、lease 回收与跨计划资源冲突都必须有索引入口。"""
     sql = _normalized_sql()

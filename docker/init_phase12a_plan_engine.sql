@@ -17,9 +17,34 @@ CREATE TABLE IF NOT EXISTS plan_runs (
         'ACTIVE', 'FROZEN', 'SUCCEEDED', 'FAILED'
     )),
     planning_input JSONB NOT NULL,
+    reconciliation_required BOOLEAN NOT NULL DEFAULT FALSE,
+    reconciliation_failure JSONB,
+    reconciliation_signature TEXT CHECK (
+        reconciliation_signature IS NULL
+        OR reconciliation_signature ~ '^[0-9a-f]{64}$'
+    ),
+    reconciliation_attempt_count INTEGER NOT NULL DEFAULT 0
+        CHECK (reconciliation_attempt_count >= 0),
+    last_reconciled_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 已有开发数据库可能在 Task 5 创建过 plan_runs。ADD COLUMN IF NOT EXISTS
+-- 让同一迁移脚本既能初始化新环境，也能无损升级既有六表结构。
+ALTER TABLE plan_runs
+    ADD COLUMN IF NOT EXISTS reconciliation_required
+        BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS reconciliation_failure JSONB,
+    ADD COLUMN IF NOT EXISTS reconciliation_signature TEXT
+        CHECK (
+            reconciliation_signature IS NULL
+            OR reconciliation_signature ~ '^[0-9a-f]{64}$'
+        ),
+    ADD COLUMN IF NOT EXISTS reconciliation_attempt_count
+        INTEGER NOT NULL DEFAULT 0
+        CHECK (reconciliation_attempt_count >= 0),
+    ADD COLUMN IF NOT EXISTS last_reconciled_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS plan_versions (
     plan_version_id UUID PRIMARY KEY,

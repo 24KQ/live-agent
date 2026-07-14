@@ -128,7 +128,17 @@
 - [x] 完成冻结计划可执行性复核：售罄版本切换与 Handler 原子提交、SkillPolicyView 独立迁移、持久化模型预算、Runtime Golden case 和两次 Release 路由晋升。
 - [x] 完成编号、状态一致性、UTF-8、编码扫描和 `git diff --check` 验证；全仓扫描的 4 个错误/58 个警告均为非目标历史问题。
 - [x] 锁定本轮提交边界为 16 个目标文档；提交与推送结果以 Git 历史和远端状态为准。
-- [ ] 等待用户单独授权正式实施 Phase 12A Task 6-9 及后续阶段。
+- [x] 用户已授权从 Phase 12A Task 6 连续实施至 Phase 14 Final Acceptance，采用受控自主调整。
+
+## 2026-07-15 Phase 12A-14 正式连续实施
+
+- [x] Phase 12A Task 6：Checkpoint 一致性与人工命令恢复（验证完成，待提交推送）。
+- [ ] Phase 12A Task 7：播前 Graph 局部路由。
+- [ ] Phase 12A Task 8：移除 `TRUSTED_COMPAT`。
+- [ ] Phase 12A Task 9：Demo、全量验收与 Acceptance。
+- [ ] Phase 12B：Event Inbox、抢占、紧急 DAG 与增量 Replan。
+- [ ] Phase 13：三个 Specialist Agent 候选评估与条件化去留。
+- [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务
 
