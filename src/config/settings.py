@@ -157,7 +157,13 @@ class Settings(BaseSettings):
         default="LEGACY", validation_alias="SKILL_ROUTE_PHASE11B_BATCH3"
     )
 
-
+    # ── Phase 12A DAG PlanEngine 路由配置 ───────────────────────────────
+    # 该字段只控制播前 Graph 的手卡批次，不复用 Skill Runtime 的批次路由。默认
+    # LEGACY 可保证升级后不会自动改变生产执行路径；应用装配层会把值复制到冻结策略。
+    plan_engine_card_execution_route: Literal["LEGACY", "PLAN_ENGINE"] = Field(
+        default="LEGACY",
+        validation_alias="PLAN_ENGINE_CARD_EXECUTION_ROUTE",
+    )
 
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:

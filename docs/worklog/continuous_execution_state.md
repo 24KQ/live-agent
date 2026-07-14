@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12A |
-| 最近完成任务 | Task 5：PostgreSQL PlanStore、DDL 与并发证据 |
-| 下一任务 | Task 6：Checkpoint 一致性与人工命令恢复 |
+| 最近完成任务 | Task 6：Checkpoint 一致性与人工命令恢复（`6029ad3`） |
+| 下一任务 | Task 7：启动冻结路由与播前 Graph 局部接入 |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | Task 6：全部验证通过，待边界检查、提交并推送 |
+| 当前子步骤 | Task 7：全部验证通过，待边界检查、提交并推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `37d6f8a feat: persist phase 12a plans` |
-| 远端状态 | `origin/main` 必须包含该业务基线；最新文档 HEAD 以恢复时的 `git log` 为准 |
+| 当前业务基线 | `6029ad3 feat: reconcile phase 12a plan checkpoints` |
+| 远端状态 | `origin/main=6029ad3` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12A / Task 6
+Phase / Task: Phase 12A / Task 7
 状态: COMMIT
-目标: 实现 PlanStore/checkpoint 双向一致性、持久化 reconciliation 事故和命令前对账
-禁止事项: 不修改官方 checkpoint 表；不补造 NodeRun；不启动 Task 7
-当前 HEAD: 27a20e4
-本 Task 文件: reconciliation.py、store.py、commands.py、service.py、Phase 12A DDL 与对应测试
+目标: 实现启动冻结的 LEGACY | PLAN_ENGINE 手卡路由与播前 Graph 局部接入
+禁止事项: 不接管查询、排品或建播；不做生产双执行；PlanEngine 失败不得 fallback Legacy
+当前 HEAD: 6029ad3
+本 Task 文件: routing.py、service.py、settings.py、pre_live_graph.py 与两个 Task 7 测试文件
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 6 专项 16 passed；全量 unit 816 passed；全量 integration 77 passed, 3 deselected；compileall、严格 UTF-8 与 git diff --check 通过
-错误与尝试次数: PowerShell 未展开 pytest glob、本机未安装 ruff、一次集成测试输出句柄因用户中断丢失；均已改用精确文件数组、可重复替代检查和独立完整重跑
-设计偏差与决策编号: 无；自审补充非法 checkpoint 引用持久化测试，遵循 D-028 至 D-034、D-076
-下一条精确操作: 只暂存 Task 6 目标文件，核对 cached diff，提交并推送 Task 6
+最近命令与结果: Task 7 专项 9 passed；播前 Graph 回归 18 passed；Phase 12A 聚合 266 passed；全量 unit 824 passed；全量 integration 78 passed, 3 deselected；compileall、严格 UTF-8 与 git diff --check 通过
+错误与尝试次数: 0 个非预期实现错误；自审新增候选越界测试先 1 failed 后 1 passed
+设计偏差与决策编号: 尚无；遵循 D-065、D-070 与冻结 Task 7 计划
+下一条精确操作: 只暂存 Task 7 目标文件，核对 cached diff，提交并推送
 模型费用累计: 0 元
 ```
 
@@ -67,6 +67,10 @@ Phase / Task: Phase 12A / Task 6
 | Phase 12A Task 6 相关回归 | `59 passed` |
 | Task 6 后默认单元测试 | `816 passed, 4 warnings` |
 | Task 6 后完整集成测试 | `77 passed, 3 deselected, 5 warnings` |
+| Task 6 提交与推送 | `6029ad3`，`origin/main=6029ad3` |
+| Phase 12A Task 7 专项 | `9 passed` |
+| Task 7 后默认单元测试 | `824 passed, 4 warnings` |
+| Task 7 后完整集成测试 | `78 passed, 3 deselected, 5 warnings` |
 
 表中前八项保留进入正式实施前的基线，后三项是 Task 6 提交前重新取得的业务验证证据。
 

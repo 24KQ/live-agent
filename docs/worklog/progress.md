@@ -353,6 +353,13 @@
 - PowerShell 不展开传给 pytest 的 glob，首次专项聚合命令退出 `4`，已改用 `Get-ChildItem` 生成精确文件数组并得到 `256 passed`。本机未安装 `ruff`，使用 compileall、完整测试、差异审阅与编码检查替代。
 - Task 6 提交前重新取得新鲜证据：专项 `16 passed`、完整单元 `816 passed, 4 warnings`、完整集成 `77 passed, 3 deselected, 5 warnings`；严格 UTF-8、`compileall` 与 `git diff --check` 均通过。
 - 一次完整集成测试的输出句柄因任务中断丢失，未将该次运行计入验收；确认无残留 pytest 进程后独立重跑并取得明确退出码 `0`。
+- Task 6 已以 `6029ad3 feat: reconcile phase 12a plan checkpoints` 独立提交并推送 `origin/main`；缓存区只包含 12 个目标文件，7 个用户既有脏文件未纳入提交。
+- 连续执行游标已切换到 Phase 12A Task 7 `RED`，先验证启动冻结路由、局部 Graph 接入和禁止同次 fallback。
+- Task 7 RED 得到 `7 failed`：路由模块、Settings 字段、Graph state 与 bridge 均尚不存在，失败原因与冻结计划一致；开始最小 GREEN 实现。
+- Task 7 GREEN 复用固定 Provider、Capability Profile、PlanStore、SyncPlanWorkerAdapter 和 SkillExecutor，新增启动冻结的 `LEGACY | PLAN_ENGINE` 手卡路由；新专项 `9 passed`。
+- 自审新增“候选绑定冻结输入外商品”红灯，确认原实现会创建无效 PlanRun；最小修复后在 Store 前拒绝，测试由 `1 failed` 转为 `1 passed`。
+- 旧播前 Graph/checkpoint/interrupt/Skill Runtime 回归 `18 passed`，Phase 12A 聚合 `266 passed`；进入完整验证。
+- Task 7 提交前完整验证：默认单元测试 `824 passed, 4 warnings`，完整集成测试 `78 passed, 3 deselected, 5 warnings`；9 个目标文件严格 UTF-8、`compileall` 和 `git diff --check` 均通过。
 
 # 2026-07-11 Phase 7A 进度
 

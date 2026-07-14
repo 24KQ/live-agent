@@ -20,6 +20,13 @@ from src.core.human_approval import (
     validate_human_approval_response,
 )
 from src.core.security_hooks import GateResult
+from src.plan_engine.models import CardBatchPlanningInput, PlanRunState
+from src.plan_engine.reconciliation import (
+    CheckpointControlPosition,
+    PlanCheckpointReference,
+)
+from src.plan_engine.routing import PlanExecutionPolicy, PlanExecutionRoute
+from src.plan_engine.service import CardBatchPlanService
 from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_card_generator import ProductCard
 from src.skills.product_catalog import CatalogProduct
@@ -99,6 +106,10 @@ class PreLiveGraphState(TypedDict, total=False):
     plan_item_count: int
     cards_snapshot: list[CardSnapshot]
     card_count: int
+    plan_run_id: str | None
+    plan_version: int | None
+    plan_execution_status: str | None
+    plan_checkpoint_reference: dict[str, Any] | None
     compliance_summary: str
     setup_gate_decision: str
     setup_gate_allowed: bool
@@ -136,6 +147,10 @@ def create_initial_pre_live_graph_state(
         "confirmed_setup": confirmed_setup,
         "enable_human_approval": enable_human_approval,
         "completed_nodes": [],
+        "plan_run_id": None,
+        "plan_version": None,
+        "plan_execution_status": None,
+        "plan_checkpoint_reference": None,
         "error": None,
     }
 
@@ -155,6 +170,8 @@ def create_pre_live_graph_config(trace_id: str) -> dict[str, dict[str, str]]:
 def build_pre_live_graph(
     service: PreLiveBusinessServiceProtocol,
     *,
+    plan_execution_policy: PlanExecutionPolicy | None = None,
+    card_batch_plan_service: CardBatchPlanService | None = None,
     checkpointer: Any | None = None,
     interrupt_after: list[str] | None = None,
 ):
@@ -165,17 +182,38 @@ def build_pre_live_graph(
     直接操作 checkpoint 表。
     """
 
+    # 路由只在 Graph 装配时解析一次。默认策略不会读取环境变量，保持所有既有调用
+    # 继续走 Legacy；显式打开 PLAN_ENGINE 却未注入服务时直接启动失败，禁止运行期回退。
+    execution_policy = plan_execution_policy or PlanExecutionPolicy.default()
+    if (
+        execution_policy.route is PlanExecutionRoute.PLAN_ENGINE
+        and card_batch_plan_service is None
+    ):
+        raise ValueError("PLAN_ENGINE 路由必须注入 CardBatchPlanService")
+
     graph = StateGraph(PreLiveGraphState)
     graph.add_node("query_products", lambda state: _query_products_node(state, service))
     graph.add_node("generate_live_plan", lambda state: _generate_plan_node(state, service))
-    graph.add_node("generate_product_cards", lambda state: _generate_cards_node(state, service))
+    graph.add_node(
+        "generate_product_cards",
+        lambda state: _generate_cards_node(
+            state,
+            service,
+            execution_policy,
+            card_batch_plan_service,
+        ),
+    )
     graph.add_node("compliance_check", _compliance_check_node)
     graph.add_node("setup_live_session", lambda state: _setup_live_session_node(state, service))
 
     graph.add_edge(START, "query_products")
     graph.add_edge("query_products", "generate_live_plan")
     graph.add_edge("generate_live_plan", "generate_product_cards")
-    graph.add_edge("generate_product_cards", "compliance_check")
+    graph.add_conditional_edges(
+        "generate_product_cards",
+        _route_after_generate_cards,
+        {"continue": "compliance_check", "stop": END},
+    )
     graph.add_edge("compliance_check", "setup_live_session")
     graph.add_edge("setup_live_session", END)
     return graph.compile(checkpointer=checkpointer, interrupt_after=interrupt_after)
@@ -209,22 +247,80 @@ def _generate_plan_node(state: PreLiveGraphState, service: PreLiveBusinessServic
     }
 
 
-def _generate_cards_node(state: PreLiveGraphState, service: PreLiveBusinessServiceProtocol) -> dict[str, Any]:
-    """生成商品手卡节点。"""
+def _generate_cards_node(
+    state: PreLiveGraphState,
+    service: PreLiveBusinessServiceProtocol,
+    execution_policy: PlanExecutionPolicy,
+    card_batch_plan_service: CardBatchPlanService | None,
+) -> dict[str, Any]:
+    """按启动冻结策略执行唯一手卡节点，失败时绝不回退另一条路径。"""
 
     products = [product_from_snapshot(snapshot) for snapshot in _require_state_value(state, "products_snapshot")]
     plan = plan_from_snapshot(_require_state_value(state, "plan_snapshot"))
-    cards = service.generate_cards(
+    if execution_policy.route is PlanExecutionRoute.LEGACY:
+        cards = service.generate_cards(
+            room_id=state["room_id"],
+            plan=plan,
+            products=products,
+            trace_id=state["trace_id"],
+        )
+        return {
+            "cards_snapshot": [card_to_snapshot(card) for card in cards],
+            "card_count": len(cards),
+            "completed_nodes": _append_node(state, "generate_product_cards"),
+        }
+
+    # build_pre_live_graph 已在装配期保证非空；此断言只帮助类型收窄，不能作为
+    # fallback 条件。PlanEngine 抛出的任何异常都直接终止本次 Graph 调用。
+    assert card_batch_plan_service is not None
+    request = CardBatchPlanningInput(
         room_id=state["room_id"],
-        plan=plan,
-        products=products,
         trace_id=state["trace_id"],
+        live_plan=plan,
+        products_by_id={product.product_id: product for product in products},
     )
+    reference = card_batch_plan_service.create_or_resume(request)
+    result = card_batch_plan_service.drive_to_terminal(reference.plan_run_id)
+    if result.plan_run_id != reference.plan_run_id or result.plan_version != reference.plan_version:
+        raise ValueError("CardBatchPlanService 返回的计划身份不一致")
+
+    control_position = (
+        CheckpointControlPosition.CARD_BATCH_SUCCEEDED
+        if result.status is PlanRunState.SUCCEEDED
+        else CheckpointControlPosition.CARD_BATCH_FAILED
+    )
+    checkpoint_reference = PlanCheckpointReference(
+        plan_run_id=result.plan_run_id,
+        plan_version=result.plan_version,
+        control_position=control_position,
+    ).model_dump(mode="json")
+    cards = [
+        ProductCard.model_validate(card).model_dump(mode="json")
+        for card in result.cards_snapshot
+    ]
     return {
-        "cards_snapshot": [card_to_snapshot(card) for card in cards],
+        "cards_snapshot": cards,
         "card_count": len(cards),
+        "plan_run_id": result.plan_run_id,
+        "plan_version": result.plan_version,
+        "plan_execution_status": result.status.value,
+        "plan_checkpoint_reference": checkpoint_reference,
+        "error": (
+            None
+            if result.status is PlanRunState.SUCCEEDED
+            else "CARD_BATCH_PLAN_FAILED"
+        ),
         "completed_nodes": _append_node(state, "generate_product_cards"),
     }
+
+
+def _route_after_generate_cards(state: PreLiveGraphState) -> str:
+    """失败手卡计划在保存引用后停止，禁止继续合规摘要和建播节点。"""
+    return (
+        "stop"
+        if state.get("plan_execution_status") == PlanRunState.FAILED.value
+        else "continue"
+    )
 
 
 def _compliance_check_node(state: PreLiveGraphState) -> dict[str, Any]:
