@@ -197,6 +197,25 @@
 - 用户已接受 Phase 12A Design。后续实现计划必须保持 Graph 手卡节点局部接入，禁止把 PlanEngine 塞入现有 `RoutedPreLiveBusinessService.generate_cards()`，否则会丢失 PlanRun、版本和 checkpoint 一致性证据。
 - Phase 12A 实现计划必须把 `plan_engine_card_execution_route` 与既有 `skill_route_phase11b_batch1` 分离；后者同时控制查询和排品，不能承担“只接管手卡批次”的路由语义。
 
+## 2026-07-14 Agent Runtime 全程计划持久化发现
+
+- 长周期连续实施不能只依赖不断增长的 task_plan/progress；必须有一份短小实时游标，明确当前 Task、子步骤、最近验证和下一条命令。
+- Phase 12A 原 Task 6 只描述 checkpoint 领先时冻结，缺少权威原因、signature 和恢复历史；仅进程内错误不能支持重启后命令 fail-closed，因此选择扩展 plan_runs，而不是新增第七张事故表。
+- TRUSTED_COMPAT 已没有不可替代的调用场景。真实播前 interrupt 能生成 HUMAN_INTERRUPT，继续把 confirmed_setup 升级为权限只会把迁移兼容延伸到新 Runtime。
+- ToolRegistry 当前没有独立元数据，但生产调用仍较多。立即删除会污染 Phase 12A 验收，长期保留又会维持两套公共概念；因此 Phase 12B 先迁到 SkillPolicyView，Phase 14 再删除 Facade。
+- Phase 12B 的技术价值不只是“收到售罄后重跑”：Event Inbox、可信 provenance、局部冻结、child plan、CAS、严格对账和不可变 Replan 必须形成一条可回放证据链。
+- 播中 Harness 不应成为可信库存写的第二入口。PlanEngine 处理安全事实，Agent 只消费证据并决定如何建议，才能公平评估 Agent 的额外价值。
+- ReviewMemoryAgent 若直接调用旧 Replay/Memory Service，会绕过 Skill Runtime。增加最小播后 Skill 集是三场景公平评估的前置，不代表为了数量扩充 Skill。
+- Phase 13 的完成定义允许保留 0 个 Agent。候选未跑满正式样本、严重违规非零或收益/成本不达标时，删除生产接入比保留“项目亮点”更符合路线目标。
+- 3 元人民币是真实模型硬预算，不是事后统计。预算不足的候选只能 INCONCLUSIVE，不能缩小样本后继续使用百分点门槛。
+- Phase 14 需要把新 Runtime 切成默认路径，否则前面阶段只会停留在显式 Demo；但同次 fallback 仍被禁止，Legacy 只作为启动期回滚。
+- 本轮存在用户未提交的旧恢复提示词、历史路线和 Phase 11A 文档。新建连续恢复入口比覆盖旧文件更安全，也能保证本次提交边界可验证。
+- 单活 Skill 的公开 Schema 不能早于 Handler 切换。若 Task 1 先发布 `handle_sold_out_event@2.0.0`、Task 6 才迁移 Handler，中间提交会让 Catalog 与执行行为错位；因此版本、Schema、授权和 Handler 必须在同一 Task 原子切换。
+- ToolRegistry 退役不是 PreemptionCoordinator 的附带步骤。当前 `src/` 有 Planner、Policy、Hook、多个 Flow 和两个 Executor 消费者，必须使用独立迁移 Task 和明确回归清单，Phase 14 才能只删除 Facade。
+- 默认路由不能在 Release 证据产生前切换。正确顺序是显式新路由 Release PASS、提交默认值晋升、在新提交上再次 Release；第二次失败使用新回滚提交，不能改写历史。
+- 3 元模型费用门需要持久化预算作用域和并发预留/结算，否则多个 Worker 可同时越过进程内检查。Phase 13 与本轮 Phase 14 首次 Release 共用同一预算余额。
+- Phase 14 不能“聚合 Phase 12B Golden Cases”却没有来源文件。首版补充 24 个确定性 Runtime core case，并明确复用 Phase 13 已冻结的 240 个 case，总数为 264。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

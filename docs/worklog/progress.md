@@ -312,6 +312,34 @@
 - 用户已于 2026-07-14 审核并接受 Phase 12A Design，并已生成 `docs/superpowers/plans/2026-07-14-phase-12a-dag-plan-engine-plan.md`；当前仍未实施 PlanEngine。
 - Implementation Plan 生成后等待用户确认执行；未确认前不修改 PlanEngine 业务代码。
 
+## 2026-07-14 Agent Runtime 全程计划持久化进度
+
+- 用户希望未来在无人监控和多次上下文压缩下连续实施，因此先要求把 Phase 12A 剩余至 Phase 14 的全部讨论持久化。
+- 已明确本轮授权只覆盖文档，不修改业务代码、不执行 Phase 12A Task 6、不运行真实模型。
+- 已新建 `agent_runtime_completion_master_plan.md`、`continuous_execution_state.md` 和 `agent_runtime_continuous_recovery_prompt.md`。
+- 已修订 Phase 12A Design/Plan，增加 reconciliation 事故字段和 TRUSTED_COMPAT 退役 Task，剩余任务调整为 Task 6-9。
+- 已生成 Phase 12B Event Inbox/抢占/Replan、Phase 13 三候选 Agent 评估、Phase 14 Golden/CI 发布门禁的 Design 与 Implementation Plan。
+- 已新增 D-073 至 D-093，记录 ToolRegistry 退役、事件授权、紧急 DAG、Agent 评估、3 元预算、三级 CI 和最终默认路由等选择。
+- 已更新路线图：Phase 12A Task 1-5 完成，远期 Design/Plan 已冻结但实施未授权。
+- 当前正在执行文档编号、状态一致性、UTF-8、编码和 diff 验证；验证完成前不提交。
+- 网络中断恢复后已核对 `main`、`origin/main` 与业务基线 `37d6f8a`，没有半提交，Phase 12A Task 6 仍为 `NOT_STARTED`。
+- 前一轮组合校验曾因 JavaScript 包装字符串报 `SyntaxError: Unexpected identifier 'r'`，本轮改为拆分命令；首次决策分段正则只识别 1 项，已改用按标题行切片并确认 D-001 至 D-093 共 93 项连续唯一、标准字段齐全。
+- 一次跨文件 `apply_patch` 因总控计划预算原句上下文不匹配而在校验阶段整体拒绝，未产生部分写入；随后按文件拆分补丁并逐段复核。
+- 可执行性复核修正了四类计划缺口：Phase 12B 售罄版本切换时序、ToolRegistry 生产消费者迁移范围、Phase 13 持久化模型预算与播后 Port 边界、Phase 14 Golden 数据来源及 Release 后默认路由晋升顺序。
+- 当前目标文档的首次严格检查结果为 16 个文件全部 UTF-8 无 BOM、无 U+FFFD、统一 LF、无尾随空白；计划修订后仍需重新执行完整检查，不能沿用修订前证据。
+- 修订后重新验证：四份 Implementation Plan 的 Task 编号分别连续为 1-9、1-11、1-10、1-10；不存在 TBD、TODO、待确认或由实现者决定等占位项。
+- 决策日志按标题行切片确认 D-001 至 D-093 共 93 项连续唯一，每项均包含状态、背景、候选方案、最终选择、选择理由、未选理由、影响和重新评估条件。
+- 16 个本轮目标文档严格 UTF-8 解码及字节往返通过，BOM、U+FFFD、混合换行和尾随空白命中数均为 0；阶段状态断言全部通过。
+- `git diff --check` 退出码 `0`，仅输出 Git for Windows 的未来 LF/CRLF 转换提示，没有空白错误。
+- 全仓 `python scripts/check_doc_encoding.py` 退出码 `1`，报告 `4 errors/58 warnings`：4 个 error 都来自扫描脚本自身的 U+FFFD 检测示例，58 个 warning 是本轮目标外的历史 BOM/混合换行；16 个目标文档命中数为 0。
+- 本轮没有运行业务测试，因为未修改代码、依赖、数据库或运行配置，也未执行 Phase 12A Task 6。
+
+## 下一步
+
+- 完成本次目标文档验证，区分历史编码问题与新增问题。
+- 只暂存本轮文档，提交 `docs: persist agent runtime completion plan` 并推送 `origin/main`。
+- 文档提交后保持 `AWAITING_IMPLEMENTATION_AUTHORIZATION`，等待用户单独授权正式实施。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

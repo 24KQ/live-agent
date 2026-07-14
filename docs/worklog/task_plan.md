@@ -112,7 +112,23 @@
 - [x] 生成 `phase-12a-dag-plan-engine-design.md`，新增 D-065 至 D-072，固定首期 DAG、PlanStore、Worker、Command Ledger 和验收边界。
 - [x] 用户审核并接受 Phase 12A Design。
 - [x] 生成 `2026-07-14-phase-12a-dag-plan-engine-plan.md`，等待用户确认执行。
-- [ ] 用户确认执行 Phase 12A Implementation Plan 后，才开始 PlanEngine 业务代码实施。
+- [x] 用户已授权并完成 Phase 12A Task 1-5；最新业务提交为 `37d6f8a`。
+
+## 2026-07-14 Agent Runtime 全程计划持久化
+
+- [x] 完成 Phase 12A 剩余、Phase 12B、Phase 13 和 Phase 14 的完整架构讨论。
+- [x] 明确本轮只持久化文档，不执行 Phase 12A Task 6。
+- [x] 新建全程总控计划、连续执行实时状态和新的上下文恢复入口。
+- [x] 修订 Phase 12A Design/Plan：持久化 reconciliation 事故事实，增加 TRUSTED_COMPAT 退役 Task，将验收调整为 Task 9。
+- [x] 生成 Phase 12B 抢占与增量 Replan Design/Implementation Plan。
+- [x] 生成 Phase 13 Specialist Agent 评估 Design/Implementation Plan。
+- [x] 生成 Phase 14 Golden Dataset 与发布门禁 Design/Implementation Plan。
+- [x] 新增 D-073 至 D-093，并修正 D-042、D-045 的历史状态。
+- [x] 更新 Agent Runtime 路线图与恢复顺序。
+- [x] 完成冻结计划可执行性复核：售罄版本切换与 Handler 原子提交、SkillPolicyView 独立迁移、持久化模型预算、Runtime Golden case 和两次 Release 路由晋升。
+- [x] 完成编号、状态一致性、UTF-8、编码扫描和 `git diff --check` 验证；全仓扫描的 4 个错误/58 个警告均为非目标历史问题。
+- [x] 锁定本轮提交边界为 16 个目标文档；提交与推送结果以 Git 历史和远端状态为准。
+- [ ] 等待用户单独授权正式实施 Phase 12A Task 6-9 及后续阶段。
 
 # 2026-07-11 Phase 7A 任务
 

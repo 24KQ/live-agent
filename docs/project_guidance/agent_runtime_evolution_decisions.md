@@ -468,14 +468,14 @@
 
 ## D-042：ToolRegistry 兼容 API 保留期限
 
-- **状态**：`ACCEPTED`
+- **状态**：`SUPERSEDED`
 - **背景**：planner、Hook、policy 和多条 flow 当前直接依赖 ToolRegistry 查询 API，在 Phase 11A 全部强拆会显著扩大回归面，但永久保留又会形成两套公共概念。
 - **候选方案**：保留至 Phase 12 验收后重审；Phase 11A 后立即删除；长期作为稳定公共 API 保留。
 - **最终选择**：ToolRegistry 作为 SkillManifest 的只读兼容门面保留至 Phase 12 验收，并标记为 deprecated；届时根据直接调用清单单独决定删除计划。
 - **选择理由**：允许当前消费者稳定迁移，同时给 Skill Runtime 和 PlanEngine 留出统一调用入口的验证周期。
 - **未选理由**：立即删除会把消费者重构混入 Phase 11A；永久保留会让 SkillCatalog 与 ToolRegistry 长期并列为两套公共接口。
-- **影响**：兼容期内 ToolRegistry 不得拥有独立注册或写入能力；新增代码默认使用 SkillCatalog 或 SkillExecutor，不得扩大旧 API 调用面。
-- **重新评估条件**：Phase 12 验收时完成调用清单、迁移成本和外部兼容性评估后作出删除或延长决定。
+- **影响**：兼容期内 ToolRegistry 不得拥有独立注册或写入能力；新增代码默认使用 SkillCatalog 或 SkillExecutor，不得扩大旧 API 调用面。Phase 12A Task 5 后已完成生产调用清单复核，后续退役安排由 D-074 取代。
+- **重新评估条件**：本决策已由 D-074 取代；历史上用于解释为什么 Phase 11A 没有立即删除兼容 Facade。
 
 ## D-043：四个核心 Skill 的显式输入契约
 
@@ -501,14 +501,14 @@
 
 ## D-045：高风险 Skill 的可信审批上下文
 
-- **状态**：`ACCEPTED`
+- **状态**：`CONDITIONAL`
 - **背景**：普通 Skill arguments 可能来自 LLM 或外部调用方，不能用其中的 `confirmed=true` 证明 hard-gate 已经获得人工批准。
 - **候选方案**：独立可信 ApprovalContext 并兼容旧入口；新 Runtime 只接受 LangGraph interrupt 人审；继续使用普通 confirmed 参数。
 - **最终选择**：审批证据属于 `SkillExecutionContext`，不属于业务 arguments。`HUMAN_INTERRUPT` 来源必须包含已校验 decision、operator_id 和 approval_audit_id；旧 `confirmed_setup` 只能由内部 Facade 映射为明确标记的 `TRUSTED_COMPAT` 来源。
 - **选择理由**：把权限证据与 LLM 可控参数隔离，同时保持现有播前演示和非 interrupt 测试在兼容期可运行。
 - **未选理由**：立即只接受 interrupt 会破坏现有兼容入口；普通 confirmed 参数可以被不可信调用方伪造。
-- **影响**：SkillExecutor 在调用 Handler 前验证审批来源；缺少可信证据返回 pending，拒绝证据不得执行 Handler。`TRUSTED_COMPAT` 必须进入审计和评估标签。
-- **重新评估条件**：Phase 12 验收时评估并优先移除 `TRUSTED_COMPAT`；真实平台写操作接入前不得扩大其使用范围。
+- **影响**：SkillExecutor 在调用 Handler 前验证审批来源；缺少可信证据返回 pending，拒绝证据不得执行 Handler。审批证据与业务 arguments 分离的核心约束继续有效；`TRUSTED_COMPAT` 兼容条款由 D-075 取代。
+- **重新评估条件**：只有真实平台出现不同于人工中断和可信事件的授权机制时，才能新增受控授权类型；不得恢复普通参数批准。
 
 ## D-046：Skill Runtime 接入播前 Graph 的方式
 
@@ -806,3 +806,234 @@
 - **未选理由**：仅内存替身不能证明 SQL 并发和写入顺序；只端到端会牺牲快速、精确的失败定位。
 - **影响**：验收必须包含 DAG/绑定/状态/FailurePolicy/Command 单元测试、PostgreSQL  lease/fencing/恢复集成测试、Graph 路由回归和五场景无外部依赖 Demo。真实 LLM、淘宝 API、Kafka 与 Phase 12B 功能不进入验收。
 - **重新评估条件**：CI 无法提供 PostgreSQL 时，先补齐可重复数据库服务，不以全内存测试替代一致性验收。
+
+## D-073：连续实施的文档记忆与自动技术门禁
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 12A-14 跨越大量任务和多次上下文压缩，只有长路线图无法恢复当前子步骤、最近测试和偏差原因；用户未来会单独授权长时间无人监控实施。
+- **候选方案**：总控计划 + 实时执行状态 + 阶段三件套；只依赖三个既有 worklog；每次压缩后重新分析仓库。
+- **最终选择**：新增全程总控计划和固定格式 `continuous_execution_state.md`，Task 开始、RED、GREEN、审查、验证和推送节点实时写盘；阶段技术门禁通过后，在正式连续实施已获授权的前提下自动进入下一阶段。
+- **选择理由**：实时游标保持短小，长期决策和历史仍由 Design/Plan/Acceptance 与 worklog 承担，能够从磁盘和 Git 精确恢复而不依赖对话记忆。
+- **未选理由**：既有 worklog 已较长且没有唯一当前游标；重新分析会重复消耗上下文并可能改变已经批准的选择。
+- **影响**：本轮只持久化文档，实时状态固定为等待正式实施授权；未来每个 Task 与状态更新一同提交，不向 main 推送红灯或半成品。
+- **重新评估条件**：实时状态长期与 Git 不一致或维护成本高于恢复收益时，可改为机器可校验格式，但不能取消持久恢复游标。
+
+## D-074：ToolRegistry 的分阶段退役
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 12A Task 5 后，ToolRegistry 仍被 Hook、Policy、Planner、Flow 和 Executor 消费，但它只是不含独立数据的 Manifest 投影；永久保留会维持两套公共概念，立即删除又会扩大当前验收面。
+- **候选方案**：SkillPolicyView 分阶段迁移并在 Phase 14 删除；长期保留只读 Facade；并入 Phase 12A 立即删除。
+- **最终选择**：Phase 12B 新增窄化只读 SkillPolicyView 并迁移全部生产消费者；Phase 14 删除 ToolRegistry 公共 Facade。新增代码不得依赖 ToolRegistry。
+- **选择理由**：先稳定迁移查询职责，再在发布门禁下删除兼容 API，既降低当前风险又保证最终架构只有 Catalog 一个事实源。
+- **未选理由**：长期 Facade 会使 Catalog/Registry 概念并存；立即删除会把无关大范围回归混入 Phase 12A checkpoint 和 Graph 验收。
+- **影响**：D-042 标记为 SUPERSEDED；Phase 12B Acceptance 必须给出生产调用清单，Phase 14 删除 Facade 后全仓生产调用必须为 0。
+- **重新评估条件**：发现仓库外稳定消费者且无法在 Phase 14 迁移时，可以延长显式兼容周期，但不得恢复独立元数据注册。
+
+## D-075：TRUSTED_COMPAT 的退役时间
+
+- **状态**：`ACCEPTED`
+- **背景**：播前 Graph 已能通过真实 interrupt 写入 pending/resume 审计并构造 HUMAN_INTERRUPT，TRUSTED_COMPAT 只剩把旧 `confirmed_setup=True` 升级为 Runtime 批准这一条兼容路径。
+- **候选方案**：Phase 12A Acceptance 前删除；Phase 12B 后删除；长期内部保留。
+- **最终选择**：在 Phase 12A Graph 路由完成后、最终 Acceptance 前设置独立 Task 删除 TRUSTED_COMPAT。Runtime 建播只接受 HUMAN_INTERRUPT。
+- **选择理由**：此兼容来源已无必要，并会让普通旧参数继续拥有升级权限；独立 Task 能在不混入 checkpoint 实现的情况下完成回归。
+- **未选理由**：延后会让特殊权限进入抢占和 Agent 阶段；长期保留违反可信审批边界。
+- **影响**：D-045 改为 CONDITIONAL；`confirmed_setup` 只能服务 Legacy Protocol，不能生成 Runtime ApprovalContext。
+- **重新评估条件**：无；未来新增授权机制必须使用新的显式证据模型，不能恢复 TRUSTED_COMPAT。
+
+## D-076：Phase 12A checkpoint 对账事故的持久化
+
+- **状态**：`ACCEPTED`
+- **背景**：原 Task 6 对 checkpoint 领先只要求冻结，但没有持久保存原因、signature 和恢复历史，重启后无法解释为什么冻结或阻止普通命令。
+- **候选方案**：扩展 plan_runs；新增第七张 incident 表；只写日志/内存结果。
+- **最终选择**：扩展 `plan_runs` 保存 reconciliation_required、结构化失败事实、signature、恢复次数和最近时间，不新增 incident 表。
+- **选择理由**：每个 PlanRun 首期只需要一个当前对账事故聚合，直接扩展权威行便于命令前 fail-closed，并避免为单一场景增加表和投影。
+- **未选理由**：独立 incident 表在首期没有多事故查询需求；日志和内存无法支持重启恢复与审计。
+- **影响**：checkpoint 引用只含 plan ID、version 和批次成功/失败控制位置；Store 领先复用结果，checkpoint 领先不得补造 NodeRun。
+- **重新评估条件**：同一 PlanRun 需要保留多个独立事故生命周期和复杂查询时，再拆分 append-only incident history。
+
+## D-077：Event Inbox 与 Kafka 的权威关系
+
+- **状态**：`ACCEPTED`
+- **背景**：现有 Kafka Consumer 只是一次性解析演示，没有 offset 与业务提交边界，不能证明重复投递和崩溃恢复。
+- **候选方案**：PostgreSQL Inbox + Kafka Adapter；只实现 Inbox；Kafka 直接驱动 PlanEngine。
+- **最终选择**：PostgreSQL Event Inbox 是事件权威源；Kafka Adapter 必须先幂等落库，再提交 offset，并提供 Fake 与真实 Kafka 集成证据。
+- **选择理由**：把传输重放和业务事实分开后，可用数据库唯一约束、lease 和审计处理重复、冲突与崩溃。
+- **未选理由**：只实现 Inbox 会留下现有 Kafka 到抢占链路断点；直接驱动无法可靠闭合 offset 与外部副作用。
+- **影响**：数据库失败不得提交 offset；相同事件已落库时允许安全重放并提交。
+- **重新评估条件**：真实平台提供具备等价持久幂等语义的事件服务时，可替换 Kafka Adapter，Inbox 权威不变。
+
+## D-078：可信售罄事件的来源验证
+
+- **状态**：`ACCEPTED`
+- **背景**：售罄需要实时自动处理，但 payload 中的 trusted/approved 字段可被普通生产者伪造，Kafka topic 访问也不应自动等于业务批准权。
+- **候选方案**：启动冻结 Trust Profile 验证后自动授权；所有 Kafka 自动授权；全部人工审批。
+- **最终选择**：Ingress Trust Profile 验证 transport/topic/source，并持久化 provenance；只有可信来源、完整 observed_version 和摘要一致时可自动构造事件授权，其他事件转人工。
+- **选择理由**：保留实时性，同时把权限放在可信入站边界而非业务 payload。
+- **未选理由**：所有 Kafka 自动授权扩大 topic 权限；全部人工会失去实时抢占和无人值守恢复价值。
+- **影响**：事件 payload 不能声明信任等级；Profile 在进程启动时冻结，provenance 进入 Event Inbox 审计。
+- **重新评估条件**：接入真实签名 webhook 或平台凭证时，扩展 Trust Profile 验证器，不改变权限不来自 payload 的原则。
+
+## D-079：同一事件 ID 的摘要冲突处理
+
+- **状态**：`ACCEPTED`
+- **背景**：同一 event_id 不同 payload 可能表示生产者错误、篡改或 ID 复用；不提交 offset 会永久阻塞 Kafka 分区。
+- **候选方案**：保留首个事实、追加冲突 occurrence 并冻结；拒绝且不提交 offset；last-write-wins。
+- **最终选择**：保留首个不可变事实，追加 CONFLICT occurrence，冻结受影响计划并转人工；冲突可靠落库后提交 offset。
+- **选择理由**：同时保留审计可信度和分区可用性，重复毒消息不会制造无限循环。
+- **未选理由**：不提交 offset 会阻塞后续事件；覆盖首次事实破坏幂等和审计。
+- **影响**：Event Store 必须区分相同摘要重复与不同摘要冲突，并记录每次投递元数据。
+- **重新评估条件**：上游提供可证明的事件更正协议时，新增显式 correction event，仍不得原地覆盖。
+
+## D-080：Phase 12B 事件与计划的物理模型
+
+- **状态**：`ACCEPTED`
+- **背景**：事件幂等、投递冲突、child plan 和 Replan lineage 需要关系约束，不能只嵌入 Plan JSONB。
+- **候选方案**：独立三张事件表 + 扩展计划 lineage；事件嵌入 Plan JSONB；重写为通用事件溯源。
+- **最终选择**：新增 event inbox、occurrences、applications 三表；扩展 PlanRun kind/priority/root/parent/trigger 和 PlanVersion change reason/source events。
+- **选择理由**：关系表能约束 event/root 唯一应用和 child lineage，又不推翻 Phase 12A 六表模型。
+- **未选理由**：JSONB 难以表达并发唯一性；通用事件溯源会重写已验收的 PlanStore。
+- **影响**：普通 CARD_BATCH priority 0，EMERGENCY_SOLD_OUT priority 100；历史版本不可变。
+- **重新评估条件**：事件类型和跨计划关系显著扩展后，再评估通用 event relation 表，不重写既有事实。
+
+## D-081：Impact scope、局部冻结与在途结果
+
+- **状态**：`ACCEPTED`
+- **背景**：一律全局冻结会阻断无关商品，强制取消在途任务又无法撤销已发送调用。
+- **候选方案**：PRODUCT 局部分支冻结、ROOM/PLATFORM 全局冻结；全部全局冻结；每商品独立 PlanRun。
+- **最终选择**：确定性 ImpactAnalyzer 推导 scope。PRODUCT 冻结依赖闭包内未开始节点，ROOM/PLATFORM 冻结整计划；在途节点允许 deadline 内闭合，受影响旧结果标记 superseded。
+- **选择理由**：满足 D-027 的影响范围语义，并保留完整外部调用证据和最小重算价值。
+- **未选理由**：全局冻结削弱增量计划；强拆每商品 PlanRun 会重构 Phase 12A 汇总和 checkpoint。
+- **影响**：晚到结果不得进入新版本汇总；未受影响结果仍可复用。
+- **重新评估条件**：出现无法通过节点依赖闭包隔离的跨商品原子业务时，提升 scope，不隐式扩大 PRODUCT。
+
+## D-082：售罄紧急 DAG 与 Skill 契约
+
+- **状态**：`ACCEPTED`
+- **背景**：现有 handle_sold_out_event 同时写状态、推荐和生成提示，使 PlanEngine 看不到内部失败与恢复边界。
+- **候选方案**：拆成可审计紧急 DAG；保留单个复合 Skill；由控制节点直接执行业务。
+- **最终选择**：紧急 child DAG 使用验证控制节点、`handle_sold_out_event@2.0.0` CAS 写、备选推荐、主播提示和汇总控制节点。写 Skill 只接受 product_id 与 expected_version。
+- **选择理由**：每一步都有 Skill/NodeRun 证据，写副作用仍通过 SkillExecutor 和 Attempt Store，后续只读步骤可独立恢复。
+- **未选理由**：复合 Skill 恢复粒度过粗；控制节点执行业务会绕过治理。
+- **影响**：room、trace、幂等和授权保留在 Context；旧 1.x 调用精确拒绝，不 fallback。
+- **重新评估条件**：真实平台只能提供不可拆分事务 API 时，可以在 Port 内原子执行，但 DAG 仍必须保留可观察结果边界。
+
+## D-083：可信事件授权的 Runtime 表达
+
+- **状态**：`ACCEPTED`
+- **背景**：事件自动授权不是人工 Approval，复用 ApprovalContext 会混淆来源；放入 arguments 又可被 LLM 伪造。
+- **候选方案**：独立 EventAuthorizationContext；统一授权 discriminated union；写入业务参数。
+- **最终选择**：新增独立冻结 EventAuthorizationContext 和 Manifest authorization_requirement；与 ApprovalContext 同时出现时拒绝。
+- **选择理由**：保持两条信任链语义独立，减少现有人工审批迁移面，并防止普通参数升级权限。
+- **未选理由**：统一重构会扩大已验收审批链；业务参数不可信。
+- **影响**：authorization requirement 支持 NONE、HUMAN_APPROVAL、TRUSTED_EVENT_OR_HUMAN；受控内部工厂验证 Inbox provenance。
+- **重新评估条件**：授权来源增加到三种以上且共享规则显著时，再评估统一联合类型。
+
+## D-084：售罄写副作用未知的恢复
+
+- **状态**：`ACCEPTED`
+- **背景**：SIDE_EFFECT_UNKNOWN 可能表示平台已执行，盲目重发有重复副作用；全部人工会降低可恢复性。
+- **候选方案**：严格只读对账；一律等待人工；自动重试写。
+- **最终选择**：进入 WAITING_RECONCILIATION，通过只读 Port 验证商品已售罄且版本事实与原 CAS 闭合；证据充分确认原 Attempt，否则转人工。
+- **选择理由**：用业务事实消除不确定性，不产生第二次外部写。
+- **未选理由**：全部人工浪费可证明事实；自动重发违反副作用未知边界。
+- **影响**：相同幂等键重放仍返回原未知结果；对账服务不得创建新 Operation。
+- **重新评估条件**：平台提供官方 operation query 接口时，可作为更强对账证据接入。
+
+## D-085：增量 Replan 的事件合并、复用和版本预算
+
+- **状态**：`ACCEPTED`
+- **背景**：每个事件独立创建版本会快速耗尽预算，复制成功 NodeRun 又会伪造执行证据。
+- **候选方案**：root 锁内合并当前待应用事件并引用旧结果；每事件一个版本；覆盖当前版本。
+- **最终选择**：child 成功后在 root Replan 锁内吸收当前 pending 事件；新版本创建新 node ID，指纹相同成功节点写 reused_from_node_id 并读取旧 NodeRun，不复制 NodeRun。每个 root 最多两个新版本。
+- **选择理由**：保持不可变版本和真实执行历史，同时减少近同时事件的版本膨胀。
+- **未选理由**：每事件一版消耗预算；覆盖版本破坏审计；复制 NodeRun 伪造执行。
+- **影响**：版本冲突时重新读取最新版本；重复 failure signature + input fingerprint 冻结转人工。
+- **重新评估条件**：Golden Cases 证明两版预算显著损害安全恢复率时，先分析事件合并和替代能力，再决定是否调整。
+
+## D-086：PlanEngine 与播中 Harness 的主从关系
+
+- **状态**：`ACCEPTED`
+- **背景**：Kafka 与 Agent Harness 都执行售罄写会产生重复副作用，先让 LLM 决定安全事件又会增加实时路径不确定性。
+- **候选方案**：PlanEngine 唯一执行、Harness 消费证据；Harness 触发 PlanEngine；两条入口并存。
+- **最终选择**：可信 EventIngress/PreemptionCoordinator 是唯一写入口；Harness 只消费 EventApplication、PlanRun 和 EvidenceRef 生成建议。
+- **选择理由**：安全事实由确定性路径及时处理，Agent 仍可对如何提示和控场提供价值。
+- **未选理由**：Harness 触发让实时动作依赖模型；双入口存在竞争和重复。
+- **影响**：PlanEngine 路由启用时 Harness 禁止调用售罄写 Skill；默认切换延后到 Phase 14 Release。
+- **重新评估条件**：无；即使未来保留 LiveOpsAgent，它也不能成为可信库存写的第二入口。
+
+## D-087：ReviewMemoryAgent 的播后 Skill 基线
+
+- **状态**：`ACCEPTED`
+- **背景**：现有 13 个 Manifest 只覆盖播前/播中，播后 Agent 直接调用 Replay/Memory Service 会绕过 Skill Runtime，无法公平对照。
+- **候选方案**：新增最小播后 Skill 集；直接调用旧服务；取消播后候选。
+- **最终选择**：新增 retrieve_anchor_memory、collect_post_live_evidence、calculate_post_live_attribution 和 stage_memory_candidates，确定性基线与 Agent 使用相同能力。
+- **选择理由**：三场景都经过相同版本、Schema、权限和审计边界，同时避免把全部 MemoryStore API 暴露给 Agent。
+- **未选理由**：直接旧服务绕过治理；取消候选会使三场景评估不完整。
+- **影响**：stage 只写候选 Store，不写 active memory，不更新 trust score。
+- **重新评估条件**：播后能力进一步拆分时按真实复用需求新增 Manifest，不为数量扩张。
+
+## D-088：记忆候选的晋升门槛
+
+- **状态**：`ACCEPTED`
+- **背景**：Agent 单次推断直接写长期记忆会影响未来播前决策；全部人工又无法展示受控反馈闭环。
+- **候选方案**：双证据自动、其余人工；全部人工；Agent 直接写。
+- **最终选择**：至少两个独立 DecisionTrace、无冲突、作用域一致且命中货盘白名单时由确定性 Policy 幂等晋升；其他候选等待人工命令。
+- **选择理由**：只自动化可由多证据和白名单证明的低风险结构化事实，保留闭环且限制污染。
+- **未选理由**：全部人工削弱自动反馈；直接写风险不可接受。
+- **影响**：Agent 自由文本不进入正式记忆，内容由确定性模板生成；基线与 Agent 使用同一 Promotion Policy。
+- **重新评估条件**：有真实标注证明单证据精度达到发布门时，可讨论调整证据数，严重污染门仍为 0。
+
+## D-089：共享 Specialist Harness 与 Planner 输出
+
+- **状态**：`ACCEPTED`
+- **背景**：三个独立 Agent 图会复制预算、安全和证据逻辑；Planner 只给排序意图又不足以验证候选 DAG 能力。
+- **候选方案**：共享受限 Harness Core + Profile；三个独立 LangGraph；扩展播中单体 Agent。Planner 输出比较受限 DAG、规划意图和直接工具序列。
+- **最终选择**：三个候选共用 BoundedSpecialistRunner，Profile 限定目标、Skill、预算和结果 Schema；PlannerAgent 输出受限 Candidate DAG，由确定性 PlanValidator/Compiler 注入执行事实。
+- **选择理由**：共享核心保证评估可比，受限 DAG 又能验证真实规划差异而不让模型控制权限和调度。
+- **未选理由**：独立图容易漂移；跨生命周期单体 Agent 边界过大；直接工具序列恢复性差。
+- **影响**：AgentTask/Action/Result/EvidenceRef 成为版本化协议；不保存 chain-of-thought。
+- **重新评估条件**：某候选无法由共享动作模型表达真实必要行为时，可扩展 Profile-specific result，不复制安全核心。
+
+## D-090：Phase 13 样本、模型、循环与费用
+
+- **状态**：`ACCEPTED`
+- **背景**：Agent 去留需要足够样本、固定模型和成本门；单人项目又不能手写 240 条重复数据或无限调用模型。
+- **候选方案**：模板生成并固化 JSONL；全部人工；LLM 生成标注。模型配置比较版本化 manifest、代码硬编码和普通 Settings。费用比较 3 元硬门、提高预算或只跑 scripted。
+- **最终选择**：每候选 20 development/40 validation/20 holdout，人工模板与标签、固定 seed 生成并固化 JSONL。Agent 使用 deepseek-v4-flash、temperature 0 和版本化 Evaluation Manifest。LiveOps 2/3、Planner 3/5、Review 3/4 模型/Skill 上限。真实模型总费用 3 元。
+- **选择理由**：样本可重复、标签不依赖被测模型，配置和成本可审计；严格循环满足实时和预算约束。
+- **未选理由**：全手写工作量大且易漂移；LLM 标注污染 holdout；普通 Settings 无法公平比较；无费用门无法无人监控执行。
+- **影响**：按 LiveOps、Planner、Review 顺序消费预算；未完成 60 个正式样本即 INCONCLUSIVE，不保留。当前连续实施使用持久化预算作用域 `agent-runtime-completion-v1`，Phase 14 首次 Release 的保留 Agent 与 Judge 调用只能使用 3 元总上限中的剩余余额。
+- **重新评估条件**：官方价格变化导致 3 元无法完成正式集时，保持 INCONCLUSIVE，不自动缩样或提预算。
+
+## D-091：Judge、三级 CI 与 Nightly 付费开关
+
+- **状态**：`ACCEPTED`
+- **背景**：同模型自评有偏差，有 secret 就每天付费又会产生不可控长期成本；仓库当前没有 GitHub Actions。
+- **候选方案**：flash Agent + pro Judge；同模型 Judge；无 Judge。Kafka 比较 Nightly/Release、每 PR 和仅本地。Nightly 付费比较显式 opt-in、有 secret 自动和永不运行。
+- **最终选择**：deepseek-v4-pro 只评语义，规则优先且 Judge 不得覆盖严重违规。PR 使用 PostgreSQL/ScriptedModel；真实 Kafka 放 Nightly/Release。Nightly 真实模型需 secret 与 ENABLE_PAID_NIGHTLY=true，默认每次 0.10 元。
+- **选择理由**：降低同源偏差，保持 PR 快速免费，并把持续费用变成显式选择。
+- **未选理由**：同模型自评偏置；每 PR Kafka 成本和稳定性差；有 secret 自动付费不可控。
+- **影响**：Release 手动运行完整 holdout；Judge 不可用时不能伪造语义高分。本次连续实施不运行付费 Nightly，首次 Release 复用 D-090 的剩余预算；项目完成后的未来付费 Nightly/Release 必须由受保护环境重新提供显式预算授权。
+- **重新评估条件**：CI 资源和模型价格变化时可调整抽样/基础设施层级，但 PR 免费和严重规则优先不变。
+
+## D-092：最终默认路由、ToolRegistry 删除与覆盖率
+
+- **状态**：`ACCEPTED`
+- **背景**：长期默认 Legacy 会让新架构只存在于 Demo，立即删除所有 Legacy 又缺少回滚；全仓覆盖率会把历史 UI/脚本补测混入主线。
+- **候选方案**：Release 后默认新 Runtime并保留显式回滚；只保留新 Runtime；继续默认 Legacy。覆盖率比较核心包 90%、全仓 80% 和不设门。
+- **最终选择**：Phase 14 Release 通过后，Skill 三批、手卡和售罄默认新 Runtime/PlanEngine，保留启动期显式 Legacy 一个兼容周期，禁止同次 fallback；删除 ToolRegistry Facade；核心 Runtime branch coverage 至少 90%。
+- **选择理由**：项目默认展示真实新架构，同时保留受控回滚；覆盖率集中约束高风险新代码。
+- **未选理由**：只留新路径没有快速回滚；继续 Legacy 弱化交付；全仓数字会激励低价值补测。
+- **影响**：PR CI 增加 pytest-cov；ToolRegistry 生产调用最终为 0。
+- **重新评估条件**：一个兼容周期结束且 Release 证据稳定后，可单独决定删除 Legacy 路由。
+
+## D-093：最终操作面与 Git 执行方式
+
+- **状态**：`ACCEPTED`
+- **背景**：全程实施可选择扩展 UI/HTTP 或专注内部 Runtime，也可选择长期分支或延续当前 main 原子提交链。
+- **候选方案**：内部 Service/CLI；只读 Dashboard；完整控制台。Git 比较 main 原子提交、单一长期分支和每阶段分支。
+- **最终选择**：本轮只提供内部 Query/Command Service、JSON Demo 和报告，不新增前端/HTTP 管理面。正式连续实施获得授权后沿用 main，每 Task 验证后独立提交并立即推送。
+- **选择理由**：把时间用于 Agent Runtime、恢复和评估深度，延续已建立的可追踪提交链；用户明确接受 main 执行方式。
+- **未选理由**：Dashboard/控制台扩大前后端验收；长期分支增加漂移和最终合并风险。
+- **影响**：不派发子智能体，由主模型直接实施与审查；用户已有脏文件不纳入提交。
+- **重新评估条件**：项目进入真实运营或多人协作时，再设计操作面和 PR 分支策略。
