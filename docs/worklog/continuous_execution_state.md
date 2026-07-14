@@ -8,14 +8,14 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 12A |
-| 最近完成任务 | Task 8：移除 `TRUSTED_COMPAT` 审批兼容（`9a8e5a6`） |
-| 下一任务 | Task 9：Demo、全量验收与 Phase 12A Acceptance |
+| 当前阶段 | Phase 12B |
+| 最近完成任务 | Phase 12A Task 9 与 Acceptance（`c88efdf`） |
+| 下一任务 | Task 1：SkillPolicyView 与事件公共模型 |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | Task 9：技术门禁通过，待提交推送并切换 Phase 12B Task 1 |
+| 当前子步骤 | Task 1 全部门禁通过，待核对缓存区、提交并推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `9a8e5a6 refactor: remove trusted compatibility approval` |
-| 远端状态 | `origin/main=9a8e5a6` |
+| 当前业务基线 | `c88efdf feat: add phase 12a plan engine demo` |
+| 远端状态 | `origin/main=c88efdf` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12A / Task 9
+Phase / Task: Phase 12B / Task 1
 状态: COMMIT
-目标: 完成五场景 Demo、真实基础设施证据、全量回归与 Phase 12A Acceptance
-禁止事项: 不进入 Phase 12B 代码；不连接 LLM/淘宝 API；Acceptance 不得提前宣称通过
-当前 HEAD: 9a8e5a6
-本 Task 文件: Phase 12A Demo、run_all、Demo 测试、Acceptance、路线图与 worklog
+目标: 建立只读 SkillPolicyView、严格事件事实、可信 provenance 与不可伪造事件授权
+禁止事项: 不提前切换 handle_sold_out_event@2.0.0；不实现 Event Store/Kafka/冻结；不改变现有售罄执行行为
+当前 HEAD: c88efdf
+本 Task 文件: policy_view.py、events.py、skill_runtime models/catalog、两份 Task 1 单元测试与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Demo 4 passed；Phase 12A 单元 259 passed；指定集成 14 passed；全量 906 passed, 3 deselected；两个 Demo 与迁移 dry-run 退出码 0
-错误与尝试次数: 1 个编码问题已修复；严格检查器先后出现变量解析错误与正则假阳性，改用字符级判断后 9 个目标文件通过
-设计偏差与决策编号: 尚无；遵循 D-072、D-075、D-076 与冻结 Task 9 计划
-下一条精确操作: 严格检查 Task 9 目标文件，核对 staged diff，提交并推送
+最近命令与结果: RED 30 failed；补强 RED 2 failed；专项 43 passed；共享回归 106 passed；unit 859 passed；integration 78 passed, 3 deselected
+错误与尝试次数: 首个多文件补丁因 Catalog import 上下文不符整体拒绝；一次同名字段补丁误命中 ApprovalContext，逐行检查后在测试前恢复
+设计偏差与决策编号: 尚无；遵循 D-051、D-077、D-078 与冻结 Task 1 计划
+下一条精确操作: 重新执行目标严格检查，暂存 Task 1 文件，核对 cached diff 后提交推送
 模型费用累计: 0 元
 ```
 
@@ -81,6 +81,10 @@ Phase / Task: Phase 12A / Task 9
 | Phase 12A PostgreSQL/PostgresSaver 聚合 | `14 passed` |
 | Phase 12A 最终全量回归 | `906 passed, 3 deselected, 9 warnings` |
 | Task 9 静态门禁 | migration dry-run 与 diff 退出码 `0`；编码扫描仅既有 `4 errors/58 warnings` |
+| Phase 12A Task 9 提交与推送 | `c88efdf`，`origin/main=c88efdf` |
+| Phase 12B Task 1 专项/共享回归 | `43 passed` / `106 passed` |
+| Phase 12B Task 1 完整验证 | unit `859 passed`；integration `78 passed, 3 deselected` |
+| Phase 12B Task 1 静态门禁 | 11 文件严格 UTF-8、compileall、边界扫描、diff 通过；编码扫描仅既有 `4 errors/58 warnings` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

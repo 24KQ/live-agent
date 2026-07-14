@@ -1,6 +1,6 @@
-"""Phase 11A Skill Runtime 公共模型与契约。
+"""Skill Runtime 公共模型与 Phase 12B 可信事件授权契约。
 
-定义受控枚举、冻结 Manifest、审批证据、执行上下文、
+定义受控枚举、冻结 Manifest、审批/事件授权证据、执行上下文、
 调用记录和执行结果模型。
 
 信任边界：
@@ -88,6 +88,10 @@ def _deep_freeze(value: Any) -> Any:
 # 唯一可放行审批必须由真实人工中断流程创建；普通调用方不能凭字段形状伪造证据。
 _HUMAN_INTERRUPT_TOKEN = object()
 
+# 可信事件授权只能由已经核对 Inbox 事件与 provenance 的内部工厂创建。该 token
+# 不进入模型字段和序列化结果，普通 Pydantic 构造即使字段完全相同也无法通过校验。
+_VERIFIED_EVENT_TOKEN = object()
+
 
 class SkillExecutionRoute(StrEnum):
     """执行路由：LEGACY 走旧 ToolRegistry 路径，SKILL_RUNTIME 走新 Executor。"""
@@ -100,6 +104,18 @@ class ApprovalSource(StrEnum):
     """审批来源只允许已经写入审计的人工中断恢复。"""
 
     HUMAN_INTERRUPT = "HUMAN_INTERRUPT"
+
+
+class AuthorizationRequirement(StrEnum):
+    """Manifest 声明的受控授权要求。
+
+    该枚举只描述 Skill 接受哪类可信证据，不允许业务 arguments 自行声明授权。
+    Task 1 先建立公共契约；售罄能力在 Task 6 与 2.0.0 Handler 原子切换。
+    """
+
+    NONE = "NONE"
+    HUMAN_APPROVAL = "HUMAN_APPROVAL"
+    TRUSTED_EVENT_OR_HUMAN = "TRUSTED_EVENT_OR_HUMAN"
 
 
 class SkillExecutionStatus(StrEnum):
@@ -168,6 +184,10 @@ class SkillManifest(BaseModel, frozen=True):
     parameter_schema: dict[str, Any] = Field(default_factory=dict, description="Draft 2020-12 JSON Schema")
     gate_decision: GateDecision = Field(default=GateDecision.AUTO, description="门禁策略")
     requires_idempotency_key: bool = Field(default=False, description="是否强制要求幂等键")
+    authorization_requirement: AuthorizationRequirement = Field(
+        default=AuthorizationRequirement.NONE,
+        description="可信授权证据要求",
+    )
     # 单次尝试上限属于 Manifest 契约。调用上下文的绝对 deadline 只能进一步缩短
     # 预算，不能让调用方把单次外部操作扩展为无限等待。
     max_attempt_seconds: int = Field(
@@ -238,6 +258,80 @@ def _build_human_interrupt_approval(
     )
 
 
+class EventAuthorizationContext(BaseModel, frozen=True):
+    """由已验证事件事实生成的不可伪造授权证据。
+
+    字段用于把 SkillCall 关联到 Event Inbox 中的事件和 provenance；它们本身不
+    表达“可信”。只有内部工厂携带进程私有 token 完成构造后，
+    ``provenance_verified`` 才会为真。
+    """
+
+    event_id: str = Field(..., min_length=1, description="Event Inbox 事件 ID")
+    provenance_id: str = Field(..., min_length=1, description="已验证来源记录 ID")
+    payload_digest: str = Field(
+        ...,
+        pattern=r"^[0-9a-f]{64}$",
+        description="规范事件事实的 SHA-256",
+    )
+    observed_version: int = Field(..., ge=1, description="事件观察到的商品资源版本")
+    _verified_identity: tuple[str, str, str, int] | None = PrivateAttr(default=None)
+
+    def _identity(self) -> tuple[str, str, str, int]:
+        """返回授权公开字段的绑定身份，防止 model_copy 重绑定可信标记。"""
+        return (
+            self.event_id,
+            self.provenance_id,
+            self.payload_digest,
+            self.observed_version,
+        )
+
+    @model_validator(mode="after")
+    def _require_internal_event_factory(
+        self,
+        info: ValidationInfo,
+    ) -> "EventAuthorizationContext":
+        """拒绝普通字段构造，只接受核对事件与来源后的内部工厂。"""
+        context = info.context or {}
+        # Pydantic 把已经验证的嵌套模型放入 SkillExecutionContext 时会再次执行本
+        # validator，但不会转发首次工厂 context。只有字段仍与私有身份指纹完全
+        # 一致的实例可复用；model_copy 重绑定任一字段后不会命中此分支。
+        if self.provenance_verified:
+            return self
+        if context.get("verified_event_token") is not _VERIFIED_EVENT_TOKEN:
+            raise ValueError("可信来源只能由内部事件授权工厂构造")
+        object.__setattr__(self, "_verified_identity", self._identity())
+        return self
+
+    @property
+    def provenance_verified(self) -> bool:
+        """仅当当前字段仍与内部工厂验证过的身份完全一致时返回真。"""
+        return self._verified_identity == self._identity()
+
+
+def _build_verified_event_authorization(
+    *,
+    event_id: str,
+    provenance_id: str,
+    payload_digest: str,
+    observed_version: int,
+) -> EventAuthorizationContext:
+    """供 PlanEngine 事件边界调用的内部授权构造原语。
+
+    本函数只负责 Pydantic 防伪 token；事件摘要、source 和 provenance 是否闭合由
+    ``src.plan_engine.events`` 的工厂先行验证，避免 Skill Runtime 反向依赖
+    PlanEngine 领域模型。
+    """
+    return EventAuthorizationContext.model_validate(
+        {
+            "event_id": event_id,
+            "provenance_id": provenance_id,
+            "payload_digest": payload_digest,
+            "observed_version": observed_version,
+        },
+        context={"verified_event_token": _VERIFIED_EVENT_TOKEN},
+    )
+
+
 # ── 执行上下文 ─────────────────────────────────────────────────────────
 
 
@@ -250,6 +344,10 @@ class SkillExecutionContext(BaseModel, frozen=True):
     execution_route: SkillExecutionRoute = Field(..., description="执行路由")
     idempotency_key: str | None = Field(default=None, description="用于幂等重放的键")
     approval: ApprovalContext | None = Field(default=None, description="审批证据")
+    event_authorization: EventAuthorizationContext | None = Field(
+        default=None,
+        description="由可信库存事件构造的授权证据",
+    )
     # Phase 11B 写操作在 Handler 前会由 Attempt Store 生成真实 attempt_id。该字段由
     # SkillExecutor 注入，业务调用方不得自行依赖它构造幂等身份；Handler 只把它
     # 传给 AdapterRequest，确保 FailureFact 能和当前 Operation 闭合。
@@ -274,6 +372,18 @@ class SkillExecutionContext(BaseModel, frozen=True):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("deadline_at must include timezone information")
         return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _authorization_source_must_be_unambiguous(self) -> "SkillExecutionContext":
+        """同一调用只允许一种授权来源，避免执行器自行猜测优先级。"""
+        if self.approval is not None and self.event_authorization is not None:
+            raise ValueError("approval 与 event_authorization 不能同时提供")
+        if (
+            self.event_authorization is not None
+            and not self.event_authorization.provenance_verified
+        ):
+            raise ValueError("event_authorization 来源身份未通过内部验证")
+        return self
 
 
 class FailureFact(BaseModel, frozen=True):

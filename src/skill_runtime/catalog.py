@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator, SchemaError as JsonSchemaError
 from src.core.security_hooks import GateDecision
 from src.state.models import LifecycleStage, RiskLevel
 from src.skill_runtime.models import (
+    AuthorizationRequirement,
     SkillManifest,
 )
 
@@ -179,6 +180,7 @@ _MANIFESTS: tuple[SkillManifest, ...] = (
         },
         gate_decision=GateDecision.HARD_GATE,
         requires_idempotency_key=True,
+        authorization_requirement=AuthorizationRequirement.HUMAN_APPROVAL,
     ),
     SkillManifest(
         skill_id="create_live_plan_draft",
@@ -218,6 +220,7 @@ _MANIFESTS: tuple[SkillManifest, ...] = (
         parameter_schema=_SETUP_LIVE_SESSION_SCHEMA,
         gate_decision=GateDecision.HARD_GATE,
         requires_idempotency_key=True,
+        authorization_requirement=AuthorizationRequirement.HUMAN_APPROVAL,
         compatibility_note="输入从旧 plan_item_ids 改为不可变计划快照",
     ),
     SkillManifest(

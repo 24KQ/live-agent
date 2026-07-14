@@ -374,6 +374,17 @@
 - 初次编码扫描因本次 `run_all.py` 混合换行得到 `4 errors/59 warnings`；统一为 UTF-8 无 BOM/LF 后恢复到既有 `4 errors/58 warnings`，本次目标文件零命中。
 - 首次严格目标检查因 PowerShell 的 `"$file: ..."` 变量语法退出，第二版正则又把行尾字母 `t` 误报为制表符；改用 `EndsWith(' ')` 与 `char(9)` 后，9 个目标文件严格 UTF-8/LF 检查通过。两次均为验证器问题，没有据此改动业务内容。
 - 已生成 Phase 12A Acceptance；连续实施授权允许技术门禁通过后直接进入 Phase 12B Task 1，不再等待单独阶段批准。
+- Phase 12A Task 9 已以 `c88efdf feat: add phase 12a plan engine demo` 提交并推送；缓存区只包含 9 个目标文件，用户既有文件未纳入提交。
+- 已重新读取 Phase 12B Design 与 11 Task Implementation Plan，连续执行游标切换到 Task 1 `RED`。Task 1 只建立 Policy View 与事件/授权契约，不提前发布 `handle_sold_out_event@2.0.0`。
+- 一次 `rg` 使用 Windows 不支持的测试路径 glob，退出码非零；后续改用目录搜索和显式路径，未重复该命令，也未据此修改代码。
+- Phase 12B Task 1 RED 为 `30 failed`：Policy View、事件模块、授权要求枚举和不可伪造事件授权均尚不存在；失败原因与冻结计划一致，开始最小 GREEN。
+- Task 1 首个跨文件 GREEN 补丁因 Catalog import 上下文不符被整体拒绝，没有产生部分写入；随后按文件拆分应用。
+- Task 1 核心 GREEN 为 `30 passed`。质量审查新增 View 整体重绑定和事件授权 `model_copy` 重绑定两项红灯，得到 `2 failed, 29 passed`。
+- 修复时一次上下文不足的补丁误命中 `ApprovalContext` 同名私有字段；逐行检查在运行测试前发现并精确恢复。随后处理 Pydantic 嵌套重验证 context 丢失，模型专项最终 `43 passed`。
+- Catalog、ToolRegistry、Executor、Phase 11B 售罄 Handler 和路由共享回归为 `106 passed`；`handle_sold_out_event` 仍为单活 `1.0.0`，未提前进入 Task 6。
+- Task 1 完整单元测试为 `859 passed, 4 warnings`；完整集成测试为 `78 passed, 3 deselected, 5 warnings`。
+- 11 个 Task 1 目标文件严格 UTF-8 往返、无 BOM/U+FFFD/混合换行/尾随空白检查通过；`compileall`、Catalog 边界扫描和 `git diff --check` 退出码均为 `0`。
+- 全仓编码扫描仍为既有 `4 errors/58 warnings`，Task 1 目标文件命中为 0；没有修改历史编码文件。
 
 # 2026-07-11 Phase 7A 进度
 

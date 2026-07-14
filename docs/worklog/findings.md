@@ -225,6 +225,14 @@
 - Windows 工作区中，对既有 CRLF 文件应用 LF 补丁会产生混合换行。目标文件必须做严格字节检查；本次 `run_all.py` 在提交前统一为 UTF-8 无 BOM/LF。
 - Phase 12A 的真实 PostgreSQL/PostgresSaver 聚合 `14 passed`，全量回归 `906 passed`。这些证据满足 D-072，允许按连续实施授权进入 Phase 12B。
 
+## 2026-07-15 Phase 12B Task 1 发现
+
+- 冻结 Pydantic 模型仍可通过 `model_copy(update=...)` 生成携带旧 PrivateAttr 的新对象。可信事件授权不能只保存布尔标记，必须把私有验证身份绑定到 event、provenance、digest 和 observed version 四元组。
+- Pydantic 嵌套模型重验证不会转发首次 `model_validate(..., context=...)` 的工厂 context。合法证据复用应验证私有身份指纹仍与公开字段一致；重绑定副本则因指纹失配 fail-closed。
+- 只把内部字典包装为 MappingProxy 还不足以称为启动冻结视图，外层对象也必须禁止重新绑定整个 mapping。`SkillPolicyView` 因此使用 frozen/slots 值对象并持有不可写投影。
+- 事件 canonical JSON 不能依赖 `json.dumps` 的默认宽松转换；tuple、非字符串 key、NaN、Infinity 和非 JSON 类型必须在摘要前显式拒绝。
+- Task 1 只发布授权要求字段。现有两个 hard-gate Skill 标记 `HUMAN_APPROVAL`，售罄 Skill 继续保持 `1.0.0 + NONE`，避免在 Task 6 Handler 原子切换前破坏运行契约。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
