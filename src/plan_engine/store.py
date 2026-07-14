@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from pydantic import ConfigDict, Field, field_validator
 
+from src.plan_engine.bindings import MaterializedNodeInput
 from src.plan_engine.capabilities import ResolvedPlanCapability
 from src.plan_engine.models import (
     CandidatePlanProposal,
@@ -167,13 +168,23 @@ class ClaimedNodeRunView(NodeRunView):
     node_type: str = Field(..., min_length=1)
     skill_id: str | None = None
     skill_version: str | None = None
+    input_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    deadline_at: datetime | None = None
 
-    @field_validator("lease_until")
+    @field_validator("lease_until", "deadline_at")
     @classmethod
-    def _lease_must_include_timezone(cls, value: datetime) -> datetime:
-        """租约统一保存为 UTC，禁止本地时间导致错误回收仍有效的 claim。"""
+    def _execution_times_must_include_timezone(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        """租约和 deadline 统一保存为 UTC，禁止本地时区改变执行边界。"""
+        if value is None:
+            return None
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("lease_until 必须包含时区")
+            raise ValueError("NodeRun 执行时间必须包含时区")
         return value.astimezone(timezone.utc)
 
 
@@ -200,6 +211,7 @@ class PlanStore(Protocol):
         now: datetime,
         lease_seconds: int,
         limit: int = 1,
+        deadline_at: datetime | None = None,
     ) -> tuple[ClaimedNodeRunView, ...]:
         """为 READY 节点创建独立 NodeRun 和 fencing token。"""
 
@@ -235,6 +247,17 @@ class PlanStore(Protocol):
         now: datetime,
     ) -> ClaimedNodeRunView:
         """在 fencing 匹配时记录 NodeRun 终态并推进节点状态。"""
+
+    def record_node_input(
+        self,
+        *,
+        node_run_id: str,
+        worker_id: str,
+        claim_version: int,
+        materialized_input: MaterializedNodeInput,
+        now: datetime,
+    ) -> ClaimedNodeRunView:
+        """在外部执行前保存不可变输入快照与指纹。"""
 
     def schedule_retry(
         self,
@@ -359,6 +382,7 @@ class _PlanNodeRecord:
     depends_on: tuple[str, ...]
     capability: ResolvedPlanCapability
     retry_at: datetime | None
+    deadline_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -379,6 +403,8 @@ class _NodeRunRecord:
     node_type: str
     skill_id: str | None
     skill_version: str | None
+    input_fingerprint: str | None
+    deadline_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -462,6 +488,7 @@ class InMemoryPlanStore:
                     depends_on=tuple(candidate.depends_on),
                     capability=capability,
                     retry_at=None,
+                    deadline_at=None,
                 )
                 self._nodes[node.node_id] = node
                 self._node_run_ids_by_node[node.node_id] = ()
@@ -532,6 +559,7 @@ class InMemoryPlanStore:
         now: datetime,
         lease_seconds: int,
         limit: int = 1,
+        deadline_at: datetime | None = None,
     ) -> tuple[ClaimedNodeRunView, ...]:
         """为 READY 节点原子创建 NodeRun，并把节点迁移到 RUNNING。
 
@@ -545,6 +573,11 @@ class InMemoryPlanStore:
             raise PlanStoreInvariantError("lease_seconds 必须是正整数")
         if type(limit) is not int or limit <= 0:
             raise PlanStoreInvariantError("limit 必须是正整数")
+        normalized_deadline = (
+            None
+            if deadline_at is None
+            else self._aware_utc(deadline_at, "节点 deadline")
+        )
 
         with self._lock:
             plan_run = self._plan_runs.get(plan_run_id)
@@ -593,6 +626,7 @@ class InMemoryPlanStore:
             claimed: list[ClaimedNodeRunView] = []
             for node_id in ready_ids:
                 node = self._nodes[node_id]
+                persisted_deadline = node.deadline_at or normalized_deadline
                 historical_ids = self._node_run_ids_by_node[node_id]
                 next_attempt = len(historical_ids) + 1
                 next_claim_version = (
@@ -608,6 +642,7 @@ class InMemoryPlanStore:
                         node.state,
                         PlanNodeState.RUNNING,
                     ),
+                    deadline_at=persisted_deadline,
                 )
                 node_run = _NodeRunRecord(
                     node_run_id=str(uuid4()),
@@ -618,18 +653,81 @@ class InMemoryPlanStore:
                     state=PlanNodeState.RUNNING,
                     worker_id=worker_id,
                     lease_until=normalized_now + timedelta(seconds=lease_seconds),
-                    input_snapshot={"input_bindings": node.input_bindings},
+                    input_snapshot={
+                        "input_bindings": node.input_bindings,
+                        "depends_on": list(node.depends_on),
+                    },
                     output=None,
                     resource_keys=node.capability.resource_keys,
                     node_type=node.capability.node_type,
                     skill_id=node.capability.skill_id,
                     skill_version=node.capability.skill_version,
+                    input_fingerprint=None,
+                    deadline_at=persisted_deadline,
                 )
                 self._nodes[node_id] = running_node
                 self._node_runs[node_run.node_run_id] = node_run
                 self._node_run_ids_by_node[node_id] = (*historical_ids, node_run.node_run_id)
                 claimed.append(self._node_run_view(node_run))
             return tuple(claimed)
+
+    def record_node_input(
+        self,
+        *,
+        node_run_id: str,
+        worker_id: str,
+        claim_version: int,
+        materialized_input: MaterializedNodeInput,
+        now: datetime,
+    ) -> ClaimedNodeRunView:
+        """在 Skill/控制节点执行前原子保存解析后的输入事实。
+
+        相同 fencing 对同一指纹重复写入按幂等重放处理；不同输入则表示 Worker 在
+        claim 后改变了执行语义，必须 fail-closed。只有当前、未过期且仍 RUNNING 的
+        NodeRun 可以写入，防止迟到 Worker 篡改新 claim 的审计快照。
+        """
+        normalized_now = self._aware_utc(now, "输入记录时间")
+        if not isinstance(materialized_input, MaterializedNodeInput):
+            raise PlanStoreInvariantError("必须使用 MaterializedNodeInput 记录节点输入")
+        input_snapshot = json.loads(
+            json.dumps(
+                materialized_input.parameters,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        )
+        with self._lock:
+            node_run = self._node_runs.get(node_run_id)
+            if node_run is None:
+                raise PlanStoreInvariantError("NodeRun 不存在")
+            if (
+                node_run.worker_id != worker_id
+                or node_run.claim_version != claim_version
+            ):
+                raise PlanStoreInvariantError("输入记录的 worker 或 fencing token 不匹配")
+            if self._current_node_run_id(node_run.node_id) != node_run_id:
+                raise PlanStoreInvariantError("旧 fencing token 不能记录节点输入")
+            if node_run.state is not PlanNodeState.RUNNING:
+                raise PlanStoreInvariantError("只有 RUNNING NodeRun 可以记录输入")
+            if normalized_now >= node_run.lease_until:
+                raise PlanStoreInvariantError("租约已过期，禁止迟到输入写入")
+            if node_run.input_fingerprint is not None:
+                if (
+                    node_run.input_fingerprint != materialized_input.input_fingerprint
+                    or node_run.input_snapshot != input_snapshot
+                ):
+                    raise PlanStoreInvariantError("同一 NodeRun 的输入指纹或快照发生冲突")
+                return self._node_run_view(node_run)
+
+            recorded = replace(
+                node_run,
+                input_snapshot=input_snapshot,
+                input_fingerprint=materialized_input.input_fingerprint,
+            )
+            self._node_runs[node_run_id] = recorded
+            return self._node_run_view(recorded)
 
     def schedule_retry(
         self,
@@ -769,6 +867,8 @@ class InMemoryPlanStore:
                 node_type=record.node_type,
                 skill_id=record.skill_id,
                 skill_version=record.skill_version,
+                input_fingerprint=record.input_fingerprint,
+                deadline_at=record.deadline_at,
             )
             self._node_runs[reclaimed.node_run_id] = reclaimed
             self._node_run_ids_by_node[record.node_id] = (
@@ -1527,4 +1627,6 @@ class InMemoryPlanStore:
             node_type=record.node_type,
             skill_id=record.skill_id,
             skill_version=record.skill_version,
+            input_fingerprint=record.input_fingerprint,
+            deadline_at=record.deadline_at,
         )
