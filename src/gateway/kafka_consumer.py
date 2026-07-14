@@ -1,4 +1,4 @@
-﻿"""Phase 3D Kafka Consumer 与事件路由器。
+"""Phase 3D Kafka Consumer 与事件路由器。
 
 封装 kafka-python 的 Consumer，订阅四个 LiveAgent topic，
 同时提供 EventRouter 根据 topic 名把消息分派到正确的业务服务。
@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from src.config.settings import Settings
 from src.gateway.kafka_event_models import (
@@ -110,4 +110,86 @@ class LiveAgentKafkaConsumer:
         finally:
             consumer.close()
 
+        return results
+
+
+class DurableInventoryKafkaConsumer:
+    """先持久化 Event Inbox、再手动提交 offset 的库存事件 Adapter。
+
+    本类与旧 ``LiveAgentKafkaConsumer`` 并存：旧类继续服务一次性解析演示，新类只
+    订阅库存 topic，并以固定 consumer group 驱动权威 EventStore。任何入站或 Store
+    异常都会越过 ``consume_batch``，finally 只关闭连接，不提交 offset。
+    """
+
+    def __init__(
+        self,
+        *,
+        settings: Settings,
+        event_store: Any,
+        consumer_factory: Callable[..., Any] | None = None,
+    ) -> None:
+        """复制启动配置并装配冻结 Trust Profile，不在运行中重新读取 Settings。"""
+        from src.gateway.inventory_event_ingress import InventoryEventIngress
+
+        self._bootstrap_servers = tuple(settings.kafka_bootstrap_server_list)
+        self._topic = settings.kafka_topic_inventory
+        self._group_id = settings.kafka_inventory_event_group_id
+        self._auto_offset_reset = settings.kafka_inventory_auto_offset_reset
+        self._ingress = InventoryEventIngress.from_settings(
+            settings,
+            store=event_store,
+        )
+        self._consumer_factory = consumer_factory
+
+    @property
+    def trust_profile(self) -> Any:
+        """返回冻结 Profile，供启动审计和健康检查读取。"""
+        return self._ingress.profile
+
+    def consume_batch(
+        self,
+        *,
+        max_messages: int = 10,
+        timeout_ms: int = 5000,
+    ) -> list[Any]:
+        """按 record 顺序持久化并提交精确 partition 的下一 offset。
+
+        ``consumer.commit`` 只会在 ``ingest`` 成功返回后调用。重复或冲突 occurrence
+        也是可靠持久化结果，因此允许提交；解析、信任和数据库异常均不捕获为成功。
+        """
+        if type(max_messages) is not int or max_messages < 1:
+            raise ValueError("max_messages 必须是正整数")
+        if type(timeout_ms) is not int or timeout_ms < 1:
+            raise ValueError("timeout_ms 必须是正整数")
+        from kafka import KafkaConsumer
+        from kafka.structs import OffsetAndMetadata, TopicPartition
+
+        factory = self._consumer_factory or KafkaConsumer
+        consumer = factory(
+            self._topic,
+            bootstrap_servers=list(self._bootstrap_servers),
+            group_id=self._group_id,
+            auto_offset_reset=self._auto_offset_reset,
+            enable_auto_commit=False,
+            consumer_timeout_ms=timeout_ms,
+        )
+        results: list[Any] = []
+        try:
+            for record in consumer:
+                result = self._ingress.ingest(record)
+                topic_partition = TopicPartition(record.topic, record.partition)
+                consumer.commit(
+                    offsets={
+                        topic_partition: OffsetAndMetadata(
+                            record.offset + 1,
+                            "",
+                            -1,
+                        )
+                    }
+                )
+                results.append(result)
+                if len(results) >= max_messages:
+                    break
+        finally:
+            consumer.close()
         return results

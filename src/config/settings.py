@@ -54,6 +54,32 @@ class Settings(BaseSettings):
     kafka_topic_traffic: str = Field(default="anchor.traffic", validation_alias="KAFKA_TOPIC_TRAFFIC")
     kafka_topic_command: str = Field(default="anchor.command", validation_alias="KAFKA_TOPIC_COMMAND")
 
+    # ── Phase 12B 库存事件可信入站 ──────────────────────────────────────
+    # Profile 在 DurableInventoryKafkaConsumer 构造时复制为冻结值对象。topic 仍复用
+    # kafka_topic_inventory，避免同一进程出现“订阅 topic”和“受信 topic”两份配置。
+    inventory_ingress_profile_id: str = Field(
+        default="inventory-kafka-v1",
+        min_length=1,
+        validation_alias="INVENTORY_INGRESS_PROFILE_ID",
+    )
+    inventory_ingress_trusted_sources: str = Field(
+        default="inventory-service",
+        validation_alias="INVENTORY_INGRESS_TRUSTED_SOURCES",
+    )
+    inventory_ingress_enabled: bool = Field(
+        default=False,
+        validation_alias="INVENTORY_INGRESS_ENABLED",
+    )
+    kafka_inventory_event_group_id: str = Field(
+        default="live-agent-inventory-plan-engine-v1",
+        min_length=1,
+        validation_alias="KAFKA_INVENTORY_EVENT_GROUP_ID",
+    )
+    kafka_inventory_auto_offset_reset: Literal["earliest", "latest"] = Field(
+        default="latest",
+        validation_alias="KAFKA_INVENTORY_AUTO_OFFSET_RESET",
+    )
+
     # MinIO 是可选对象存储，用于后续保存长报告、大文件或上下文卸载材料。
     minio_endpoint: str = Field(default="http://localhost:8900", validation_alias="MINIO_ENDPOINT")
     minio_access_key: str = Field(default="change_me", validation_alias="MINIO_ACCESS_KEY")
@@ -252,6 +278,15 @@ class Settings(BaseSettings):
             "traffic": self.kafka_topic_traffic,
             "command": self.kafka_topic_command,
         }
+
+    @property
+    def inventory_ingress_trusted_source_set(self) -> frozenset[str]:
+        """解析启动冻结的可信业务 source 集，并去除重复值与空白。"""
+        return frozenset(
+            source.strip()
+            for source in self.inventory_ingress_trusted_sources.split(",")
+            if source.strip()
+        )
 
 
 @lru_cache(maxsize=1)

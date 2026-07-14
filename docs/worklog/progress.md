@@ -405,6 +405,18 @@
 - Task 3 迁移 dry-run 已识别 12 个步骤并包含 required Phase 12B；9 个当时目标文件严格 UTF-8、无 BOM/U+FFFD/混合换行/尾随空白。全仓编码扫描仍为历史 `4 errors/58 warnings`，目标文件命中为 0。
 - 最终工作日志更新后复核 12 个 Task 3 目标文件：严格 UTF-8 往返、BOM/U+FFFD/混合换行/尾随空白均为 0；`compileall`、11 个 EventStore 方法签名等价检查和 `git diff --check` 通过。
 - 一次相关单元回归命令误写不存在的 `test_phase12a_models.py`，未收集测试；读取仓库真实文件清单后改为 `test_phase12a_plan_models.py` 并取得 `51 passed`，没有据此修改业务实现。
+- Phase 12B Task 3 已以 `25793f2 feat: persist phase 12b event facts` 独立提交并推送；缓存区严格为 12 个目标文件，用户既有 7 个脏文件未纳入提交。
+- 连续执行游标已切换到 Task 4 `RED`，只建立 Kafka 入站与 Trust Profile，不提前驱动冻结、紧急 DAG 或 PlanEngine。
+- Task 4 RED 为 `9 failed`：可信入站模块和 durable consumer 尚不存在；真实 Kafka 测试也明确缺少新 Adapter。
+- Task 4 GREEN 新增严格库存事件解析、启动冻结 `IngressTrustProfile`、稳定 provenance/delivery 身份和手动 offset Consumer；旧一次性 `LiveAgentKafkaConsumer` 保持原语义。
+- 安全默认经过独立红灯收紧为 `INVENTORY_INGRESS_ENABLED=false` 与 `KAFKA_INVENTORY_AUTO_OFFSET_RESET=latest`；直接构造 Profile 省略 enabled 时也保持禁用。
+- Task 4 单元专项为 `9 passed`；真实 Kafka + PostgreSQL 为 `2 passed`，证明重复/冲突落库后前移 offset、冲突不阻断后续事件、Store 失败不提交且同 group 重启收到原消息。
+- 相关 Kafka/EventStore 聚合首次出现 `2 failed`：Task 4 留下的 VERIFIED 全局事件被 Task 3 claim 测试合法领取。数据库查询确认失败 winner 均为 Task 4 event ID；增加专用前缀前后清理后，相关 unit 为 `66 passed`、integration 为 `10 passed`。
+- 一次相关单元命令误写不存在的 `test_phase12b_events.py`，改用仓库真实 `test_phase12b_event_models.py` 后通过；该命令错误未用于调整生产行为。
+- Task 4 首轮完整回归为 unit `890 passed, 4 warnings`、integration `86 passed, 3 deselected, 11 warnings`。其中 6 条新 warning 来自本 Task lambda serializer/deserializer；移除无必要 lambda、直接发送 UTF-8 bytes 后，Task 单元 `9 passed`、真实 Kafka `2 passed` 且无新增 warning。
+- 已修改的历史 `kafka_consumer.py` 原带 UTF-8 BOM；目标文件严格检查将其提升为本 Task 阻断项，机械移除 BOM 后首字节恢复为 ASCII 文档字符串，代码内容未改变。
+- Task 4 提交前最终完整回归：unit `890 passed, 4 warnings`；integration `86 passed, 3 deselected, 5 warnings`，5 条均为既有 Kafka 测试弃用提示，本 Task 新增 warning 为 0。
+- `compileall` 与 `git diff --check` 通过；全仓编码扫描由既有 `4 errors/58 warnings` 收敛为 `4 errors/56 warnings`，减少项正是本次已修改 Consumer 的历史 BOM/混合换行，Task 4 目标文件命中为 0。
 
 # 2026-07-11 Phase 7A 进度
 

@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 2：Event Inbox 内存 Store 与状态机（`8b1600b`） |
-| 下一任务 | Task 3：PostgreSQL Event Store 与计划 lineage |
+| 最近完成任务 | Phase 12B Task 3：PostgreSQL Event Store 与计划 lineage（`25793f2`） |
+| 下一任务 | Task 4：Kafka 入站与 Trust Profile |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | 全部门禁通过，显式暂存 Task 3 目标文件并核对 cached diff |
+| 当前子步骤 | 全部门禁通过，显式暂存 Task 4 目标文件并核对 cached diff |
 | 当前分支 | `main` |
-| 当前业务基线 | `8b1600b feat: add phase 12b event inbox` |
-| 远端状态 | `origin/main=8b1600b` |
+| 当前业务基线 | `25793f2 feat: persist phase 12b event facts` |
+| 远端状态 | `origin/main=25793f2` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 3
+Phase / Task: Phase 12B / Task 4
 状态: COMMIT
-目标: 建立 PostgreSQL Event Store、三张事件事实表及 PlanRun/PlanVersion lineage
-禁止事项: 不写 Kafka；不创建紧急 DAG；不改变 EventStore 公共语义；迁移必须兼容 Phase 12A 数据
-当前 HEAD: 8b1600b
-本 Task 文件: init_phase12b_preemption.sql、run_db_migrations.py、event_store.py、store.py、Task 3 测试与状态文档
+目标: 建立启动冻结 Trust Profile 与先落 Inbox、后提交 offset 的 Kafka 入站 Adapter
+禁止事项: 不直接驱动 PlanEngine；不让 payload 自报信任；数据库失败不得提交 offset；不改旧一次性 Consumer 语义
+当前 HEAD: 25793f2
+本 Task 文件: inventory_event_ingress.py、kafka_consumer.py、settings.py、Task 4 测试与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: RED 11 failed；专项 28 passed；unit 881 passed；integration 84 passed, 3 deselected；协议签名、compileall、UTF-8、diff 均通过
-错误与尝试次数: 1 次回归命令误写不存在测试文件名，改用仓库真实文件名后 51 passed
-设计偏差与决策编号: 尚无；遵循 D-077、D-079、D-080 与冻结 Task 3 计划
-下一条精确操作: 只暂存 12 个 Task 3 目标文件，核对 cached diff 后提交并推送 origin/main
+最近命令与结果: RED 9 failed；Task unit 9 passed；真实 Kafka 2 passed；完整 unit 890 passed；integration 86 passed, 3 deselected；新增 warning 0
+错误与尝试次数: 1 次相关单元命令引用不存在文件；1 个全局 Inbox 测试隔离缺口，均已定位并修正
+设计偏差与决策编号: 尚无；遵循 D-077、D-078、D-079 与冻结 Task 4 计划
+下一条精确操作: 严格检查 10 个目标文件，只暂存目标并提交推送 origin/main
 模型费用累计: 0 元
 ```
 
@@ -93,6 +93,10 @@ Phase / Task: Phase 12B / Task 3
 | Phase 12B Task 3 RED/GREEN | `11 failed`；迁移 `6 passed`；PostgreSQL 专项 `6 passed` |
 | Phase 12B Task 3 完整验证 | unit `881 passed`；integration `84 passed, 3 deselected` |
 | Phase 12B Task 3 静态门禁 | 12 文件严格 UTF-8、11 方法签名等价、compileall 与 diff 通过 |
+| Phase 12B Task 3 提交与推送 | `25793f2`，`origin/main=25793f2` |
+| Phase 12B Task 4 RED/GREEN | `9 failed`；unit `9 passed`；真实 Kafka/PostgreSQL `2 passed` |
+| Phase 12B Task 4 当前完整验证 | unit `890 passed`；integration `86 passed, 3 deselected` |
+| Phase 12B Task 4 编码与静态门禁 | compileall/diff 通过；全仓历史 `4 errors/56 warnings`，目标命中 0 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

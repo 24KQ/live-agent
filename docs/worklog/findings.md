@@ -158,6 +158,13 @@
 - Phase 12B 给 `plan_runs` 和 `plan_versions` 增加 lineage 后，Phase 12A 的独立 Schema 测试仍应可运行。查询端通过 `to_jsonb(table_row)` 读取可选列并提供 `CARD_BATCH / 0 / INITIAL` 默认值，可以兼容尚未执行 Phase 12B 迁移的历史表，而不把未来迁移复制回 Phase 12A DDL。
 - PostgreSQL 集成测试的 Event Inbox 是全局队列。测试必须只清理自己的专用 event ID 前缀，既避免前次失败留下的 VERIFIED 事件干扰 claim，又不能通过全表 TRUNCATE 破坏其他阶段的持久化证据。
 
+## 2026-07-15 Phase 12B Task 4 发现
+
+- 现有 `anchor.inventory` 已承载 Phase 3D 旧格式消息。新的 durable consumer group 若默认 `earliest`，会在第一条缺少 event ID/version/source 的历史消息上 fail-closed 并永久停住；因此生产默认是入站禁用且从 `latest` 开始，测试或受控回放才显式启用 `earliest`。
+- “Store 先提交、offset 后提交”要求 delivery 身份跨重启稳定。occurrence ID 必须由 topic/partition/offset 派生，received_at 优先使用 Kafka record timestamp；若使用进程当前时间，同一 record 重投会被误判为 occurrence ID 改绑。
+- 摘要冲突是已经可靠持久化的安全事实，不等于解析失败。冲突 occurrence 应提交 offset 并继续分区；非法 JSON、未知字段、权限自报、来源不可信或 Store 失败则不得提交。
+- Event Inbox 的 claim 是生产全局队列，跨文件集成测试也必须隔离数据。Task 4 使用专用 event ID 前缀并按外键顺序删除自己的事实，不能通过修改生产 claim 过滤器掩盖测试污染。
+
 ## 2026-07-13 Phase 11B Task 5 实施前发现
 
 - 当前 `recommend_backup_product` 只有 `room_id` 与 `sold_out_product_id` 输入，但 `LiveOperationsPort` 没有“查询备选商品”或“读取直播间商品状态”的方法；Handler 若直接读取旧 Graph State，会绕过已冻结的 Port 边界。
