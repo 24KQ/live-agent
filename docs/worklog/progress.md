@@ -293,6 +293,22 @@
 - 发现冲突的首个 Task 8 实现代理在报告前未修改业务代码、测试、依赖或配置；本轮先持久化 D-064、Design、Implementation Plan 与工作日志，业务 TDD 尚未开始。
 - 本轮文档纠偏将完成后执行编号、UTF-8、编码扫描、`git diff --check` 和暂存范围验证，再以独立文档提交保存。
 
+## 2026-07-14 Phase 11B Task 8-10 验收进度
+
+- Task 8 已完成高风险改价迁移：`set_product_price` 单活版本为 `1.1.0`，显式要求 `expected_version`，幂等键和审批保留在可信 Context；非法价格在 Attempt 前拒绝。契约与实现提交为 `5ca05cf`、`76afbdf`、`3feab86`。
+- Task 9 已完成真实 Legacy 建播与 Runtime 的隔离契约比较、Runtime-only 改价失败测试、六场景无外部依赖 Demo 和 `run_all.py phase11b-demo`；最终提交为 `778d52b`。
+- Runtime 专项退出码 `0`：`76 passed in 1.54s`。
+- 原系统回归命令引用不存在的 `tests/integration/test_phase11b_attempt_store.py`，退出码 `4` 且未收集测试；改用真实文件 `test_phase11b_postgres_attempt_store.py` 后退出码 `0`：`124 passed in 6.61s`。
+- 默认全量退出码 `0`：`636 passed, 3 deselected, 9 warnings in 63.48s`；warning 为既有 FastAPI/Starlette 与 Kafka 弃用提示。
+- 直接 Demo 与 `run_all.py phase11b-demo` 均退出码 `0`，按固定顺序输出建播成功、售罄、限流、版本冲突、deadline 和副作用未知六个场景。
+- `git diff --check` 退出码 `0`；全仓编码扫描退出码 `1`，仍为 `4 errors/59 warnings`。4 个 error 来自扫描脚本自身 U+FFFD 示例，warning 为历史 BOM/混合换行，本阶段目标文件命中为 0。
+- 已生成 Phase 11B Acceptance，并把路线图状态更新为“技术验收完成，待用户审核”。当前未进入 Phase 12A，也未实现 PlanEngine、自动重试、真实淘宝 API 或多 Agent。
+
+## 下一步
+
+- 用户审核 `phase-11b-unified-execution-platform-contract-acceptance.md` 并决定是否接受。
+- 只有用户明确接受后，才按 Just-in-Time 原则讨论和生成 Phase 12A Design。
+
 # 2026-07-11 Phase 7A 进度
 
 - 完成 Phase 6C 功能提交和编码治理提交，避免 7A 改动混入历史收尾。

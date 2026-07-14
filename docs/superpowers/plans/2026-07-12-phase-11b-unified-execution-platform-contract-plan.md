@@ -88,7 +88,7 @@ git commit -m "feat: add phase 11b runtime contracts"
 - Create: docker/init_phase11b_skill_attempts.sql
 - Modify: scripts/run_db_migrations.py
 - Test: tests/unit/test_phase11b_attempt_store.py
-- Test: tests/integration/test_phase11b_attempt_store.py
+- Test: tests/integration/test_phase11b_postgres_attempt_store.py
 
 - [ ] **Step 1: 写 Operation 去重和意图先写测试。**
 
@@ -125,14 +125,14 @@ PostgreSQL claim 使用 INSERT ON CONFLICT DO NOTHING 后 SELECT；终态更新�
 
 - [ ] **Step 5: 注册迁移、运行绿灯并提交。**
 
-Run: pytest tests/unit/test_phase11b_attempt_store.py tests/integration/test_phase11b_attempt_store.py -q
+Run: pytest tests/unit/test_phase11b_attempt_store.py tests/integration/test_phase11b_postgres_attempt_store.py -q
 
 Run: python scripts/run_db_migrations.py --dry-run
 
 Expected: PASS；输出包含 phase11b。
 
 ~~~bash
-git add src/skill_runtime/attempt_store.py docker/init_phase11b_skill_attempts.sql scripts/run_db_migrations.py tests/unit/test_phase11b_attempt_store.py tests/integration/test_phase11b_attempt_store.py
+git add src/skill_runtime/attempt_store.py docker/init_phase11b_skill_attempts.sql scripts/run_db_migrations.py tests/unit/test_phase11b_attempt_store.py tests/integration/test_phase11b_postgres_attempt_store.py
 git commit -m "feat: persist phase 11b execution attempts"
 ~~~
 
@@ -580,6 +580,7 @@ git commit -m "feat: add phase 11b contract demo"
 **Files:**
 - Create: docs/superpowers/reports/phase-11b-unified-execution-platform-contract-acceptance.md
 - Modify: docs/project_guidance/agent_runtime_evolution_roadmap.md
+- Modify: docs/superpowers/plans/2026-07-12-phase-11b-unified-execution-platform-contract-plan.md
 - Modify: docs/worklog/task_plan.md
 - Modify: docs/worklog/findings.md
 - Modify: docs/worklog/progress.md
@@ -595,7 +596,7 @@ Expected: PASS。
 - [ ] **Step 2: 运行相关系统回归。**
 
 ~~~bash
-pytest tests/unit/test_skill_executor.py tests/unit/test_pre_live_skill_handlers.py tests/unit/test_skill_runtime_routing.py tests/unit/test_agent_tool_executor.py tests/unit/test_agent_tool_executor_skill_compat.py tests/unit/test_on_live_agent_graph_real.py tests/unit/test_on_live_harness_agent_graph.py tests/integration/test_pre_live_graph_skill_runtime_flow.py tests/integration/test_on_live_flow.py tests/integration/test_danmaku_flow.py tests/integration/test_phase11b_attempt_store.py tests/integration/test_phase11b_price_flow.py tests/integration/test_agent_evaluation_flow.py -q
+pytest tests/unit/test_skill_executor.py tests/unit/test_pre_live_skill_handlers.py tests/unit/test_skill_runtime_routing.py tests/unit/test_agent_tool_executor.py tests/unit/test_agent_tool_executor_skill_compat.py tests/unit/test_on_live_agent_graph_real.py tests/unit/test_on_live_harness_agent_graph.py tests/integration/test_pre_live_graph_skill_runtime_flow.py tests/integration/test_on_live_flow.py tests/integration/test_danmaku_flow.py tests/integration/test_phase11b_postgres_attempt_store.py tests/integration/test_phase11b_price_flow.py tests/integration/test_agent_evaluation_flow.py -q
 ~~~
 
 Expected: PASS。
@@ -619,12 +620,12 @@ Expected: pytest、两个 Demo 和 git diff --check 为 0。若编码扫描仍�
 - [ ] **Step 5: 提交文档。**
 
 ~~~bash
-git add docs/superpowers/reports/phase-11b-unified-execution-platform-contract-acceptance.md docs/project_guidance/agent_runtime_evolution_roadmap.md docs/worklog/task_plan.md docs/worklog/findings.md docs/worklog/progress.md
+git add docs/superpowers/reports/phase-11b-unified-execution-platform-contract-acceptance.md docs/project_guidance/agent_runtime_evolution_roadmap.md docs/superpowers/plans/2026-07-12-phase-11b-unified-execution-platform-contract-plan.md docs/worklog/task_plan.md docs/worklog/findings.md docs/worklog/progress.md
 git commit -m "docs: record phase 11b acceptance"
 ~~~
 
 ## Plan Self-Review
 
-- D-054 至 D-063 分别由 Task 1 至 Task 10 覆盖：三 Port、状态化 Fake、deadline/async、FailureFact、Attempt Store、三批路由、switch_product 清理、版本规则、验收门槛和播中只读商品上下文解析。
+- D-054 至 D-064 由 Task 1 至 Task 10 及 Task 8 前置契约纠偏覆盖：三 Port、状态化 Fake、deadline/async、FailureFact、Attempt Store、三批路由、switch_product 清理、版本规则、验收门槛、播中只读商品上下文解析和高风险改价版本契约。
 - 所有外部写都先经过 Attempt claim；所有自动重试、PlanEngine、真实平台和多 Agent 均被排除。
 - 每个任务先 RED、再 GREEN、再回归并单独提交。若现有公开契约与本 Plan 冲突，必须先更新 Design/Decisions 并获得用户确认，不能自行扩展范围。

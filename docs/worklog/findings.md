@@ -170,6 +170,16 @@
 - 真实 `SkillExecutor` 会在 Handler 执行和 `AttemptStore.claim_or_replay` 前完成版本、Schema、幂等键与审批校验，因此 `CountingAttemptStore.claims == 0` 可以直接证明这些前置路径没有创建 Attempt；当前 `AgentToolExecutor` 则确实硬编码 `1.0.0`，并在读取幂等键后把该控制字段继续留在业务 arguments 中。
 - `FakeLiveCommercePlatform` 的调用序号属于内部故障脚本状态，没有公开调用计数 API。Operation 重放的一次 Port 调用证据也应由测试内计数 Fake 或记录型 Port 提供，不能为了断言给生产 Fake 增加无关观测接口。
 
+## 2026-07-14 Phase 11B Task 8-10 验收发现
+
+- 高风险价格字段只声明 `type: string` 不足以形成安全契约。`Infinity` 可穿过 Decimal 比较并被写入，`NaN` 可能在 Handler 后被误闭合为未知副作用；必须在 Attempt 前限制为非负普通十进制字符串。
+- AgentToolExecutor 默认兼容 Port 拒绝改价是当前权限边界，不是漏接 Handler。该入口没有可信审批 API；为让默认装配“能改价”而放开 Port 会绕过 D-064。
+- 等价比较器不能手工复制 Runtime 的 Attempt、AdapterRequest 和输出映射后称为 Legacy；两边一起写错时会产生虚假等价。最终只对可安全执行的真实生产 Legacy 建播入口做新旧比较，旧路径没有的平台失败语义明确改为 Runtime-only 测试。
+- 旧 Legacy 本来没有 Fake Platform 和 Attempt Store。测试应保留这项迁移差异，只比较双方共同公开的业务事实，不能为了对象形状一致而补造不存在的旧基础设施。
+- 六场景 Demo 测试不能只断言场景名称和错误分类；还必须逐场景锁定 Attempt 终态、副作用状态和平台变化，否则场景函数错接也可能通过。
+- Implementation Plan 中的 PostgreSQL Attempt Store 集成测试文件名已过期。验收命令必须先用 `rg --files` 对照仓库事实，再把计划偏差写入 Acceptance，不能以“文件不存在”代替系统回归。
+- `run_all.py phase11b-demo` 是人类可读统一入口，保留既有 `[INFO]` 包装日志；恰好六行机器可读 JSON 的契约属于直接 Demo 脚本。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

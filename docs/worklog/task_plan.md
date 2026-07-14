@@ -104,9 +104,10 @@
 - [x] Phase 11B Task 6：三批启动冻结路由与 AgentToolExecutor 无 fallback 接入；提交 `edb27d6`。
 - [x] Phase 11B Task 7：批次二建播/售罄 Handler 与播中 Harness Runtime 接入；提交 `6908f41`。
 - [x] Phase 11B Task 8 前置契约纠偏：用户选择改价显式 `expected_version` + 单活 `1.1.0`，AgentToolExecutor 保持 pending；新增 D-064 并修订 Design/Implementation Plan/worklog。
-- [ ] Phase 11B Task 8：按修订后的 TDD 计划实施高风险改价 Runtime，尚未修改业务代码。
-- [ ] Phase 11B Task 9：测试比较器与六场景无外部依赖 Demo。
-- [ ] Phase 11B Task 10：专项、回归、全量验收与 Acceptance 留迹。
+- [x] Phase 11B Task 8：完成 `set_product_price@1.1.0`、显式 CAS 版本、审批/幂等前置、单次 Port 调用和稳定重放；提交 `3feab86`。
+- [x] Phase 11B Task 9：完成真实 Legacy 建播对照、Runtime-only 失败契约、六场景无外部依赖 Demo 与统一入口；提交 `778d52b`。
+- [x] Phase 11B Task 10：完成专项、系统回归、默认全量、Demo、编码检查与 Acceptance 留迹。
+- [ ] 用户审核并决定是否接受 Phase 11B Acceptance；接受前不进入 Phase 12A Design。
 
 # 2026-07-11 Phase 7A 任务
 
