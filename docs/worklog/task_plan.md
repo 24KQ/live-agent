@@ -108,7 +108,8 @@
 - [x] Phase 11B Task 9：完成真实 Legacy 建播对照、Runtime-only 失败契约、六场景无外部依赖 Demo 与统一入口；提交 `778d52b`。
 - [x] Phase 11B Task 10：完成专项、系统回归、默认全量、Demo、编码检查与 Acceptance 留迹。
 - [x] 用户审核并接受 Phase 11B Acceptance，Phase 11B 正式完成。
-- [ ] 重新读取 Phase 12A 高层大纲、D-009 至 D-034 和 Phase 11B Acceptance，开展 Phase 12A Design 的 Just-in-Time 讨论。
+- [x] 重新读取 Phase 12A 高层大纲、D-009 至 D-034 和 Phase 11B Acceptance，完成 Phase 12A Design 的 Just-in-Time 讨论。
+- [x] 生成 `phase-12a-dag-plan-engine-design.md`，新增 D-065 至 D-072，固定首期 DAG、PlanStore、Worker、Command Ledger 和验收边界。
 - [ ] 用户审核 Phase 12A Design 后，再决定是否生成 Implementation Plan；当前不实施 PlanEngine。
 
 # 2026-07-11 Phase 7A 任务

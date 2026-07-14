@@ -718,3 +718,91 @@
 - **未选理由**：把资源版本放入 Context 会把业务并发条件混入跨 Skill 控制字段，并使重放证据依赖隐藏状态；继续使用 `1.0.0` 会违反 D-061 的可观察契约版本规则；暂缓批次三会在 Port、Fake 和单次尝试基础已经具备时阻断本阶段闭环，却不能替代未来真实批准入口的独立设计。
 - **影响**：D-061 继续有效，本决策是其在改价契约上的具体应用。D-035 所述 9 个未迁移工具逐字段冻结是 Phase 11A 的历史约束；D-064 生效后 `set_product_price` 退出该冻结集合，其余 8 个仍严格保持。D-043 所述“13 个首版均为 `1.0.0`”继续作为历史事实保留。Catalog 同时只注册 12 个 `1.0.0` 与一个 `set_product_price@1.1.0`；ToolRegistry 不增加 version 字段，只投影 `1.1.0` 的新 Schema。AgentToolExecutor 只能证明未批准调用返回 `pending`，不能成为批准入口。本阶段不实现重试、PlanEngine、真实淘宝 API、新 Graph 或多 Agent。
 - **重新评估条件**：未来需要真实 Graph / Facade 承接高风险改价批准、外部消费者需要版本范围协商，或平台 CAS 不再使用整数资源版本时，必须新增决策重新定义入口、版本兼容和资源冲突语义；在此之前不得扩大 AgentToolExecutor 的审批能力。
+
+## D-065：Phase 12A 首期垂直边界
+
+- **状态**：`ACCEPTED`
+- **背景**：D-011 选择“手卡生成 + 售罄抢占”作为 PlanEngine 首期价值场景，但把商品查询、排品、建播审批和售罄事件一次性纳入会让 PlanStore、调度、checkpoint 和抢占问题彼此遮蔽。
+- **候选方案**：冻结排品后的手卡批次；查询到手卡的完整播前链；包含建播审批的完整链。
+- **最终选择**：Phase 12A 只接管冻结 `LivePlanDraft` 与商品快照后的前三张单商品手卡。查询、排品和建播保留既有路径；售罄抢占、紧急 DAG 与增量 Replan 延后到 Phase 12B。
+- **选择理由**：先以最小真实 DAG 验证不可变版本、并发、失败恢复和一致性协议，避免把高风险审批和事件抢占混入基础设施验收。
+- **未选理由**：完整播前链需要运行时动态展开和更多输入依赖；建播审批会扩大人审/副作用变量，无法集中验证 PlanEngine 基线。
+- **影响**：Phase 12A 的规划输入必须是不可变排品和商品快照；默认播前 Graph 不改变，PlanEngine 只在显式路由下处理手卡批次。
+- **重新评估条件**：冻结排品无法提供生成手卡所需的完整商品快照，或首期 DAG 不能证明并发与恢复价值时，先补齐输入契约再扩大边界。
+
+## D-066：候选 DAG 与 ProposalProvider 边界
+
+- **状态**：`ACCEPTED`
+- **背景**：D-010 要求 LLM 只提出候选计划，不能执行或控制恢复；但冻结排品后的手卡批次没有足够业务分歧，强行接入 LLM 只会制造形式化规划。
+- **候选方案**：受限类型化 DAG + 固定 Provider；业务子目标由编译器展开；完整执行 DAG 或强制 LLM Provider。
+- **最终选择**：保留 `PlanProposalProvider` Port，Phase 12A 只使用版本化 `CanonicalCardBatchProposalProvider` 和 Fixture 生成 `PREPARE_CARD_BATCH -> generate_product_card x N -> COLLECT_CARD_RESULTS` 的规范 DAG。候选只声明节点、依赖和输入绑定；LLM Provider 延后。
+- **选择理由**：保留未来可替换的规划边界，同时避免让无价值的概率输出控制固定业务骨架。控制参数继续由确定性 PlanEngine 注入。
+- **未选理由**：子目标编译器会隐藏 DAG 契约；完整执行 DAG 会把版本、超时、资源和恢复权限错误交给 LLM；现在强制 LLM Provider 不能证明业务收益。
+- **影响**：Phase 12A 不实现 LLM Provider、fallback 或生产双执行；候选非法时拒绝创建 PlanRun，不走隐式模板替代。
+- **重新评估条件**：Phase 12B 或后续场景出现可量化的计划分歧，例如售罄后的替代商品/子图选择，且可在 Golden Dataset 中验证时再新增 LLM Provider 决策。
+
+## D-067：PlanStore 物理模型
+
+- **状态**：`ACCEPTED`
+- **背景**：D-013 已确定 PlanStore 是权威事实源，但首期仍需选择能支持版本、节点依赖、NodeRun 并发和审计查询的物理表达。
+- **候选方案**：关系行 + JSONB 快照；整张计划 JSONB；仅追加事件流。
+- **最终选择**：使用 `plan_runs`、`plan_versions`、`plan_nodes`、`plan_node_dependencies`、`node_runs` 与 `plan_commands` 关系表；完整 DAG、输入输出、FailureFact 和审计扩展信息保存 JSONB。
+- **选择理由**：关系列支持索引、唯一约束、READY 查询、lease 和条件更新；JSONB 保留完整快照和可扩展业务证据，不需要首期实现事件溯源投影。
+- **未选理由**：整张 JSONB 难以安全处理节点并发更新；仅事件流会把查询和恢复投影复杂度提前带入首期。
+- **影响**：PlanStore 与 PostgresSaver 独立连接和事务；不直接操作官方 checkpoint 表。所有版本和节点状态变化必须由 PlanStore 的公开接口完成。
+- **重新评估条件**：计划规模证明显式依赖边或 JSONB 快照造成可测量瓶颈，或需要跨系统事件溯源时再评估。
+
+## D-068：节点身份与输入绑定
+
+- **状态**：`ACCEPTED`
+- **背景**：D-014 与 D-016 要求版本不可变、输入可指纹化、未来 Replan 可说明复用/失效来源；自由路径表达式或跨版本复用同一节点 ID 会破坏这些证据。
+- **候选方案**：版本内节点 ID + 稳定逻辑键 + 受限类型化绑定；跨版本复用同一节点 ID；自然键或通用 JSONPath。
+- **最终选择**：每个 PlanVersion 创建新的 `node_id`，同时保存稳定 `logical_key`；未来复用和失效通过显式旧节点来源关联表示。输入只允许 `PLAN_INPUT`、`NODE_OUTPUT` 与 Schema 校验后的 `LITERAL`，派发前物化不可变输入快照并计算指纹。
+- **选择理由**：版本快照不会被后续状态污染，依赖和输入来源可在创建时校验，输入指纹可用于未来最小失效。
+- **未选理由**：跨版本复用 ID 会混淆旧证据；自然键不能表达同商品不同角色；JSONPath/表达式难以做静态安全校验和重命名保护。
+- **影响**：NodeRun 必须保存实际输入快照与指纹；绑定目标不存在、未声明依赖、输出未 JSON 安全或不符合目标 Schema 时，节点不能进入 READY。
+- **重新评估条件**：实际业务需要结构化转换且不能由确定性控制节点完成时，新增受限转换类型，不开放通用表达式执行。
+
+## D-069：资源锁元数据与 NodeRun 审计粒度
+
+- **状态**：`ACCEPTED`
+- **背景**：D-017 要求资源锁，D-031 要求 fencing；现有 SkillManifest 没有通用资源键字段，且只依赖 Phase 11B Skill Attempt 无法记录控制节点、claim 和调度失败历史。
+- **候选方案**：Capability Profile 确定性资源解析器 + 每次独立 NodeRun；扩展全部 Manifest；让 LLM 提供资源键或只复用 Skill Attempt。
+- **最终选择**：Phase 12A 以 `PlanCapabilityProfile` 和 `ResourceKeyResolver` 从可信 room、商品快照和节点类型确定资源键，候选不可覆盖。每次 claim/执行创建独立 NodeRun，可选关联 Skill Attempt。
+- **选择理由**：无需扩大已经稳定的 13 个 Manifest；Worker、控制节点和 Skill 调用都有完整的 lease、fencing、重试和结果证据。
+- **未选理由**：现在迁移全部 Manifest 会扩大范围；LLM 提供资源键会削弱并发安全；只有 Skill Attempt 会遗漏 PlanEngine 调度层事实。
+- **影响**：首期手卡节点资源键固定为 `room:{room_id}:product:{product_id}`，控制节点无外部资源锁；NodeRun 终态更新必须匹配当前 fencing token。
+- **重新评估条件**：Phase 12B 新能力需要跨商品或直播间级锁时，扩展 Capability Profile，不在未经评估时修改全局 Manifest。
+
+## D-070：Worker、Graph 路由与查询边界
+
+- **状态**：`ACCEPTED`
+- **背景**：把调度循环写入 LangGraph 会重耦合业务图与 PlanStore，直接替换默认播前路径又会放大首期风险；同时 PlanRun 证据必须可被 Graph、Replay 和测试查询。
+- **候选方案**：独立无状态 Worker + 启动冻结可选路由 + 领域服务；仅进程内服务；LangGraph 主图调度或直接替换现有节点。
+- **最终选择**：Plan API/Graph 只创建或恢复 PlanRun，`PlanWorker` 以 `FOR UPDATE SKIP LOCKED`、lease 和 fencing 执行节点。新增默认 `LEGACY` 的 `PlanExecutionRoute`，仅显式 `PLAN_ENGINE` 才接管手卡节点；提供 `PlanQueryService`，本期不提供 HTTP/UI。
+- **选择理由**：Worker 可在测试内联或生产独立进程运行，PlanStore 保持唯一协调点；默认 Legacy 保留 Phase 11B 已验收行为，路由切换不影响在途调用。
+- **未选理由**：仅进程内模型弱化崩溃恢复和多 Worker 边界；Graph 主图调度违反 D-010；直接替换或生产双执行会扩大兼容和审计风险。
+- **影响**：路由在进程装配时冻结，Runtime 失败不 fallback Legacy；checkpoint 只保存计划引用和控制位置，查询通过 PlanQueryService 读取 PlanStore。
+- **重新评估条件**：Phase 12A 验收显示独立 Worker 的装配复杂度无法被当前服务生命周期承载，或需要公开人工查询时再讨论 HTTP/API。
+
+## D-071：Command Ledger 与批次失败收敛
+
+- **状态**：`ACCEPTED`
+- **背景**：D-033 要求人工命令幂等，但首期只读手卡 DAG 不会自然触发审批；同时手卡批次必须避免把“部分成功”误报为业务成功。
+- **候选方案**：现在实现通用 Command Ledger 且整批失败；仅实现对账命令；允许部分成功或首错强制取消。
+- **最终选择**：现在实现 `APPROVE`、`REJECT`、`RECONCILE`、`RESUME` 四类通用命令，通过合成节点测试。任一不可恢复节点失败后停止派发新节点，让在途节点协作式收敛，PlanRun 最终 `FAILED`，但保留全部成功结果和 NodeRun 证据。
+- **选择理由**：满足未来高风险节点的命令基础设施要求，也保证失败批次不被错误作为完整手卡包消费；保留结果可供 Phase 12B Replan 复用。
+- **未选理由**：只做对账会让 D-033 的协议残缺；部分成功需要新的业务消费语义；强制取消违反 D-012 的副作用安全原则。
+- **影响**：命令必须携带 `command_id`、`expected_plan_version`、`expected_node_status`；审批和对账 TTL 分别为 10/30 分钟，超时 fail-closed。Phase 12A 不创建 Replan 版本。
+- **重新评估条件**：真实业务确认可安全消费不完整手卡包，或出现新的人工动作类别时，先新增状态/消费语义决策再改变终态。
+
+## D-072：Phase 12A 验收门槛
+
+- **状态**：`ACCEPTED`
+- **背景**：仅用内存替身无法证明 PostgreSQL 并发 claim、lease、fencing 与 PlanStore/checkpoint 的有序恢复；Phase 12A 需要一套不依赖真实外部平台的可重复验收证据。
+- **候选方案**：单元测试 + 真实 PostgreSQL/PostgresSaver；仅内存替身；仅端到端 PostgreSQL。
+- **最终选择**：单元测试覆盖模型和策略，真实 PostgreSQL 与官方 PostgresSaver 集成测试覆盖并发和一致性；Demo 使用 Fixture、Fake Adapter 与隔离 Store。
+- **选择理由**：既能快速定位模型/状态机问题，也能证明真实数据库语义和官方 checkpoint 边界。
+- **未选理由**：仅内存替身不能证明 SQL 并发和写入顺序；只端到端会牺牲快速、精确的失败定位。
+- **影响**：验收必须包含 DAG/绑定/状态/FailurePolicy/Command 单元测试、PostgreSQL  lease/fencing/恢复集成测试、Graph 路由回归和五场景无外部依赖 Demo。真实 LLM、淘宝 API、Kafka 与 Phase 12B 功能不进入验收。
+- **重新评估条件**：CI 无法提供 PostgreSQL 时，先补齐可重复数据库服务，不以全内存测试替代一致性验收。

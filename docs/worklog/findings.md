@@ -185,6 +185,13 @@
 - 用户已明确接受 Phase 11B Acceptance，Skill Runtime 与统一平台执行契约可以作为 Phase 12A Design 的稳定前置基线。
 - 阶段验收通过只解除 Phase 12A Design 的进入门，不等于授权实施 PlanEngine。必须先按 Just-in-Time 原则复核 D-009 至 D-034，并完成独立 Design 审核。
 
+## 2026-07-14 Phase 12A Design 发现
+
+- 冻结排品后的三张手卡天然是并行 Skill；仅保存三个节点虽可运行，但不足以证明依赖、输入指纹和恢复边界。因此首期需要持久化准备与汇总两个确定性控制节点，不为编排细节新增 Skill。
+- 在固定手卡批次中强行让 LLM 决定 DAG 没有实际业务收益。保留 ProposalProvider Port 与候选格式，但 Phase 12A 用版本化固定 Provider，真实 LLM Provider 等到存在可评估业务分歧时再引入。
+- 关系表负责 lease、fencing、版本和依赖查询，JSONB 负责快照与证据；把完整计划塞入单行 JSONB 或只依赖 Skill Attempt 都会丢失并发与调度事实。
+- 首期只读手卡不自然触发审批，但 Command Ledger 不能因此延后：它是 D-033 的跨场景基础设施，必须用合成节点验证命令去重、旧版本拒绝和 fail-closed TTL。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
