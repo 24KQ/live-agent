@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12A |
-| 最近完成任务 | Task 7：启动冻结路由与播前 Graph 局部接入（`7cbf026`） |
-| 下一任务 | Task 8：移除 `TRUSTED_COMPAT` 审批兼容 |
+| 最近完成任务 | Task 8：移除 `TRUSTED_COMPAT` 审批兼容（`9a8e5a6`） |
+| 下一任务 | Task 9：Demo、全量验收与 Phase 12A Acceptance |
 | 下一任务状态 | `COMMIT` |
-| 当前子步骤 | Task 8：全部验证通过，待边界检查、提交并推送 |
+| 当前子步骤 | Task 9：技术门禁通过，待提交推送并切换 Phase 12B Task 1 |
 | 当前分支 | `main` |
-| 当前业务基线 | `7cbf026 feat: route pre-live cards through plan engine` |
-| 远端状态 | `origin/main=7cbf026` |
+| 当前业务基线 | `9a8e5a6 refactor: remove trusted compatibility approval` |
+| 远端状态 | `origin/main=9a8e5a6` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12A / Task 8
+Phase / Task: Phase 12A / Task 9
 状态: COMMIT
-目标: 删除 TRUSTED_COMPAT 构造能力，让 Runtime 建播只接受 HUMAN_INTERRUPT
-禁止事项: 不削弱 hard-gate；不让 confirmed_setup 普通参数升级为审批；Legacy 显式路由保持兼容
-当前 HEAD: 7cbf026
-本 Task 文件: models.py、pre_live_facade.py、pre_live_graph.py、skill_runtime/__init__.py 与审批测试
+目标: 完成五场景 Demo、真实基础设施证据、全量回归与 Phase 12A Acceptance
+禁止事项: 不进入 Phase 12B 代码；不连接 LLM/淘宝 API；Acceptance 不得提前宣称通过
+当前 HEAD: 9a8e5a6
+本 Task 文件: Phase 12A Demo、run_all、Demo 测试、Acceptance、路线图与 worklog
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 8 RED 3 failed, 26 passed；专项 31 passed；全量 unit 824 passed；全量 integration 78 passed, 3 deselected；src 兼容标识 0 命中；compileall、严格 UTF-8 与 git diff --check 通过
-错误与尝试次数: 0 个非预期错误；RED 与 D-075 的退役范围一致
-设计偏差与决策编号: 尚无；遵循 D-045、D-075 与冻结 Task 8 计划
-下一条精确操作: 只暂存 Task 8 目标文件，核对 cached diff，提交并推送
+最近命令与结果: Demo 4 passed；Phase 12A 单元 259 passed；指定集成 14 passed；全量 906 passed, 3 deselected；两个 Demo 与迁移 dry-run 退出码 0
+错误与尝试次数: 1 个编码问题已修复；严格检查器先后出现变量解析错误与正则假阳性，改用字符级判断后 9 个目标文件通过
+设计偏差与决策编号: 尚无；遵循 D-072、D-075、D-076 与冻结 Task 9 计划
+下一条精确操作: 严格检查 Task 9 目标文件，核对 staged diff，提交并推送
 模型费用累计: 0 元
 ```
 
@@ -75,8 +75,14 @@ Phase / Task: Phase 12A / Task 8
 | Phase 12A Task 8 专项 | `31 passed`，生产 `TRUSTED_COMPAT` 0 命中 |
 | Task 8 后默认单元测试 | `824 passed, 4 warnings` |
 | Task 8 后完整集成测试 | `78 passed, 3 deselected, 5 warnings` |
+| Task 8 提交与推送 | `9a8e5a6`，`origin/main=9a8e5a6` |
+| Phase 12A Task 9 Demo 专项 | `4 passed`，直接脚本五行 JSON |
+| Phase 12A 单元聚合 | `259 passed` |
+| Phase 12A PostgreSQL/PostgresSaver 聚合 | `14 passed` |
+| Phase 12A 最终全量回归 | `906 passed, 3 deselected, 9 warnings` |
+| Task 9 静态门禁 | migration dry-run 与 diff 退出码 `0`；编码扫描仅既有 `4 errors/58 warnings` |
 
-表中前八项保留进入正式实施前的基线，后三项是 Task 6 提交前重新取得的业务验证证据。
+表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 
 ## 6. 用户已有未提交文件
 

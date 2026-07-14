@@ -8,6 +8,7 @@
     python scripts/run_all.py demo       # 端到端全链路演示
     python scripts/run_all.py phase11a-demo  # Phase 11A 无外部依赖路由演示
     python scripts/run_all.py phase11b-demo  # Phase 11B 无外部依赖平台契约演示
+    python scripts/run_all.py phase12a-demo  # Phase 12A DAG PlanEngine 内存演示
     python scripts/run_all.py up         # migrate + seed + server（批量执行）
 """
 
@@ -215,6 +216,12 @@ def cmd_phase11b_demo(args: argparse.Namespace) -> int:
     return _run_python("run_phase11b_platform_contract_demo.py")
 
 
+def cmd_phase12a_demo(args: argparse.Namespace) -> int:
+    """只委托 Phase 12A 内存 DAG 脚本，不读取配置或探测外部服务。"""
+    del args
+    return _run_python("run_phase12a_dag_plan_engine_demo.py")
+
+
 def _run_demo_with_db(args: argparse.Namespace) -> int:
     """有 PostgreSQL 时的真实演示链路。"""
     _info("[1/6] Database Migration")
@@ -235,6 +242,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("demo", help="端到端全链路演示")
     sub.add_parser("phase11a-demo", help="Phase 11A Skill Runtime 无外部依赖路由演示")
     sub.add_parser("phase11b-demo", help="Phase 11B 统一平台契约无外部依赖演示")
+    sub.add_parser("phase12a-demo", help="Phase 12A DAG PlanEngine 无外部依赖演示")
     sub.add_parser("story", help="\u7aef\u5230\u7aef Agent \u6545\u4e8b\u6f14\u793a\uff08\u65e0\u5916\u90e8\u4f9d\u8d56\uff09")
     sub.add_parser("daemon", help="启动 Kafka 弹幕守护进程（阻塞，需另开终端）")
     p_sim = sub.add_parser("simulator", help="启动 Kafka 弹幕模拟生产者（需先启动 daemon）")
@@ -260,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
         "demo": cmd_demo,
         "phase11a-demo": cmd_phase11a_demo,
         "phase11b-demo": cmd_phase11b_demo,
+        "phase12a-demo": cmd_phase12a_demo,
         "story": cmd_story,
         "daemon": cmd_daemon,
         "simulator": cmd_simulator,

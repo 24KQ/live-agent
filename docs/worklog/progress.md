@@ -365,6 +365,15 @@
 - Task 8 RED 为 `3 failed, 26 passed`：兼容枚举、内部工厂和 Facade 的 `confirmed_setup` 提权均被新测试准确捕获；开始最小 GREEN 删除。
 - Task 8 GREEN 删除兼容 token、枚举值、内部工厂和 Facade 映射；Runtime 分支只转发显式 `approval_context`，Legacy 仍消费旧 `confirmed_setup`。专项回归 `31 passed`，`src` 中兼容标识扫描为 0 命中。
 - Task 8 提交前完整验证：默认单元测试 `824 passed, 4 warnings`，完整集成测试 `78 passed, 3 deselected, 5 warnings`；11 个审批链目标文件严格 UTF-8、`compileall` 与 `git diff --check` 均通过。
+- Task 8 已以 `9a8e5a6 refactor: remove trusted compatibility approval` 提交并推送 `origin/main`；用户既有脏文件未纳入提交。
+- 连续执行游标切换到 Phase 12A Task 9 `RED`，开始五场景 Demo 与最终阶段验收，不提前进入 Phase 12B 代码。
+- Task 9 Demo RED 为 `4 failed`：新脚本和 `phase12a-demo` 子命令均不存在，失败原因与冻结计划一致；进入真实内存 Runtime 场景实现。
+- Task 9 GREEN 建立五个隔离内存场景和 `run_all.py phase12a-demo` 入口；Demo 专项为 `4 passed`，两个入口均退出码 `0`，直接脚本只输出五行 JSON。
+- Phase 12A 单元聚合为 `259 passed`；指定 PostgreSQL/PostgresSaver 集成聚合为 `14 passed`；默认全量为 `906 passed, 3 deselected, 9 warnings`。
+- 数据库迁移 dry-run 退出码 `0`，识别 11 个迁移步骤并包含 required 的 Phase 12A；`git diff --check` 退出码 `0`。
+- 初次编码扫描因本次 `run_all.py` 混合换行得到 `4 errors/59 warnings`；统一为 UTF-8 无 BOM/LF 后恢复到既有 `4 errors/58 warnings`，本次目标文件零命中。
+- 首次严格目标检查因 PowerShell 的 `"$file: ..."` 变量语法退出，第二版正则又把行尾字母 `t` 误报为制表符；改用 `EndsWith(' ')` 与 `char(9)` 后，9 个目标文件严格 UTF-8/LF 检查通过。两次均为验证器问题，没有据此改动业务内容。
+- 已生成 Phase 12A Acceptance；连续实施授权允许技术门禁通过后直接进入 Phase 12B Task 1，不再等待单独阶段批准。
 
 # 2026-07-11 Phase 7A 进度
 

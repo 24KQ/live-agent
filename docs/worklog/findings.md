@@ -216,6 +216,15 @@
 - 3 元模型费用门需要持久化预算作用域和并发预留/结算，否则多个 Worker 可同时越过进程内检查。Phase 13 与本轮 Phase 14 首次 Release 共用同一预算余额。
 - Phase 14 不能“聚合 Phase 12B Golden Cases”却没有来源文件。首版补充 24 个确定性 Runtime core case，并明确复用 Phase 13 已冻结的 240 个 case，总数为 264。
 
+## 2026-07-15 Phase 12A 验收发现
+
+- 无外部依赖 Demo 仍应走真实 PlanWorker、FailurePolicy、PlanStore、Reconciliation 和 Command Ledger；只替换单次 Skill 结果，才能证明重试和恢复属于 PlanEngine，而不是脚本手写状态机。
+- PlanStore 领先恢复场景必须同时断言重启后 Skill 调用数为 0 和结果完整复用；只比较最终 `SUCCEEDED` 无法排除重复外部副作用。
+- checkpoint 领先事故清除不能自动解冻业务计划。清除 reconciliation 门禁和恢复业务状态是两个不同命令边界，否则人工对账可能意外绕过 fail-closed。
+- 官方 Saver 边界可以通过公开 `get_tuple()` 完成引用核对，不需要读取或修改 checkpoint 内部表，也不能用跨连接伪事务掩盖有序写入协议。
+- Windows 工作区中，对既有 CRLF 文件应用 LF 补丁会产生混合换行。目标文件必须做严格字节检查；本次 `run_all.py` 在提交前统一为 UTF-8 无 BOM/LF。
+- Phase 12A 的真实 PostgreSQL/PostgresSaver 聚合 `14 passed`，全量回归 `906 passed`。这些证据满足 D-072，允许按连续实施授权进入 Phase 12B。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
