@@ -485,3 +485,11 @@
 - Phase 12B 单元聚合 `104 passed`，真实 PostgreSQL/Kafka 集成聚合 `19 passed`，全仓回归 `1057 passed, 3 deselected, 9 warnings`。
 - 生成 Phase 12B Acceptance，路线图与实时状态切换为 `AWAITING_PHASE_13_GATE`；未开始 Phase 13，真实模型费用仍为 0 元。
 - Task 10 已提交并推送为 `e6f3414 feat: coordinate sold out preemption`；Task 11 等待本次独立提交与推送。
+
+# 2026-07-15 Phase 13 Task 1
+
+- 初始 RED 因 `src.specialist_runtime` 不存在而失败；实现 AgentTask/Action/Result、EvidenceRef、SpecialistProfile、Registry 与确定性 Orchestrator 后进入 GREEN。
+- 规格审查补出结果 Schema 哈希绑定、结构化失败互斥和启动冻结路由；对应红灯均按最小实现闭合。
+- 代码质量审查复现 Pydantic copy、dict 基类写入、可变显式路由和 endpoint authority 绕过；替换为不可变 Mapping、严格复制协议、规范路由与 ASCII DNS 校验。
+- Task 1 最终专项为 `30 passed`，规格和质量复审均无阻断项；真实模型调用与费用仍为 0。
+- 下一步只暂存 Task 1 代码、测试和四份 worklog，独立提交并推送后进入 Task 2 RED。

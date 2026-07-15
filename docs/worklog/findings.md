@@ -303,6 +303,14 @@
 - Planner 在正式评估中重新查询商品会破坏相同输入配对；商品、记忆和计划事实必须在 case 准备阶段冻结。
 - ReviewMemory 只有完成“双 DecisionTrace -> candidate -> 确定性晋升 -> 下一次播前读取”才能形成受控业务闭环；Agent 仍不能直接写 active memory。
 
+## 2026-07-15 Phase 13 Task 1 发现
+
+- Task 携带 `profile_id/version` 不等于调用方拥有 Profile 选择权。Orchestrator 必须先按启动冻结的 `task_kind` 路由确定身份，再核对 Task 钉住值；同类 Profile 歧义必须在装配时失败。
+- Pydantic `frozen=True` 只阻止字段赋值，不能自动封闭 `model_copy(update=...)`；继承 `dict` 的冻结包装也可被 `dict.__setitem__` 绕过。审计事实需要组合式不可变 Mapping 和禁止免校验复制。
+- Profile 的显式路由值属于安全配置，不能只依赖类型注解。运行时必须校验枚举 key、二元字符串 tuple，并复制为内部规范快照。
+- endpoint 配置只接受 ASCII DNS hostname；scheme、用户信息、端口、path、query 和 fragment 由后续 Adapter 固定装配，不能来自 Profile 自由文本。
+- Skill 白名单是集合语义。规范排序后再计算 Profile 摘要，避免配置顺序变化制造虚假身份冲突。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
