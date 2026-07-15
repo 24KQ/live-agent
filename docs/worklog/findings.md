@@ -319,6 +319,15 @@
 - usage 缺失可显式表示为未计价成功；usage 对象一旦存在就必须字段完整且总数一致，任何缺损归类为 `INVALID_RESPONSE`。
 - 非阻断债务：默认 Adapter 后续应暴露连接池关闭入口；当前 1 MiB 限制在 httpx 完整缓冲后检查，固定 HTTPS host 限制了风险，但未来通用 endpoint 前需改为流式硬上限。
 
+## 2026-07-15 Phase 13 Task 3 发现
+
+- 3.00/2.40/0.60 元和候选初始额度必须是持久 Ledger 事实，进程常量只用于首次建账；每次 reserve 都在同一 scope 行锁内读取持久限额。
+- 候选提前拒绝后，只有“初始额度减已结算费用”进入共享池；候选状态转为 RELEASED 后不得再预留，且共享池要扣除其他 ACTIVE 候选已借额度。
+- 候选借用共享额度后再被释放时，超出自身额度的已结算费用是共享池负债；释放贡献必须按净额求和，不能逐候选截断为 0。
+- usage 缺失按完整 reservation 保守结算；未发送请求才可 release。进程重启通过 `list_pending_reservations()` 扫描恢复，不能依赖旧内存中的 request ID。
+- Python Decimal 必须无损落入 `NUMERIC(12,6)`；超精度、超范围、NaN 和 Infinity 在 Store 前转为稳定领域错误。
+- 数据库约束也必须拒绝 NUMERIC NaN。ModelCall 通过 state、amount、usage 的复合外键绑定已 SETTLED reservation，不能伪造独立费用事实。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

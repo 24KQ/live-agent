@@ -501,3 +501,11 @@
 - 错误分类覆盖限流、HTTP、deadline、transport、非法 envelope/output、模型漂移和思维链字段；结果不保存 API key、原始 header、异常文本或响应正文。
 - ScriptedAgentModel 按 request ID 顺序消费冻结 outcome，支持无 usage、稳定失败和序列耗尽证据。
 - Task 1+2 专项最终 `50 passed`，规格复审无阻断，质量复审无 Critical/Important；真实模型费用仍为 0。
+
+# 2026-07-15 Phase 13 Task 3
+
+- 新增内存/PostgreSQL ModelBudgetStore、Ledger/候选/reservation/model-call 三层持久事实及 required Phase 13 迁移。
+- reserve 在全局 Ledger 与 candidate 行锁内校验总额、阶段预留、候选初始额度和释放后的共享池；并发连接不能突破临界余额。
+- settle 支持已知 usage 退还差额与未知 usage 上限结算；release、重放、冲突和重启待对账扫描均有测试。
+- DDL 通过候选复合外键、结算事实复合外键和全金额 NaN CHECK 防止绕过 Python Store。
+- Task 3 最终单元+真实 PostgreSQL 专项 `19 passed`；测试 fixture 精确清理随机 scope；真实模型费用仍为 0。

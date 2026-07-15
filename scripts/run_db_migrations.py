@@ -111,6 +111,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 12B 售罄事件事实、投递记录与计划 lineage",
     ),
+    MigrationStep(
+        phase="phase13",
+        sql_file="init_phase13_specialist_evaluations.sql",
+        required=True,
+        description="Phase 13 Specialist 评估、预算与模型调用事实",
+    ),
 ]
 
 

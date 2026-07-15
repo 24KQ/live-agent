@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 2：原生 async 单次 AgentModelPort 技术门禁 |
-| 下一任务 | Task 3：持久模型预算账本 |
+| 最近完成任务 | Phase 13 Task 3：持久模型预算账本技术门禁 |
+| 下一任务 | Task 4：BoundedSpecialistRunner 与 Evidence Resolver |
 | 下一任务状态 | `IN_PROGRESS` |
-| 当前子步骤 | Task 2 VERIFY：最终验证、独立提交并推送 |
+| 当前子步骤 | Task 3 VERIFY：最终验证、独立提交并推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=28b2764` |
+| 远端状态 | `origin/main=344cb82` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 2
+Phase / Task: Phase 13 / Task 3
 状态: VERIFY
-目标: 建立原生 async、无隐藏重试的单次 AgentModelPort 与 DeepSeek Adapter
-禁止事项: 不调用真实模型，不实现预算、Runner、候选 Agent 或动态 A2A
-当前 HEAD: 28b2764
-本 Task 文件: model_port/deepseek_adapter/scripted_model、Task 2 tests、状态文档
+目标: 持久化 3 元总额、Phase 13/14 预留、候选额度与模型调用结算
+禁止事项: 不调用真实模型，不实现 Runner、候选 Agent 或动态 A2A
+当前 HEAD: 344cb82
+本 Task 文件: budget.py、Phase 13 SQL、迁移注册、Task 3 unit/integration tests、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 1+2 专项 50 passed；规格与质量复审均无阻断项
+最近命令与结果: Task 3 单元+真实 PostgreSQL 专项 19 passed；规格与质量复审无阻断
 错误与尝试次数: 规格审查 1 轮整改、质量审查 1 轮整改，均已红灯闭合
 设计偏差与决策编号: D-100 至 D-108；旧 D-090 由早停与预算预留语义替代
-下一条精确操作: 运行最终全量/编码门禁，只暂存 Task 2 文件后提交并推送
+下一条精确操作: 运行最终全量/编码门禁，只暂存 Task 3 文件后提交并推送
 模型费用累计: 0 元
 ```
 
@@ -129,6 +129,8 @@ Phase / Task: Phase 13 / Task 2
 | Phase 13 Task 1 审查 | 规格与代码质量复审均无 Critical/Important/Normal 阻断项 |
 | Phase 13 Task 2 RED/GREEN | 初始缺模块 RED；审查回归最高 `5 failed`；Task 1+2 最终 `50 passed` |
 | Phase 13 Task 2 审查 | 规格无阻断；质量无 Critical/Important，2 项 Minor 已记录 |
+| Phase 13 Task 3 RED/GREEN | 初始缺模块 RED；审查回归覆盖公共池/NaN/FK/精度；最终专项 `19 passed` |
+| Phase 13 Task 3 审查 | 规格与质量复审无 Critical/Important 阻断项 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 
