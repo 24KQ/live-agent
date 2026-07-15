@@ -285,6 +285,14 @@
 - PlanEngine Harness 的“证据优先”不能只在 pre-tool hook 拦截写 Skill；应在 agent_reasoning 前直接绕过 Planner，并要求 `EvidenceRef=APPLIED + digest + final_suggestion` 三者一致。
 - Dashboard 与 HTTP API 是启动路由的真实生产装配点；只在 Graph 工厂增加参数而不从 Settings 和请求入口传入，会形成不可用的伪路由。
 
+## 2026-07-15 Phase 12B Task 10-11 发现
+
+- EvidenceRef 不能只是“有 event_id 的建议”。只有 APPLIED Application、applied PlanVersion、child lineage、最终建议和摘要全部闭合时，Harness 才能跳过 Planner 消费该证据。
+- Coordinator 的恢复边界至少包含 NodeRun 已闭合但 Application 未闭合、Application 已恢复但 Inbox 未闭合，以及 FAILED Application 未闭合 Inbox 三个窗口；跨 Store 顺序必须显式补偿。
+- 业务闭环 Trace 需要字节稳定，但 Store 内部 PlanRun/NodeRun 使用随机 UUID。规范产物应保留稳定业务身份、版本、lineage 与摘要校验结论，不把随机内部 ID 当作跨运行比较字段。
+- Demo 报告必须区分可证明的工程事实与不可证明的业务收益。当前证据可证明受控 Fixture 下的抢占、恢复、复用和审计，不能声明真实 GMV、转化率或库存收益。
+- Phase 12B Acceptance 后必须停止在 Phase 13 Gate。已有 Phase 13 文档只提供讨论基线，不能因技术门禁通过而自动运行真实模型。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

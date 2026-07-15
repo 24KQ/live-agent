@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`IN_PROGRESS`
+文档状态：`AWAITING_PHASE_13_GATE`
 
 最后更新：2026-07-15
 
@@ -8,14 +8,14 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 10：PreemptionCoordinator、Harness 证据接入与路由（验证完成，待提交推送） |
-| 下一任务 | Task 11：业务闭环 Demo、验收和阶段留迹 |
-| 下一任务状态 | `PENDING` |
-| 当前子步骤 | Task 10 VERIFY：全量回归、审查和静态门禁通过，准备提交推送 |
+| 当前阶段 | Phase 13 Just-in-Time Gate |
+| 最近完成任务 | Phase 12B Task 11：业务闭环 Demo、Acceptance 与阶段留迹 |
+| 下一任务 | 重新审核 Phase 13 讨论基线并等待用户授权 |
+| 下一任务状态 | `AWAITING_USER_AUTHORIZATION` |
+| 当前子步骤 | Phase 12B Acceptance 已通过，准备提交推送后暂停 |
 | 当前分支 | `main` |
-| 当前业务基线 | `f6a7d1d refactor: migrate tool policy consumers` |
-| 远端状态 | `origin/main=f6a7d1d` |
+| 当前业务基线 | `e6f3414 feat: coordinate sold out preemption` |
+| 远端状态 | `origin/main=e6f3414` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -28,17 +28,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 10
+Phase / Task: Phase 12B / Task 11
 状态: VERIFY
-目标: 用 PreemptionCoordinator 串联可信 Inbox、影响分析、冻结、紧急 child、对账与 Replan，并让 Harness 只消费结构化证据
-禁止事项: 不让 Harness 执行售罄写，不做同次 Legacy fallback，不进入 Task 11 Demo/Acceptance
-当前 HEAD: f6a7d1d
-本 Task 文件: preemption.py、settings.py、on_live_harness_agent_graph.py、on_live_harness_audit.py、Task 10 单元/集成测试与状态文档
+目标: 交付固定业务闭环 Demo、Trace、报告和 Phase 12B Acceptance
+禁止事项: 不夸大业务收益，不修改用户脏文件，不开始 Phase 13 或运行真实模型
+当前 HEAD: e6f3414
+本 Task 文件: run_phase12b_preemption_demo.py、run_all.py、test_phase12b_demo.py、Acceptance 与阶段状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 10 RED 4 failed；专项最终 `141 passed`；完整 unit `957 passed, 4 warnings`；完整 integration `97 passed, 3 deselected, 5 warnings`；API/路由/编译/差异门禁待最后执行
-错误与尝试次数: 2；一次测试 fixture transport 坐标冲突已修正；审查发现 7 项恢复/安全问题并全部整改
-设计偏差与决策编号: D-094、D-097、D-098；新增 room-scoped claim、恢复补偿和 EvidenceRef APPLIED 门禁均在 Task 10 设计边界内
-下一条精确操作: 严格编码、diff、迁移/导入扫描，精确暂存 Task 10 文件并提交推送
+最近命令与结果: Demo `3 passed`；Phase 12B unit `104 passed`；integration `19 passed`；全仓 `1057 passed, 3 deselected, 9 warnings`
+错误与尝试次数: 3；补齐 Capability Profile、async Worker 调用和稳定 Trace 的随机 UUID 归一化
+设计偏差与决策编号: D-095、D-099；Trace 只保留稳定业务事实，随机内部 ID 不进入跨运行比较
+下一条精确操作: 静态/编码门禁通过后提交并推送 Task 11，然后停在 Phase 13 Gate
 模型费用累计: 0 元
 ```
 
@@ -118,6 +118,9 @@ Phase / Task: Phase 12B / Task 10
 | Phase 12B Task 9 完整验证 | unit `943 passed, 4 warnings`；integration `96 passed, 3 deselected, 5 warnings`；独立复核无阻断或重要项 |
 | Phase 12B Task 10 RED/GREEN | RED `4 failed`；Coordinator/Harness/API 专项最终 `141 passed`；生产路由、证据摘要和 no-fallback 门禁通过独立复核 |
 | Phase 12B Task 10 完整验证 | unit `957 passed, 4 warnings`；integration `97 passed, 3 deselected, 5 warnings`；PostgreSQL/EventStore/Harness 聚合 `141 passed` |
+| Phase 12B Task 10 提交与推送 | `e6f3414`，`origin/main=e6f3414` |
+| Phase 12B Task 11 Demo | `3 passed`；八场景 CLI 与固定 Trace/报告均退出码 0 |
+| Phase 12B Acceptance 聚合 | unit `104 passed`；integration `19 passed`；全仓 `1057 passed, 3 deselected, 9 warnings` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

@@ -145,10 +145,10 @@
   - [x] Task 6：售罄 CAS Skill 与严格对账（`9d4bf97` 已推送）。
   - [x] Task 7：高优先级紧急 child DAG（`703f072` 已推送）。
   - [x] Task 8：增量 Replan 与结果复用（`e98df2a` 已推送）。
-  - [x] Task 9：SkillPolicyView 生产消费者迁移（实现与全量验证完成，随本次提交推送）。
-  - [x] Task 10：PreemptionCoordinator、Harness 证据接入与路由（实现与全量验证完成，待本次提交推送）。
-  - [ ] Task 11：业务闭环 Demo、验收和阶段留迹。
-- [ ] Phase 13：三个 Specialist Agent 候选评估与条件化去留。
+  - [x] Task 9：SkillPolicyView 生产消费者迁移（`f6a7d1d` 已推送）。
+  - [x] Task 10：PreemptionCoordinator、Harness 证据接入与路由（`e6f3414` 已推送）。
+  - [x] Task 11：业务闭环 Demo、验收和阶段留迹（本次提交）。
+- [ ] Phase 13 Just-in-Time Gate：重新审核候选价值、基线、样本与预算，等待用户授权。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

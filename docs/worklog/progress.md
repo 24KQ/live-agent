@@ -465,3 +465,11 @@
 - 当前 7A 聚焦测试、全量 unit、全量 pytest、demo、编码扫描和 diff 检查均已通过。
 
 ---
+# 2026-07-15 Phase 12B Task 11 与 Acceptance
+
+- 新增 `run_phase12b_preemption_demo.py` 与 `run_all.py phase12b-demo`，固定业务场景输出规范 JSON Trace 和 Markdown 报告。
+- 主场景通过真实内存 PlanStore、EventStore、PlanWorker、PreemptionCoordinator 和 ReplanCoordinator 运行；售罄写只调用一次，SIDE_EFFECT_UNKNOWN 由只读对账闭合。
+- 新增 Demo 单元测试，覆盖产物字段、字节稳定性和八场景默认输出；专项结果 `3 passed`。
+- Phase 12B 单元聚合 `104 passed`，真实 PostgreSQL/Kafka 集成聚合 `19 passed`，全仓回归 `1057 passed, 3 deselected, 9 warnings`。
+- 生成 Phase 12B Acceptance，路线图与实时状态切换为 `AWAITING_PHASE_13_GATE`；未开始 Phase 13，真实模型费用仍为 0 元。
+- Task 10 已提交并推送为 `e6f3414 feat: coordinate sold out preemption`；Task 11 等待本次独立提交与推送。

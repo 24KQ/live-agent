@@ -1,6 +1,6 @@
 # Phase 12B Preemption and Incremental Replan Design
 
-文档状态：`FROZEN_NOT_AUTHORIZED_FOR_IMPLEMENTATION`
+文档状态：`IMPLEMENTED_ACCEPTED`
 
 依赖：Phase 12A Acceptance 通过后才允许实施。
 
