@@ -150,8 +150,9 @@
   - [x] Task 11：业务闭环 Demo、验收和阶段留迹（`d585412` 已推送）。
 - [x] Phase 13 Just-in-Time Gate：候选价值、基线、样本、预算、多 Agent 扩展与 12-Task Plan 已审核持久化。
 - [ ] Phase 13 业务实施：已获用户授权，按 12 个 TDD Task 连续推进。
-  - [x] Task 1：协议、Profile Registry 与确定性路由（技术门禁通过，待独立提交推送）。
-  - [ ] Task 2：原生 async 单次 AgentModelPort。
+  - [x] Task 1：协议、Profile Registry 与确定性路由（`28b2764` 已推送）。
+  - [x] Task 2：原生 async 单次 AgentModelPort（技术门禁通过，待独立提交推送）。
+  - [ ] Task 3：持久模型预算账本。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

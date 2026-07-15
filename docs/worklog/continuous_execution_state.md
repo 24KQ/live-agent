@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 1：协议、Profile Registry 与确定性路由技术门禁 |
-| 下一任务 | Task 2：原生 async 单次 AgentModelPort |
+| 最近完成任务 | Phase 13 Task 2：原生 async 单次 AgentModelPort 技术门禁 |
+| 下一任务 | Task 3：持久模型预算账本 |
 | 下一任务状态 | `IN_PROGRESS` |
-| 当前子步骤 | Task 1 VERIFY：最终验证、独立提交并推送 |
+| 当前子步骤 | Task 2 VERIFY：最终验证、独立提交并推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=b21a79f` |
+| 远端状态 | `origin/main=28b2764` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 1
+Phase / Task: Phase 13 / Task 2
 状态: VERIFY
-目标: 建立不可变 Agent 协议、Profile Registry 和确定性 task_kind 路由
-禁止事项: 不实现模型 Port、预算、Runner、候选 Agent 或动态 A2A
-当前 HEAD: b21a79f
-本 Task 文件: specialist_runtime models/profiles/registry、Task 1 tests、状态文档
+目标: 建立原生 async、无隐藏重试的单次 AgentModelPort 与 DeepSeek Adapter
+禁止事项: 不调用真实模型，不实现预算、Runner、候选 Agent 或动态 A2A
+当前 HEAD: 28b2764
+本 Task 文件: model_port/deepseek_adapter/scripted_model、Task 2 tests、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 1 专项 30 passed；规格审查与代码质量审查均无阻断项；全量单元待最终复跑
-错误与尝试次数: 规格审查 2 轮整改、质量审查 1 轮整改，均已用红灯回归闭合
+最近命令与结果: Task 1+2 专项 50 passed；规格与质量复审均无阻断项
+错误与尝试次数: 规格审查 1 轮整改、质量审查 1 轮整改，均已红灯闭合
 设计偏差与决策编号: D-100 至 D-108；旧 D-090 由早停与预算预留语义替代
-下一条精确操作: 运行最终全量/编码门禁，只暂存 Task 1 文件后提交并推送
+下一条精确操作: 运行最终全量/编码门禁，只暂存 Task 2 文件后提交并推送
 模型费用累计: 0 元
 ```
 
@@ -127,6 +127,8 @@ Phase / Task: Phase 13 / Task 1
 | Phase 13 文档验证 | 9 个目标文件严格 UTF-8 通过；决策 108 项连续完整；全仓仅既有 `4 errors/53 warnings` |
 | Phase 13 Task 1 RED/GREEN | 初始缺模块 RED；审查回归最高 `9 failed`；最终专项 `30 passed` |
 | Phase 13 Task 1 审查 | 规格与代码质量复审均无 Critical/Important/Normal 阻断项 |
+| Phase 13 Task 2 RED/GREEN | 初始缺模块 RED；审查回归最高 `5 failed`；Task 1+2 最终 `50 passed` |
+| Phase 13 Task 2 审查 | 规格无阻断；质量无 Critical/Important，2 项 Minor 已记录 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

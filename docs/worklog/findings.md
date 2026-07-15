@@ -311,6 +311,14 @@
 - endpoint 配置只接受 ASCII DNS hostname；scheme、用户信息、端口、path、query 和 fragment 由后续 Adapter 固定装配，不能来自 Profile 自由文本。
 - Skill 白名单是集合语义。规范排序后再计算 Profile 摘要，避免配置顺序变化制造虚假身份冲突。
 
+## 2026-07-15 Phase 13 Task 2 发现
+
+- 正式模型 Request 与 Profile 必须同时固定 endpoint 和 model；只验证“像 hostname”仍可能把 API key 发往错误主机。
+- `asyncio.wait_for` 不能单独证明绝对 deadline：错误 Transport 可吞掉取消。Adapter 必须在响应返回后再次核对权威绝对时间。
+- 外部 JSON 要同时限制字节数和嵌套深度，并捕获 `RecursionError`；思维链 key 检查使用迭代遍历，避免安全检查本身耗尽调用栈。
+- usage 缺失可显式表示为未计价成功；usage 对象一旦存在就必须字段完整且总数一致，任何缺损归类为 `INVALID_RESPONSE`。
+- 非阻断债务：默认 Adapter 后续应暴露连接池关闭入口；当前 1 MiB 限制在 httpx 完整缓冲后检查，固定 HTTPS host 限制了风险，但未来通用 endpoint 前需改为流式硬上限。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

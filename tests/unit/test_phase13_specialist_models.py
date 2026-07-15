@@ -325,6 +325,21 @@ def test_profile_rejects_non_hostname_endpoint_authority(endpoint_host: str) -> 
         SpecialistProfile.model_validate(payload)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("endpoint_host", "example.com"), ("model_id", "other-model")],
+)
+def test_profile_rejects_non_formal_model_identity(field: str, value: str) -> None:
+    """Phase 13 正式 Profile 只能绑定冻结 Design 指定的 endpoint 与模型。"""
+
+    payload = _profile().model_dump(mode="json")
+    payload[field] = value
+    payload.pop("profile_digest")
+
+    with pytest.raises(ValidationError, match=field):
+        SpecialistProfile.model_validate(payload)
+
+
 def test_registry_is_idempotent_and_rejects_identity_conflict() -> None:
     """同身份同摘要可重放，同身份不同事实必须在启动装配时失败。"""
 

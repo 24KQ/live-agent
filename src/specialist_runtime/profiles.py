@@ -16,6 +16,34 @@ from src.specialist_runtime.models import (
 )
 
 
+FORMAL_ENDPOINT_HOST = "api.deepseek.com"
+FORMAL_MODEL_ID = "deepseek-v4-flash"
+
+
+def normalize_endpoint_host(value: str) -> str:
+    """校验并规范化仅含 ASCII DNS hostname 的模型端点身份。"""
+
+    labels = value.split(".")
+    valid_labels = all(
+        label
+        and len(label) <= 63
+        and label.isascii()
+        and label[0].isalnum()
+        and label[-1].isalnum()
+        and all(character.isalnum() or character == "-" for character in label)
+        for label in labels
+    )
+    if (
+        value != value.strip()
+        or len(value) > 253
+        or len(labels) < 2
+        or not valid_labels
+        or not labels[-1].isalpha()
+    ):
+        raise ValueError("endpoint_host must be a valid DNS hostname")
+    return value.lower()
+
+
 class SpecialistProfile(StrictFrozenModel):
     """某类 Specialist 的模型、权限、Schema 和绝对预算快照。"""
 
@@ -43,25 +71,17 @@ class SpecialistProfile(StrictFrozenModel):
     def _validate_endpoint_host(cls, value: str) -> str:
         # 这里只接受 DNS hostname，不接受 URL authority、用户信息、端口、查询或锚点。
         # Task 2 Adapter 会在此可信值外拼接固定 HTTPS scheme 与固定 API path。
-        labels = value.split(".")
-        valid_labels = all(
-            label
-            and len(label) <= 63
-            and label.isascii()
-            and label[0].isalnum()
-            and label[-1].isalnum()
-            and all(character.isalnum() or character == "-" for character in label)
-            for label in labels
-        )
-        if (
-            value != value.strip()
-            or len(value) > 253
-            or len(labels) < 2
-            or not valid_labels
-            or not labels[-1].isalpha()
-        ):
-            raise ValueError("endpoint_host must be a valid DNS hostname")
-        return value.lower()
+        normalized = normalize_endpoint_host(value)
+        if normalized != FORMAL_ENDPOINT_HOST:
+            raise ValueError(f"endpoint_host must be {FORMAL_ENDPOINT_HOST}")
+        return normalized
+
+    @field_validator("model_id")
+    @classmethod
+    def _validate_model_id(cls, value: str) -> str:
+        if value != FORMAL_MODEL_ID:
+            raise ValueError(f"model_id must be {FORMAL_MODEL_ID}")
+        return value
 
     @field_validator("temperature")
     @classmethod

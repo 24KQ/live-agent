@@ -493,3 +493,11 @@
 - 代码质量审查复现 Pydantic copy、dict 基类写入、可变显式路由和 endpoint authority 绕过；替换为不可变 Mapping、严格复制协议、规范路由与 ASCII DNS 校验。
 - Task 1 最终专项为 `30 passed`，规格和质量复审均无阻断项；真实模型调用与费用仍为 0。
 - 下一步只暂存 Task 1 代码、测试和四份 worklog，独立提交并推送后进入 Task 2 RED。
+
+# 2026-07-15 Phase 13 Task 2
+
+- 新增冻结 ModelRequest/Success/Failure/Usage 与 async AgentModelPort，DeepSeek Adapter 每次只调用一次 transport，不复用旧 LLMClient 重试。
+- 默认 transport 使用原生 `httpx.AsyncClient`；固定 HTTPS DeepSeek endpoint、模型身份、temperature、Prompt/Schema hash、max tokens 和绝对 deadline。
+- 错误分类覆盖限流、HTTP、deadline、transport、非法 envelope/output、模型漂移和思维链字段；结果不保存 API key、原始 header、异常文本或响应正文。
+- ScriptedAgentModel 按 request ID 顺序消费冻结 outcome，支持无 usage、稳定失败和序列耗尽证据。
+- Task 1+2 专项最终 `50 passed`，规格复审无阻断，质量复审无 Critical/Important；真实模型费用仍为 0。
