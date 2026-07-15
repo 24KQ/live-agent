@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 4：BoundedSpecialistRunner 与 Evidence Resolver 技术门禁 |
-| 下一任务 | Task 5：Evaluation Store、配对比较与迁移 |
-| 下一任务状态 | `AWAITING_TASK_4_COMMIT` |
-| 当前子步骤 | Task 4 VERIFY：全量回归、复审、提交与推送 |
+| 最近完成任务 | Phase 13 Task 5：Evaluation Store、配对比较与迁移技术门禁 |
+| 下一任务 | Task 6：240 例数据集与 Evaluation Manifest |
+| 下一任务状态 | `READY_AFTER_TASK_5_PUSH` |
+| 当前子步骤 | Task 5 COMMIT：最终静态检查、独立提交与推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=653ebb8` |
+| 远端状态 | `origin/main=94ad80b` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 4
-状态: VERIFY
-目标: 建立 Evidence Resolver Registry、BoundedSpecialistRunner 与受控生产 fallback
-禁止事项: 不调用真实模型，不实现具体候选 Agent、评估 Store 或动态 A2A
-当前 HEAD: 653ebb8
-本 Task 文件: evidence.py、runner.py、Task 4 tests、状态文档
+Phase / Task: Phase 13 / Task 5
+状态: COMMIT
+目标: 建立 Evaluation Manifest/Run、attempt 历史、唯一 selected result、配对聚合与 retention decision
+禁止事项: 不调用真实模型，不生成 240 例数据集，不实现具体候选 Agent 或动态 A2A
+当前 HEAD: 94ad80b
+本 Task 文件: specialist_evaluation models/store/comparison、Phase 13 DDL、Task 5 tests、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Runner 47 passed；Phase 13 Task 1-4 聚合 109 passed；PostgreSQL 预算迁移 7 passed；完整 unit 1071 passed、integration 104 passed
-错误与尝试次数: 审查发现预算低估、重复付费、Token 预检、Evidence/fallback 审计和取消闭环缺口，均已按新增红灯整改
+最近命令与结果: Task 5 unit 30 passed；真实 PostgreSQL 8 passed；完整 unit 1101 passed；完整 integration 112 passed、3 deselected
+错误与尝试次数: 三轮审查发现独立指标、强制 claim、decision 原子终态、候选级唯一性和完成数重算缺口，均已补红灯并整改
 设计偏差与决策编号: D-100 至 D-108；旧 D-090 由早停与预算预留语义替代
-下一条精确操作: 最终复审无阻断后暂存 Task 4 文件，提交并推送
+下一条精确操作: 完成最终静态/编码/暂存边界检查，提交并推送 Task 5；随后进入 Task 6 RED
 模型费用累计: 0 元
 ```
 
@@ -134,6 +134,9 @@ Phase / Task: Phase 13 / Task 4
 | Phase 13 Task 4 RED/GREEN | 初始缺模块 RED；多轮审查整改后 Runner `47 passed`，SkillExecutor/预算聚合 `61 passed` |
 | Phase 13 Task 4 完整验证 | Phase 13 Task 1-4 `109 passed`；unit `1071 passed, 4 warnings`；integration `104 passed, 3 deselected, 5 warnings` |
 | Phase 13 Task 4 安全边界 | 完整请求计价、发送前 Token 限制、稳定 Task 执行身份、费用超额如实入账、Evidence/fallback 审计与取消恢复均已覆盖 |
+| Phase 13 Task 5 RED/GREEN | 首轮缺模块 RED；最终独立指标、claim、终态、候选唯一性和完成数门禁专项 unit `30 passed` |
+| Phase 13 Task 5 PostgreSQL | `8 passed`；覆盖并发 claim/选择、lease/fencing、Manifest 不可更新、候选级终结和迁移重启 |
+| Phase 13 Task 5 完整验证 | unit `1101 passed, 4 warnings`；integration `112 passed, 3 deselected, 5 warnings`；真实模型费用 0 元 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

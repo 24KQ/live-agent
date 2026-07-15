@@ -336,6 +336,19 @@
 - EvidenceRef 校验结果必须以冻结投影进入模型上下文，并在成功、失败和 fallback 结果中保留全部中间动作与证据链。
 - Skill Handler 已开始后的外部取消必须先闭合 SIDE_EFFECT_UNKNOWN；若 Store 同时故障，保留原始取消并让持久 pending Attempt 进入恢复扫描，禁止重发。
 
+## 2026-07-16 Phase 13 Task 5 发现
+
+- 顶层 `success` 只能表达整体 case 结果，不能承载 LiveOps/Planner 的两项独立指标。正式 Attempt 必须冻结按 `metric_id` 区分的事实，Store 再从 selected baseline/Agent 重算配对指标。
+- EvaluationRun 的 lease 不能在首次 claim 前可选。Attempt、selected、metric 和 decision 四类正式写入都必须持有未过期 claim，并使用数据库 `now()` 判断 PostgreSQL 租约。
+- Retention decision 是 `manifest + candidate` 级事实，不只是单 Run 事实。保存结论时必须稳定锁住全部兄弟 Run，当前 Run 完成、其他 Run 取消，阻止第二结论和结论后的 selected 漂移。
+- 只取消 decision 当时存在的兄弟 Run 仍不够；`create_run` 与 decision 必须先锁同一 Manifest 生命周期行，才能阻止结论提交后重新打开同候选 Run。
+- 全局 claim 在多个正式 Manifest 或并行测试间会误领其他批次；Worker 应显式传入冻结 `manifest_id`，Store 仍保留无过滤模式供单一全局调度器使用。
+- `EvaluationRun` 模型需要表达历史终态，但 `create_run` 入口只能接受 `RUNNING`，否则可制造没有 retention decision 的伪完成记录。
+- `metrics_digest`、严重违规、共同硬门和完成 case 数都必须在同一事务从持久 selected/metric 事实重算。调用方布尔值或 40/20 计数不能作为权威证据。
+- 外部 endpoint、价格、预算或基础设施造成的证据不足只能记录 `INCONCLUSIVE`；规则已证明失败且证据充分时才可记录 `REJECTED`。
+- Pydantic 数值边界需要与 PostgreSQL `BIGINT`、`INTEGER` 和 `NUMERIC` 精确一致，否则内存测试可接受而数据库在运行时溢出。
+- 候选专属严格 AND 阈值和 ReviewMemory macro-F1 计算仍属于 Task 7-11；Task 5 只冻结可独立重算的指标事实，不提前硬编码后续 evaluator。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

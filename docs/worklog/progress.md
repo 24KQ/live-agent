@@ -516,3 +516,14 @@
 - Runner 固定执行 Profile、anchor/Evidence、Token/费用预检、单次模型、动作/Skill/结果 Schema 和审计顺序；正式评估从不调用 baseline。
 - 费用超额按实际值持久化，重复冻结 Task 禁止第二次模型发送；模型响应身份、Skill 调用序号、取消 Attempt 闭环和预算恢复均 fail-closed。
 - 专项 Runner `47 passed`，Phase 13 Task 1-4 聚合 `109 passed`，完整 unit `1071 passed`，integration `104 passed, 3 deselected`；真实模型费用仍为 0。
+
+# 2026-07-16 Phase 13 Task 5
+
+- 新增冻结 EvaluationManifest/Run/Claim、CaseAttempt、PairedMetric 与 RetentionDecisionRecord，并建立内存/PostgreSQL Store。
+- 持久化不可覆盖 Attempt 历史、跨 Run 唯一 selected 结果、独立业务指标事实、配对胜负/Wilson 区间和严重违规计数。
+- 正式写入统一要求 active claim；PostgreSQL 使用 `FOR UPDATE SKIP LOCKED`、数据库时钟和 claim version fencing。
+- decision 在单事务重算摘要、共同硬门、严重违规和完成配对数，并按 Manifest/Candidate 原子完成当前 Run、取消兄弟 Run。
+- Manifest 行作为候选生命周期锁，串行化新建 Run 与最终 decision；结论后不能重新打开同一 Manifest/Candidate。
+- 多轮规格/质量审查的重要发现均已补红灯整改；Task 5 最终 unit `30 passed`、真实 PostgreSQL `8 passed`。
+- 完整回归为 unit `1101 passed, 4 warnings`、integration `112 passed, 3 deselected, 5 warnings`；迁移连续执行两次、compileall 均通过，真实模型费用仍为 0 元。
+- 下一步在 Task 5 独立提交并推送后进入 Task 6 RED，生成 240 例字节稳定脱敏数据集；不会调用真实模型。

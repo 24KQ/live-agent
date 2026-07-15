@@ -1,6 +1,8 @@
 # Phase 13 Specialist Agent Evaluation Implementation Plan
 
-文档状态：`REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
+文档状态：`TASK_5_VERIFIED`
+
+> 执行状态（2026-07-16）：Task 1-5 已完成技术门禁；下一步实施 Task 6 数据集。Task 6-12 已获连续实施授权，Phase 13 Acceptance 后停止在 Phase 14 Gate。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -97,12 +99,12 @@
 - Test: `tests/unit/test_phase13_evaluation_store.py`
 - Test: `tests/integration/test_phase13_evaluation_store_postgres.py`
 
-- [ ] 写红灯测试覆盖 Manifest 哈希、run/case/subject 唯一性、attempt 历史、正式结果选择、retention decision 和重复聚合拒绝。
-- [ ] 扩展迁移，创建 evaluation manifest/run、case attempt、selected result、paired metric 和 retention decision 表。
-- [ ] 实现内存/PostgreSQL Store；同 manifest/candidate/case/subject 只能有一个 selected 结果，重跑保留 attempt。
-- [ ] 实现配对聚合：绝对指标、百分点差、paired wins/losses 和 Wilson 区间；严重违规独立聚合且不可被平均分抵消。
-- [ ] 实现 `RETAINED | REJECTED | INCONCLUSIVE`，并验证 INCONCLUSIVE 只用于外部证据不足。
-- [ ] 运行真实 PostgreSQL 并发 claim/选择测试及 Phase 7A Evaluation 回归；提交并推送：`feat: persist paired specialist evaluations`。
+- [x] 写红灯测试覆盖 Manifest 哈希、run/case/subject 唯一性、attempt 历史、正式结果选择、retention decision 和重复聚合拒绝。
+- [x] 扩展迁移，创建 evaluation manifest/run、case attempt、selected result、paired metric 和 retention decision 表。
+- [x] 实现内存/PostgreSQL Store；同 manifest/candidate/case/subject 只能有一个 selected 结果，重跑保留 attempt。
+- [x] 实现配对聚合：绝对指标、百分点差、paired wins/losses 和 Wilson 区间；严重违规独立聚合且不可被平均分抵消。
+- [x] 实现 `RETAINED | REJECTED | INCONCLUSIVE`，并验证 INCONCLUSIVE 只用于外部证据不足。
+- [x] 运行真实 PostgreSQL 并发 claim/选择测试及 Phase 7A Evaluation 回归；提交并推送：`feat: persist paired specialist evaluations`。
 
 ## Task 6：240 例数据集与 Evaluation Manifest
 
