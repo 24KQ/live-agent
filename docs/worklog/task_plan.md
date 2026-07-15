@@ -144,7 +144,7 @@
   - [x] Task 5：ImpactAnalyzer 与协作式冻结（`375b671` 已推送）。
   - [x] Task 6：售罄 CAS Skill 与严格对账（`9d4bf97` 已推送）。
   - [x] Task 7：高优先级紧急 child DAG（实现与全量验证完成，随本次提交推送）。
-  - [ ] Task 8：增量 Replan 与结果复用。
+  - [x] Task 8：增量 Replan 与结果复用（实现与全量验证完成，随本次提交推送）。
   - [ ] Task 9：SkillPolicyView 生产消费者迁移。
   - [ ] Task 10：PreemptionCoordinator、Harness 证据接入与路由。
   - [ ] Task 11：业务闭环 Demo、验收和阶段留迹。

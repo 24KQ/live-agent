@@ -537,6 +537,15 @@ class PlanVersionView(_JsonSafeView):
     proposal: Any = Field(default_factory=_frozen_empty_json_object)
     change_reason: str = Field(default="INITIAL", min_length=1)
     source_event_ids: tuple[str, ...] = Field(default_factory=tuple)
+    planning_input: Any | None = None
+    failure_signature: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    input_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("planning_input", mode="after")
+    @classmethod
+    def _freeze_planning_input(cls, value: Any | None) -> JsonSafeValue:
+        """版本级权威输入必须深度冻结，查询方不能反向修改 Store。"""
+        return None if value is None else _freeze_json(value)
 
     @field_validator("proposal", mode="after")
     @classmethod
@@ -573,6 +582,8 @@ class PlanNodeView(_JsonSafeView):
     depends_on: tuple[str, ...] = Field(default_factory=tuple)
     resource_keys: tuple[str, ...] = Field(default_factory=tuple)
     ready_at: datetime | None = None
+    reused_from_node_id: str | None = Field(default=None, min_length=1)
+    invalidated_from_node_id: str | None = Field(default=None, min_length=1)
 
     @field_validator("ready_at")
     @classmethod

@@ -287,6 +287,13 @@ class _CorruptPlanningInputStore(InMemoryPlanStore):
             return view
         return view.model_copy(update={"planning_input": {"room_id": view.room_id}})
 
+    def get_plan_version(self, plan_run_id: str, version_number: int):  # type: ignore[override]
+        """D-098 后版本输入才是 Worker 权威源，因此在同一开关下损坏该快照。"""
+        view = super().get_plan_version(plan_run_id, version_number)
+        if not self.corrupt_reads:
+            return view
+        return view.model_copy(update={"planning_input": {"room_id": plan_run_id}})
+
 
 class _DeterministicCardHandler:
     """真实 SkillExecutor 集成测试使用的最小单次 Handler。"""

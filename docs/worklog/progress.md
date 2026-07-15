@@ -442,6 +442,8 @@
 - Task 7 第一段 GREEN 新增冻结 `EmergencySoldOutPlanningInput` 与固定五节点 `SoldOutEmergencyProposalProvider`，专项为 `2 passed`；Store/Worker 与 PostgreSQL 优先级尚未实施。
 - Task 7 已完成固定五节点物化门禁、priority 100、`ready_at`、跨 PlanRun 全局 claim、PlanRun -> Node 锁序、资源互斥、只读 EventStore 验证和售罄写授权重建；其他紧急 Skill 不获得事件授权。
 - Task 7 审查整改覆盖非规范 Proposal、滚动迁移前 CARD_BATCH 兼容、两个 PostgreSQL Worker 的 `SKIP LOCKED`、验证后迟到冲突和全部 READY 转换路径。最终 unit `922 passed`，integration `95 passed, 3 deselected`。
+- Task 8 发现 PlanRun 初始输入不足以支持不可变 Replan，已新增 D-098：PlanVersion 保存 planning input、failure signature 与 input fingerprint。首个 RED 为 `2 failed`（缺少模块），内存 GREEN 为 `2 passed`，已证明单商品指纹变化时只复用另外两张成功手卡且不复制 NodeRun。
+- Task 8 已完成 root 级内存/PostgreSQL CAS、版本 2/3 预算、等价循环冻结、跨版本复用链、Worker 读取版本输入与旧 NodeRun 输出、Application 部分提交补偿和旧 source version 拒绝。最终 unit `930 passed`、integration `96 passed, 3 deselected`，独立复审无剩余阻断。
 
 # 2026-07-11 Phase 7A 进度
 

@@ -1081,3 +1081,14 @@
 - **未选理由**：调用方手动排序无法在多个 Worker 间保证优先级；仅记录 priority 不能满足 Task 7 的 PostgreSQL 证明要求。
 - **影响**：Task 7 增加 `store.py` 与 Store Protocol 的最小扩展、内存/PostgreSQL 优先级测试；资源锁、lease、fencing、最大并发 4 和既有按计划 claim 行为保持不变。
 - **重新评估条件**：若未来引入独立队列服务，可将该原语实现映射到队列 claim，但排序、不变量和测试证据不得放宽。
+
+## D-098：Replan 的版本级输入与循环签名事实
+
+- **状态**：`ACCEPTED`
+- **背景**：PlanRun 当前只保存首次规划输入；若新 PlanVersion 继续读取该快照，售罄后的替代输入无法参与绑定和指纹，所谓增量重算会静默使用旧业务事实。D-025 规定的 `failure_signature + input_fingerprint` 也需要跨进程持久化，不能只放在 Coordinator 内存。
+- **候选方案**：为 PlanVersion 保存输入快照和循环签名；覆盖 PlanRun 初始输入；把新输入改写为节点 LITERAL 或塞入非标准 Proposal 扩展字段。
+- **最终选择**：Phase 12B 为 `plan_versions` 增加不可变 `planning_input`、`failure_signature` 与 `input_fingerprint` JSON/摘要事实；首版迁移从 PlanRun 输入回填。Worker 按 Node 所属 PlanVersion 读取版本输入，旧数据库无增量列时仅对首版回退 PlanRun 快照。
+- **选择理由**：每个版本的绑定、指纹、恢复与循环门禁都能从 PlanStore 重建；不覆盖旧版本，也不滥用 Proposal 或 LITERAL 表达版本级业务输入。
+- **未选理由**：覆盖 PlanRun 会破坏初始证据；LITERAL 会复制并分散输入；非标准 Proposal 字段混淆候选 DAG 与运行输入，且缺少可查询唯一性。
+- **影响**：Task 8 扩展 Phase 12B 迁移、PlanVersion 视图和 Store CAS；同一 root 的新版本创建必须在锁内比较当前版本、版本预算及循环签名。
+- **重新评估条件**：未来计划输入体积或版本数量导致可测量存储压力时，可增加内容寻址快照表，但版本不可变和摘要门禁保持不变。

@@ -265,6 +265,14 @@
 - Phase 12B 代码与数据库迁移存在滚动发布窗口。紧急计划在缺少增量列时必须 fail-closed，普通 CARD_BATCH 则继续使用 Phase 12A 列集，不能因新 Store 版本提前中断旧路径。
 - 事件验证控制节点与售罄写之间仍可能到达冲突 occurrence；Worker 必须在真正派发写 Skill 前再次读取 EventStore 并重建授权，不能复用控制节点输出作为权限。
 
+## 2026-07-15 Phase 12B Task 8 发现
+
+- PlanRun 初始输入不能充当所有版本输入；D-098 将 planning input 与循环签名放入不可变 PlanVersion，Worker 通过 node_id 定位所属版本后读取。
+- PlanVersion 提交与 EventApplication 更新不能伪装成跨 Store 原子事务。恢复协议必须允许剩余 source event 子集补偿，并把已 APPLIED 且版本相同视为幂等完成。
+- `reused_from_node_id` 可以形成多版本引用链。Coordinator 与 Worker 都要沿链找到最终成功且未 superseded 的 NodeRun，Store 还必须在 root 锁内再次复核，消除冻结并发造成的 TOCTOU。
+- Replan source version 需要双重规则：新事件只接受当前版本；已出现在最新 PlanVersion `source_event_ids` 的旧版本事件只用于崩溃补偿，不能再次改变 DAG。
+- schema readiness 必须覆盖当前 Task 新增列，不能只检查早期 Phase 12B 列，否则滚动发布会把未迁移数据库误判为可用。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

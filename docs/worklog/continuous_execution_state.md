@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 7：高优先级紧急 child DAG（验证完成，等待本次提交） |
-| 下一任务 | Task 8：增量 Replan 与结果复用 |
+| 最近完成任务 | Phase 12B Task 8：增量 Replan 与结果复用（验证完成，等待本次提交） |
+| 下一任务 | Task 9：SkillPolicyView 生产消费者迁移 |
 | 下一任务状态 | `PENDING` |
-| 当前子步骤 | Task 7 全量门禁通过，准备独立提交并推送后进入 Task 8 RED |
+| 当前子步骤 | Task 8 全量与复审通过，准备提交推送后进入 Task 9 RED |
 | 当前分支 | `main` |
-| 当前业务基线 | `9d4bf97 feat: execute versioned sold out writes` |
-| 远端状态 | `origin/main=9840402` |
+| 当前业务基线 | `703f072 feat: run sold out emergency plans` |
+| 远端状态 | `origin/main=703f072` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -28,17 +28,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 7
+Phase / Task: Phase 12B / Task 8
 状态: VERIFY
-目标: 建立固定售罄紧急 child DAG、priority 100 调度和同房间商品资源串行
-禁止事项: 不绕过 Skill 版本、可信授权、FailurePolicy 或 fencing；不开始增量 Replan、Harness 接入或生产双执行
-当前 HEAD: 9840402
-本 Task 文件: emergency.py、capabilities.py、proposal.py、worker.py、Task 7 单元与 PostgreSQL 优先级测试、状态文档
+目标: 在 root 级 CAS 下创建不可变新 PlanVersion，合并事件、最小失效并引用复用旧成功结果
+禁止事项: 不覆盖旧版本/PlanRun 初始输入，不复制 NodeRun，不绕过版本 3 预算或循环签名门禁，不接 Harness
+当前 HEAD: 703f072
+本 Task 文件: replan.py、models.py、store.py、bindings.py、Phase 12B migration、Task 8 单元与 PostgreSQL 测试、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 7 专项 18 passed；完整 unit 922 passed, 4 warnings；完整 integration 95 passed, 3 deselected, 5 warnings；compileall、migration dry-run 与 diff 检查通过
-错误与尝试次数: 2；首次全量命令引用不存在的旧测试文件名，改用 rg 获取真实文件；第二次全量单元发现 reconcile_plan_reference 缺少 completed_at，已补齐并复跑全量通过
-设计偏差与决策编号: D-082、D-083、D-084；D-094 限定自动推进仅在当前 Phase 内，D-095 要求 Task 11 产出固定业务闭环 Trace。D-097 新增跨 PlanRun priority claim，修复 Task 7 原计划无法证明紧急计划优先级的缺口
-下一条精确操作: 严格 UTF-8 检查后精确暂存 Task 7 文件，提交并推送，再读取 Task 8 计划编写首个 RED
+最近命令与结果: Task 8 专项 unit 8 passed、PostgreSQL CAS 1 passed；完整 unit 930 passed, 4 warnings；完整 integration 96 passed, 3 deselected, 5 warnings；复审 31 passed 且无剩余阻断
+错误与尝试次数: 3；修正测试自身 FrozenDict hash；修正 Worker 误读不存在 claim.version_number；修正 InMemory list_node_runs 只允许当前版本导致复用链不可读
+设计偏差与决策编号: D-025、D-068、D-080、D-081、D-094；D-098 新增 PlanVersion 级 planning_input/failure_signature/input_fingerprint，修复旧输入无法支持真实 Replan 的缺口
+下一条精确操作: 严格编码与差异检查，精确暂存 Task 8 文件并提交推送；随后扫描 Task 9 ToolRegistry 生产消费者并编写 RED
 模型费用累计: 0 元
 ```
 
@@ -111,6 +111,9 @@ Phase / Task: Phase 12B / Task 7
 | Phase 12B Task 7 RED/GREEN | 输入/Proposal RED `2 failed`；Capability/Store RED `3 failed`；Worker RED `2 failed`；最终专项 `19 passed` |
 | Phase 12B Task 7 完整验证 | unit `922 passed, 4 warnings`；integration `95 passed, 3 deselected, 5 warnings` |
 | Phase 12B Task 7 并发与安全审查 | 双连接 global claim、固定 DAG 门禁、迟到冲突二次验证、迁移前 CARD_BATCH 兼容均通过 |
+| Phase 12B Task 8 RED/GREEN | 首个 RED `2 failed`；最终 Replan unit `8 passed`；PostgreSQL 双 Worker CAS `1 passed` |
+| Phase 12B Task 8 完整验证 | unit `930 passed, 4 warnings`；integration `96 passed, 3 deselected, 5 warnings` |
+| Phase 12B Task 8 恢复与审查 | Application 部分补偿、复用链、Store 锁内 superseded 复核、版本输入冻结和 source version 门禁均通过 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

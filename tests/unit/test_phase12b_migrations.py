@@ -83,6 +83,9 @@ def test_phase12b_sql_extends_plan_lineage_without_rewriting_phase12a_rows() -> 
     assert "source_event_ids text[] not null default array[]::text[]" in sql
     assert "'emergency_sold_out'" in sql
     assert "add column if not exists ready_at timestamptz" in sql
+    assert "add column if not exists planning_input jsonb" in sql
+    assert "add column if not exists failure_signature text" in sql
+    assert "add column if not exists input_fingerprint text" in sql
 
 
 def test_phase12b_sql_has_processing_and_lineage_query_indexes() -> None:
@@ -96,6 +99,7 @@ def test_phase12b_sql_has_processing_and_lineage_query_indexes() -> None:
         "plan_runs_root_priority_idx",
         "plan_runs_trigger_event_idx",
         "plan_nodes_global_ready_priority_idx",
+        "plan_versions_replan_signature_idx",
     ):
         assert f"create index if not exists {index_name}" in sql
 

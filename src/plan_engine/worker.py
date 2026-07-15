@@ -409,13 +409,19 @@ class PlanWorker:
             dependencies,
         )
         plan_run = self._store.get_plan_run(claim.plan_run_id)
+        claim_version = self._claim_plan_version(claim)
+        plan_version = self._store.get_plan_version(
+            claim.plan_run_id,
+            claim_version,
+        )
+        version_input = plan_version.planning_input or plan_run.planning_input
         if plan_run.plan_kind.value == "EMERGENCY_SOLD_OUT":
             planning_input = EmergencySoldOutPlanningInput.model_validate(
-                plan_run.planning_input
+                version_input
             )
         else:
             planning_input = CardBatchPlanningInput.model_validate(
-                plan_run.planning_input
+                version_input
             )
         return (
             self._resolver.materialize(
@@ -423,7 +429,7 @@ class PlanWorker:
                 planning_input=planning_input,
                 dependency_outputs=dependency_outputs,
                 declared_dependencies=frozenset(dependencies),
-                current_plan_version=plan_run.current_version,
+                current_plan_version=claim_version,
             ),
             dependency_outputs,
         )
@@ -448,10 +454,36 @@ class PlanWorker:
                 for item in self._store.list_node_runs(plan_run_id, node.node_id)
                 if item.state is PlanNodeState.SUCCEEDED
             ]
+            source_node_id = node.reused_from_node_id
+            visited: set[str] = set()
+            while not successful_runs and source_node_id is not None:
+                if source_node_id in visited:
+                    raise PlanStoreInvariantError("复用节点来源形成循环")
+                visited.add(source_node_id)
+                successful_runs = [
+                    item
+                    for item in self._store.list_node_runs(
+                        plan_run_id,
+                        source_node_id,
+                    )
+                    if item.state is PlanNodeState.SUCCEEDED and not item.superseded
+                ]
+                source_node = next(
+                    (
+                        item
+                        for version in range(plan_run.current_version, 0, -1)
+                        for item in self._store.list_nodes(plan_run_id, version)
+                        if item.node_id == source_node_id
+                    ),
+                    None,
+                )
+                source_node_id = (
+                    None if source_node is None else source_node.reused_from_node_id
+                )
             if not successful_runs:
                 raise PlanStoreInvariantError(f"依赖节点尚无成功输出: {logical_key}")
             outputs[logical_key] = VersionedNodeOutput(
-                plan_version=plan_run.current_version,
+                plan_version=node.version_number,
                 output=successful_runs[-1].output,
             )
         return outputs
@@ -464,9 +496,15 @@ class PlanWorker:
     ) -> dict[str, object]:
         """执行两个无 Adapter 的确定性控制节点。"""
         plan_run = self._store.get_plan_run(claim.plan_run_id)
+        claim_version = self._claim_plan_version(claim)
+        plan_version = self._store.get_plan_version(
+            claim.plan_run_id,
+            claim_version,
+        )
+        version_input = plan_version.planning_input or plan_run.planning_input
         if claim.node_type == "PREPARE_CARD_BATCH":
             planning_input = CardBatchPlanningInput.model_validate(
-                plan_run.planning_input
+                version_input
             )
             return {
                 "prepared": True,
@@ -482,7 +520,7 @@ class PlanWorker:
             }
         if claim.node_type == "VALIDATE_SOLD_OUT_EVENT":
             planning_input = EmergencySoldOutPlanningInput.model_validate(
-                plan_run.planning_input
+                version_input
             )
             record = self._verified_event_record(planning_input)
             return {
@@ -498,6 +536,19 @@ class PlanWorker:
                 ]
             }
         raise PlanStoreInvariantError(f"未知控制节点类型: {claim.node_type}")
+
+    def _claim_plan_version(self, claim: ClaimedNodeRunView) -> int:
+        """通过权威 node_id 定位 NodeRun 所属不可变 PlanVersion。"""
+        plan_run = self._store.get_plan_run(claim.plan_run_id)
+        matches = tuple(
+            node.version_number
+            for version in range(plan_run.current_version, 0, -1)
+            for node in self._store.list_nodes(claim.plan_run_id, version)
+            if node.node_id == claim.node_id
+        )
+        if len(matches) != 1:
+            raise PlanStoreInvariantError("NodeRun 无法定位唯一 PlanVersion")
+        return matches[0]
 
     def _verified_event_record(
         self,

@@ -289,6 +289,20 @@ class PlanStore(Protocol):
     def get_plan_version(self, plan_run_id: str, version_number: int) -> PlanVersionView:
         """读取指定不可变 PlanVersion。"""
 
+    def create_replan_version(
+        self,
+        *,
+        plan_run_id: str,
+        expected_plan_version: int,
+        plan: MaterializedPlan,
+        source_event_ids: tuple[str, ...],
+        failure_signature: str,
+        input_fingerprint: str,
+        reused_from_by_logical_key: dict[str, str],
+        now: datetime,
+    ) -> tuple[PlanVersionView, bool]:
+        """在 root CAS 内创建不可变下一版本，或返回已提交的幂等版本。"""
+
     def list_nodes(self, plan_run_id: str, version_number: int | None = None) -> tuple[PlanNodeView, ...]:
         """列出指定版本节点，不返回内部可变记录。"""
 
@@ -488,6 +502,9 @@ class _PlanVersionRecord:
     proposal: dict[str, Any]
     change_reason: str = "INITIAL"
     source_event_ids: tuple[str, ...] = ()
+    planning_input: dict[str, Any] | None = None
+    failure_signature: str | None = None
+    input_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -507,6 +524,8 @@ class _PlanNodeRecord:
     retry_at: datetime | None
     deadline_at: datetime | None
     ready_at: datetime | None
+    reused_from_node_id: str | None = None
+    invalidated_from_node_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -618,6 +637,7 @@ class InMemoryPlanStore:
                 provider_id=plan.proposal.provider_id,
                 provider_version=plan.proposal.provider_version,
                 proposal=plan.proposal.model_dump(mode="json"),
+                planning_input=plan.planning_input.model_dump(mode="json"),
             )
             node_ids: list[str] = []
             for candidate in plan.proposal.nodes:
@@ -764,7 +784,168 @@ class InMemoryPlanStore:
                 proposal=record.proposal,
                 change_reason=record.change_reason,
                 source_event_ids=record.source_event_ids,
+                planning_input=record.planning_input,
+                failure_signature=record.failure_signature,
+                input_fingerprint=record.input_fingerprint,
             )
+
+    def create_replan_version(
+        self,
+        *,
+        plan_run_id: str,
+        expected_plan_version: int,
+        plan: MaterializedPlan,
+        source_event_ids: tuple[str, ...],
+        failure_signature: str,
+        input_fingerprint: str,
+        reused_from_by_logical_key: dict[str, str],
+        now: datetime,
+    ) -> tuple[PlanVersionView, bool]:
+        """以 PlanRun 锁内 CAS 创建新版本，并显式引用可复用旧节点。"""
+        normalized_now = self._aware_utc(now, "Replan 创建时间")
+        if not isinstance(plan.planning_input, CardBatchPlanningInput):
+            raise PlanStoreInvariantError("Replan 当前只支持 CARD_BATCH")
+        if len(failure_signature) != 64 or len(input_fingerprint) != 64:
+            raise PlanStoreInvariantError("Replan 签名必须是 SHA-256")
+        if len(source_event_ids) != len(set(source_event_ids)):
+            raise PlanStoreInvariantError("Replan 来源事件不能重复")
+        with self._lock:
+            plan_run = self._plan_runs.get(plan_run_id)
+            if plan_run is None or plan_run.plan_kind is not PlanRunKind.CARD_BATCH:
+                raise PlanStoreInvariantError("Replan root PlanRun 不存在或类型非法")
+            latest = self._versions[(plan_run_id, plan_run.current_version)]
+            if (
+                latest.failure_signature == failure_signature
+                and latest.input_fingerprint == input_fingerprint
+            ):
+                if not source_event_ids or set(source_event_ids).issubset(
+                    set(latest.source_event_ids)
+                ):
+                    return self._version_view(latest), False
+                self._plan_runs[plan_run_id] = replace(
+                    plan_run,
+                    state=PlanRunState.FROZEN,
+                )
+                raise PlanStoreInvariantError("Replan 等价循环已阻断")
+            if plan_run.current_version != expected_plan_version:
+                raise PlanStoreInvariantError("Replan expected_plan_version 已过期")
+            if plan_run.current_version >= 3:
+                self._plan_runs[plan_run_id] = replace(
+                    plan_run,
+                    state=PlanRunState.FROZEN,
+                )
+                raise PlanStoreInvariantError("Replan 版本预算已耗尽")
+            if any(
+                version.failure_signature == failure_signature
+                and version.input_fingerprint == input_fingerprint
+                for (run_id, _), version in self._versions.items()
+                if run_id == plan_run_id
+            ):
+                self._plan_runs[plan_run_id] = replace(
+                    plan_run,
+                    state=PlanRunState.FROZEN,
+                )
+                raise PlanStoreInvariantError("Replan 等价循环已阻断")
+
+            old_node_ids = self._node_ids_by_plan_version[
+                (plan_run_id, plan_run.current_version)
+            ]
+            old_nodes_by_key = {
+                self._nodes[node_id].logical_key: self._nodes[node_id]
+                for node_id in old_node_ids
+            }
+            for logical_key, source_node_id in reused_from_by_logical_key.items():
+                source = old_nodes_by_key.get(logical_key)
+                if (
+                    source is None
+                    or source.node_id != source_node_id
+                    or source.state is not PlanNodeState.SUCCEEDED
+                ):
+                    raise PlanStoreInvariantError("Replan 复用来源不是当前成功节点")
+                evidence_node = source
+                visited: set[str] = set()
+                while True:
+                    if evidence_node.node_id in visited:
+                        raise PlanStoreInvariantError("Replan 复用来源形成循环")
+                    visited.add(evidence_node.node_id)
+                    run_ids = self._node_run_ids_by_node[evidence_node.node_id]
+                    if run_ids:
+                        evidence_run = self._node_runs[run_ids[-1]]
+                        if (
+                            evidence_run.state is not PlanNodeState.SUCCEEDED
+                            or evidence_run.superseded
+                            or evidence_run.input_fingerprint is None
+                        ):
+                            raise PlanStoreInvariantError("Replan 复用 NodeRun 已失效")
+                        break
+                    if evidence_node.reused_from_node_id is None:
+                        raise PlanStoreInvariantError("Replan 复用来源缺少成功 NodeRun")
+                    next_node = self._nodes.get(evidence_node.reused_from_node_id)
+                    if next_node is None or next_node.plan_run_id != plan_run_id:
+                        raise PlanStoreInvariantError("Replan 复用链身份非法")
+                    evidence_node = next_node
+
+            next_version = plan_run.current_version + 1
+            version = _PlanVersionRecord(
+                plan_run_id=plan_run_id,
+                version_number=next_version,
+                provider_id=plan.proposal.provider_id,
+                provider_version=plan.proposal.provider_version,
+                proposal=plan.proposal.model_dump(mode="json"),
+                change_reason="INCREMENTAL_REPLAN",
+                source_event_ids=source_event_ids,
+                planning_input=plan.planning_input.model_dump(mode="json"),
+                failure_signature=failure_signature,
+                input_fingerprint=input_fingerprint,
+            )
+            node_ids: list[str] = []
+            for candidate in plan.proposal.nodes:
+                capability = plan.capabilities_by_logical_key[candidate.logical_key]
+                reused_from = reused_from_by_logical_key.get(candidate.logical_key)
+                state = (
+                    PlanNodeState.SUCCEEDED
+                    if reused_from is not None
+                    else (
+                        PlanNodeState.READY
+                        if capability.node_type == "PREPARE_CARD_BATCH"
+                        else PlanNodeState.PENDING
+                    )
+                )
+                node = _PlanNodeRecord(
+                    node_id=str(uuid4()),
+                    plan_run_id=plan_run_id,
+                    version_number=next_version,
+                    logical_key=candidate.logical_key,
+                    node_kind=candidate.node_kind,
+                    state=state,
+                    skill_id=candidate.skill_id,
+                    input_bindings={
+                        key: binding.model_dump(mode="json")
+                        for key, binding in candidate.input_bindings.items()
+                    },
+                    depends_on=tuple(candidate.depends_on),
+                    capability=capability,
+                    retry_at=None,
+                    deadline_at=None,
+                    ready_at=(normalized_now if state is PlanNodeState.READY else None),
+                    reused_from_node_id=reused_from,
+                    invalidated_from_node_id=(
+                        None
+                        if reused_from is not None
+                        else old_nodes_by_key.get(candidate.logical_key).node_id
+                    ),
+                )
+                self._nodes[node.node_id] = node
+                self._node_run_ids_by_node[node.node_id] = ()
+                node_ids.append(node.node_id)
+            self._versions[(plan_run_id, next_version)] = version
+            self._node_ids_by_plan_version[(plan_run_id, next_version)] = tuple(node_ids)
+            self._plan_runs[plan_run_id] = replace(
+                plan_run,
+                current_version=next_version,
+                state=PlanRunState.ACTIVE,
+            )
+            return self._version_view(version), True
 
     def list_nodes(
         self,
@@ -2048,7 +2229,8 @@ class InMemoryPlanStore:
                 (plan_run_id, plan_run.current_version)
             ]
             if node_id is not None:
-                if node_id not in plan_node_ids:
+                node = self._nodes.get(node_id)
+                if node is None or node.plan_run_id != plan_run_id:
                     raise PlanStoreInvariantError("节点不属于指定 PlanRun")
                 selected_node_ids = (node_id,)
             else:
@@ -2095,6 +2277,22 @@ class InMemoryPlanStore:
         return value
 
     @staticmethod
+    def _version_view(record: _PlanVersionRecord) -> PlanVersionView:
+        """投影不可变版本输入、来源事件和循环门禁事实。"""
+        return PlanVersionView(
+            plan_run_id=record.plan_run_id,
+            version_number=record.version_number,
+            provider_id=record.provider_id,
+            provider_version=record.provider_version,
+            proposal=record.proposal,
+            change_reason=record.change_reason,
+            source_event_ids=record.source_event_ids,
+            planning_input=record.planning_input,
+            failure_signature=record.failure_signature,
+            input_fingerprint=record.input_fingerprint,
+        )
+
+    @staticmethod
     def _plan_run_view(record: _PlanRunRecord) -> PlanRunView:
         """通过 Pydantic 视图重新冻结规划输入，阻断内部记录引用泄漏。"""
         return PlanRunView(
@@ -2134,6 +2332,8 @@ class InMemoryPlanStore:
             depends_on=record.depends_on,
             resource_keys=record.capability.resource_keys,
             ready_at=record.ready_at,
+            reused_from_node_id=record.reused_from_node_id,
+            invalidated_from_node_id=record.invalidated_from_node_id,
         )
 
     @staticmethod
@@ -2308,15 +2508,23 @@ class PostgresPlanStore:
                         connection.commit()
                         return self._plan_run_view(record)
 
+                    version_input_column = (
+                        ", planning_input" if phase12b_ready else ""
+                    )
+                    version_input_value = (
+                        ", %(planning_input)s" if phase12b_ready else ""
+                    )
                     cursor.execute(
-                        """
+                        f"""
                         INSERT INTO plan_versions (
                             plan_version_id, plan_run_id, version_number,
                             provider_id, provider_version, proposal
+                            {version_input_column}
                         ) VALUES (
                             %(plan_version_id)s::uuid, %(plan_run_id)s::uuid,
                             %(version_number)s, %(provider_id)s,
                             %(provider_version)s, %(proposal)s
+                            {version_input_value}
                         );
                         """,
                         {
@@ -2326,6 +2534,7 @@ class PostgresPlanStore:
                             "provider_id": plan.proposal.provider_id,
                             "provider_version": plan.proposal.provider_version,
                             "proposal": self._jsonb(proposal),
+                            "planning_input": self._jsonb(planning_input),
                         },
                     )
                     node_id_by_logical_key: dict[str, str] = {}
@@ -2593,11 +2802,323 @@ class PostgresPlanStore:
                     proposal=record.proposal,
                     change_reason=record.change_reason,
                     source_event_ids=record.source_event_ids,
+                    planning_input=record.planning_input,
+                    failure_signature=record.failure_signature,
+                    input_fingerprint=record.input_fingerprint,
                 )
         except PlanStoreInvariantError:
             raise
         except psycopg.Error as exc:
             raise PlanStoreInvariantError("读取 PlanVersion 失败") from exc
+
+    def create_replan_version(
+        self,
+        *,
+        plan_run_id: str,
+        expected_plan_version: int,
+        plan: MaterializedPlan,
+        source_event_ids: tuple[str, ...],
+        failure_signature: str,
+        input_fingerprint: str,
+        reused_from_by_logical_key: dict[str, str],
+        now: datetime,
+    ) -> tuple[PlanVersionView, bool]:
+        """在 PostgreSQL root 行锁内 CAS 创建下一不可变 PlanVersion。"""
+        normalized_now = self._aware_utc(now, "Replan 创建时间")
+        if not isinstance(plan.planning_input, CardBatchPlanningInput):
+            raise PlanStoreInvariantError("Replan 当前只支持 CARD_BATCH")
+        if len(failure_signature) != 64 or len(input_fingerprint) != 64:
+            raise PlanStoreInvariantError("Replan 签名必须是 SHA-256")
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    if not self._phase12b_plan_schema_ready(cursor):
+                        raise PlanStoreInvariantError("Replan 需要 Phase 12B 数据库迁移")
+                    plan_run = self._load_plan_run(
+                        cursor,
+                        plan_run_id,
+                        for_update=True,
+                    )
+                    if plan_run.plan_kind is not PlanRunKind.CARD_BATCH:
+                        raise PlanStoreInvariantError("Replan root 类型非法")
+                    latest = self._load_plan_version(
+                        cursor,
+                        plan_run_id,
+                        plan_run.current_version,
+                    )
+                    same_pair = (
+                        latest.failure_signature == failure_signature
+                        and latest.input_fingerprint == input_fingerprint
+                    )
+                    if same_pair:
+                        if not source_event_ids or set(source_event_ids).issubset(
+                            set(latest.source_event_ids)
+                        ):
+                            connection.commit()
+                            return self._postgres_version_view(latest), False
+                        self._update_plan_run_state(
+                            cursor,
+                            plan_run_id,
+                            PlanRunState.FROZEN,
+                            normalized_now,
+                        )
+                        connection.commit()
+                        raise PlanStoreInvariantError("Replan 等价循环已阻断")
+                    if plan_run.current_version != expected_plan_version:
+                        raise PlanStoreInvariantError("Replan expected_plan_version 已过期")
+                    if plan_run.current_version >= 3:
+                        self._update_plan_run_state(
+                            cursor,
+                            plan_run_id,
+                            PlanRunState.FROZEN,
+                            normalized_now,
+                        )
+                        connection.commit()
+                        raise PlanStoreInvariantError("Replan 版本预算已耗尽")
+                    cursor.execute(
+                        """
+                        SELECT 1
+                        FROM plan_versions
+                        WHERE plan_run_id = %(plan_run_id)s::uuid
+                          AND failure_signature = %(failure_signature)s
+                          AND input_fingerprint = %(input_fingerprint)s
+                        LIMIT 1;
+                        """,
+                        {
+                            "plan_run_id": plan_run_id,
+                            "failure_signature": failure_signature,
+                            "input_fingerprint": input_fingerprint,
+                        },
+                    )
+                    if cursor.fetchone() is not None:
+                        self._update_plan_run_state(
+                            cursor,
+                            plan_run_id,
+                            PlanRunState.FROZEN,
+                            normalized_now,
+                        )
+                        connection.commit()
+                        raise PlanStoreInvariantError("Replan 等价循环已阻断")
+
+                    old_nodes = self._load_node_records(
+                        cursor,
+                        plan_run_id,
+                        plan_run.current_version,
+                    )
+                    old_by_key = {node.logical_key: node for node in old_nodes}
+                    for logical_key, source_id in reused_from_by_logical_key.items():
+                        source = old_by_key.get(logical_key)
+                        if (
+                            source is None
+                            or source.node_id != source_id
+                            or source.state is not PlanNodeState.SUCCEEDED
+                        ):
+                            raise PlanStoreInvariantError("Replan 复用来源不是当前成功节点")
+                        evidence_node = source
+                        visited: set[str] = set()
+                        while True:
+                            if evidence_node.node_id in visited:
+                                raise PlanStoreInvariantError("Replan 复用来源形成循环")
+                            visited.add(evidence_node.node_id)
+                            cursor.execute(
+                                """
+                                SELECT node_run_id::text AS node_run_id
+                                FROM node_runs
+                                WHERE node_id = %(node_id)s::uuid
+                                ORDER BY attempt_number DESC
+                                LIMIT 1
+                                FOR UPDATE;
+                                """,
+                                {"node_id": evidence_node.node_id},
+                            )
+                            run_row = cursor.fetchone()
+                            if run_row is not None:
+                                evidence_run = self._load_node_run(
+                                    cursor,
+                                    str(run_row["node_run_id"]),
+                                )
+                                if (
+                                    evidence_run.state is not PlanNodeState.SUCCEEDED
+                                    or evidence_run.superseded
+                                    or evidence_run.input_fingerprint is None
+                                ):
+                                    raise PlanStoreInvariantError(
+                                        "Replan 复用 NodeRun 已失效"
+                                    )
+                                break
+                            if evidence_node.reused_from_node_id is None:
+                                raise PlanStoreInvariantError(
+                                    "Replan 复用来源缺少成功 NodeRun"
+                                )
+                            evidence_node = self._load_node_record(
+                                cursor,
+                                evidence_node.reused_from_node_id,
+                                for_update=True,
+                            )
+                            if evidence_node.plan_run_id != plan_run_id:
+                                raise PlanStoreInvariantError("Replan 复用链身份非法")
+
+                    next_version = plan_run.current_version + 1
+                    version_id = str(uuid4())
+                    cursor.execute(
+                        """
+                        INSERT INTO plan_versions (
+                            plan_version_id, plan_run_id, version_number,
+                            provider_id, provider_version, proposal,
+                            change_reason, source_event_ids, planning_input,
+                            failure_signature, input_fingerprint
+                        ) VALUES (
+                            %(version_id)s::uuid, %(plan_run_id)s::uuid,
+                            %(version_number)s, %(provider_id)s,
+                            %(provider_version)s, %(proposal)s,
+                            'INCREMENTAL_REPLAN', %(source_event_ids)s::text[],
+                            %(planning_input)s, %(failure_signature)s,
+                            %(input_fingerprint)s
+                        );
+                        """,
+                        {
+                            "version_id": version_id,
+                            "plan_run_id": plan_run_id,
+                            "version_number": next_version,
+                            "provider_id": plan.proposal.provider_id,
+                            "provider_version": plan.proposal.provider_version,
+                            "proposal": self._jsonb(
+                                plan.proposal.model_dump(mode="json")
+                            ),
+                            "source_event_ids": list(source_event_ids),
+                            "planning_input": self._jsonb(
+                                plan.planning_input.model_dump(mode="json")
+                            ),
+                            "failure_signature": failure_signature,
+                            "input_fingerprint": input_fingerprint,
+                        },
+                    )
+                    node_ids: dict[str, str] = {}
+                    for order, candidate in enumerate(plan.proposal.nodes):
+                        capability = plan.capabilities_by_logical_key[
+                            candidate.logical_key
+                        ]
+                        source_id = reused_from_by_logical_key.get(
+                            candidate.logical_key
+                        )
+                        state = (
+                            PlanNodeState.SUCCEEDED
+                            if source_id is not None
+                            else (
+                                PlanNodeState.READY
+                                if capability.node_type == "PREPARE_CARD_BATCH"
+                                else PlanNodeState.PENDING
+                            )
+                        )
+                        node_id = str(uuid4())
+                        node_ids[candidate.logical_key] = node_id
+                        old_node = old_by_key.get(candidate.logical_key)
+                        cursor.execute(
+                            """
+                            INSERT INTO plan_nodes (
+                                node_id, plan_version_id, plan_run_id,
+                                version_number, node_order, logical_key,
+                                node_kind, state, skill_id, skill_version,
+                                input_bindings, capability, resource_keys,
+                                ready_at, reused_from_node_id,
+                                invalidated_from_node_id
+                            ) VALUES (
+                                %(node_id)s::uuid, %(version_id)s::uuid,
+                                %(plan_run_id)s::uuid, %(version_number)s,
+                                %(node_order)s, %(logical_key)s, %(node_kind)s,
+                                %(state)s, %(skill_id)s, %(skill_version)s,
+                                %(input_bindings)s, %(capability)s,
+                                %(resource_keys)s::text[], %(ready_at)s,
+                                %(reused_from)s::uuid, %(invalidated_from)s::uuid
+                            );
+                            """,
+                            {
+                                "node_id": node_id,
+                                "version_id": version_id,
+                                "plan_run_id": plan_run_id,
+                                "version_number": next_version,
+                                "node_order": order,
+                                "logical_key": candidate.logical_key,
+                                "node_kind": candidate.node_kind.value,
+                                "state": state.value,
+                                "skill_id": capability.skill_id,
+                                "skill_version": capability.skill_version,
+                                "input_bindings": self._jsonb(
+                                    {
+                                        key: binding.model_dump(mode="json")
+                                        for key, binding in candidate.input_bindings.items()
+                                    }
+                                ),
+                                "capability": self._jsonb(
+                                    self._capability_snapshot(capability)
+                                ),
+                                "resource_keys": list(capability.resource_keys),
+                                "ready_at": (
+                                    normalized_now
+                                    if state is PlanNodeState.READY
+                                    else None
+                                ),
+                                "reused_from": source_id,
+                                "invalidated_from": (
+                                    None
+                                    if source_id is not None or old_node is None
+                                    else old_node.node_id
+                                ),
+                            },
+                        )
+                    for candidate in plan.proposal.nodes:
+                        for dependency_order, dependency_key in enumerate(
+                            candidate.depends_on
+                        ):
+                            cursor.execute(
+                                """
+                                INSERT INTO plan_node_dependencies (
+                                    plan_version_id, plan_run_id, node_id,
+                                    dependency_node_id, dependency_order
+                                ) VALUES (
+                                    %(version_id)s::uuid, %(plan_run_id)s::uuid,
+                                    %(node_id)s::uuid, %(dependency_id)s::uuid,
+                                    %(dependency_order)s
+                                );
+                                """,
+                                {
+                                    "version_id": version_id,
+                                    "plan_run_id": plan_run_id,
+                                    "node_id": node_ids[candidate.logical_key],
+                                    "dependency_id": node_ids[dependency_key],
+                                    "dependency_order": dependency_order,
+                                },
+                            )
+                    cursor.execute(
+                        """
+                        UPDATE plan_runs
+                        SET current_version = %(version_number)s,
+                            state = %(active)s,
+                            updated_at = %(now)s
+                        WHERE plan_run_id = %(plan_run_id)s::uuid
+                          AND current_version = %(expected_version)s;
+                        """,
+                        {
+                            "version_number": next_version,
+                            "active": PlanRunState.ACTIVE.value,
+                            "now": normalized_now,
+                            "plan_run_id": plan_run_id,
+                            "expected_version": expected_plan_version,
+                        },
+                    )
+                    if cursor.rowcount != 1:
+                        raise PlanStoreInvariantError("Replan root CAS 失败")
+                    record = self._load_plan_version(
+                        cursor,
+                        plan_run_id,
+                        next_version,
+                    )
+                connection.commit()
+                return self._postgres_version_view(record), True
+        except PlanStoreInvariantError:
+            raise
+        except psycopg.Error as exc:
+            raise PlanStoreInvariantError("创建 PostgreSQL Replan 版本失败") from exc
 
     def list_nodes(
         self,
@@ -4325,6 +4846,20 @@ class PostgresPlanStore:
                     WHERE table_schema = current_schema()
                       AND table_name = 'plan_nodes'
                       AND column_name = 'ready_at'
+                )
+                AND NOT EXISTS (
+                    SELECT required.column_name
+                    FROM (VALUES
+                        ('planning_input'),
+                        ('failure_signature'),
+                        ('input_fingerprint')
+                    ) AS required(column_name)
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns AS actual
+                        WHERE actual.table_schema = current_schema()
+                          AND actual.table_name = 'plan_versions'
+                          AND actual.column_name = required.column_name
+                    )
                 ) AS phase12b_ready;
             """
         )
@@ -4502,7 +5037,10 @@ class PostgresPlanStore:
                 COALESCE(
                     to_jsonb(plan_versions)->'source_event_ids',
                     '[]'::jsonb
-                ) AS source_event_ids
+                ) AS source_event_ids,
+                to_jsonb(plan_versions)->'planning_input' AS planning_input,
+                to_jsonb(plan_versions)->>'failure_signature' AS failure_signature,
+                to_jsonb(plan_versions)->>'input_fingerprint' AS input_fingerprint
             FROM plan_versions
             WHERE plan_run_id::text = %(plan_run_id)s
               AND version_number = %(version_number)s;
@@ -4523,6 +5061,15 @@ class PostgresPlanStore:
             proposal=dict(row["proposal"]),
             change_reason=str(row["change_reason"]),
             source_event_ids=tuple(str(item) for item in row["source_event_ids"]),
+            planning_input=(
+                None if row["planning_input"] is None else dict(row["planning_input"])
+            ),
+            failure_signature=(
+                None if row["failure_signature"] is None else str(row["failure_signature"])
+            ),
+            input_fingerprint=(
+                None if row["input_fingerprint"] is None else str(row["input_fingerprint"])
+            ),
         )
 
     def _load_node_records(
@@ -4642,6 +5189,16 @@ class PostgresPlanStore:
             retry_at=row["retry_at"],
             deadline_at=row["deadline_at"],
             ready_at=row["ready_at"] if "ready_at" in row else None,
+            reused_from_node_id=(
+                None
+                if row["reused_from_node_id"] is None
+                else str(row["reused_from_node_id"])
+            ),
+            invalidated_from_node_id=(
+                None
+                if row["invalidated_from_node_id"] is None
+                else str(row["invalidated_from_node_id"])
+            ),
         )
 
     def _load_node_run(
@@ -5022,6 +5579,22 @@ class PostgresPlanStore:
         return value
 
     @staticmethod
+    def _postgres_version_view(record: _PlanVersionRecord) -> PlanVersionView:
+        """把 PostgreSQL 版本关系行投影为冻结查询视图。"""
+        return PlanVersionView(
+            plan_run_id=record.plan_run_id,
+            version_number=record.version_number,
+            provider_id=record.provider_id,
+            provider_version=record.provider_version,
+            proposal=record.proposal,
+            change_reason=record.change_reason,
+            source_event_ids=record.source_event_ids,
+            planning_input=record.planning_input,
+            failure_signature=record.failure_signature,
+            input_fingerprint=record.input_fingerprint,
+        )
+
+    @staticmethod
     def _plan_run_view(record: _PlanRunRecord) -> PlanRunView:
         """把关系记录投影为不可变、JSON-safe PlanRun 视图。"""
         return PlanRunView(
@@ -5059,6 +5632,8 @@ class PostgresPlanStore:
             depends_on=record.depends_on,
             resource_keys=record.capability.resource_keys,
             ready_at=record.ready_at,
+            reused_from_node_id=record.reused_from_node_id,
+            invalidated_from_node_id=record.invalidated_from_node_id,
         )
 
     @staticmethod
