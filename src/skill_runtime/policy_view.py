@@ -85,3 +85,43 @@ class SkillPolicyView:
 def get_default_skill_policy_view() -> SkillPolicyView:
     """从默认 Catalog 创建一个新的启动冻结策略视图。"""
     return SkillPolicyView(get_default_skill_catalog())
+
+
+def assert_policy_view_matches_catalog(
+    manifests: Sequence[SkillManifest],
+    policy_view: SkillPolicyView,
+) -> None:
+    """验证策略视图与 Catalog 的全部执行治理字段完全一致。
+
+    Catalog 决定业务契约，PolicyView 决定调用前治理。如果两者仅 ID/版本相同但
+    生命周期、Schema 或门禁不同，调用就可能使用错误安全边界；因此在启动装配时
+    比较完整投影，并在任何 Handler 或 Attempt 发生前拒绝漂移。
+    """
+
+    catalog_governance = {
+        manifest.skill_id: (
+            manifest.version,
+            manifest.lifecycle,
+            manifest.risk_level,
+            manifest.parameter_schema,
+            manifest.gate_decision,
+            manifest.requires_idempotency_key,
+            manifest.authorization_requirement,
+        )
+        for manifest in manifests
+    }
+    policy_governance = {
+        skill_id: (
+            policy.version,
+            policy.lifecycle,
+            policy.risk_level,
+            policy.parameter_schema,
+            policy.gate_decision,
+            policy.requires_idempotency_key,
+            policy.authorization_requirement,
+        )
+        for skill_id in policy_view.skill_ids()
+        for policy in (policy_view.get(skill_id),)
+    }
+    if policy_governance != catalog_governance:
+        raise ValueError("Skill Catalog and SkillPolicyView governance do not match")

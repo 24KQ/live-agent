@@ -21,30 +21,33 @@ from src.skills.llm_client import LLMClient
 from pydantic import BaseModel, Field, field_validator
 
 from src.config.settings import Settings, get_settings
-from src.config.tool_registry import get_default_tool_registry
 from src.core.agent_harness_context import AgentContextResult
 from src.core.agent_decision import AgentObservation
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 from src.skills.on_live_llm_planner import OnLiveLLMPlanner
+from src.state.models import LifecycleStage
 
-# 模块级缓存：ON_LIVE 工具名集合，避免每次 planner 调用重建 ToolRegistry
+# 模块级缓存：默认 ON_LIVE Skill 集合，避免每次 planner 调用重建策略视图。
 _ON_LIVE_TOOL_NAMES: list[str] | None = None
 
 HarnessAction = Literal["call_tool", "final_answer", "no_action", "fallback"]
 HarnessRiskLevel = Literal["LOW", "MEDIUM", "HIGH"]
 
 
-def _available_on_live_tools() -> list[str]:
-    """从 ToolRegistry 中读取 ON_LIVE 工具名，作为 LLM 输出白名单。
+def _available_on_live_tools(policy_view: SkillPolicyView | None = None) -> list[str]:
+    """从 SkillPolicyView 读取 ON_LIVE 能力名，作为 LLM 输出白名单。
 
-    使用模块级缓存，避免每次 planner 调用都重建 ToolRegistry 实例。
+    默认装配使用模块级缓存；显式注入的测试或独立装配直接读取自身冻结快照，
+    防止一个 Planner 的策略污染另一个 Planner。
     """
     global _ON_LIVE_TOOL_NAMES
-    if _ON_LIVE_TOOL_NAMES is not None:
+    if policy_view is None and _ON_LIVE_TOOL_NAMES is not None:
         return _ON_LIVE_TOOL_NAMES
-    registry = get_default_tool_registry()
-    _ON_LIVE_TOOL_NAMES = [
+    view = policy_view or get_default_skill_policy_view()
+    available = [
         name
-        for name in registry.tool_names()
+        for name in view.skill_ids()
+        if view.is_available(name, LifecycleStage.ON_LIVE)
         if name
         in {
             "handle_sold_out_event",
@@ -55,7 +58,9 @@ def _available_on_live_tools() -> list[str]:
             "on_live_context_collect",
         }
     ]
-    return _ON_LIVE_TOOL_NAMES
+    if policy_view is None:
+        _ON_LIVE_TOOL_NAMES = available
+    return available
 
 
 class OnLiveHarnessDecision(BaseModel):
@@ -75,7 +80,7 @@ class OnLiveHarnessDecision(BaseModel):
     @field_validator("tool_name")
     @classmethod
     def validate_tool_name(cls, value: str | None, info) -> str | None:
-        """call_tool 必须使用 ToolRegistry 中的标准工具名。"""
+        """call_tool 必须使用 SkillPolicyView 中的标准能力名。"""
         action = info.data.get("action")
         if action != "call_tool":
             return value
@@ -180,7 +185,15 @@ class OnLiveHarnessPlanner:
     Phase 5F 的 OnLiveLLMPlanner，保证播中流程不中断。
     """
 
-    def __init__(self, settings: Settings | None = None, api_key: str = "") -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        api_key: str = "",
+        *,
+        policy_view: SkillPolicyView | None = None,
+    ) -> None:
+        # Planner 持有启动冻结策略；prompt 白名单与后续 Hook 使用同一事实来源。
+        self._policy_view = policy_view or get_default_skill_policy_view()
         if settings is None and not api_key:
             try:
                 settings = get_settings()
@@ -225,11 +238,19 @@ class OnLiveHarnessPlanner:
                 final_suggestion=None,
                 risk_level="LOW",
             )
-        available_tools = _available_on_live_tools()
+        available_tools = _available_on_live_tools(self._policy_view)
         if self._llm_client.has_api_key:
             try:
                 prompt = build_harness_prompt(context, available_tools, observations)
-                return parse_harness_decision(self._call_llm(prompt))
+                decision = parse_harness_decision(self._call_llm(prompt))
+                if (
+                    decision.action == "call_tool"
+                    and decision.tool_name not in available_tools
+                ):
+                    # Prompt 不是安全边界。即使模型输出通过通用 Pydantic 结构校验，
+                    # 仍须按当前 Planner 的冻结快照二次校验，禁止调用已下线能力。
+                    raise ValueError("LLM selected a skill outside the frozen policy view")
+                return decision
             except Exception as exc:
                 return self._fallback_decision(danmaku_summary, inventory_alerts, str(exc))
         return self._fallback_decision(danmaku_summary, inventory_alerts, "missing api key")

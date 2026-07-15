@@ -273,6 +273,14 @@
 - Replan source version 需要双重规则：新事件只接受当前版本；已出现在最新 PlanVersion `source_event_ids` 的旧版本事件只用于崩溃补偿，不能再次改变 DAG。
 - schema readiness 必须覆盖当前 Task 新增列，不能只检查早期 Phase 12B 列，否则滚动发布会把未迁移数据库误判为可用。
 
+## 2026-07-15 Phase 12B Task 9 发现
+
+- 只把 Planner prompt 的工具列表换成 SkillPolicyView 还不够。结构化模型校验若继续读取默认全局白名单，模型仍可选择当前装配已移除的 Skill；Planner 必须用自身冻结快照二次校验决策。
+- Catalog 和 SkillPolicyView 分别控制 Handler 契约与治理门禁。两者 ID 或精确版本漂移时不能拖到首次调用才抛异常，Executor 必须在启动装配阶段 fail-closed。
+- 生产消费者迁移不要求提前删除 ToolRegistry Facade。保留旧测试和位置参数鸭子类型兼容，可以把 Phase 14 的删除动作与本阶段治理事实源切换解耦。
+- BLOCK 与 hard-gate 的语义不能只靠风险等级近似。Hook、Legacy Executor 和不支持 pending 的确定性 Flow 都必须读取真实 `gate_decision`；BLOCK 需在 Reducer、Repository、Runtime 或审计副作用前终止。
+- 旧 Registry 兼容参数不能作为运行时策略对象继续保存。正确做法是启动时核对其与 Catalog 投影一致，随后丢弃旧对象并持有新的冻结 SkillPolicyView。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

@@ -444,6 +444,13 @@
 - Task 7 审查整改覆盖非规范 Proposal、滚动迁移前 CARD_BATCH 兼容、两个 PostgreSQL Worker 的 `SKIP LOCKED`、验证后迟到冲突和全部 READY 转换路径。最终 unit `922 passed`，integration `95 passed, 3 deselected`。
 - Task 8 发现 PlanRun 初始输入不足以支持不可变 Replan，已新增 D-098：PlanVersion 保存 planning input、failure signature 与 input fingerprint。首个 RED 为 `2 failed`（缺少模块），内存 GREEN 为 `2 passed`，已证明单商品指纹变化时只复用另外两张成功手卡且不复制 NodeRun。
 - Task 8 已完成 root 级内存/PostgreSQL CAS、版本 2/3 预算、等价循环冻结、跨版本复用链、Worker 读取版本输入与旧 NodeRun 输出、Application 部分提交补偿和旧 source version 拒绝。最终 unit `930 passed`、integration `96 passed, 3 deselected`，独立复审无剩余阻断。
+- Phase 12B Task 9 RED 为 `7 failed, 21 passed`：生产目录仍有 10 处 ToolRegistry import，ToolMaskPolicy、AgentLifecycleHooks 和 AgentToolExecutor 尚不能消费 SkillPolicyView。
+- Task 9 GREEN 将 Planner、Policy、Hook、四个 Flow、AgentToolExecutor 与 SkillExecutor 全部迁入启动冻结的 SkillPolicyView；ToolRegistry Facade 与兼容测试继续保留到 Phase 14，生产 import 扫描为 0。
+- 自审新增 Catalog/PolicyView 装配漂移和 Planner 注入白名单被模型绕过两项 RED，均得到预期失败；修复为 Executor 启动拒绝版本集合漂移，以及 Planner 对结构化 LLM 决策执行当前快照二次校验。
+- Task 9 首次独立审查复现 BLOCK 继续 Legacy/Flow、版本快照分裂、未知 lifecycle 默认 PRE_LIVE 和旧 Registry 可变引用等安全问题；新增 7 个红灯后修复为启动转换冻结、全治理一致性断言和副作用前强制门禁。
+- 二次审查发现 Harness Hook 尚未读取 `gate_decision`；补充低风险 BLOCK 红灯并让 Hook 先执行通用门禁。最终复核确认原问题全部清零，无阻断或重要项。
+- 并行全量时一个 20ms deadline 测试因资源竞争在 Handler 前到期；单独重复 10 次零失败，随后串行完整 unit 全绿，未修改生产 deadline 分类。
+- Task 9 最终专项为 `124 passed`，完整 unit 为 `943 passed, 4 warnings`，完整 integration 为 `96 passed, 3 deselected, 5 warnings`；生产 ToolRegistry import 为 0。
 
 # 2026-07-11 Phase 7A 进度
 

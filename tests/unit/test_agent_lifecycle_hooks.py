@@ -12,9 +12,20 @@ from __future__ import annotations
 import pytest
 
 from src.core.agent_lifecycle_hooks import AgentLifecycleHooks, HookResult
+from src.core.security_hooks import GateDecision
+from src.skill_runtime.catalog import get_default_skill_catalog
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 
 
 class TestPreToolCallHook:
+
+    def test_accepts_startup_frozen_skill_policy_view(self):
+        """Hook 使用调用方注入的治理快照，未知能力继续 fail-closed。"""
+
+        hooks = AgentLifecycleHooks(policy_view=get_default_skill_policy_view())
+        result = hooks.pre_tool_call("missing_skill", {}, 0, "ON_LIVE")
+        assert result.allowed is False
+        assert result.auto_execute is False
 
     def test_unknown_tool_is_rejected(self):
         """未注册工具应被拒绝。"""
@@ -22,6 +33,36 @@ class TestPreToolCallHook:
         result = hooks.pre_tool_call("unknown_tool", {}, 0, "ON_LIVE")
         assert result.allowed is False
         assert "unknown" in result.reason.lower() or "未注册" in result.reason
+
+    def test_unknown_lifecycle_is_rejected_instead_of_assuming_pre_live(self):
+        """任意未知生命周期都必须 fail-closed，不能默认为播前。"""
+
+        hooks = AgentLifecycleHooks()
+        result = hooks.pre_tool_call("query_products", {}, 0, "NOT_A_STAGE")
+        assert result.allowed is False
+        assert result.auto_execute is False
+        assert "lifecycle" in result.reason.lower()
+
+    def test_block_gate_is_rejected_before_risk_and_repeat_checks(self):
+        """低风险能力一旦被治理策略 BLOCK，Hook 也不得自动放行。"""
+
+        policy_view = SkillPolicyView(
+            [
+                manifest.model_copy(update={"gate_decision": GateDecision.BLOCK})
+                if manifest.skill_id == "aggregate_danmaku_questions"
+                else manifest
+                for manifest in get_default_skill_catalog()
+            ]
+        )
+        hooks = AgentLifecycleHooks(policy_view=policy_view)
+
+        result = hooks.pre_tool_call(
+            "aggregate_danmaku_questions", {}, 0, "ON_LIVE"
+        )
+
+        assert result.allowed is False
+        assert result.auto_execute is False
+        assert "blocked" in result.reason.lower()
 
     def test_wrong_lifecycle_is_rejected(self):
         """生命周期不匹配的工具应被拒绝。"""

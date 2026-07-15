@@ -33,6 +33,8 @@ from src.skill_runtime.models import (
 
 # 确保四个核心 Handler 已注册，测试替换后可以恢复原实例。
 import src.skill_runtime.pre_live_handlers  # noqa: F401, E402
+from src.skill_runtime.catalog import get_default_skill_catalog
+from src.skill_runtime.policy_view import SkillPolicyView
 
 
 class FakeHandler(_SkillHandler):
@@ -87,6 +89,21 @@ def _build_call(
 
 
 # ── 测试 ────────────────────────────────────────────────────────────────
+
+
+def test_executor_rejects_catalog_policy_drift_at_construction() -> None:
+    """缺少能力或版本不一致的治理快照必须在启动装配阶段 fail-closed。"""
+
+    incomplete_view = SkillPolicyView(
+        [
+            manifest
+            for manifest in get_default_skill_catalog()
+            if manifest.skill_id != "query_products"
+        ]
+    )
+
+    with pytest.raises(ValueError, match="Catalog"):
+        SkillExecutor(policy_view=incomplete_view)
 
 
 def test_unknown_skill_fails_before_handler() -> None:

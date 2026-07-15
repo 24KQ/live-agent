@@ -14,6 +14,8 @@ from unittest.mock import patch
 import pytest
 
 from src.core.agent_harness_context import AgentContextResult
+from src.skill_runtime.catalog import get_default_skill_catalog
+from src.skill_runtime.policy_view import SkillPolicyView
 from src.skills.on_live_harness_planner import (
     OnLiveHarnessPlanner,
     build_harness_prompt,
@@ -140,6 +142,44 @@ def test_llm_valid_decision_is_used() -> None:
         )
     assert decision.action == "final_answer"
     assert "券后价" in decision.final_suggestion
+
+
+def test_llm_cannot_select_skill_excluded_by_injected_policy_view() -> None:
+    """Prompt 约束失效时，Planner 仍须按自身冻结快照拒绝已移除能力。"""
+
+    policy_view = SkillPolicyView(
+        [
+            manifest
+            for manifest in get_default_skill_catalog()
+            if manifest.skill_id != "aggregate_danmaku_questions"
+        ]
+    )
+    planner = OnLiveHarnessPlanner(api_key="test-key", policy_view=policy_view)
+    llm_json = """
+    {
+      "thought": "尝试调用已移除能力",
+      "action": "call_tool",
+      "tool_name": "aggregate_danmaku_questions",
+      "arguments": {},
+      "final_suggestion": null,
+      "risk_level": "LOW"
+    }
+    """
+    from src.skills.llm_client import LLMResponse
+
+    with patch.object(planner._llm_client, "call", return_value=LLMResponse(content=llm_json)):
+        decision = planner.plan_next_step(
+            context=_context(),
+            danmaku_summary=[{"category": "price", "count": 15}],
+            inventory_alerts=[],
+            observations=[],
+        )
+
+    assert not (
+        decision.action == "call_tool"
+        and decision.tool_name == "aggregate_danmaku_questions"
+    )
+    assert decision.fallback_reason is not None
 
 
 def test_llm_failure_falls_back_to_phase5f_planner() -> None:

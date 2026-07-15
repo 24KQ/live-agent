@@ -10,9 +10,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.audit.tool_call_audit import AuditEvent, ToolCallAuditStore
-from src.config.tool_registry import get_default_tool_registry
 from src.core.human_approval import HumanApprovalDecision, HumanApprovalRequest, HumanApprovalResponse
-from src.core.security_hooks import GateResult, evaluate_tool_gate
+from src.core.security_hooks import (
+    GateResult,
+    evaluate_tool_gate,
+    require_allowed_tool_gate,
+)
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 from src.skills.live_plan_generator import LivePlanDraft, generate_live_plan
 from src.skills.product_card_generator import ProductCard, generate_product_card
 from src.skills.product_catalog import CatalogProduct, ProductCatalogRepository
@@ -37,16 +41,22 @@ class PreLiveBusinessFlowResult:
 class PreLiveBusinessFlowService:
     """播前业务流应用服务。"""
 
-    def __init__(self, catalog_repository: ProductCatalogRepository, audit_store: ToolCallAuditStore) -> None:
+    def __init__(
+        self,
+        catalog_repository: ProductCatalogRepository,
+        audit_store: ToolCallAuditStore,
+        *,
+        policy_view: SkillPolicyView | None = None,
+    ) -> None:
         self._catalog_repository = catalog_repository
         self._audit_store = audit_store
-        self._registry = get_default_tool_registry()
+        self._policy_view = policy_view or get_default_skill_policy_view()
 
     def prepare_room(self, room_id: str, trace_id: str, confirmed_setup: bool) -> PreLiveBusinessFlowResult:
         """执行播前准备闭环。
 
         流程固定为查询货盘、生成排品、生成前三个商品手卡、模拟建播确认。每一步都
-        经过工具注册表和安全 Hook，且生成审计记录，方便后续按 trace_id 回放。
+        经过 Skill 治理视图和安全 Hook，且生成审计记录，方便后续按 trace_id 回放。
         """
 
         products = self.query_products(room_id=room_id, trace_id=trace_id)
@@ -71,13 +81,13 @@ class PreLiveBusinessFlowService:
         """查询数据库货盘并写入审计。"""
 
         tool = self._require_pre_live_tool("query_products")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         products = self._catalog_repository.list_room_products(room_id)
         self._audit_store.record_event(
             AuditEvent(
                 trace_id=trace_id,
                 room_id=room_id,
-                tool_name=tool.name,
+                tool_name=tool.skill_id,
                 action_type=ActionType.QUERY_PRODUCTS,
                 risk_level=tool.risk_level,
                 gate_decision=gate.decision,
@@ -92,13 +102,13 @@ class PreLiveBusinessFlowService:
         """生成排品草案并写入审计。"""
 
         tool = self._require_pre_live_tool("generate_live_plan")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         plan = generate_live_plan(room_id=room_id, products=products, trace_id=trace_id)
         self._audit_store.record_event(
             AuditEvent(
                 trace_id=trace_id,
                 room_id=room_id,
-                tool_name=tool.name,
+                tool_name=tool.skill_id,
                 action_type=ActionType.GENERATE_LIVE_PLAN,
                 risk_level=tool.risk_level,
                 gate_decision=gate.decision,
@@ -142,13 +152,13 @@ class PreLiveBusinessFlowService:
         generate_cards 继续保留供旧 Workflow 使用。
         """
         tool = self._require_pre_live_tool("generate_product_card")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         card = generate_product_card(product)
         self._audit_store.record_event(
             AuditEvent(
                 trace_id=trace_id,
                 room_id=room_id,
-                tool_name=tool.name,
+                tool_name=tool.skill_id,
                 action_type=ActionType.GENERATE_PRODUCT_CARD,
                 risk_level=tool.risk_level,
                 gate_decision=gate.decision,
@@ -191,7 +201,7 @@ class PreLiveBusinessFlowService:
             AuditEvent(
                 trace_id=trace_id,
                 room_id=room_id,
-                tool_name=tool.name,
+                tool_name=tool.skill_id,
                 action_type=ActionType.SETUP_LIVE_SESSION,
                 risk_level=tool.risk_level,
                 gate_decision=gate.decision,
@@ -267,7 +277,7 @@ class PreLiveBusinessFlowService:
     def _require_pre_live_tool(self, tool_name: str):
         """读取工具元数据，并确保该工具只在播前阶段开放。"""
 
-        tool = self._registry.get(tool_name)
-        if not self._registry.is_available(tool.name, LifecycleStage.PRE_LIVE):
-            raise ValueError(f"tool {tool.name} is not available in PRE_LIVE")
+        tool = self._policy_view.get(tool_name)
+        if not self._policy_view.is_available(tool.skill_id, LifecycleStage.PRE_LIVE):
+            raise ValueError(f"tool {tool.skill_id} is not available in PRE_LIVE")
         return tool

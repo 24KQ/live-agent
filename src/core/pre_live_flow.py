@@ -1,6 +1,6 @@
 """播前最小可控闭环服务。
 
-该服务串联工具注册表、安全 Hook、Reducer 和审计 Store。它仍然不接 LLM，
+该服务串联 Skill 治理视图、安全 Hook、Reducer 和审计 Store。它仍然不接 LLM，
 改价建议和确认状态都由调用方传入，便于 Phase 1 先验证工程控制边界。
 """
 
@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from src.audit.tool_call_audit import AuditEvent, ToolCallAuditStore
-from src.config.tool_registry import get_default_tool_registry
 from src.core.security_hooks import GateResult, evaluate_tool_gate
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 from src.state.models import Action, ActionType, LiveRoomState
 from src.state.reducer import apply_action
 
@@ -29,9 +29,14 @@ class PreLiveFlowResult:
 class PreLiveFlowService:
     """Phase 1 播前流程应用服务。"""
 
-    def __init__(self, audit_store: ToolCallAuditStore) -> None:
+    def __init__(
+        self,
+        audit_store: ToolCallAuditStore,
+        *,
+        policy_view: SkillPolicyView | None = None,
+    ) -> None:
         self._audit_store = audit_store
-        self._registry = get_default_tool_registry()
+        self._policy_view = policy_view or get_default_skill_policy_view()
 
     def request_price_change(
         self,
@@ -47,9 +52,9 @@ class PreLiveFlowService:
         保持不变；确认后才构造 SET_PRICE Action 并进入 Reducer。
         """
 
-        tool = self._registry.get("set_product_price")
-        if not self._registry.is_available(tool.name, state.lifecycle):
-            raise ValueError(f"tool {tool.name} is not available in lifecycle {state.lifecycle}")
+        tool = self._policy_view.get("set_product_price")
+        if not self._policy_view.is_available(tool.skill_id, state.lifecycle):
+            raise ValueError(f"tool {tool.skill_id} is not available in lifecycle {state.lifecycle}")
 
         gate_result = evaluate_tool_gate(tool, confirmed=confirmed)
         request_payload = {"product_id": product_id, "price": str(new_price)}
@@ -59,7 +64,7 @@ class PreLiveFlowService:
                 AuditEvent(
                     trace_id=trace_id,
                     room_id=state.room_id,
-                    tool_name=tool.name,
+                    tool_name=tool.skill_id,
                     action_type=ActionType.SET_PRICE,
                     risk_level=tool.risk_level,
                     gate_decision=gate_result.decision,
@@ -82,7 +87,7 @@ class PreLiveFlowService:
             AuditEvent(
                 trace_id=trace_id,
                 room_id=state.room_id,
-                tool_name=tool.name,
+                tool_name=tool.skill_id,
                 action_type=ActionType.SET_PRICE,
                 risk_level=tool.risk_level,
                 gate_decision=gate_result.decision,
@@ -105,8 +110,8 @@ class PreLiveFlowService:
         引入样例商品数据和持久化查询。
         """
 
-        tool = self._registry.get("query_products")
-        if not self._registry.is_available(tool.name, state.lifecycle):
+        tool = self._policy_view.get("query_products")
+        if not self._policy_view.is_available(tool.skill_id, state.lifecycle):
             raise ValueError(f"query_products is only available in PRE_LIVE, current lifecycle is {state.lifecycle}")
         return [
             {

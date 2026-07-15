@@ -10,9 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.config.tool_registry import get_default_tool_registry, ToolNotFoundError
-from src.state.models import LifecycleStage, RiskLevel
+from src.skill_runtime.policy_view import (
+    SkillPolicyNotFoundError,
+    SkillPolicyView,
+    get_default_skill_policy_view,
+)
+from src.state.models import LifecycleStage
 from src.core.agent_decision import AgentObservation
+from src.core.security_hooks import evaluate_tool_gate
 
 
 @dataclass
@@ -23,37 +28,27 @@ class HookResult:
     reason: str = ""
 
 
-_TOOL_RISK_MAP: dict[str, str] = {}
-
-
-def _init_risk_map():
-    """从 ToolRegistry 加载工具风险等级映射。"""
-    global _TOOL_RISK_MAP
-    if _TOOL_RISK_MAP:
-        return
-    try:
-        registry = get_default_tool_registry()
-        for name in registry.tool_names():
-            try:
-                meta = registry.get(name)
-                _TOOL_RISK_MAP[name] = meta.risk_level.value if hasattr(meta.risk_level, "value") else str(meta.risk_level)
-            except (ToolNotFoundError, Exception):
-                pass
-    except Exception:
-        pass
-
-
 class AgentLifecycleHooks:
     """生命周期钩子集。"""
 
-    def __init__(self, max_repeated_calls: int = 3):
+    def __init__(
+        self,
+        max_repeated_calls: int = 3,
+        *,
+        policy_view: SkillPolicyView | None = None,
+    ) -> None:
         self._max_repeated = max_repeated_calls
         self._call_history: list[tuple[str, str]] = []
-        _init_risk_map()
+        # 每个 Hook 实例持有启动冻结快照，避免模块全局缓存把测试或重装配的策略串线。
+        self._policy_view = policy_view or get_default_skill_policy_view()
+        self._risk_map = {
+            skill_id: self._policy_view.get(skill_id).risk_level.value
+            for skill_id in self._policy_view.skill_ids()
+        }
 
     def _get_risk_level(self, tool_name: str) -> str:
         """获取工具风险等级，未知工具返回 HIGH。"""
-        return _TOOL_RISK_MAP.get(tool_name, "HIGH")
+        return self._risk_map.get(tool_name, "HIGH")
 
     def _repeated_call_count(self, tool_name: str) -> int:
         """检查最近连续调用同一工具的次数。"""
@@ -79,16 +74,38 @@ class AgentLifecycleHooks:
     ) -> HookResult:
         """工具调用前校验。"""
 
-        registry = get_default_tool_registry()
-
         try:
-            meta = registry.get(tool_name)
-        except ToolNotFoundError:
+            meta = self._policy_view.get(tool_name)
+        except SkillPolicyNotFoundError:
             return HookResult(allowed=False, auto_execute=False, reason="tool not registered: " + tool_name)
 
-        lifecycle_enum = LifecycleStage.ON_LIVE if lifecycle == "ON_LIVE" else LifecycleStage.PRE_LIVE
+        try:
+            lifecycle_enum = LifecycleStage(lifecycle)
+        except ValueError:
+            # 未知阶段不能默认为 PRE_LIVE，否则拼写错误会把播前低风险能力意外放行。
+            return HookResult(
+                allowed=False,
+                auto_execute=False,
+                reason="unknown lifecycle: " + lifecycle,
+            )
         if lifecycle_enum not in meta.lifecycle:
             return HookResult(allowed=False, auto_execute=False, reason="lifecycle mismatch: " + str(meta.lifecycle))
+
+        gate = evaluate_tool_gate(meta, confirmed=False)
+        if not gate.allowed:
+            if gate.requires_confirmation:
+                self._call_history.append((tool_name, "blocked_gate_pending"))
+                return HookResult(
+                    allowed=True,
+                    auto_execute=False,
+                    reason=gate.reason,
+                )
+            self._call_history.append((tool_name, "blocked_gate"))
+            return HookResult(
+                allowed=False,
+                auto_execute=False,
+                reason="blocked by security gate: " + gate.reason,
+            )
 
         risk = self._get_risk_level(tool_name)
 

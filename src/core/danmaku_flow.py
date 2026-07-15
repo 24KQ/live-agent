@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.audit.tool_call_audit import AuditEvent, ToolCallAuditStore
-from src.config.tool_registry import get_default_tool_registry
-from src.core.security_hooks import evaluate_tool_gate
+from src.core.security_hooks import require_allowed_tool_gate
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 from src.skills.danmaku_aggregator import DanmakuQuestionGroup, aggregate_danmaku_questions
 from src.skills.danmaku_events import DanmakuEvent
 from src.skills.danmaku_reply_generator import DanmakuReply, generate_danmaku_reply
@@ -32,9 +32,14 @@ class DanmakuFlowResult:
 class DanmakuFlowService:
     """播中弹幕应用服务。"""
 
-    def __init__(self, audit_store: ToolCallAuditStore) -> None:
+    def __init__(
+        self,
+        audit_store: ToolCallAuditStore,
+        *,
+        policy_view: SkillPolicyView | None = None,
+    ) -> None:
         self._audit_store = audit_store
-        self._registry = get_default_tool_registry()
+        self._policy_view = policy_view or get_default_skill_policy_view()
 
     def handle_danmaku_batch(self, state: LiveRoomState, events: list[DanmakuEvent]) -> DanmakuFlowResult:
         """处理一批本地模拟弹幕事件。
@@ -72,7 +77,7 @@ class DanmakuFlowService:
         """调用聚合工具并写入聚合摘要审计。"""
 
         tool = self._require_on_live_tool("aggregate_danmaku_questions")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         groups = aggregate_danmaku_questions(events, window_seconds=5)
         trace_id = events[0].trace_id
         audit_ids.append(
@@ -80,7 +85,7 @@ class DanmakuFlowService:
                 AuditEvent(
                     trace_id=trace_id,
                     room_id=state.room_id,
-                    tool_name=tool.name,
+                    tool_name=tool.skill_id,
                     action_type=ActionType.AGGREGATE_DANMAKU_QUESTIONS,
                     risk_level=tool.risk_level,
                     gate_decision=gate.decision,
@@ -104,7 +109,7 @@ class DanmakuFlowService:
         """为每个聚合问题生成参考回复并写入审计。"""
 
         tool = self._require_on_live_tool("generate_danmaku_reply")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         replies: list[DanmakuReply] = []
         for group in groups:
             reply = generate_danmaku_reply(group)
@@ -114,7 +119,7 @@ class DanmakuFlowService:
                     AuditEvent(
                         trace_id=group.trace_id,
                         room_id=state.room_id,
-                        tool_name=tool.name,
+                        tool_name=tool.skill_id,
                         action_type=ActionType.GENERATE_DANMAKU_REPLY,
                         risk_level=tool.risk_level,
                         gate_decision=gate.decision,
@@ -129,9 +134,9 @@ class DanmakuFlowService:
     def _require_on_live_tool(self, tool_name: str):
         """读取播中工具元数据，并确保工具只在 ON_LIVE 阶段开放。"""
 
-        tool = self._registry.get(tool_name)
-        if not self._registry.is_available(tool.name, LifecycleStage.ON_LIVE):
-            raise ValueError(f"tool {tool.name} is not available in ON_LIVE")
+        tool = self._policy_view.get(tool_name)
+        if not self._policy_view.is_available(tool.skill_id, LifecycleStage.ON_LIVE):
+            raise ValueError(f"tool {tool.skill_id} is not available in ON_LIVE")
         return tool
 
 

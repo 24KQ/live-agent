@@ -1,10 +1,10 @@
 """Phase 5A Agent Tool Executor。
 
 LLM planner 选定的工具调用，不直接执行，而是由 AgentToolExecutor
-在 ToolRegistry 白名单内校验、权限检查、审计后执行。
+在 SkillPolicyView 白名单内校验、权限检查、审计后执行。
 
 执行前必须检查：
-- 工具是否在 ToolRegistry 注册
+- Skill 是否在 Catalog 治理视图注册
 - 工具生命周期是否匹配当前阶段
 - 参数是否符合工具 Schema（暂做基本检查）
 - 高风险工具必须经过 hard-gate
@@ -20,7 +20,6 @@ from typing import Any
 import jsonschema
 from pydantic import ValidationError
 
-from src.config.tool_registry import ToolNotFoundError, ToolRegistry
 from src.core.agent_decision import AgentObservation
 from src.core.security_hooks import evaluate_tool_gate
 from src.skill_runtime.catalog import get_default_skill_catalog
@@ -33,6 +32,11 @@ from src.skill_runtime.compatibility import (
 from src.skill_runtime.executor import SkillExecutor, SyncSkillExecutorAdapter
 from src.skill_runtime.models import SkillCall, SkillExecutionContext, SkillExecutionRoute
 from src.skill_runtime.pre_live_handlers import build_pre_live_handlers
+from src.skill_runtime.policy_view import (
+    SkillPolicyView,
+    assert_policy_view_matches_catalog,
+    get_default_skill_policy_view,
+)
 from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.state.models import LifecycleStage
 
@@ -40,23 +44,31 @@ from src.state.models import LifecycleStage
 class AgentToolExecutor:
     """白名单工具执行器。
 
-    在 ToolRegistry 校验通过后，把工具调用转发给 PreLiveBusinessFlowService。
+    在 SkillPolicyView 校验通过后，把工具调用转发给 PreLiveBusinessFlowService。
     每次执行返回 AgentObservation，包含状态、摘要和 audit_id。
     """
 
     def __init__(
         self,
-        registry: ToolRegistry,
-        pre_live_service: Any,
+        registry: Any | None = None,
+        pre_live_service: Any | None = None,
         skill_executor: SyncSkillExecutorAdapter | None = None,
         route_policy: RoutePolicy | None = None,
+        *,
+        policy_view: SkillPolicyView | None = None,
     ) -> None:
         """保留原有两参数构造方式，并允许测试或装配层注入同步 Runtime 适配器。
 
         默认适配器使用与 legacy 入口相同的播前服务实例创建四个 Handler，确保货盘、
         审计和幂等存储保持一致；注入能力只用于隔离测试和上层显式装配。
         """
-        self._registry = registry
+        # ``registry`` 仅保留旧位置参数的启动转换兼容。转换完成后内部只保存冻结的
+        # SkillPolicyView，旧 Facade 中的可变集合不能在调用期间改变执行权限。
+        self._policy_view = self._resolve_policy_view(registry, policy_view)
+        catalog = tuple(get_default_skill_catalog())
+        assert_policy_view_matches_catalog(catalog, self._policy_view)
+        if pre_live_service is None:
+            raise TypeError("pre_live_service is required")
         self._service = pre_live_service
         # RoutePolicy 是启动装配快照；执行期间不重新读取 Settings 或环境变量。
         # 默认全部 LEGACY，避免 Phase 11B 未显式灰度时自动进入新执行链。
@@ -65,11 +77,58 @@ class AgentToolExecutor:
         # Catalog 是唯一版本事实源。装配时复制成只读快照，确保同一 Executor 生命周期
         # 内的调用不会因外部配置或 Catalog 重装配而悄然改变 Skill 版本钉住结果。
         self._skill_versions = MappingProxyType(
-            {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
+            {
+                skill_id: self._policy_view.get(skill_id).version
+                for skill_id in self._policy_view.skill_ids()
+            }
         )
         self._skill_executor = skill_executor or SyncSkillExecutorAdapter(
-            SkillExecutor(handlers=build_pre_live_handlers(pre_live_service))
+            SkillExecutor(
+                handlers=build_pre_live_handlers(pre_live_service),
+                policy_view=self._policy_view,
+            )
         )
+
+    @staticmethod
+    def _resolve_policy_view(
+        registry: Any | None,
+        policy_view: SkillPolicyView | None,
+    ) -> SkillPolicyView:
+        """把旧 Registry 参数校验后转换为默认冻结策略快照。
+
+        旧 Facade 缺少授权要求字段，不能直接重建完整 SkillPolicy。兼容调用只接受与
+        当前默认 Catalog 投影完全一致的 Registry；任何自定义差异都在启动时拒绝，
+        一致时丢弃旧对象并返回由 Catalog 新建的不可变策略视图。
+        """
+
+        if registry is not None and policy_view is not None:
+            raise ValueError("registry and policy_view cannot be provided together")
+        if policy_view is not None:
+            return policy_view
+
+        frozen_view = get_default_skill_policy_view()
+        if registry is None:
+            return frozen_view
+        try:
+            registry_names = tuple(sorted(registry.tool_names()))
+            if registry_names != frozen_view.skill_ids():
+                raise ValueError("legacy registry does not match Skill Catalog")
+            for skill_id in registry_names:
+                legacy = registry.get(skill_id)
+                policy = frozen_view.get(skill_id)
+                if (
+                    legacy.name != policy.skill_id
+                    or legacy.lifecycle != policy.lifecycle
+                    or legacy.risk_level != policy.risk_level
+                    or legacy.parameter_schema != policy.parameter_schema
+                    or legacy.gate_decision != policy.gate_decision
+                    or legacy.requires_idempotency_key
+                    != policy.requires_idempotency_key
+                ):
+                    raise ValueError("legacy registry does not match Skill Catalog")
+        except (AttributeError, TypeError) as exc:
+            raise TypeError("registry is not a compatible governance projection") from exc
+        return frozen_view
 
     def execute(
         self,
@@ -92,8 +151,8 @@ class AgentToolExecutor:
 
         # Step 1: 工具注册校验
         try:
-            tool = self._registry.get(tool_name)
-        except ToolNotFoundError:
+            tool = self._policy_view.get(tool_name)
+        except KeyError:
             return AgentObservation(
                 tool_name=tool_name,
                 status="error",
@@ -102,7 +161,7 @@ class AgentToolExecutor:
             )
 
         # Step 2: 生命周期校验
-        if not self._registry.is_available(tool_name, lifecycle_stage):
+        if not self._policy_view.is_available(tool_name, lifecycle_stage):
             return AgentObservation(
                 tool_name=tool_name,
                 status="error",
@@ -124,11 +183,19 @@ class AgentToolExecutor:
 
         # Step 3: LEGACY 路径继续沿用原安全门禁和旧服务派发。
         gate = evaluate_tool_gate(tool, confirmed=False)
-        if not gate.allowed and gate.requires_confirmation:
+        if not gate.allowed:
+            if gate.requires_confirmation:
+                return AgentObservation(
+                    tool_name=tool_name,
+                    status="pending",
+                    summary=f"{tool_name} requires human approval (hard-gate)",
+                    audit_id=None,
+                )
+            # BLOCK 没有审批恢复语义，必须在 legacy dispatch 和业务副作用前终止。
             return AgentObservation(
                 tool_name=tool_name,
-                status="pending",
-                summary=f"{tool_name} requires human approval (hard-gate)",
+                status="error",
+                summary=f"{tool_name} is blocked by security policy",
                 audit_id=None,
             )
 
@@ -311,10 +378,10 @@ class AgentToolExecutor:
         """派发 LEGACY 路径工具；Runtime 路由失败不会进入本方法。"""
         # Step 4a: jsonschema 是 Phase 11B 声明依赖，legacy 路径也必须强制校验。
         try:
-            tool = self._registry.get(tool_name)
+            tool = self._policy_view.get(tool_name)
             if tool.parameter_schema and tool_name not in CORE_SKILL_IDS:
                 jsonschema.validate(instance=arguments, schema=tool.parameter_schema)
-        except ToolNotFoundError:
+        except KeyError:
             pass  # already checked in execute()
         except jsonschema.ValidationError as exc:
             return AgentObservation(

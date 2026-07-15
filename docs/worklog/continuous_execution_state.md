@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 8：增量 Replan 与结果复用（验证完成，等待本次提交） |
+| 最近完成任务 | Phase 12B Task 8：增量 Replan 与结果复用（已提交并推送） |
 | 下一任务 | Task 9：SkillPolicyView 生产消费者迁移 |
-| 下一任务状态 | `PENDING` |
-| 当前子步骤 | Task 8 全量与复审通过，准备提交推送后进入 Task 9 RED |
+| 下一任务状态 | `IN_PROGRESS` |
+| 当前子步骤 | Task 9 COMMIT：安全审查整改与复核通过，准备精确暂存并推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `703f072 feat: run sold out emergency plans` |
-| 远端状态 | `origin/main=703f072` |
+| 当前业务基线 | `e98df2a feat: incrementally replan card batches` |
+| 远端状态 | `origin/main=e98df2a` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -28,17 +28,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 8
+Phase / Task: Phase 12B / Task 9
 状态: VERIFY
-目标: 在 root 级 CAS 下创建不可变新 PlanVersion，合并事件、最小失效并引用复用旧成功结果
-禁止事项: 不覆盖旧版本/PlanRun 初始输入，不复制 NodeRun，不绕过版本 3 预算或循环签名门禁，不接 Harness
-当前 HEAD: 703f072
-本 Task 文件: replan.py、models.py、store.py、bindings.py、Phase 12B migration、Task 8 单元与 PostgreSQL 测试、状态文档
+目标: 将全部生产治理消费者迁移到启动冻结的 SkillPolicyView，并清空 ToolRegistry 生产导入
+禁止事项: 不删除 ToolRegistry Facade，不改变未知 Skill、生命周期、风险、门禁、Schema 或精确版本的 fail-closed 语义
+当前 HEAD: e98df2a
+本 Task 文件: Planner、Policy、Hook、Flow、AgentToolExecutor、SkillExecutor、SkillPolicyView 测试与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 8 专项 unit 8 passed、PostgreSQL CAS 1 passed；完整 unit 930 passed, 4 warnings；完整 integration 96 passed, 3 deselected, 5 warnings；复审 31 passed 且无剩余阻断
-错误与尝试次数: 3；修正测试自身 FrozenDict hash；修正 Worker 误读不存在 claim.version_number；修正 InMemory list_node_runs 只允许当前版本导致复用链不可读
-设计偏差与决策编号: D-025、D-068、D-080、D-081、D-094；D-098 新增 PlanVersion 级 planning_input/failure_signature/input_fingerprint，修复旧输入无法支持真实 Replan 的缺口
-下一条精确操作: 严格编码与差异检查，精确暂存 Task 8 文件并提交推送；随后扫描 Task 9 ToolRegistry 生产消费者并编写 RED
+最近命令与结果: 初始 RED 7 failed/21 passed；审查整改 RED 7 failed 后转绿；最终专项 124 passed；完整 unit 943 passed；完整 integration 96 passed, 3 deselected；生产旧 import 0 命中
+错误与尝试次数: 2；严格编码首次发现 10 个补丁目标混合换行并已统一 LF；并行全量时 20ms deadline 测试一次资源竞争失败，单独重复 10 次及完整 unit 串行复跑均通过，未放宽生产语义
+设计偏差与决策编号: 无；按冻结计划保留 ToolRegistry Facade 到 Phase 14，只迁移生产消费者
+下一条精确操作: 运行最终静态门禁，精确暂存 Task 9 文件并提交推送
 模型费用累计: 0 元
 ```
 
@@ -114,6 +114,8 @@ Phase / Task: Phase 12B / Task 8
 | Phase 12B Task 8 RED/GREEN | 首个 RED `2 failed`；最终 Replan unit `8 passed`；PostgreSQL 双 Worker CAS `1 passed` |
 | Phase 12B Task 8 完整验证 | unit `930 passed, 4 warnings`；integration `96 passed, 3 deselected, 5 warnings` |
 | Phase 12B Task 8 恢复与审查 | Application 部分补偿、复用链、Store 锁内 superseded 复核、版本输入冻结和 source version 门禁均通过 |
+| Phase 12B Task 9 RED/GREEN | 初始 RED `7 failed, 21 passed`；安全审查整改 RED `7 failed`；最终专项 `124 passed`；生产 ToolRegistry import `0` 命中 |
+| Phase 12B Task 9 完整验证 | unit `943 passed, 4 warnings`；integration `96 passed, 3 deselected, 5 warnings`；独立复核无阻断或重要项 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

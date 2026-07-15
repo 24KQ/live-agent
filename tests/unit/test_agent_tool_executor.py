@@ -5,13 +5,18 @@
 """
 
 import pytest
+from dataclasses import replace
 from decimal import Decimal
 
-from src.config.tool_registry import get_default_tool_registry
+from src.config.tool_registry import ToolRegistry, get_default_tool_registry
 from src.core.agent_decision import AgentToolCall
 from src.core.agent_tool_executor import AgentToolExecutor
+from src.core.security_hooks import GateDecision
+from src.skill_runtime.catalog import get_default_skill_catalog
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.skills.product_catalog import CatalogProduct
+from src.state.models import LifecycleStage
 
 
 def _runtime_policy() -> RoutePolicy:
@@ -72,6 +77,88 @@ class FakeService:
 
 class TestAgentToolExecutor:
     """工具执行器测试。"""
+
+    def test_accepts_skill_policy_view_as_governance_snapshot(self):
+        """兼容执行器的治理查询必须来自启动冻结的 SkillPolicyView。"""
+
+        executor = AgentToolExecutor(
+            policy_view=get_default_skill_policy_view(),
+            pre_live_service=FakeService(),
+        )
+        observation = executor.execute(
+            tool_name="missing_skill",
+            arguments={},
+            room_id="room-001",
+            trace_id="trace-001",
+        )
+        assert observation.status == "error"
+        assert "not found" in observation.summary.lower()
+
+    def test_block_policy_stops_legacy_dispatch(self, monkeypatch):
+        """BLOCK 是绝对拒绝，不能因无需人工确认而落入 Legacy 执行。"""
+
+        manifests = [
+            manifest.model_copy(update={"gate_decision": GateDecision.BLOCK})
+            if manifest.skill_id == "query_products"
+            else manifest
+            for manifest in get_default_skill_catalog()
+        ]
+        monkeypatch.setattr(
+            "src.core.agent_tool_executor.get_default_skill_catalog",
+            lambda: tuple(manifests),
+        )
+        service = FakeService()
+        executor = AgentToolExecutor(
+            policy_view=SkillPolicyView(manifests),
+            pre_live_service=service,
+            # 该场景固定走 Legacy；注入不可调用对象可同时证明 BLOCK 不触碰 Runtime。
+            skill_executor=object(),  # type: ignore[arg-type]
+        )
+
+        observation = executor.execute(
+            "query_products", {}, "room-001", "trace-blocked"
+        )
+
+        assert observation.status == "error"
+        assert service.calls == []
+
+    def test_policy_version_drift_is_rejected_during_construction(self):
+        """兼容执行器与内部 Runtime 必须钉住同一精确 Skill 版本。"""
+
+        manifests = [
+            manifest.model_copy(update={"version": "9.9.9"})
+            if manifest.skill_id == "query_products"
+            else manifest
+            for manifest in get_default_skill_catalog()
+        ]
+
+        with pytest.raises(ValueError, match="Catalog"):
+            AgentToolExecutor(
+                policy_view=SkillPolicyView(manifests),
+                pre_live_service=FakeService(),
+            )
+
+    def test_legacy_registry_is_snapshotted_before_later_mutation(self):
+        """旧位置参数只能用于启动转换，后续可变集合不得改变执行权限。"""
+
+        default_registry = get_default_tool_registry()
+        registry = ToolRegistry(
+            [
+                replace(
+                    default_registry.get(skill_id),
+                    lifecycle=set(default_registry.get(skill_id).lifecycle),
+                )
+                for skill_id in default_registry.tool_names()
+            ]
+        )
+        executor = AgentToolExecutor(registry, FakeService())
+        registry.get("handle_sold_out_event").lifecycle.add(LifecycleStage.PRE_LIVE)
+
+        observation = executor.execute(
+            "handle_sold_out_event", {}, "room-001", "trace-registry-mutation"
+        )
+
+        assert observation.status == "error"
 
     def test_execute_whitelisted_tool_returns_success(self):
         """白名单内 query_products 应返回 success。"""

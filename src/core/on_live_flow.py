@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.audit.tool_call_audit import AuditEvent, ToolCallAuditStore
-from src.config.tool_registry import get_default_tool_registry
-from src.core.security_hooks import evaluate_tool_gate
+from src.core.security_hooks import require_allowed_tool_gate
+from src.skill_runtime.policy_view import SkillPolicyView, get_default_skill_policy_view
 from src.skills.backup_product_recommender import BackupProductNotFoundError, recommend_backup_product
 from src.skills.on_live_events import InventoryEvent, OnLiveEventType
 from src.skills.on_live_prompt import OnLivePrompt, generate_sold_out_prompt
@@ -32,9 +32,14 @@ class OnLiveFlowResult:
 class OnLiveFlowService:
     """播中事件应用服务。"""
 
-    def __init__(self, audit_store: ToolCallAuditStore) -> None:
+    def __init__(
+        self,
+        audit_store: ToolCallAuditStore,
+        *,
+        policy_view: SkillPolicyView | None = None,
+    ) -> None:
         self._audit_store = audit_store
-        self._registry = get_default_tool_registry()
+        self._policy_view = policy_view or get_default_skill_policy_view()
 
     def handle_sold_out_event(self, state: LiveRoomState, event: InventoryEvent) -> OnLiveFlowResult:
         """处理售罄事件。
@@ -76,7 +81,7 @@ class OnLiveFlowService:
         """调用 Reducer 下架售罄商品并记录审计。"""
 
         tool = self._require_on_live_tool("handle_sold_out_event")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         action = Action(
             action_type=ActionType.MARK_SOLD_OUT,
             product_id=event.product_id,
@@ -88,7 +93,7 @@ class OnLiveFlowService:
                 AuditEvent(
                     trace_id=event.trace_id,
                     room_id=event.room_id,
-                    tool_name=tool.name,
+                    tool_name=tool.skill_id,
                     action_type=ActionType.HANDLE_SOLD_OUT_EVENT,
                     risk_level=tool.risk_level,
                     gate_decision=gate.decision,
@@ -113,7 +118,7 @@ class OnLiveFlowService:
         """推荐备选商品；没有备选时写入人工接管审计。"""
 
         tool = self._require_on_live_tool("recommend_backup_product")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         try:
             backup_product = recommend_backup_product(state, sold_out_product_id=event.product_id)
             result_payload = {"status": "backup_found", "backup_product_id": backup_product.product_id}
@@ -126,7 +131,7 @@ class OnLiveFlowService:
                 AuditEvent(
                     trace_id=event.trace_id,
                     room_id=event.room_id,
-                    tool_name=tool.name,
+                    tool_name=tool.skill_id,
                     action_type=ActionType.RECOMMEND_BACKUP_PRODUCT,
                     risk_level=tool.risk_level,
                     gate_decision=gate.decision,
@@ -149,14 +154,14 @@ class OnLiveFlowService:
         """生成主播提示并写入审计。"""
 
         tool = self._require_on_live_tool("generate_on_live_prompt")
-        gate = evaluate_tool_gate(tool, confirmed=True)
+        gate = require_allowed_tool_gate(tool)
         prompt = generate_sold_out_prompt(sold_out_product=sold_out_product, backup_product=backup_product)
         audit_ids.append(
             self._audit_store.record_event(
                 AuditEvent(
                     trace_id=event.trace_id,
                     room_id=state.room_id,
-                    tool_name=tool.name,
+                    tool_name=tool.skill_id,
                     action_type=ActionType.GENERATE_ON_LIVE_PROMPT,
                     risk_level=tool.risk_level,
                     gate_decision=gate.decision,
@@ -174,7 +179,7 @@ class OnLiveFlowService:
     def _require_on_live_tool(self, tool_name: str):
         """读取播中工具元数据，并确保该工具只在 ON_LIVE 阶段开放。"""
 
-        tool = self._registry.get(tool_name)
-        if not self._registry.is_available(tool.name, LifecycleStage.ON_LIVE):
-            raise ValueError(f"tool {tool.name} is not available in ON_LIVE")
+        tool = self._policy_view.get(tool_name)
+        if not self._policy_view.is_available(tool.skill_id, LifecycleStage.ON_LIVE):
+            raise ValueError(f"tool {tool.skill_id} is not available in ON_LIVE")
         return tool

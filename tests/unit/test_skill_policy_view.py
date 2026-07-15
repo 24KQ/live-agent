@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 import importlib
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -117,3 +118,22 @@ def test_policy_view_lifecycle_query_uses_frozen_manifest_rules() -> None:
     assert view.is_available("generate_product_card", LifecycleStage.ON_LIVE) is False
     with pytest.raises(_policy_module().SkillPolicyNotFoundError):
         view.is_available("missing-skill", LifecycleStage.PRE_LIVE)
+
+
+def test_production_code_no_longer_imports_tool_registry_facade() -> None:
+    """Phase 14 删除 Facade 前，生产消费者必须先全部迁往策略视图。"""
+
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    facade = source_root / "config" / "tool_registry.py"
+    forbidden_imports: list[str] = []
+    for path in source_root.rglob("*.py"):
+        if path == facade:
+            continue
+        content = path.read_text(encoding="utf-8")
+        if (
+            "from src.config.tool_registry" in content
+            or "import src.config.tool_registry" in content
+        ):
+            forbidden_imports.append(str(path.relative_to(source_root)))
+
+    assert forbidden_imports == []

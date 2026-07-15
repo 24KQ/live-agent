@@ -17,7 +17,6 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator, ValidationError as JsonSchemaError
 
-from src.config.tool_registry import get_default_tool_registry
 from src.core.security_hooks import evaluate_tool_gate
 from src.skill_runtime.attempt_store import (
     AttemptInvariantError,
@@ -40,6 +39,11 @@ from src.skill_runtime.models import (
     SkillExecutionResult,
     SkillExecutionStatus,
     SkillManifest,
+)
+from src.skill_runtime.policy_view import (
+    SkillPolicyView,
+    assert_policy_view_matches_catalog,
+    get_default_skill_policy_view,
 )
 
 
@@ -97,9 +101,15 @@ class SkillExecutor:
         handlers: Mapping[str, _SkillHandler] | None = None,
         *,
         attempt_store: AttemptStore | None = None,
+        policy_view: SkillPolicyView | None = None,
     ) -> None:
         self._catalog = {manifest.skill_id: manifest for manifest in get_default_skill_catalog()}
-        self._tool_registry = get_default_tool_registry()
+        # Executor 与 Hook/Flow 共用同一治理投影类型；快照只在构造时生成一次。
+        self._policy_view = policy_view or get_default_skill_policy_view()
+        assert_policy_view_matches_catalog(
+            tuple(self._catalog.values()),
+            self._policy_view,
+        )
         self._handlers = dict(_HANDLERS if handlers is None else handlers)
         # 默认内存 Store 只保证当前 Executor 实例的安全重放；生产装配将在后续任务
         # 显式注入 PostgreSQL Store，不能把该实现误当成跨进程互斥机制。
@@ -261,7 +271,7 @@ class SkillExecutor:
         if isinstance(authorization, SkillExecutionResult):
             return authorization
         gate = evaluate_tool_gate(
-            self._tool_registry.get(call.skill_id),
+            self._policy_view.get(call.skill_id),
             confirmed=authorization,
         )
         if gate.allowed:
