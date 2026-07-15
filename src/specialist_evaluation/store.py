@@ -17,6 +17,8 @@ from psycopg.types.json import Jsonb
 from src.specialist_evaluation.models import (
     CaseAttempt,
     EvaluationManifest,
+    EvaluationManifestKind,
+    FormalManifestAuthorization,
     EvaluationRun,
     EvaluationRunClaim,
     EvaluationSplit,
@@ -32,6 +34,30 @@ from src.specialist_evaluation.models import (
 
 class EvaluationInvariantError(RuntimeError):
     """评估事实、唯一性或跨对象身份链违反不变量。"""
+
+
+def _assert_manifest_registration_authorized(
+    manifest: EvaluationManifest,
+    authorization: FormalManifestAuthorization | None,
+) -> None:
+    """数据集基线可直接留档；正式清单必须携带绑定全部身份的可信预检证据。"""
+
+    if manifest.manifest_kind is EvaluationManifestKind.DATASET_BASELINE:
+        if authorization is not None:
+            raise EvaluationInvariantError("dataset baseline cannot carry formal authorization")
+        return
+    expected = (
+        manifest.manifest_id,
+        manifest.manifest_digest,
+        manifest.source_commit,
+        manifest.code_digest,
+    )
+    if (
+        authorization is None
+        or not authorization.provenance_verified
+        or authorization._identity() != expected
+    ):
+        raise EvaluationInvariantError("formal manifest registration requires trusted authorization")
 
 
 def _assert_retained_evidence(
@@ -142,7 +168,12 @@ class InMemorySpecialistEvaluationStore:
         self._claims: dict[str, EvaluationRunClaim] = {}
 
     @_locked
-    def register_manifest(self, manifest: EvaluationManifest) -> EvaluationManifest:
+    def register_manifest(
+        self,
+        manifest: EvaluationManifest,
+        authorization: FormalManifestAuthorization | None = None,
+    ) -> EvaluationManifest:
+        _assert_manifest_registration_authorized(manifest, authorization)
         existing = self._manifests.get(manifest.manifest_id)
         if existing is not None and existing != manifest:
             raise EvaluationInvariantError("manifest identity conflict")
@@ -150,12 +181,21 @@ class InMemorySpecialistEvaluationStore:
         return manifest
 
     @_locked
-    def create_run(self, run: EvaluationRun) -> EvaluationRun:
+    def create_run(
+        self,
+        run: EvaluationRun,
+        authorization: FormalManifestAuthorization | None = None,
+    ) -> EvaluationRun:
         if run.status != "RUNNING":
             raise EvaluationInvariantError("new evaluation run must start RUNNING")
         manifest = self._manifests.get(run.manifest_id)
         if manifest is None or manifest.manifest_digest != run.manifest_digest:
             raise EvaluationInvariantError("run manifest does not match registered manifest")
+        if manifest.manifest_kind.value != "FORMAL_EVALUATION":
+            raise EvaluationInvariantError("formal evaluation run requires a formal evaluation manifest")
+        # 每个执行进程都必须重新持有与当前 Manifest 绑定的预检证据；数据库中曾经
+        # 注册成功的行不能让另一 HEAD 或脏源码进程跳过 Task 11 Git 预检直接开跑。
+        _assert_manifest_registration_authorized(manifest, authorization)
         if run.candidate.value not in manifest.candidate_ids:
             raise EvaluationInvariantError("run candidate is not declared by manifest")
         if (run.manifest_id, run.candidate.value) in self._decision_identity:
@@ -489,23 +529,30 @@ class PostgresSpecialistEvaluationStore:
     def __init__(self, settings: Any) -> None:
         self._settings = settings
 
-    def register_manifest(self, manifest: EvaluationManifest) -> EvaluationManifest:
+    def register_manifest(
+        self,
+        manifest: EvaluationManifest,
+        authorization: FormalManifestAuthorization | None = None,
+    ) -> EvaluationManifest:
+        _assert_manifest_registration_authorized(manifest, authorization)
         with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO specialist_evaluation_manifests (
-                        manifest_id, manifest_version, manifest_digest, dataset_digest,
+                        manifest_id, manifest_version, manifest_kind, source_commit,
+                        manifest_digest, dataset_digest,
                         schema_digest, generator_digest, seed, development_case_ids,
                         validation_case_ids, holdout_case_ids, case_candidate_map, profile_bundle_digest,
                         prompt_bundle_digest, result_schema_bundle_digest,
                         pricing_source_digest, temperature, code_digest,
                         price_policy_digest, endpoint_host, model_id, candidate_ids
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (manifest_id) DO NOTHING;
                     """,
                     (
-                        manifest.manifest_id, manifest.manifest_version, manifest.manifest_digest,
+                        manifest.manifest_id, manifest.manifest_version, manifest.manifest_kind.value,
+                        manifest.source_commit, manifest.manifest_digest,
                         manifest.dataset_digest, manifest.schema_digest, manifest.generator_digest,
                         manifest.seed, Jsonb(list(manifest.development_case_ids)),
                         Jsonb(list(manifest.validation_case_ids)), Jsonb(list(manifest.holdout_case_ids)),
@@ -528,12 +575,19 @@ class PostgresSpecialistEvaluationStore:
             raise EvaluationInvariantError("manifest identity conflict")
         return loaded
 
-    def create_run(self, run: EvaluationRun) -> EvaluationRun:
+    def create_run(
+        self,
+        run: EvaluationRun,
+        authorization: FormalManifestAuthorization | None = None,
+    ) -> EvaluationRun:
         if run.status != "RUNNING":
             raise EvaluationInvariantError("new evaluation run must start RUNNING")
         manifest = self._load_manifest(run.manifest_id)
         if manifest.manifest_digest != run.manifest_digest:
             raise EvaluationInvariantError("run manifest does not match registered manifest")
+        if manifest.manifest_kind.value != "FORMAL_EVALUATION":
+            raise EvaluationInvariantError("formal evaluation run requires a formal evaluation manifest")
+        _assert_manifest_registration_authorized(manifest, authorization)
         if run.candidate.value not in manifest.candidate_ids:
             raise EvaluationInvariantError("run candidate is not declared by manifest")
         with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
@@ -1129,6 +1183,7 @@ class PostgresSpecialistEvaluationStore:
     def _manifest_from_row(row: Any) -> EvaluationManifest:
         return EvaluationManifest(
             manifest_id=row["manifest_id"], manifest_version=row["manifest_version"],
+            manifest_kind=row["manifest_kind"], source_commit=row["source_commit"],
             manifest_digest=row["manifest_digest"], dataset_digest=row["dataset_digest"],
             schema_digest=row["schema_digest"], generator_digest=row["generator_digest"],
             seed=int(row["seed"]),

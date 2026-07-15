@@ -39,6 +39,7 @@ from src.specialist_runtime.models import (
     AgentResult,
     AgentResultStatus,
     AgentTask,
+    EvidenceRef,
     SpecialistTaskKind,
     _plain_json,
 )
@@ -86,6 +87,40 @@ class ModelPricingPolicy(Protocol):
 
 class SkillPolicyDeniedError(RuntimeError):
     """Skill Runtime 在 Handler 前按版本、生命周期、Schema 或门禁拒绝。"""
+
+
+def _collect_result_evidence_ids(value: Any) -> tuple[set[str], bool, bool]:
+    """递归提取 evidence_ids，并返回字段存在、重复或畸形等独立事实。"""
+
+    collected: set[str] = set()
+    invalid = False
+    found = False
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "evidence_ids":
+                found = True
+                if not isinstance(item, (list, tuple)) or any(
+                    not isinstance(evidence_id, str) or not evidence_id for evidence_id in item
+                ):
+                    invalid = True
+                    continue
+                if not item:
+                    invalid = True
+                if len(item) != len(set(item)):
+                    invalid = True
+                collected.update(item)
+                continue
+            nested, nested_invalid, nested_found = _collect_result_evidence_ids(item)
+            collected.update(nested)
+            invalid = invalid or nested_invalid
+            found = found or nested_found
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            nested, nested_invalid, nested_found = _collect_result_evidence_ids(item)
+            collected.update(nested)
+            invalid = invalid or nested_invalid
+            found = found or nested_found
+    return collected, invalid, found
 
 
 class SkillRuntimeInvocationError(RuntimeError):
@@ -386,9 +421,50 @@ class BoundedSpecialistRunner:
                 try:
                     validator = Draft202012Validator(_plain_json(profile.result_schema))
                     validator.check_schema(_plain_json(profile.result_schema))
-                    validator.validate(_plain_json(action.final_output))
+                    final_output = _plain_json(action.final_output)
+                    validator.validate(final_output)
                 except (JsonSchemaValidationError, JsonSchemaError):
                     return self._failure(task, AgentResultStatus.INVALID_OUTPUT, "RESULT_SCHEMA_INVALID", audit)
+                if isinstance(final_output, Mapping) and "evidence_refs" in final_output:
+                    try:
+                        result_evidence = tuple(
+                            EvidenceRef.model_validate(item) for item in final_output["evidence_refs"]
+                        )
+                    except (TypeError, ValidationError):
+                        return self._failure(
+                            task,
+                            AgentResultStatus.POLICY_DENIED,
+                            "RESULT_EVIDENCE_MISMATCH",
+                            audit,
+                        )
+                    # 结果 Schema 只能约束字段形状，不能证明证据已由权威 Resolver 解析。
+                    # 因此最终输出若显式携带证据，必须与本次 FINAL 动作中已解析的引用逐项一致，
+                    # 防止模型在嵌套结果中替换 digest、room 或 source_version 绕过证据门禁。
+                    if result_evidence != action.evidence_refs:
+                        return self._failure(
+                            task,
+                            AgentResultStatus.POLICY_DENIED,
+                            "RESULT_EVIDENCE_MISMATCH",
+                            audit,
+                        )
+                result_evidence_ids, invalid_evidence_ids, has_evidence_ids = (
+                    _collect_result_evidence_ids(final_output)
+                )
+                if has_evidence_ids:
+                    action_evidence_ids = {ref.evidence_id for ref in action.evidence_refs}
+                    # ReviewMemory 使用嵌套 evidence_ids 而不是完整 EvidenceRef；这里把所有层级
+                    # 收敛到已由 Resolver 验证的 FINAL 动作证据集合，拒绝未知、缺失或歧义 ID。
+                    if (
+                        invalid_evidence_ids
+                        or len(action_evidence_ids) != len(action.evidence_refs)
+                        or result_evidence_ids != action_evidence_ids
+                    ):
+                        return self._failure(
+                            task,
+                            AgentResultStatus.POLICY_DENIED,
+                            "RESULT_EVIDENCE_MISMATCH",
+                            audit,
+                        )
                 return self._success(task, profile, action, actions, audit)
             if action.kind is AgentActionKind.ABSTAIN:
                 return self._failure(
@@ -401,6 +477,14 @@ class BoundedSpecialistRunner:
             manifest = self._skill_catalog.get(action.skill_id)
             if manifest is None:
                 return self._failure(task, AgentResultStatus.POLICY_DENIED, "UNKNOWN_SKILL", audit)
+            if manifest.version != profile.skill_versions[action.skill_id]:
+                # Profile 在评估开始前冻结精确版本；Catalog 后续升级不能静默改变候选权限或行为。
+                return self._failure(
+                    task,
+                    AgentResultStatus.POLICY_DENIED,
+                    "SKILL_VERSION_MISMATCH",
+                    audit,
+                )
             try:
                 Draft202012Validator(_plain_json(manifest.parameter_schema)).validate(
                     _plain_json(action.arguments)
@@ -578,7 +662,8 @@ class BoundedSpecialistRunner:
             prompt_hash=profile.prompt_hash,
             result_schema_hash=profile.result_schema_hash,
             messages=(
-                ModelMessage(role="system", content="Follow the frozen Specialist Profile."),
+                # 发送的正文与 Profile 中的 prompt_hash 同时被冻结；仅传摘要无法约束真实模型输入。
+                ModelMessage(role="system", content=profile.prompt_text),
                 ModelMessage(
                     role="user",
                     content=json.dumps(context, ensure_ascii=False, sort_keys=True),

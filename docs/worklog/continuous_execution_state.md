@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 5：Evaluation Store、配对比较与迁移技术门禁 |
-| 下一任务 | Task 6：240 例数据集与 Evaluation Manifest |
-| 下一任务状态 | `READY_AFTER_TASK_5_PUSH` |
-| 当前子步骤 | Task 5 COMMIT：最终静态检查、独立提交与推送 |
+| 最近完成任务 | Phase 13 Task 6：240 例数据集与 Evaluation Manifest 技术门禁 |
+| 下一任务 | Task 7：LiveOpsAgent 纵向切片 |
+| 下一任务状态 | `READY_AFTER_TASK_6_PUSH` |
+| 当前子步骤 | Task 6 COMMIT：最终静态检查、独立提交与推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=94ad80b` |
+| 远端状态 | `origin/main=6edd833` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 5
+Phase / Task: Phase 13 / Task 6
 状态: COMMIT
-目标: 建立 Evaluation Manifest/Run、attempt 历史、唯一 selected result、配对聚合与 retention decision
-禁止事项: 不调用真实模型，不生成 240 例数据集，不实现具体候选 Agent 或动态 A2A
-当前 HEAD: 94ad80b
-本 Task 文件: specialist_evaluation models/store/comparison、Phase 13 DDL、Task 5 tests、状态文档
+目标: 生成 240 例字节稳定脱敏数据集、严格 Schema 与冻结 Evaluation Manifest
+禁止事项: 不调用真实模型，不实现具体候选 Agent、正式评估或动态 A2A
+当前 HEAD: 6edd833
+本 Task 文件: evaluation schema/generator/cases/labels/prompts/result schemas/manifest、Task 6 tests、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 5 unit 30 passed；真实 PostgreSQL 8 passed；完整 unit 1101 passed；完整 integration 112 passed、3 deselected
-错误与尝试次数: 三轮审查发现独立指标、强制 claim、decision 原子终态、候选级唯一性和完成数重算缺口，均已补红灯并整改
-设计偏差与决策编号: D-100 至 D-108；旧 D-090 由早停与预算预留语义替代
-下一条精确操作: 完成最终静态/编码/暂存边界检查，提交并推送 Task 5；随后进入 Task 6 RED
+最近命令与结果: Task 6 领域/数据集聚合 126 passed；真实 PostgreSQL Evaluation Store 8 passed；中间完整 unit 1116 passed；integration 112 passed、3 deselected
+错误与尝试次数: 多轮审查发现 Prompt/Skill/证据绑定、源码闭包、外部 Manifest 锚点、可变 case、价格快照和基线可直接建 Run；均已补红灯整改
+设计偏差与决策编号: D-109 收紧正式评估身份；Task 6 Manifest 为数据集基线，Task 11 基于最终代码生成正式 Manifest
+下一条精确操作: 完成严格编码与暂存边界检查，提交推送 Task 6；随后进入 Task 7 RED
 模型费用累计: 0 元
 ```
 

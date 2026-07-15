@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -46,6 +47,7 @@ from src.skill_runtime.catalog import get_default_skill_catalog
 
 
 HASH_A = "a" * 64
+PROMPT_TEXT = "Return one governed action from resolved evidence."
 
 
 def _profile(
@@ -53,8 +55,10 @@ def _profile(
     allowed_skills: tuple[str, ...] = (),
     max_model_calls: int = 2,
     max_skill_calls: int = 1,
+    result_schema: dict | None = None,
+    skill_versions: dict[str, str] | None = None,
 ) -> SpecialistProfile:
-    schema = {
+    schema = result_schema or {
         "type": "object",
         "properties": {"decision": {"type": "string"}},
         "required": ["decision"],
@@ -67,10 +71,23 @@ def _profile(
         model_id="deepseek-v4-flash",
         endpoint_host="api.deepseek.com",
         temperature=Decimal("0"),
-        prompt_hash=HASH_A,
+        prompt_text=PROMPT_TEXT,
+        prompt_hash=hashlib.sha256(PROMPT_TEXT.encode("utf-8")).hexdigest(),
         result_schema_hash=canonical_json_sha256(schema),
         result_schema=schema,
         allowed_skill_ids=allowed_skills,
+        skill_versions=(
+            skill_versions
+            if skill_versions is not None
+            else {
+                skill_id: next(
+                    manifest.version
+                    for manifest in get_default_skill_catalog()
+                    if manifest.skill_id == skill_id
+                )
+                for skill_id in allowed_skills
+            }
+        ),
         max_model_calls=max_model_calls,
         max_skill_calls=max_skill_calls,
         max_total_tokens=100,
@@ -364,6 +381,7 @@ def test_runner_returns_success_for_schema_valid_final_action() -> None:
     assert result.status is AgentResultStatus.SUCCEEDED
     assert result.output == {"decision": "NO_ACTION"}
     assert model.calls == 1
+    assert model.requests[0].messages[0].content == PROMPT_TEXT
 
 
 def test_first_model_call_may_use_more_than_average_but_not_case_cap() -> None:
@@ -413,6 +431,42 @@ def test_runner_executes_whitelisted_skill_with_bounded_second_model_call() -> N
     assert result.status is AgentResultStatus.SUCCEEDED
     assert model.calls == 2
     assert skill.calls == ["generate_on_live_prompt"]
+
+
+def test_runner_rejects_catalog_version_that_differs_from_frozen_profile() -> None:
+    """白名单 ID 相同但 Catalog 版本漂移时，Runner 必须在 Skill Port 前拒绝。"""
+
+    profile = _profile(
+        allowed_skills=("generate_on_live_prompt",),
+        skill_versions={"generate_on_live_prompt": "9.9.9"},
+    )
+    model = _ScriptedPort(
+        [
+            {
+                "kind": "CALL_SKILL",
+                "skill_id": "generate_on_live_prompt",
+                "arguments": {"room_id": "room-001", "sold_out_product_id": "p001"},
+            }
+        ]
+    )
+    skill = _SkillPort()
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=model,
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=skill,
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.POLICY_DENIED
+    assert result.failure is not None
+    assert result.failure.code == "SKILL_VERSION_MISMATCH"
+    assert skill.calls == []
 
 
 def test_runner_rejects_missing_usage_and_model_exception_without_pending_budget() -> None:
@@ -923,6 +977,199 @@ def test_runner_converts_action_evidence_store_exception_to_policy_failure() -> 
     assert result.failure is not None
     assert result.failure.code == "EVIDENCE_STORE_ERROR"
     assert action_ref not in result.evidence_refs
+
+
+def test_runner_rejects_final_output_evidence_that_differs_from_resolved_action_evidence() -> None:
+    """最终结果不得伪造与已解析动作证据不同的 EvidenceRef。"""
+
+    trusted_ref = _evidence_ref(kind=EvidenceKind.EVENT)
+    forged_ref = _evidence_ref(kind=EvidenceKind.EVENT, digest="b" * 64)
+    result_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["decision", "evidence_refs"],
+        "properties": {
+            "decision": {"type": "string"},
+            "evidence_refs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["kind", "evidence_id", "source_version", "digest", "anchor_id", "room_id"],
+                    "properties": {
+                        "kind": {"type": "string"},
+                        "evidence_id": {"type": "string"},
+                        "source_version": {"type": "string"},
+                        "digest": {"type": "string"},
+                        "anchor_id": {"type": "string"},
+                        "room_id": {"type": "string"},
+                    },
+                },
+            },
+        },
+    }
+    profile = _profile(result_schema=result_schema)
+    model = _ScriptedPort(
+        [
+            {
+                "kind": "FINAL",
+                "evidence_refs": [trusted_ref.model_dump(mode="json")],
+                "final_output": {
+                    "decision": "NO_ACTION",
+                    "evidence_refs": [forged_ref.model_dump(mode="json")],
+                },
+            }
+        ]
+    )
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=model,
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.POLICY_DENIED
+    assert result.failure is not None
+    assert result.failure.code == "RESULT_EVIDENCE_MISMATCH"
+
+
+def test_runner_rejects_nested_result_evidence_ids_outside_resolved_action_evidence() -> None:
+    """ReviewMemory 嵌套 evidence_ids 只能引用本轮 FINAL 动作已解析的证据。"""
+
+    event_ref = _evidence_ref(kind=EvidenceKind.EVENT)
+    audit_ref = _evidence_ref(kind=EvidenceKind.AUDIT)
+    result_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["attribution", "evidence_ids"],
+        "properties": {
+            "attribution": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["evidence_ids"],
+                "properties": {
+                    "evidence_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    }
+                },
+            },
+            "evidence_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+            },
+        },
+    }
+    profile = _profile(result_schema=result_schema)
+    model = _ScriptedPort(
+        [
+            {
+                "kind": "FINAL",
+                "evidence_refs": [
+                    event_ref.model_dump(mode="json"),
+                    audit_ref.model_dump(mode="json"),
+                ],
+                "final_output": {
+                    "attribution": {"evidence_ids": [event_ref.evidence_id, "forged-evidence"]},
+                    "evidence_ids": [event_ref.evidence_id, audit_ref.evidence_id],
+                },
+            }
+        ]
+    )
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=model,
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task(evidence_refs=(event_ref, audit_ref))))
+
+    assert result.status is AgentResultStatus.POLICY_DENIED
+    assert result.failure is not None
+    assert result.failure.code == "RESULT_EVIDENCE_MISMATCH"
+
+
+@pytest.mark.parametrize("evidence_ids", [[], "forged-evidence"])
+def test_runner_rejects_empty_or_malformed_declared_result_evidence_ids(evidence_ids) -> None:
+    """结果一旦声明 evidence_ids，即使为空或畸形也不能绕过权威证据等价校验。"""
+
+    event_ref = _evidence_ref(kind=EvidenceKind.EVENT)
+    result_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["evidence_ids"],
+        "properties": {"evidence_ids": {}},
+    }
+    profile = _profile(result_schema=result_schema)
+    model = _ScriptedPort(
+        [
+            {
+                "kind": "FINAL",
+                "evidence_refs": [event_ref.model_dump(mode="json")],
+                "final_output": {"evidence_ids": evidence_ids},
+            }
+        ]
+    )
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=model,
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task(evidence_refs=(event_ref,))))
+
+    assert result.status is AgentResultStatus.POLICY_DENIED
+    assert result.failure is not None
+    assert result.failure.code == "RESULT_EVIDENCE_MISMATCH"
+
+
+def test_runner_rejects_declared_empty_evidence_ids_even_without_action_evidence() -> None:
+    """空 evidence_ids 本身就是非法声明，不能因 FINAL 动作也无证据而被接受。"""
+
+    result_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["evidence_ids"],
+        "properties": {"evidence_ids": {"type": "array"}},
+    }
+    profile = _profile(result_schema=result_schema)
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=_ScriptedPort(
+            [{"kind": "FINAL", "final_output": {"evidence_ids": []}}]
+        ),
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.POLICY_DENIED
+    assert result.failure is not None
+    assert result.failure.code == "RESULT_EVIDENCE_MISMATCH"
 
 
 def test_formal_runner_never_calls_baseline_but_production_facade_can_fallback_for_retained_profile() -> None:

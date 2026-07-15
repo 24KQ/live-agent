@@ -18,6 +18,7 @@ from src.specialist_evaluation.models import (
     EvaluationRun,
     EvaluationSplit,
     EvaluationSubject,
+    _build_formal_manifest_authorization,
     RetentionDecision,
     RetentionDecisionRecord,
     canonical_json_sha256,
@@ -55,6 +56,8 @@ def evaluation_store():
     manifest = EvaluationManifest(
         manifest_id=f"phase13-test-{suffix}",
         manifest_version="2.0.0",
+        manifest_kind="FORMAL_EVALUATION",
+        source_commit="a" * 40,
         dataset_digest=HASH_A,
         schema_digest=HASH_B,
         generator_digest=HASH_A,
@@ -81,8 +84,9 @@ def evaluation_store():
         candidate=EvaluationCandidate.LIVE_OPS,
     )
     store = PostgresSpecialistEvaluationStore(settings)
-    store.register_manifest(manifest)
-    store.create_run(run)
+    authorization = _build_formal_manifest_authorization(manifest)
+    store.register_manifest(manifest, authorization=authorization)
+    store.create_run(run, authorization=authorization)
     try:
         yield settings, store, manifest, run
     finally:
@@ -190,7 +194,10 @@ def test_postgres_selection_is_unique_across_runs_for_manifest_candidate(evaluat
         manifest_digest=manifest.manifest_digest,
         candidate=first_run.candidate,
     )
-    store.create_run(second_run)
+    store.create_run(
+        second_run,
+        authorization=_build_formal_manifest_authorization(manifest),
+    )
     first_claim = store.claim_next_run("first-run-worker", manifest_id=manifest.manifest_id)
     second_claim = store.claim_next_run("second-run-worker", manifest_id=manifest.manifest_id)
     assert first_claim is not None and second_claim is not None
@@ -446,7 +453,10 @@ def test_postgres_candidate_decision_cancels_sibling_run(evaluation_store) -> No
         manifest_digest=manifest.manifest_digest,
         candidate=first_run.candidate,
     )
-    store.create_run(sibling)
+    store.create_run(
+        sibling,
+        authorization=_build_formal_manifest_authorization(manifest),
+    )
     first_claim = store.claim_next_run(
         "candidate-first-worker", manifest_id=manifest.manifest_id
     )
@@ -494,7 +504,8 @@ def test_postgres_candidate_decision_cancels_sibling_run(evaluation_store) -> No
                 manifest_id=manifest.manifest_id,
                 manifest_digest=manifest.manifest_digest,
                 candidate=first_run.candidate,
-            )
+            ),
+            authorization=_build_formal_manifest_authorization(manifest),
         )
 
 

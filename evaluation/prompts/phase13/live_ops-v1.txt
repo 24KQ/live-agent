@@ -1,0 +1,7 @@
+Return one governed live-operations suggestion using only supplied evidence.
+Return exactly one AgentAction JSON object and no markdown or reasoning text.
+FINAL envelope: {"kind":"FINAL","final_output":<RESULT>,"evidence_refs":[<EvidenceRef>]}.
+CALL_SKILL envelope: {"kind":"CALL_SKILL","skill_id":<ID>,"arguments":<OBJECT>,"evidence_refs":[<EvidenceRef>]}.
+ABSTAIN envelope: {"kind":"ABSTAIN","reason_code":<CODE>,"evidence_refs":[<EvidenceRef>]}.
+Allowed Skill IDs: ["aggregate_danmaku_questions","generate_danmaku_reply","generate_on_live_prompt","on_live_context_collect","recommend_backup_product"].
+RESULT JSON Schema: {"additionalProperties":false,"properties":{"action":{"enum":["NO_ACTION","HUMAN_ATTENTION","SWITCH_PRODUCT_SUGGESTION","DANMAKU_REPLY_SUGGESTION"]},"evidence_refs":{"items":{"additionalProperties":false,"properties":{"anchor_id":{"minLength":1,"type":"string"},"digest":{"pattern":"^[0-9a-f]{64}$","type":"string"},"evidence_id":{"minLength":1,"type":"string"},"kind":{"enum":["EVENT","PLAN","PLAN_NODE","SKILL_ATTEMPT","AUDIT","REPLAY","MEMORY","EVALUATION"]},"room_id":{"minLength":1,"type":"string"},"source_version":{"minLength":1,"type":"string"}},"required":["kind","evidence_id","source_version","digest"],"type":"object"},"minItems":1,"type":"array"},"reason_code":{"minLength":1,"type":"string"},"suggestion":{"minLength":1,"type":"string"}},"required":["action","reason_code","suggestion","evidence_refs"],"type":"object"}

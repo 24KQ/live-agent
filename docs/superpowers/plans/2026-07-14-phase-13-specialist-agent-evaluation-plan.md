@@ -1,8 +1,8 @@
 # Phase 13 Specialist Agent Evaluation Implementation Plan
 
-文档状态：`TASK_5_VERIFIED`
+文档状态：`TASK_6_VERIFIED`
 
-> 执行状态（2026-07-16）：Task 1-5 已完成技术门禁；下一步实施 Task 6 数据集。Task 6-12 已获连续实施授权，Phase 13 Acceptance 后停止在 Phase 14 Gate。
+> 执行状态（2026-07-16）：Task 1-5 已提交并推送；Task 6 已通过技术门禁，待独立提交推送后进入 Task 7。Task 7-12 已获连续实施授权，Phase 13 Acceptance 后停止在 Phase 14 Gate。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -116,12 +116,14 @@
 - Create: `evaluation/manifests/phase13-v2.json`
 - Test: `tests/unit/test_phase13_dataset.py`
 
-- [ ] 为 LiveOps、Planner、ReviewMemory 各定义 20 development、40 validation、20 holdout 模板、变量范围和确定性 label。
-- [ ] 写红灯测试覆盖 240 个唯一 ID、固定 split、严格 Schema、无敏感字段、稳定排序和 SHA-256。
-- [ ] 实现固定 seed 生成器并固化 JSONL；重复生成必须字节一致，三个候选和 split 不得共享 case ID。
-- [ ] Manifest 固定 endpoint host、model、temperature、generator/Schema/Prompt 版本与哈希；正式价格字段要求来源 URL、日期、币种和输入/输出 token 单价。
-- [ ] 禁止候选 Prompt 代码读取 holdout labels；development 允许 ScriptedModel 和每候选最多 5 个真实 smoke case。
-- [ ] 运行生成器两次、字节比较和敏感信息扫描；提交并推送：`test: add phase 13 paired datasets`。
+- [x] 为 LiveOps、Planner、ReviewMemory 各定义 20 development、40 validation、20 holdout 模板、变量范围和确定性 label。
+- [x] 写红灯测试覆盖 240 个唯一 ID、固定 split、严格 Schema、无敏感字段、稳定排序和 SHA-256。
+- [x] 实现固定 seed 生成器并固化 JSONL；重复生成必须字节一致，三个候选和 split 不得共享 case ID。
+- [x] Manifest 固定 endpoint host、model、temperature、generator/Schema/Prompt 版本与哈希；正式价格字段要求来源 URL、日期、币种和输入/输出 token 单价。
+- [x] Profile 同时绑定真实 Prompt 正文/摘要和精确 Skill 版本；case loader 在消费时校验 Manifest、原始字节摘要、Schema 与 case 身份，源码摘要覆盖全部 `src/**/*.py`。
+- [x] EvaluationManifest 区分数据集基线与正式评估；基线不得创建 Run，正式 Manifest 必须绑定最终 40 位 Git commit。
+- [x] 禁止候选 Prompt 代码读取 holdout labels；development 允许 ScriptedModel 和每候选最多 5 个真实 smoke case。
+- [x] 运行生成器两次、字节比较和敏感信息扫描；提交并推送：`test: add phase 13 paired datasets`。
 
 ## Task 7：LiveOpsAgent 纵向切片
 
@@ -203,6 +205,7 @@
 - Test: `tests/integration/test_phase13_formal_evaluation.py`
 
 - [ ] 写价格/模型/endpoint/usage/哈希预检、10 例 shard、严重违规早停、数学早停和一次 holdout 红灯测试。
+- [ ] 在 Task 7-10 代码冻结后生成新的正式 Manifest，绑定最终 Git commit、全部运行源码、Prompt、Schema、数据和价格快照；Task 6 数据集基线 Manifest 不得直接注册正式 Run。
 - [ ] 实现正式 CLI：先 baseline，再按 LiveOps、Planner、ReviewMemory 顺序运行 validation；只有资格候选运行 holdout。
 - [ ] 每个模型请求使用 Task 3 的 reservation；候选额度不足时尝试 Phase 13 公共剩余，禁止使用 Phase 14 预留。
 - [ ] 对规则通过候选最多抽样 10 对 holdout 调用 Judge；Judge 结果只写诊断字段，不改 retention decision。

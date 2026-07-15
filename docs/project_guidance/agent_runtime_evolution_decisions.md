@@ -1202,3 +1202,14 @@
 - **未选理由**：自动进入 Phase 14 会把旧讨论基线当成实施事实；逐 Task 授权无必要中断已冻结计划。
 - **影响**：本次只持久化 Design/Plan，不修改业务代码或运行模型；Phase 13 实施仍需用户单独授权。
 - **重新评估条件**：无；进入 Phase 14 前必须执行 Gate。
+
+## D-109：正式评估绑定真实 Prompt、精确 Skill 版本与最终代码身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 复审发现，仅保存 Prompt 摘要但发送固定占位文本、仅冻结 Skill ID、只在测试中核对数据摘要，以及用 Task 6 的代码摘要提前代表尚未实现的候选，都会让正式评估身份与真实执行漂移。
+- **候选方案**：Profile 同时冻结并发送 Prompt 正文、精确 Skill 版本和结果证据；继续只保存摘要；把 Task 6 Manifest 直接作为最终正式 Manifest。
+- **最终选择**：Profile 同时冻结 Prompt 正文/摘要与 Skill ID/版本，Runner 在模型和 Skill Port 前强制核对，并将完整或嵌套结果证据绑定到已解析 EvidenceRef；case loader 每次校验 Manifest、原始字节摘要、Schema 与身份。Task 6 的 `phase13-v2` 是数据集基线，Task 11 必须在 Task 7-10 完成后基于最终 Git commit 生成新的正式 Manifest 再注册运行。
+- **选择理由**：正式证据绑定实际发送内容、实际执行版本和最终代码，而不是绑定不会参与执行的元数据；同时避免用当前摘要伪造对未来代码的冻结。
+- **未选理由**：只保存摘要无法证明实际模型输入；只冻结 ID 会在 Catalog 升级后静默漂移；提前声明最终代码摘要在时间上不成立。
+- **影响**：源码摘要保守覆盖全部 `src/**/*.py`；价格使用独立快照；Loader 必须接收外部预期 Manifest 摘要并返回深冻结 case。EvaluationManifest 增加 `DATASET_BASELINE | FORMAL_EVALUATION` 和 `source_commit`，Store 禁止基线创建 Run。正式注册和每次 create_run 都必须携带当前进程的内部可信授权；公开预检只有在 `src/evaluation` 无任意层级 symlink、磁盘 Python 闭包与 Git tracked 闭包一致、源码清洁、HEAD/source commit 及重算 code digest 一致时才签发。holdout label 只进入受审计 Evaluator，不进入模型可见载荷。当前远端模型无文件系统或任意代码执行能力；若未来支持第三方候选插件，必须新增进程级 label 隔离决策。
+- **重新评估条件**：模型端支持可验证 Prompt template ID、Skill Runtime 支持多活精确版本解析，或项目开放不受信第三方候选代码时，分别重新设计远端身份、版本解析或 evaluator 权限域。

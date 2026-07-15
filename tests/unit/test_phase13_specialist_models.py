@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import hashlib
 
 import pytest
 from pydantic import ValidationError
@@ -30,6 +31,7 @@ from src.specialist_runtime.registry import (
 
 HASH_A = "a" * 64
 HASH_B = "b" * 64
+PROMPT_TEXT = "Return one governed action from resolved evidence."
 
 
 def _evidence() -> EvidenceRef:
@@ -76,7 +78,7 @@ def _profile(
     profile_id: str = "live-ops",
     profile_version: str = "1.0.0",
     task_kind: SpecialistTaskKind = SpecialistTaskKind.LIVE_OPS_ADVICE,
-    prompt_hash: str = HASH_A,
+    prompt_text: str = PROMPT_TEXT,
 ) -> SpecialistProfile:
     """构造启动冻结 Profile，所有执行限制都来自 Profile 而非 AgentTask。"""
 
@@ -93,10 +95,12 @@ def _profile(
         model_id="deepseek-v4-flash",
         endpoint_host="api.deepseek.com",
         temperature=Decimal("0"),
-        prompt_hash=prompt_hash,
+        prompt_text=prompt_text,
+        prompt_hash=hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
         result_schema_hash=canonical_json_sha256(result_schema),
         result_schema=result_schema,
         allowed_skill_ids=("generate_on_live_prompt",),
+        skill_versions={"generate_on_live_prompt": "1.0.0"},
         max_model_calls=2,
         max_skill_calls=3,
         max_total_tokens=4000,
@@ -136,6 +140,26 @@ def test_frozen_protocol_cannot_be_rebound_through_copy_or_dict_base_method() ->
 
     assert task.model_copy(deep=True) is task
     assert profile.model_copy(deep=True) is profile
+
+
+def test_profile_binds_prompt_content_and_exact_skill_versions() -> None:
+    """Profile 身份必须同时冻结真实 Prompt 正文与每个白名单 Skill 的精确版本。"""
+
+    profile = _profile()
+    assert profile.prompt_text == PROMPT_TEXT
+    assert profile.skill_versions == {"generate_on_live_prompt": "1.0.0"}
+
+    prompt_tampered = profile.model_dump(mode="json")
+    prompt_tampered["prompt_text"] = "tampered prompt"
+    prompt_tampered.pop("profile_digest")
+    with pytest.raises(ValidationError, match="prompt_hash"):
+        SpecialistProfile.model_validate(prompt_tampered)
+
+    version_missing = profile.model_dump(mode="json")
+    version_missing["skill_versions"] = {}
+    version_missing.pop("profile_digest")
+    with pytest.raises(ValidationError, match="skill_versions"):
+        SpecialistProfile.model_validate(version_missing)
 
 
 @pytest.mark.parametrize(
@@ -349,7 +373,7 @@ def test_registry_is_idempotent_and_rejects_identity_conflict() -> None:
 
     assert first is replay
     with pytest.raises(SpecialistProfileConflictError):
-        registry.register(_profile(prompt_hash=HASH_B))
+        registry.register(_profile(prompt_text="different frozen prompt"))
 
 
 def test_profile_skill_whitelist_has_order_independent_identity() -> None:
@@ -357,9 +381,11 @@ def test_profile_skill_whitelist_has_order_independent_identity() -> None:
 
     payload = _profile().model_dump(mode="json")
     payload["allowed_skill_ids"] = ["skill-b", "skill-a"]
+    payload["skill_versions"] = {"skill-b": "2.0.0", "skill-a": "1.0.0"}
     payload.pop("profile_digest")
     first = SpecialistProfile.model_validate(payload)
     payload["allowed_skill_ids"] = ["skill-a", "skill-b"]
+    payload["skill_versions"] = {"skill-a": "1.0.0", "skill-b": "2.0.0"}
     second = SpecialistProfile.model_validate(payload)
 
     assert first.allowed_skill_ids == ("skill-a", "skill-b")
@@ -398,7 +424,7 @@ def test_orchestrator_uses_frozen_task_kind_route_not_caller_profile_choice() ->
     registry = SpecialistProfileRegistry(
         profiles=(
             _profile(profile_version="1.0.0"),
-            _profile(profile_version="2.0.0", prompt_hash=HASH_B),
+            _profile(profile_version="2.0.0", prompt_text="different frozen prompt"),
         )
     )
     orchestrator = SpecialistOrchestrator(
@@ -433,7 +459,7 @@ def test_orchestrator_fails_closed_when_task_kind_route_is_ambiguous() -> None:
     registry = SpecialistProfileRegistry(
         profiles=(
             _profile(profile_version="1.0.0"),
-            _profile(profile_version="2.0.0", prompt_hash=HASH_B),
+            _profile(profile_version="2.0.0", prompt_text="different frozen prompt"),
         )
     )
 
@@ -447,7 +473,7 @@ def test_orchestrator_implicit_routes_are_frozen_at_startup() -> None:
     registry = SpecialistProfileRegistry(profiles=(_profile(),))
     orchestrator = SpecialistOrchestrator(registry)
 
-    registry.register(_profile(profile_version="2.0.0", prompt_hash=HASH_B))
+    registry.register(_profile(profile_version="2.0.0", prompt_text="different frozen prompt"))
     registry.register(
         _profile(
             profile_id="planner",

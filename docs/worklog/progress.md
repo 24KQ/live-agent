@@ -527,3 +527,15 @@
 - 多轮规格/质量审查的重要发现均已补红灯整改；Task 5 最终 unit `30 passed`、真实 PostgreSQL `8 passed`。
 - 完整回归为 unit `1101 passed, 4 warnings`、integration `112 passed, 3 deselected, 5 warnings`；迁移连续执行两次、compileall 均通过，真实模型费用仍为 0 元。
 - 下一步在 Task 5 独立提交并推送后进入 Task 6 RED，生成 240 例字节稳定脱敏数据集；不会调用真实模型。
+
+# 2026-07-16 Phase 13 Task 6（实施中）
+
+- 已生成三个候选各 80 例的脱敏 case/label、严格 Schema、Prompt、结果 Schema、固定 seed 生成器和 `phase13-v2` 数据集基线 Manifest。
+- 首轮专项为 `8 passed`，生成器字节稳定；中间完整回归为 unit `1110 passed`、integration `112 passed, 3 deselected`。
+- 复审发现并整改 Runtime 拼接缺口：Profile 冻结并发送真实 Prompt、精确 Skill 版本在 Port 前校验、完整与嵌套结果证据绑定权威 EvidenceRef；相关 Profile/Runner 聚合 `83 passed`。
+- 新增 D-109，明确 Task 11 必须在 Task 7-10 完成后基于最终 Git commit 生成正式 Manifest；真实模型调用与费用仍为 0 元。
+- Manifest-bound Loader、全部源码闭包、独立价格快照和最终复审仍在收口，Task 6 尚未提交。
+- 后续复审补齐外部 Manifest 锚点、深冻结 case、可执行 AgentAction Prompt，以及 Store 对数据集基线的正式 Run 禁令；Task 6 领域/数据集聚合 `126 passed`，真实 PostgreSQL Evaluation Store `8 passed`。
+- 最终授权整改增加 Git/source digest 公开预检与内部注册证据；最新 Task 6 聚合 `128 passed`，真实 PostgreSQL Evaluation Store `8 passed`，真实模型费用仍为 0 元。
+- 再次复审后将授权门禁延伸到每次 create_run，并拒绝源码目录 symlink、ignored/untracked Python；最新聚合 `129 passed`、PostgreSQL `8 passed`。
+- Task 6 最终完整回归为 unit `1121 passed, 4 warnings`、integration `112 passed, 3 deselected, 5 warnings`；两轮最终复审均无 Critical/Important，真实模型费用 0 元。

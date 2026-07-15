@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
+import hashlib
+import re
 from typing import Any
 
 from pydantic import ConfigDict, Field, field_serializer, field_validator, model_validator
@@ -55,10 +58,12 @@ class SpecialistProfile(StrictFrozenModel):
     model_id: str = Field(..., min_length=1)
     endpoint_host: str = Field(..., min_length=1)
     temperature: Decimal = Field(..., ge=Decimal("0"), le=Decimal("2"))
+    prompt_text: str = Field(..., min_length=1)
     prompt_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     result_schema_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     result_schema: Any
     allowed_skill_ids: tuple[str, ...] = ()
+    skill_versions: Mapping[str, str] = Field(default_factory=dict)
     max_model_calls: int = Field(..., ge=1, strict=True)
     max_skill_calls: int = Field(..., ge=0, strict=True)
     max_total_tokens: int = Field(..., ge=1, strict=True)
@@ -100,6 +105,22 @@ class SpecialistProfile(StrictFrozenModel):
         # 白名单是集合语义；规范排序避免仅配置顺序不同就产生新 Profile 身份。
         return tuple(sorted(value))
 
+    @field_validator("skill_versions", mode="after")
+    @classmethod
+    def _freeze_skill_versions(cls, value: Mapping[str, str]) -> Mapping[str, str]:
+        if not isinstance(value, Mapping):
+            raise ValueError("skill_versions must be an object")
+        if any(
+            not isinstance(skill_id, str)
+            or not skill_id
+            or not isinstance(version, str)
+            or re.fullmatch(r"\d+\.\d+\.\d+", version) is None
+            for skill_id, version in value.items()
+        ):
+            raise ValueError("skill_versions must map non-empty skill IDs to semantic versions")
+        # 版本映射属于 Profile 权限事实；深冻结可阻止调用方在摘要计算后替换版本。
+        return _freeze_json(dict(sorted(value.items())))
+
     @field_validator("result_schema", mode="after")
     @classmethod
     def _freeze_result_schema(cls, value: Any) -> Any:
@@ -109,8 +130,18 @@ class SpecialistProfile(StrictFrozenModel):
     def _serialize_result_schema(self, value: Any) -> Any:
         return _plain_json(value)
 
+    @field_serializer("skill_versions", when_used="json")
+    def _serialize_skill_versions(self, value: Any) -> Any:
+        return _plain_json(value)
+
     @model_validator(mode="after")
     def _verify_profile_digest(self) -> "SpecialistProfile":
+        calculated_prompt_hash = hashlib.sha256(self.prompt_text.encode("utf-8")).hexdigest()
+        if self.prompt_hash != calculated_prompt_hash:
+            raise ValueError("prompt_hash does not match prompt_text")
+        if set(self.skill_versions) != set(self.allowed_skill_ids):
+            raise ValueError("skill_versions must exactly cover allowed_skill_ids")
+
         # 输出 Schema 的独立哈希会写入评估 Manifest；必须先绑定真实 Schema，
         # 否则攻击者可以保留旧哈希却替换约束内容，使审计身份失去意义。
         calculated_schema_hash = canonical_json_sha256(self.result_schema)

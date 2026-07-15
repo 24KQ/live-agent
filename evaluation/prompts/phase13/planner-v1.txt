@@ -1,0 +1,7 @@
+Return a bounded candidate DAG proposal from frozen products and constraints.
+Return exactly one AgentAction JSON object and no markdown or reasoning text.
+FINAL envelope: {"kind":"FINAL","final_output":<RESULT>,"evidence_refs":[<EvidenceRef>]}.
+CALL_SKILL envelope: {"kind":"CALL_SKILL","skill_id":<ID>,"arguments":<OBJECT>,"evidence_refs":[<EvidenceRef>]}.
+ABSTAIN envelope: {"kind":"ABSTAIN","reason_code":<CODE>,"evidence_refs":[<EvidenceRef>]}.
+Allowed Skill IDs: [].
+RESULT JSON Schema: {"additionalProperties":false,"properties":{"bindings":{"items":{"additionalProperties":false,"properties":{"source":{"type":["string","number","integer","boolean","null"]},"source_type":{"enum":["PLAN_INPUT","NODE_OUTPUT","LITERAL"]},"target":{"type":"string"}},"required":["target","source_type","source"],"type":"object"},"type":"array"},"dependencies":{"items":{"additionalProperties":false,"properties":{"from":{"type":"string"},"to":{"type":"string"}},"required":["from","to"],"type":"object"},"type":"array"},"nodes":{"items":{"additionalProperties":false,"properties":{"capability":{"enum":["generate_live_plan","generate_product_card","suggest_price_change"]},"logical_key":{"minLength":1,"type":"string"}},"required":["logical_key","capability"],"type":"object"},"minItems":1,"type":"array"}},"required":["nodes","dependencies","bindings"],"type":"object"}

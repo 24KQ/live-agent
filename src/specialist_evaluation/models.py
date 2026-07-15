@@ -7,7 +7,15 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import ConfigDict, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    ValidationInfo,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from src.specialist_runtime.models import (
     StrictFrozenModel,
@@ -18,6 +26,7 @@ from src.specialist_runtime.models import (
 
 
 HASH_PATTERN = r"^[0-9a-f]{64}$"
+_FORMAL_MANIFEST_AUTHORIZATION_TOKEN = object()
 COMMON_AGENT_GATE_IDS = frozenset(
     {"schema_valid", "permission_valid", "evidence_valid", "fallback_absent"}
 )
@@ -54,6 +63,61 @@ class RetentionDecision(StrEnum):
     INCONCLUSIVE = "INCONCLUSIVE"
 
 
+class EvaluationManifestKind(StrEnum):
+    """区分可审计的数据集基线与绑定最终 Git 身份的正式评估清单。"""
+
+    DATASET_BASELINE = "DATASET_BASELINE"
+    FORMAL_EVALUATION = "FORMAL_EVALUATION"
+
+
+class FormalManifestAuthorization(StrictFrozenModel):
+    """Task 11 完成 Git 与代码预检后生成的进程内可信注册证据。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    manifest_id: str = Field(..., min_length=1)
+    manifest_digest: str = Field(..., pattern=HASH_PATTERN)
+    source_commit: str = Field(..., pattern=r"^[0-9a-f]{40}$")
+    code_digest: str = Field(..., pattern=HASH_PATTERN)
+    _verified_identity: tuple[str, str, str, str] | None = PrivateAttr(default=None)
+
+    def _identity(self) -> tuple[str, str, str, str]:
+        return (self.manifest_id, self.manifest_digest, self.source_commit, self.code_digest)
+
+    @model_validator(mode="after")
+    def _require_internal_factory(self, info: ValidationInfo) -> "FormalManifestAuthorization":
+        if self.provenance_verified:
+            return self
+        if (info.context or {}).get("formal_manifest_token") is not _FORMAL_MANIFEST_AUTHORIZATION_TOKEN:
+            raise ValueError("formal manifest authorization requires internal factory")
+        object.__setattr__(self, "_verified_identity", self._identity())
+        return self
+
+    @property
+    def provenance_verified(self) -> bool:
+        """字段仍与内部预检时绑定身份完全一致时才保持可信。"""
+
+        return self._verified_identity == self._identity()
+
+
+def _build_formal_manifest_authorization(
+    manifest: "EvaluationManifest",
+) -> FormalManifestAuthorization:
+    """供已完成 Git/源码核验的 Task 11 预检边界构造注册证据。"""
+
+    if manifest.manifest_kind is not EvaluationManifestKind.FORMAL_EVALUATION:
+        raise ValueError("only formal evaluation manifests can be authorized")
+    return FormalManifestAuthorization.model_validate(
+        {
+            "manifest_id": manifest.manifest_id,
+            "manifest_digest": manifest.manifest_digest,
+            "source_commit": manifest.source_commit,
+            "code_digest": manifest.code_digest,
+        },
+        context={"formal_manifest_token": _FORMAL_MANIFEST_AUTHORIZATION_TOKEN},
+    )
+
+
 class EvaluationManifest(StrictFrozenModel):
     """绑定数据、代码、Schema、价格和模型身份的不可变评估清单。"""
 
@@ -61,6 +125,8 @@ class EvaluationManifest(StrictFrozenModel):
 
     manifest_id: str = Field(..., min_length=1)
     manifest_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    manifest_kind: EvaluationManifestKind
+    source_commit: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
     dataset_digest: str = Field(..., pattern=HASH_PATTERN)
     schema_digest: str = Field(..., pattern=HASH_PATTERN)
     generator_digest: str = Field(..., pattern=HASH_PATTERN)
@@ -91,6 +157,16 @@ class EvaluationManifest(StrictFrozenModel):
 
     @model_validator(mode="after")
     def _verify_digest(self) -> "EvaluationManifest":
+        if (
+            self.manifest_kind is EvaluationManifestKind.FORMAL_EVALUATION
+            and self.source_commit is None
+        ):
+            raise ValueError("formal evaluation manifest requires source_commit")
+        if (
+            self.manifest_kind is EvaluationManifestKind.DATASET_BASELINE
+            and self.source_commit is not None
+        ):
+            raise ValueError("dataset baseline manifest cannot claim source_commit")
         all_case_ids = (
             *self.development_case_ids,
             *self.validation_case_ids,

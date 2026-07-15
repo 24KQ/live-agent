@@ -154,8 +154,9 @@
   - [x] Task 2：原生 async 单次 AgentModelPort（`344cb82` 已推送）。
   - [x] Task 3：持久模型预算账本（`653ebb8` 已推送）。
   - [x] Task 4：BoundedSpecialistRunner 与 Evidence Resolver（`94ad80b` 已推送）。
-  - [x] Task 5：Evaluation Store、配对比较与迁移（技术门禁完成，独立提交见 Git 历史）。
-  - [ ] Task 6：240 例字节稳定数据集与冻结 Evaluation Manifest。
+  - [x] Task 5：Evaluation Store、配对比较与迁移（`6edd833` 已推送）。
+  - [x] Task 6：240 例字节稳定数据集与冻结 Evaluation Manifest（技术门禁完成，待提交推送）。
+  - [ ] Task 7：LiveOpsAgent 纵向切片。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

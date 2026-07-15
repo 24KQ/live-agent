@@ -349,6 +349,20 @@
 - Pydantic 数值边界需要与 PostgreSQL `BIGINT`、`INTEGER` 和 `NUMERIC` 精确一致，否则内存测试可接受而数据库在运行时溢出。
 - 候选专属严格 AND 阈值和 ReviewMemory macro-F1 计算仍属于 Task 7-11；Task 5 只冻结可独立重算的指标事实，不提前硬编码后续 evaluator。
 
+## 2026-07-16 Phase 13 Task 6 发现
+
+- Prompt 摘要本身不是模型输入证据。Profile 必须同时冻结真实 Prompt 正文和摘要，Runner 必须发送该正文；占位 system message 会让 Manifest 与真实请求脱节。
+- Skill 白名单只冻结 ID 不足以保证评估可重复。Profile 需要一一对应的精确版本映射，Catalog 漂移必须在 Skill Port 前 fail-closed。
+- 结果 Schema 只能证明字段形状，不能证明证据来源。完整 `evidence_refs` 与 ReviewMemory 嵌套 `evidence_ids` 都必须绑定本轮已由 Resolver 解析的 FINAL 动作证据。
+- Task 6 无法提前冻结 Task 7-10 尚未实现的最终代码。`phase13-v2` 只作为数据集基线；Task 11 必须基于候选最终 Git commit 生成并注册新的正式 Manifest。
+- 数据文件摘要不能只在 CI 中检查；case loader 每次消费都要校验 Manifest、原始字节摘要、严格 Schema 和 case 身份，防止测试后替换。
+- Manifest 内部摘要自洽仍不能抵抗 case、Schema 和摘要一起替换。Loader 必须从调用方接收进程外冻结的预期摘要，并把校验后的 case 深冻结后返回。
+- “Task 6 基线不得正式运行”不能只写在计划中。EvaluationManifest 与 Store 必须区分 DATASET_BASELINE/FORMAL_EVALUATION，并要求正式清单绑定最终 Git commit。
+- 40 位十六进制字符串仍可由普通调用方伪造。正式 Manifest 注册还需要不可由普通构造器生成的绑定授权，Task 11 公开预检必须核对清洁源码、真实 Git HEAD 与重算 code digest。
+- 注册时通过预检不代表后续执行进程仍处于同一 HEAD。每次 create_run 也必须携带当前进程授权；源码闭包还要拒绝目录 symlink，并与 Git tracked Python 集合精确相等，防止 ignored 外部代码进入 import 路径。
+- 候选 Prompt 必须描述真实 AgentAction envelope、允许 Skill 与规范结果 Schema；只写业务目标会让真实模型输出与 Runner 协议错位，而 ScriptedModel 无法暴露该问题。
+- 当前不可信执行边界是没有本地文件系统的远端模型，不是任意第三方 Python 插件。holdout label 只进入受审计 Evaluator；未来开放第三方候选代码时必须新增进程级权限隔离。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

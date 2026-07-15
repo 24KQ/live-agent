@@ -141,6 +141,9 @@ CREATE INDEX IF NOT EXISTS specialist_model_budget_reservations_scope_state_idx
 CREATE TABLE IF NOT EXISTS specialist_evaluation_manifests (
     manifest_id TEXT PRIMARY KEY,
     manifest_version TEXT NOT NULL,
+    manifest_kind TEXT NOT NULL DEFAULT 'DATASET_BASELINE'
+        CHECK (manifest_kind IN ('DATASET_BASELINE', 'FORMAL_EVALUATION')),
+    source_commit TEXT,
     manifest_digest TEXT NOT NULL CHECK (manifest_digest ~ '^[0-9a-f]{64}$'),
     dataset_digest TEXT NOT NULL CHECK (dataset_digest ~ '^[0-9a-f]{64}$'),
     schema_digest TEXT NOT NULL CHECK (schema_digest ~ '^[0-9a-f]{64}$'),
@@ -161,8 +164,31 @@ CREATE TABLE IF NOT EXISTS specialist_evaluation_manifests (
     model_id TEXT NOT NULL,
     candidate_ids JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (manifest_id, manifest_digest)
+    UNIQUE (manifest_id, manifest_digest),
+    CHECK (
+        (manifest_kind = 'DATASET_BASELINE' AND source_commit IS NULL)
+        OR (manifest_kind = 'FORMAL_EVALUATION' AND source_commit ~ '^[0-9a-f]{40}$')
+    )
 );
+
+ALTER TABLE specialist_evaluation_manifests
+    ADD COLUMN IF NOT EXISTS manifest_kind TEXT NOT NULL DEFAULT 'DATASET_BASELINE';
+ALTER TABLE specialist_evaluation_manifests
+    ADD COLUMN IF NOT EXISTS source_commit TEXT;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'specialist_evaluation_manifests_kind_ck'
+    ) THEN
+        ALTER TABLE specialist_evaluation_manifests
+            ADD CONSTRAINT specialist_evaluation_manifests_kind_ck CHECK (
+                (manifest_kind = 'DATASET_BASELINE' AND source_commit IS NULL)
+                OR (manifest_kind = 'FORMAL_EVALUATION' AND source_commit ~ '^[0-9a-f]{40}$')
+            );
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS specialist_evaluation_runs (
     run_id TEXT PRIMARY KEY,

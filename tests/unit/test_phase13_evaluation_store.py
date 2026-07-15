@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -11,16 +13,23 @@ from src.specialist_evaluation.models import (
     CaseAttempt,
     EvaluationCandidate,
     EvaluationManifest,
+    EvaluationManifestKind,
+    FormalManifestAuthorization,
     EvaluationRun,
     EvaluationSplit,
     EvaluationSubject,
     RetentionDecision,
     RetentionDecisionRecord,
     canonical_json_sha256,
+    _build_formal_manifest_authorization,
 )
 from src.specialist_evaluation.store import (
     EvaluationInvariantError,
     InMemorySpecialistEvaluationStore,
+)
+from src.specialist_evaluation.manifest_authorization import (
+    calculate_source_code_digest,
+    verify_formal_manifest_at_git_head,
 )
 
 
@@ -46,6 +55,8 @@ def _manifest() -> EvaluationManifest:
     return EvaluationManifest(
         manifest_id="phase13-v2",
         manifest_version="2.0.0",
+        manifest_kind=EvaluationManifestKind.FORMAL_EVALUATION,
+        source_commit="a" * 40,
         dataset_digest=HASH_A,
         schema_digest=HASH_B,
         generator_digest=HASH_A,
@@ -74,6 +85,30 @@ def _run(candidate: EvaluationCandidate = EvaluationCandidate.LIVE_OPS) -> Evalu
         manifest_id=manifest.manifest_id,
         manifest_digest=manifest.manifest_digest,
         candidate=candidate,
+    )
+
+
+def _register_manifest(store, manifest: EvaluationManifest | None = None) -> EvaluationManifest:
+    """测试模拟 Task 11 已完成外部 Git/源码预检后的内部授权注册。"""
+
+    selected = manifest or _manifest()
+    return store.register_manifest(
+        selected,
+        authorization=_build_formal_manifest_authorization(selected),
+    )
+
+
+def _create_run(
+    store,
+    run: EvaluationRun | None = None,
+    manifest: EvaluationManifest | None = None,
+) -> EvaluationRun:
+    """测试模拟执行进程在 create_run 前重新完成同一正式 Manifest 预检。"""
+
+    selected_manifest = manifest or _manifest()
+    return store.create_run(
+        run or _run(),
+        authorization=_build_formal_manifest_authorization(selected_manifest),
     )
 
 
@@ -139,12 +174,104 @@ def test_manifest_digest_is_stable_and_rejects_tampered_digest() -> None:
         )
 
 
+def test_dataset_baseline_manifest_cannot_create_formal_run() -> None:
+    """Task 6 数据集基线可留档，但必须等 Task 11 最终 Git 身份后才能创建 Run。"""
+
+    payload = _manifest().model_dump(mode="json")
+    payload["manifest_kind"] = "DATASET_BASELINE"
+    payload["source_commit"] = None
+    payload.pop("manifest_digest")
+    baseline = EvaluationManifest.model_validate(payload)
+    store = InMemorySpecialistEvaluationStore()
+    store.register_manifest(baseline)
+    run_payload = _run().model_dump(mode="json")
+    run_payload["manifest_digest"] = baseline.manifest_digest
+
+    with pytest.raises(EvaluationInvariantError, match="formal evaluation"):
+        store.create_run(EvaluationRun.model_validate(run_payload))
+
+    missing_commit = _manifest().model_dump(mode="json")
+    missing_commit["source_commit"] = None
+    missing_commit.pop("manifest_digest")
+    with pytest.raises(ValueError, match="source_commit"):
+        EvaluationManifest.model_validate(missing_commit)
+
+
+def test_formal_manifest_registration_requires_bound_internal_authorization() -> None:
+    """仅伪造 40 位 commit 和重算摘要，不能绕过 Task 11 的可信预检边界。"""
+
+    manifest = _manifest()
+    store = InMemorySpecialistEvaluationStore()
+    with pytest.raises(EvaluationInvariantError, match="authorization"):
+        store.register_manifest(manifest)
+    with pytest.raises(ValueError, match="internal factory"):
+        FormalManifestAuthorization(
+            manifest_id=manifest.manifest_id,
+            manifest_digest=manifest.manifest_digest,
+            source_commit=manifest.source_commit,
+            code_digest=manifest.code_digest,
+        )
+
+    _register_manifest(store, manifest)
+    with pytest.raises(EvaluationInvariantError, match="authorization"):
+        store.create_run(_run())
+
+
+def test_formal_manifest_git_preflight_binds_clean_head_and_source_digest(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """公开预检必须验证真实 Git HEAD、清洁源码和重算 code_digest 后才签发授权。"""
+
+    repository = tmp_path / "repository"
+    (repository / "src").mkdir(parents=True)
+    (repository / "evaluation").mkdir()
+    (repository / "src" / "runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repository / "evaluation" / "loader.py").write_text("VALUE = 2\n", encoding="utf-8")
+    (repository / ".gitignore").write_text("src/ignored.py\n", encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=repository, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "phase13@example.test"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.name", "Phase 13 Test"], cwd=repository, check=True)
+    subprocess.run(["git", "add", "src", "evaluation", ".gitignore"], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "freeze"], cwd=repository, check=True, capture_output=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repository, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    payload = _manifest().model_dump(mode="json")
+    payload["source_commit"] = commit
+    payload["code_digest"] = calculate_source_code_digest(repository)
+    payload.pop("manifest_digest")
+    manifest = EvaluationManifest.model_validate(payload)
+
+    authorization = verify_formal_manifest_at_git_head(manifest, repository)
+    assert authorization.provenance_verified
+
+    (repository / "src" / "runtime.py").write_text("VALUE = 3\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="clean"):
+        verify_formal_manifest_at_git_head(manifest, repository)
+
+    (repository / "src" / "runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repository / "src" / "ignored.py").write_text("VALUE = 4\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="tracked source closure"):
+        verify_formal_manifest_at_git_head(manifest, repository)
+
+    (repository / "src" / "ignored.py").unlink()
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda path: path.name == "src" or original_is_symlink(path),
+    )
+    with pytest.raises(ValueError, match="symlink"):
+        verify_formal_manifest_at_git_head(manifest, repository)
+
+
 def test_store_keeps_attempt_history_but_selects_only_one_formal_result() -> None:
     """重跑保留 Attempt 历史，同一 case/subject 只能有一个正式结果。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     first = _attempt(
         attempt_id="attempt-baseline-1", subject=EvaluationSubject.BASELINE, success=False
@@ -180,9 +307,9 @@ def test_formal_selection_is_unique_across_runs_for_same_manifest_candidate_case
         manifest_digest=manifest.manifest_digest,
         candidate=EvaluationCandidate.LIVE_OPS,
     )
-    store.register_manifest(manifest)
-    store.create_run(first_run)
-    store.create_run(second_run)
+    _register_manifest(store, manifest)
+    _create_run(store, first_run, manifest)
+    _create_run(store, second_run, manifest)
     first_claim = _claim(store, "first-worker")
     second_claim = _claim(store, "second-worker")
     first = _attempt(attempt_id="attempt-run-1", subject=EvaluationSubject.AGENT, success=True)
@@ -204,8 +331,8 @@ def test_store_rejects_case_subject_and_attempt_number_identity_conflicts() -> N
     """同一 run/case/subject/attempt_number 不得写入两个不同 Attempt。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     store.append_attempt(
         _attempt(attempt_id="attempt-1", subject=EvaluationSubject.AGENT, success=True),
@@ -222,8 +349,8 @@ def test_attempt_case_and_split_must_belong_to_manifest() -> None:
     """任意 case 或伪造 split 都不能越过 Manifest 冻结数据集边界。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     payload = _attempt(
         attempt_id="attempt-wrong-split", subject=EvaluationSubject.AGENT, success=False
@@ -237,8 +364,8 @@ def test_selection_requires_matching_registered_manifest_run_and_attempt() -> No
     """Manifest、Run 与 Attempt 的候选和摘要必须形成同一不可伪造链。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     forged = _attempt(
         attempt_id="attempt-forged", subject=EvaluationSubject.AGENT, success=True
@@ -293,8 +420,8 @@ def test_duplicate_metric_aggregation_is_rejected() -> None:
     """同一 run/split/metric 只能写入一次正式聚合，避免挑选有利统计。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     baseline = _attempt(
         attempt_id="metric-baseline", subject=EvaluationSubject.BASELINE, success=False
@@ -378,8 +505,8 @@ def test_retained_decision_requires_zero_severe_violations_and_is_unique() -> No
         )
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     retained = RetentionDecisionRecord(
         decision_id="decision-good",
@@ -486,8 +613,8 @@ def test_infrastructure_failure_attempt_cannot_be_selected() -> None:
     """基础设施失败只能导向证据不足，不能作为正式业务失败进入配对聚合。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     payload = _attempt(
         attempt_id="attempt-infra", subject=EvaluationSubject.AGENT, success=False
@@ -512,8 +639,8 @@ def test_decision_rejects_digest_not_derived_from_saved_metrics() -> None:
     """去留结论必须绑定 Store 已保存指标的稳定摘要，不能接受调用方任意哈希。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store)
     record = RetentionDecisionRecord(
         decision_id="decision-forged-metrics",
@@ -553,8 +680,8 @@ def test_formal_fact_writes_require_an_active_claim() -> None:
     """EvaluationRun 从创建起就必须先领取租约，不能在首次 claim 前绕过 fencing。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     attempt = _attempt(
         attempt_id="attempt-without-claim",
         subject=EvaluationSubject.AGENT,
@@ -588,8 +715,8 @@ def test_retention_decision_finalizes_run_and_freezes_formal_facts() -> None:
     """最终结论必须原子终结 Run，之后不能追加 Attempt 或指标。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = store.claim_next_run(
         "worker-finalizer", manifest_id=_manifest().manifest_id
     )
@@ -622,8 +749,8 @@ def test_store_recomputes_each_metric_from_its_own_attempt_fact() -> None:
     """相同 selected Attempt 可以支持结果相反的两个业务指标，且分别重算。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store, "independent-metric-worker")
     baseline_payload = _attempt(
         attempt_id="independent-baseline",
@@ -670,8 +797,8 @@ def test_decision_hard_gate_summary_must_match_selected_agent_facts() -> None:
     """调用方不能用 hard_gates_passed=True 覆盖 Attempt 中失败的共同安全门。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store, "gate-worker")
     payload = _attempt(
         attempt_id="gate-failed-agent",
@@ -736,8 +863,8 @@ def test_decision_case_counts_are_recomputed_from_complete_selected_pairs() -> N
     """早停位置必须来自正式配对证据，不能由调用方任意声明 40/20。"""
 
     store = InMemorySpecialistEvaluationStore()
-    store.register_manifest(_manifest())
-    store.create_run(_run())
+    _register_manifest(store)
+    _create_run(store)
     claim = _claim(store, "count-worker")
     forged = RetentionDecisionRecord(
         decision_id="forged-count-decision",
@@ -768,9 +895,9 @@ def test_candidate_decision_is_unique_and_cancels_sibling_runs() -> None:
         manifest_digest=manifest.manifest_digest,
         candidate=EvaluationCandidate.LIVE_OPS,
     )
-    store.register_manifest(manifest)
-    store.create_run(first_run)
-    store.create_run(second_run)
+    _register_manifest(store, manifest)
+    _create_run(store, first_run, manifest)
+    _create_run(store, second_run, manifest)
     first_claim = _claim(store, "candidate-first-worker")
     second_claim = _claim(store, "candidate-second-worker")
     decision = RetentionDecisionRecord(
@@ -804,13 +931,15 @@ def test_candidate_decision_is_unique_and_cancels_sibling_runs() -> None:
             claim=second_claim,
         )
     with pytest.raises(EvaluationInvariantError, match="candidate.*decision"):
-        store.create_run(
+        _create_run(
+            store,
             EvaluationRun(
                 run_id="run-live_ops-after-decision",
                 manifest_id=manifest.manifest_id,
                 manifest_digest=manifest.manifest_digest,
                 candidate=EvaluationCandidate.LIVE_OPS,
-            )
+            ),
+            manifest,
         )
 
 
@@ -820,7 +949,7 @@ def test_create_run_rejects_terminal_initial_status(status: str) -> None:
 
     store = InMemorySpecialistEvaluationStore()
     manifest = _manifest()
-    store.register_manifest(manifest)
+    _register_manifest(store, manifest)
     with pytest.raises(EvaluationInvariantError, match="RUNNING"):
         store.create_run(
             EvaluationRun(
