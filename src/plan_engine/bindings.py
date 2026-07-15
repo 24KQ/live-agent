@@ -15,6 +15,7 @@ from typing import Any
 
 from src.plan_engine.models import (
     CardBatchPlanningInput,
+    EmergencySoldOutPlanningInput,
     FrozenDict,
     FrozenList,
     InputBinding,
@@ -91,7 +92,7 @@ class InputBindingResolver:
     def resolve(
         self,
         binding: InputBinding,
-        planning_input: CardBatchPlanningInput,
+        planning_input: CardBatchPlanningInput | EmergencySoldOutPlanningInput,
         dependency_outputs: Mapping[str, Any],
         declared_dependencies: frozenset[str],
         *,
@@ -137,7 +138,7 @@ class InputBindingResolver:
     def materialize(
         self,
         input_bindings: Mapping[str, InputBinding],
-        planning_input: CardBatchPlanningInput,
+        planning_input: CardBatchPlanningInput | EmergencySoldOutPlanningInput,
         dependency_outputs: Mapping[str, Any],
         declared_dependencies: frozenset[str],
         *,

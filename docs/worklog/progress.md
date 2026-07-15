@@ -438,6 +438,10 @@
 - 执行治理改为 Phase-Gated：Phase 12B 内 Task 可连续推进，Phase 12B Acceptance 后必须进入用户授权的 Phase 13 Gate；Phase 13/14 详细文档降级为讨论基线。
 - 已新增固定 `live-session-p001-sold-out-v1` 业务闭环轨道；Task 11 将输出可重复 Trace/Markdown 报告，Phase 13 只追加条件化 Agent 结论，Phase 14 再纳入 Golden/Release 证据。
 - Task 7 实施前发现现有 Worker 只能按指定 PlanRun claim，无法证明 priority 100 紧急 child 优先于普通 READY 节点；已以 D-097 收敛为 Store 权威的跨 PlanRun priority claim，保留全部既有播前按计划调用。
+- Task 7 首个 RED 为 `2 failed`：紧急输入模型和固定售罄 Proposal 均不存在，失败与 D-097 后的受限 child DAG 设计一致；尚未写入 Task 7 生产实现。
+- Task 7 第一段 GREEN 新增冻结 `EmergencySoldOutPlanningInput` 与固定五节点 `SoldOutEmergencyProposalProvider`，专项为 `2 passed`；Store/Worker 与 PostgreSQL 优先级尚未实施。
+- Task 7 已完成固定五节点物化门禁、priority 100、`ready_at`、跨 PlanRun 全局 claim、PlanRun -> Node 锁序、资源互斥、只读 EventStore 验证和售罄写授权重建；其他紧急 Skill 不获得事件授权。
+- Task 7 审查整改覆盖非规范 Proposal、滚动迁移前 CARD_BATCH 兼容、两个 PostgreSQL Worker 的 `SKIP LOCKED`、验证后迟到冲突和全部 READY 转换路径。最终 unit `922 passed`，integration `95 passed, 3 deselected`。
 
 # 2026-07-11 Phase 7A 进度
 

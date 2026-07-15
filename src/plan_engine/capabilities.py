@@ -42,11 +42,19 @@ class PlanCapabilityProfile:
     PREPARE_CARD_BATCH = "PREPARE_CARD_BATCH"
     COLLECT_CARD_RESULTS = "COLLECT_CARD_RESULTS"
     GENERATE_PRODUCT_CARD = "generate_product_card"
+    VALIDATE_SOLD_OUT_EVENT = "VALIDATE_SOLD_OUT_EVENT"
+    COLLECT_SOLD_OUT_RESPONSE = "COLLECT_SOLD_OUT_RESPONSE"
+    HANDLE_SOLD_OUT_EVENT = "handle_sold_out_event"
+    RECOMMEND_BACKUP_PRODUCT = "recommend_backup_product"
+    GENERATE_ON_LIVE_PROMPT = "generate_on_live_prompt"
     CARD_MAX_CONCURRENCY = 4
 
     def __init__(self, catalog: Sequence[SkillManifest]) -> None:
         """从启动期已校验的 Catalog 快照提取唯一允许的 Skill Manifest。"""
         manifests = tuple(catalog)
+        self._manifests_by_skill_id = {
+            manifest.skill_id: manifest for manifest in manifests
+        }
         matches = tuple(
             manifest
             for manifest in manifests
@@ -114,4 +122,68 @@ class PlanCapabilityProfile:
             max_attempt_seconds=None,
             resource_keys=(),
             max_concurrency=self.CARD_MAX_CONCURRENCY,
+        )
+
+    def resolve_emergency_control_node(
+        self,
+        *,
+        logical_key: str,
+    ) -> ResolvedPlanCapability:
+        """将固定紧急 DAG 的首尾节点解析为无副作用控制能力。"""
+        control_type_by_key = {
+            "validate-sold-out-event": self.VALIDATE_SOLD_OUT_EVENT,
+            "collect-sold-out-response": self.COLLECT_SOLD_OUT_RESPONSE,
+        }
+        control_type = control_type_by_key.get(logical_key)
+        if control_type is None:
+            raise PlanCapabilityError(f"PlanEngine 不允许紧急控制节点: {logical_key}")
+        return ResolvedPlanCapability(
+            node_type=control_type,
+            skill_id=None,
+            skill_version=None,
+            lifecycle=frozenset(),
+            risk_level=None,
+            max_attempt_seconds=None,
+            resource_keys=(),
+            max_concurrency=self.CARD_MAX_CONCURRENCY,
+        )
+
+    def resolve_emergency_skill_node(
+        self,
+        *,
+        skill_id: str,
+        room_id: str,
+        product_id: str,
+    ) -> ResolvedPlanCapability:
+        """从 Catalog 解析紧急 Skill，并只为售罄 CAS 写施加商品级互斥。"""
+        allowed = {
+            self.HANDLE_SOLD_OUT_EVENT,
+            self.RECOMMEND_BACKUP_PRODUCT,
+            self.GENERATE_ON_LIVE_PROMPT,
+        }
+        if skill_id not in allowed:
+            raise PlanCapabilityError(f"PlanEngine 不允许紧急 Skill: {skill_id}")
+        manifest = self._manifests_by_skill_id.get(skill_id)
+        if manifest is None or not manifest.version:
+            raise PlanCapabilityError(f"可信 Catalog 缺少紧急 Skill: {skill_id}")
+        if not room_id or not product_id:
+            raise PlanCapabilityError("紧急 Skill 资源身份需要非空 room_id 和 product_id")
+        resource_keys: tuple[str, ...] = ()
+        max_concurrency = self.CARD_MAX_CONCURRENCY
+        if skill_id == self.HANDLE_SOLD_OUT_EVENT:
+            resource_keys = (
+                "room:"
+                f"{self._encode_resource_key_segment(room_id)}:product:"
+                f"{self._encode_resource_key_segment(product_id)}",
+            )
+            max_concurrency = 1
+        return ResolvedPlanCapability(
+            node_type="SKILL",
+            skill_id=manifest.skill_id,
+            skill_version=manifest.version,
+            lifecycle=manifest.lifecycle,
+            risk_level=manifest.risk_level,
+            max_attempt_seconds=manifest.max_attempt_seconds,
+            resource_keys=resource_keys,
+            max_concurrency=max_concurrency,
         )

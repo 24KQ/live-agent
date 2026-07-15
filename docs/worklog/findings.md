@@ -257,6 +257,14 @@
 - Store 的审计时间必须单调。墙钟回拨时 heartbeat 可以保持现有 lease，但不能把 `updated_at` 写回更早时刻；所有记录更新取旧值与新时刻的最大值。
 - EventApplication 的 ImpactAnalysis、emergency plan ID 和 applied version 是关联事实，不是可变缓存。字段一旦写入只能重复相同值，后续状态转移不得覆盖，否则恢复查询会失去原处理证据。
 
+## 2026-07-15 Phase 12B Task 7 发现
+
+- 跨 PlanRun claim 不能先锁 PlanNode 再锁 PlanRun；freeze 与既有 claim 使用 PlanRun -> NodeRun -> PlanNode。全局入口必须先按权威事实排序，再以相同锁序逐项 `SKIP LOCKED` 重验，避免锁序反转。
+- priority 100 本身是一种调度权限。仅校验 Capability 与候选 Skill ID 一致仍可夹带额外 Skill，因此紧急输入在 `MaterializedPlan` 边界必须与固定 Provider 的完整五节点快照相等。
+- `ready_at` 不只是初始列。重试到期、依赖满足、人工批准和对账成功后开放后继都必须写新的 READY 时刻，否则全局调度会永久遗漏合法节点。
+- Phase 12B 代码与数据库迁移存在滚动发布窗口。紧急计划在缺少增量列时必须 fail-closed，普通 CARD_BATCH 则继续使用 Phase 12A 列集，不能因新 Store 版本提前中断旧路径。
+- 事件验证控制节点与售罄写之间仍可能到达冲突 occurrence；Worker 必须在真正派发写 Skill 前再次读取 EventStore 并重建授权，不能复用控制节点输出作为权限。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

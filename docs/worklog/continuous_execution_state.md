@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 6：售罄 CAS Skill 与严格对账（`9d4bf97`） |
-| 下一任务 | Task 7：高优先级紧急 child DAG |
-| 下一任务状态 | `RED` |
-| 当前子步骤 | Phase-Gated 文档修订完成后，读取 Task 7 Plan 并编写规范 DAG 与优先级红灯测试 |
+| 最近完成任务 | Phase 12B Task 7：高优先级紧急 child DAG（验证完成，等待本次提交） |
+| 下一任务 | Task 8：增量 Replan 与结果复用 |
+| 下一任务状态 | `PENDING` |
+| 当前子步骤 | Task 7 全量门禁通过，准备独立提交并推送后进入 Task 8 RED |
 | 当前分支 | `main` |
 | 当前业务基线 | `9d4bf97 feat: execute versioned sold out writes` |
-| 远端状态 | `origin/main=9d4bf97` |
+| 远端状态 | `origin/main=9840402` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -29,16 +29,16 @@
 
 ```text
 Phase / Task: Phase 12B / Task 7
-状态: RED
-目标: 建立固定售罄紧急 child DAG、priority 100 调度和同商品资源串行
+状态: VERIFY
+目标: 建立固定售罄紧急 child DAG、priority 100 调度和同房间商品资源串行
 禁止事项: 不绕过 Skill 版本、可信授权、FailurePolicy 或 fencing；不开始增量 Replan、Harness 接入或生产双执行
-当前 HEAD: 9d4bf97
+当前 HEAD: 9840402
 本 Task 文件: emergency.py、capabilities.py、proposal.py、worker.py、Task 7 单元与 PostgreSQL 优先级测试、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 6 RED 为 unit 16 failed, 51 passed；GREEN 后专项 64 passed；完整 unit 911 passed, 4 warnings；完整 integration 退出码 0 且无失败，已提交并推送
-错误与尝试次数: 0
+最近命令与结果: Task 7 专项 18 passed；完整 unit 922 passed, 4 warnings；完整 integration 95 passed, 3 deselected, 5 warnings；compileall、migration dry-run 与 diff 检查通过
+错误与尝试次数: 2；首次全量命令引用不存在的旧测试文件名，改用 rg 获取真实文件；第二次全量单元发现 reconcile_plan_reference 缺少 completed_at，已补齐并复跑全量通过
 设计偏差与决策编号: D-082、D-083、D-084；D-094 限定自动推进仅在当前 Phase 内，D-095 要求 Task 11 产出固定业务闭环 Trace。D-097 新增跨 PlanRun priority claim，修复 Task 7 原计划无法证明紧急计划优先级的缺口
-下一条精确操作: 重新读取 Task 7 Design/Plan，编写固定 child DAG、lineage、priority 和资源锁的 RED 测试
+下一条精确操作: 严格 UTF-8 检查后精确暂存 Task 7 文件，提交并推送，再读取 Task 8 计划编写首个 RED
 模型费用累计: 0 元
 ```
 
@@ -108,6 +108,9 @@ Phase / Task: Phase 12B / Task 7
 | Phase 12B Task 6 RED/GREEN | RED：unit `16 failed, 51 passed`，集成因缺模块收集失败；GREEN：专项 `64 passed` |
 | Phase 12B Task 6 完整验证 | unit `911 passed, 4 warnings`；integration 全套退出码 0、无失败输出 |
 | Phase 12B Task 6 提交与推送 | `9d4bf97`，`origin/main=9d4bf97` |
+| Phase 12B Task 7 RED/GREEN | 输入/Proposal RED `2 failed`；Capability/Store RED `3 failed`；Worker RED `2 failed`；最终专项 `19 passed` |
+| Phase 12B Task 7 完整验证 | unit `922 passed, 4 warnings`；integration `95 passed, 3 deselected, 5 warnings` |
+| Phase 12B Task 7 并发与安全审查 | 双连接 global claim、固定 DAG 门禁、迟到冲突二次验证、迁移前 CARD_BATCH 兼容均通过 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

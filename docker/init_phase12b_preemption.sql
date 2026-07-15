@@ -56,6 +56,15 @@ ALTER TABLE plan_versions
     ADD COLUMN IF NOT EXISTS change_reason TEXT NOT NULL DEFAULT 'INITIAL',
     ADD COLUMN IF NOT EXISTS source_event_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
+-- ready_at 是跨 PlanRun 调度的权威年龄。已有 READY 行使用最后一次状态更新时间
+-- 回填；其他状态保持 NULL，后续每次合法进入 READY 时由 Store 原子刷新。
+ALTER TABLE plan_nodes
+    ADD COLUMN IF NOT EXISTS ready_at TIMESTAMPTZ;
+
+UPDATE plan_nodes
+SET ready_at = updated_at
+WHERE state = 'READY' AND ready_at IS NULL;
+
 -- 在途节点不强制取消。冻结事务先标记当前 NodeRun，Worker 仍可在原 lease/deadline
 -- 内写回完整结果；Replan 只读取 superseded=false 的可复用成功事实。
 ALTER TABLE node_runs
@@ -177,6 +186,10 @@ CREATE INDEX IF NOT EXISTS plan_runs_root_priority_idx
 CREATE INDEX IF NOT EXISTS plan_runs_trigger_event_idx
     ON plan_runs (trigger_event_id)
     WHERE trigger_event_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS plan_nodes_global_ready_priority_idx
+    ON plan_nodes (ready_at, node_id, plan_run_id)
+    WHERE state = 'READY';
 
 CREATE INDEX IF NOT EXISTS node_runs_superseded_idx
     ON node_runs (plan_run_id, superseded_by_event_id, node_id)

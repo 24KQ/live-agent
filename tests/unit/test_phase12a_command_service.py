@@ -143,6 +143,7 @@ def test_duplicate_command_id_replays_first_result_after_state_changes() -> None
     assert replay.reason == "ACCEPTED"
     node = next(item for item in store.list_nodes(plan_run_id) if item.node_id == node_id)
     assert node.state is PlanNodeState.READY
+    assert node.ready_at == first.completed_at
 
 
 def test_stale_plan_version_is_rejected_without_changing_node() -> None:

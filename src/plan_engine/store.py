@@ -25,6 +25,7 @@ from src.plan_engine.capabilities import ResolvedPlanCapability
 from src.plan_engine.models import (
     CandidatePlanProposal,
     CardBatchPlanningInput,
+    EmergencySoldOutPlanningInput,
     FrozenDict,
     NodeRunView,
     PlanCommandType,
@@ -99,27 +100,49 @@ class MaterializedPlan:
     超时、并发和资源键。Store 只接受三者完整闭合的对象，不再自行推断能力事实。
     """
 
-    planning_input: CardBatchPlanningInput
+    planning_input: CardBatchPlanningInput | EmergencySoldOutPlanningInput
     proposal: CandidatePlanProposal
     capabilities_by_logical_key: dict[str, ResolvedPlanCapability]
 
     def __post_init__(self) -> None:
         """深复制领域模型并冻结能力映射，隔离构造方仍持有的容器引用。"""
-        planning_input = CardBatchPlanningInput.model_validate(
-            self.planning_input.model_dump(mode="json")
-        )
+        if isinstance(self.planning_input, CardBatchPlanningInput):
+            planning_input = CardBatchPlanningInput.model_validate(
+                self.planning_input.model_dump(mode="json")
+            )
+            expected_control_types = {
+                "prepare-card-batch": "PREPARE_CARD_BATCH",
+                "collect-card-results": "COLLECT_CARD_RESULTS",
+            }
+            emergency_plan = False
+        elif isinstance(self.planning_input, EmergencySoldOutPlanningInput):
+            planning_input = EmergencySoldOutPlanningInput.model_validate(
+                self.planning_input.model_dump(mode="json")
+            )
+            expected_control_types = {
+                "validate-sold-out-event": "VALIDATE_SOLD_OUT_EVENT",
+                "collect-sold-out-response": "COLLECT_SOLD_OUT_RESPONSE",
+            }
+            emergency_plan = True
+        else:
+            raise PlanStoreInvariantError("物化计划输入不属于受控类型")
         proposal = CandidatePlanProposal.model_validate(
             self.proposal.model_dump(mode="json")
         )
+        if emergency_plan:
+            # priority 100 是受控调度权限，不能只凭输入类型获得。物化边界重新生成
+            # 审核过的固定 Proposal，并比较 Provider 身份、节点、依赖和绑定全快照，
+            # 阻止调用方夹带额外 Skill 或改变紧急执行顺序。
+            from src.plan_engine.emergency import SoldOutEmergencyProposalProvider
+
+            canonical = SoldOutEmergencyProposalProvider().propose_sync(planning_input)
+            if proposal.model_dump(mode="json") != canonical.model_dump(mode="json"):
+                raise PlanStoreInvariantError("紧急计划必须使用固定五节点 Proposal")
         expected_keys = {node.logical_key for node in proposal.nodes}
         supplied_keys = set(self.capabilities_by_logical_key)
         if supplied_keys != expected_keys:
             raise PlanStoreInvariantError("物化计划的节点与能力事实未完整闭合")
         capabilities: dict[str, ResolvedPlanCapability] = {}
-        expected_control_types = {
-            "prepare-card-batch": "PREPARE_CARD_BATCH",
-            "collect-card-results": "COLLECT_CARD_RESULTS",
-        }
         for logical_key, capability in self.capabilities_by_logical_key.items():
             if not isinstance(capability, ResolvedPlanCapability):
                 raise PlanStoreInvariantError("物化计划只能保存可信 Capability 事实")
@@ -280,6 +303,17 @@ class PlanStore(Protocol):
         deadline_at: datetime | None = None,
     ) -> tuple[ClaimedNodeRunView, ...]:
         """为 READY 节点创建独立 NodeRun 和 fencing token。"""
+
+    def claim_next_ready_nodes(
+        self,
+        *,
+        worker_id: str,
+        now: datetime,
+        lease_seconds: int,
+        limit: int = 1,
+        deadline_at: datetime | None = None,
+    ) -> tuple[ClaimedNodeRunView, ...]:
+        """跨 PlanRun 按权威优先级领取 READY 节点。"""
 
     def heartbeat_node_run(
         self,
@@ -472,6 +506,7 @@ class _PlanNodeRecord:
     capability: ResolvedPlanCapability
     retry_at: datetime | None
     deadline_at: datetime | None
+    ready_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -541,6 +576,12 @@ class InMemoryPlanStore:
 
             plan_run_id = str(uuid4())
             version_number = 1
+            created_at = datetime.now(timezone.utc)
+            emergency_input = (
+                plan.planning_input
+                if isinstance(plan.planning_input, EmergencySoldOutPlanningInput)
+                else None
+            )
             plan_run = _PlanRunRecord(
                 plan_run_id=plan_run_id,
                 room_id=plan.planning_input.room_id,
@@ -549,6 +590,27 @@ class InMemoryPlanStore:
                 current_version=version_number,
                 state=PlanRunState.ACTIVE,
                 planning_input=plan.planning_input.model_dump(mode="json"),
+                plan_kind=(
+                    PlanRunKind.EMERGENCY_SOLD_OUT
+                    if emergency_input is not None
+                    else PlanRunKind.CARD_BATCH
+                ),
+                priority=100 if emergency_input is not None else 0,
+                root_plan_run_id=(
+                    emergency_input.root_plan_run_id
+                    if emergency_input is not None
+                    else None
+                ),
+                parent_plan_run_id=(
+                    emergency_input.parent_plan_run_id
+                    if emergency_input is not None
+                    else None
+                ),
+                trigger_event_id=(
+                    emergency_input.trigger_event_id
+                    if emergency_input is not None
+                    else None
+                ),
             )
             version = _PlanVersionRecord(
                 plan_run_id=plan_run_id,
@@ -562,7 +624,8 @@ class InMemoryPlanStore:
                 capability = plan.capabilities_by_logical_key[candidate.logical_key]
                 initial_state = (
                     PlanNodeState.READY
-                    if capability.node_type == "PREPARE_CARD_BATCH"
+                    if capability.node_type
+                    in {"PREPARE_CARD_BATCH", "VALIDATE_SOLD_OUT_EVENT"}
                     else PlanNodeState.PENDING
                 )
                 node = _PlanNodeRecord(
@@ -581,6 +644,7 @@ class InMemoryPlanStore:
                     capability=capability,
                     retry_at=None,
                     deadline_at=None,
+                    ready_at=created_at if initial_state is PlanNodeState.READY else None,
                 )
                 self._nodes[node.node_id] = node
                 self._node_run_ids_by_node[node.node_id] = ()
@@ -781,6 +845,7 @@ class InMemoryPlanStore:
                             PlanNodeState.READY,
                         ),
                         retry_at=None,
+                        ready_at=normalized_now,
                     )
             # 资源锁是跨 PlanRun 的执行约束，不能只在当前 DAG 内过滤。只有仍是各
             # 节点最新 claim、状态为 RUNNING 且 lease 尚未到期的 NodeRun 持有锁；
@@ -844,6 +909,126 @@ class InMemoryPlanStore:
                 self._nodes[node_id] = running_node
                 self._node_runs[node_run.node_run_id] = node_run
                 self._node_run_ids_by_node[node_id] = (*historical_ids, node_run.node_run_id)
+                claimed.append(self._node_run_view(node_run))
+            return tuple(claimed)
+
+    def claim_next_ready_nodes(
+        self,
+        *,
+        worker_id: str,
+        now: datetime,
+        lease_seconds: int,
+        limit: int = 1,
+        deadline_at: datetime | None = None,
+    ) -> tuple[ClaimedNodeRunView, ...]:
+        """跨全部 ACTIVE PlanRun 按 priority、ready_at、node_id 稳定 claim。"""
+        normalized_now = self._aware_utc(now, "claim 时间")
+        if not worker_id:
+            raise PlanStoreInvariantError("worker_id 不能为空")
+        if type(lease_seconds) is not int or lease_seconds <= 0:
+            raise PlanStoreInvariantError("lease_seconds 必须是正整数")
+        if type(limit) is not int or limit <= 0:
+            raise PlanStoreInvariantError("limit 必须是正整数")
+        normalized_deadline = (
+            None
+            if deadline_at is None
+            else self._aware_utc(deadline_at, "节点 deadline")
+        )
+        with self._lock:
+            # 到期重试重新进入 READY 的时刻就是新的调度年龄。状态晋级和 claim
+            # 位于同一个锁区间，其他 Worker 不会观察到尚未完成的中间状态。
+            for node_id, node in tuple(self._nodes.items()):
+                plan_run = self._plan_runs[node.plan_run_id]
+                if (
+                    plan_run.state is PlanRunState.ACTIVE
+                    and node.version_number == plan_run.current_version
+                    and node.state is PlanNodeState.RETRY_WAIT
+                    and node.retry_at is not None
+                    and normalized_now >= node.retry_at
+                ):
+                    self._nodes[node_id] = replace(
+                        node,
+                        state=PlanStateMachine.transition_node(
+                            node.state,
+                            PlanNodeState.READY,
+                        ),
+                        retry_at=None,
+                        ready_at=normalized_now,
+                    )
+
+            candidates: list[tuple[int, datetime, str]] = []
+            for node_id, node in self._nodes.items():
+                plan_run = self._plan_runs[node.plan_run_id]
+                if (
+                    plan_run.state is PlanRunState.ACTIVE
+                    and node.version_number == plan_run.current_version
+                    and node.state is PlanNodeState.READY
+                ):
+                    if node.ready_at is None:
+                        raise PlanStoreInvariantError("READY 节点缺少 ready_at")
+                    candidates.append((-plan_run.priority, node.ready_at, node_id))
+            candidates.sort()
+
+            locked_resource_keys = self._locked_resource_keys(normalized_now)
+            selected_ids: list[str] = []
+            for _, _, node_id in candidates:
+                node = self._nodes[node_id]
+                resource_keys = set(node.capability.resource_keys)
+                if resource_keys & locked_resource_keys:
+                    continue
+                selected_ids.append(node_id)
+                locked_resource_keys.update(resource_keys)
+                if len(selected_ids) == limit:
+                    break
+
+            claimed: list[ClaimedNodeRunView] = []
+            for node_id in selected_ids:
+                node = self._nodes[node_id]
+                historical_ids = self._node_run_ids_by_node[node_id]
+                persisted_deadline = node.deadline_at or normalized_deadline
+                node_run = _NodeRunRecord(
+                    node_run_id=str(uuid4()),
+                    plan_run_id=node.plan_run_id,
+                    node_id=node_id,
+                    attempt_number=len(historical_ids) + 1,
+                    claim_version=(
+                        max(
+                            (
+                                self._node_runs[item].claim_version
+                                for item in historical_ids
+                            ),
+                            default=0,
+                        )
+                        + 1
+                    ),
+                    state=PlanNodeState.RUNNING,
+                    worker_id=worker_id,
+                    lease_until=normalized_now + timedelta(seconds=lease_seconds),
+                    input_snapshot={
+                        "input_bindings": node.input_bindings,
+                        "depends_on": list(node.depends_on),
+                    },
+                    output=None,
+                    resource_keys=node.capability.resource_keys,
+                    node_type=node.capability.node_type,
+                    skill_id=node.capability.skill_id,
+                    skill_version=node.capability.skill_version,
+                    input_fingerprint=None,
+                    deadline_at=persisted_deadline,
+                )
+                self._nodes[node_id] = replace(
+                    node,
+                    state=PlanStateMachine.transition_node(
+                        node.state,
+                        PlanNodeState.RUNNING,
+                    ),
+                    deadline_at=persisted_deadline,
+                )
+                self._node_runs[node_run.node_run_id] = node_run
+                self._node_run_ids_by_node[node_id] = (
+                    *historical_ids,
+                    node_run.node_run_id,
+                )
                 claimed.append(self._node_run_view(node_run))
             return tuple(claimed)
 
@@ -1146,6 +1331,7 @@ class InMemoryPlanStore:
                                 candidate.state,
                                 PlanNodeState.READY,
                             ),
+                            ready_at=normalized_now,
                         )
                         self._nodes[candidate_id] = ready
                         states_by_logical_key[ready.logical_key] = ready.state
@@ -1348,6 +1534,7 @@ class InMemoryPlanStore:
                 plan_run=plan_run,
                 node=node,
                 target_state=target_state,
+                completed_at=datetime.now(timezone.utc),
                 reconciliation_payload={
                     "outcome": target_state.value,
                     "reference": reference_snapshot,
@@ -1610,6 +1797,11 @@ class InMemoryPlanStore:
         updated = replace(
             node,
             state=PlanStateMachine.transition_node(node.state, target_state),
+            ready_at=(
+                completed_at
+                if target_state is PlanNodeState.READY
+                else node.ready_at
+            ),
         )
         self._nodes[node.node_id] = updated
         if target_state is PlanNodeState.FAILED:
@@ -1725,7 +1917,10 @@ class InMemoryPlanStore:
                 state=PlanRunState.FAILED,
             )
         else:
-            self._ready_satisfied_dependents(plan_run.plan_run_id)
+            self._ready_satisfied_dependents(
+                plan_run.plan_run_id,
+                now=completed_at,
+            )
 
         return result_type(
             command_id=command.command_id,
@@ -1745,6 +1940,7 @@ class InMemoryPlanStore:
         plan_run: _PlanRunRecord,
         node: _PlanNodeRecord,
         target_state: PlanNodeState,
+        completed_at: datetime,
         reconciliation_payload: dict[str, Any],
     ) -> _PlanNodeRecord:
         """在 Store 锁内按 D-015 闭合对账节点并更新对应 NodeRun。
@@ -1791,10 +1987,18 @@ class InMemoryPlanStore:
                 state=PlanRunState.FAILED,
             )
         else:
-            self._ready_satisfied_dependents(plan_run.plan_run_id)
+            self._ready_satisfied_dependents(
+                plan_run.plan_run_id,
+                now=completed_at,
+            )
         return reconciled_node
 
-    def _ready_satisfied_dependents(self, plan_run_id: str) -> None:
+    def _ready_satisfied_dependents(
+        self,
+        plan_run_id: str,
+        *,
+        now: datetime,
+    ) -> None:
         """把依赖全部成功的 PENDING 节点推进到 READY；调用方必须持有锁。"""
         plan_run = self._plan_runs[plan_run_id]
         node_ids = self._node_ids_by_plan_version[
@@ -1817,6 +2021,7 @@ class InMemoryPlanStore:
                         candidate.state,
                         PlanNodeState.READY,
                     ),
+                    ready_at=now,
                 )
                 self._nodes[node_id] = ready
                 states_by_logical_key[ready.logical_key] = ready.state
@@ -1928,6 +2133,7 @@ class InMemoryPlanStore:
             # 投影层丢失，商品级事件会被误判为边界不明并提升成整房间冻结。
             depends_on=record.depends_on,
             resource_keys=record.capability.resource_keys,
+            ready_at=record.ready_at,
         )
 
     @staticmethod
@@ -1986,33 +2192,96 @@ class PostgresPlanStore:
         version_number = 1
         planning_input = plan.planning_input.model_dump(mode="json")
         proposal = plan.proposal.model_dump(mode="json")
+        emergency_input = (
+            plan.planning_input
+            if isinstance(plan.planning_input, EmergencySoldOutPlanningInput)
+            else None
+        )
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        INSERT INTO plan_runs (
-                            plan_run_id, room_id, trace_id, run_key, plan_digest,
-                            current_version, execution_route, state, planning_input
-                        ) VALUES (
-                            %(plan_run_id)s::uuid, %(room_id)s, %(trace_id)s,
-                            %(run_key)s, %(plan_digest)s, %(current_version)s,
-                            'PLAN_ENGINE', %(state)s, %(planning_input)s
+                    phase12b_ready = self._phase12b_plan_schema_ready(cursor)
+                    if emergency_input is not None and not phase12b_ready:
+                        raise PlanStoreInvariantError(
+                            "紧急计划需要先执行 Phase 12B 数据库迁移"
                         )
-                        ON CONFLICT (run_key) DO NOTHING
-                        RETURNING plan_run_id::text AS plan_run_id;
-                        """,
-                        {
-                            "plan_run_id": plan_run_id,
-                            "room_id": plan.planning_input.room_id,
-                            "trace_id": plan.planning_input.trace_id,
-                            "run_key": plan.planning_input.run_key,
-                            "plan_digest": plan.digest,
-                            "current_version": version_number,
-                            "state": PlanRunState.ACTIVE.value,
-                            "planning_input": self._jsonb(planning_input),
-                        },
-                    )
+                    run_parameters = {
+                        "plan_run_id": plan_run_id,
+                        "room_id": plan.planning_input.room_id,
+                        "trace_id": plan.planning_input.trace_id,
+                        "run_key": plan.planning_input.run_key,
+                        "plan_digest": plan.digest,
+                        "current_version": version_number,
+                        "state": PlanRunState.ACTIVE.value,
+                        "planning_input": self._jsonb(planning_input),
+                    }
+                    if phase12b_ready:
+                        run_parameters.update(
+                            {
+                                "plan_kind": (
+                                    PlanRunKind.EMERGENCY_SOLD_OUT.value
+                                    if emergency_input is not None
+                                    else PlanRunKind.CARD_BATCH.value
+                                ),
+                                "priority": 100 if emergency_input is not None else 0,
+                                "root_plan_run_id": (
+                                    emergency_input.root_plan_run_id
+                                    if emergency_input is not None
+                                    else None
+                                ),
+                                "parent_plan_run_id": (
+                                    emergency_input.parent_plan_run_id
+                                    if emergency_input is not None
+                                    else None
+                                ),
+                                "trigger_event_id": (
+                                    emergency_input.trigger_event_id
+                                    if emergency_input is not None
+                                    else None
+                                ),
+                            }
+                        )
+                        cursor.execute(
+                            """
+                            INSERT INTO plan_runs (
+                                plan_run_id, room_id, trace_id, run_key,
+                                plan_digest, current_version, execution_route,
+                                state, planning_input, plan_kind, priority,
+                                root_plan_run_id, parent_plan_run_id,
+                                trigger_event_id
+                            ) VALUES (
+                                %(plan_run_id)s::uuid, %(room_id)s, %(trace_id)s,
+                                %(run_key)s, %(plan_digest)s, %(current_version)s,
+                                'PLAN_ENGINE', %(state)s, %(planning_input)s,
+                                %(plan_kind)s, %(priority)s,
+                                %(root_plan_run_id)s::uuid,
+                                %(parent_plan_run_id)s::uuid,
+                                %(trigger_event_id)s
+                            )
+                            ON CONFLICT (run_key) DO NOTHING
+                            RETURNING plan_run_id::text AS plan_run_id;
+                            """,
+                            run_parameters,
+                        )
+                    else:
+                        # 滚动发布期间，尚未执行 Phase 12B 迁移的数据库仍可创建普通
+                        # CARD_BATCH；紧急计划已在上方 fail-closed，不会丢失 lineage。
+                        cursor.execute(
+                            """
+                            INSERT INTO plan_runs (
+                                plan_run_id, room_id, trace_id, run_key,
+                                plan_digest, current_version, execution_route,
+                                state, planning_input
+                            ) VALUES (
+                                %(plan_run_id)s::uuid, %(room_id)s, %(trace_id)s,
+                                %(run_key)s, %(plan_digest)s, %(current_version)s,
+                                'PLAN_ENGINE', %(state)s, %(planning_input)s
+                            )
+                            ON CONFLICT (run_key) DO NOTHING
+                            RETURNING plan_run_id::text AS plan_run_id;
+                            """,
+                            run_parameters,
+                        )
                     inserted = cursor.fetchone()
                     if inserted is None:
                         cursor.execute(
@@ -2068,16 +2337,47 @@ class PostgresPlanStore:
                         node_id_by_logical_key[candidate.logical_key] = node_id
                         initial_state = (
                             PlanNodeState.READY
-                            if capability.node_type == "PREPARE_CARD_BATCH"
+                            if capability.node_type
+                            in {"PREPARE_CARD_BATCH", "VALIDATE_SOLD_OUT_EVENT"}
                             else PlanNodeState.PENDING
                         )
+                        node_parameters = {
+                            "node_id": node_id,
+                            "plan_version_id": plan_version_id,
+                            "plan_run_id": plan_run_id,
+                            "version_number": version_number,
+                            "node_order": node_order,
+                            "logical_key": candidate.logical_key,
+                            "node_kind": candidate.node_kind.value,
+                            "state": initial_state.value,
+                            "skill_id": capability.skill_id,
+                            "skill_version": capability.skill_version,
+                            "input_bindings": self._jsonb(
+                                {
+                                    key: binding.model_dump(mode="json")
+                                    for key, binding in candidate.input_bindings.items()
+                                }
+                            ),
+                            "capability": self._jsonb(
+                                self._capability_snapshot(capability)
+                            ),
+                            "resource_keys": list(capability.resource_keys),
+                            "ready_at": (
+                                datetime.now(timezone.utc)
+                                if initial_state is PlanNodeState.READY
+                                else None
+                            ),
+                        }
+                        ready_column = ", ready_at" if phase12b_ready else ""
+                        ready_value = ", %(ready_at)s" if phase12b_ready else ""
                         cursor.execute(
-                            """
+                            f"""
                             INSERT INTO plan_nodes (
                                 node_id, plan_version_id, plan_run_id,
                                 version_number, node_order, logical_key,
                                 node_kind, state, skill_id, skill_version,
                                 input_bindings, capability, resource_keys
+                                {ready_column}
                             ) VALUES (
                                 %(node_id)s::uuid, %(plan_version_id)s::uuid,
                                 %(plan_run_id)s::uuid, %(version_number)s,
@@ -2085,30 +2385,10 @@ class PostgresPlanStore:
                                 %(state)s, %(skill_id)s, %(skill_version)s,
                                 %(input_bindings)s, %(capability)s,
                                 %(resource_keys)s::text[]
+                                {ready_value}
                             );
                             """,
-                            {
-                                "node_id": node_id,
-                                "plan_version_id": plan_version_id,
-                                "plan_run_id": plan_run_id,
-                                "version_number": version_number,
-                                "node_order": node_order,
-                                "logical_key": candidate.logical_key,
-                                "node_kind": candidate.node_kind.value,
-                                "state": initial_state.value,
-                                "skill_id": capability.skill_id,
-                                "skill_version": capability.skill_version,
-                                "input_bindings": self._jsonb(
-                                    {
-                                        key: binding.model_dump(mode="json")
-                                        for key, binding in candidate.input_bindings.items()
-                                    }
-                                ),
-                                "capability": self._jsonb(
-                                    self._capability_snapshot(capability)
-                                ),
-                                "resource_keys": list(capability.resource_keys),
-                            },
+                            node_parameters,
                         )
                     for candidate in plan.proposal.nodes:
                         for dependency_order, dependency_key in enumerate(
@@ -2391,10 +2671,16 @@ class PostgresPlanStore:
                     if plan_run.state is not PlanRunState.ACTIVE:
                         connection.commit()
                         return ()
+                    ready_at_assignment = (
+                        ", ready_at = %(now)s"
+                        if self._phase12b_plan_schema_ready(cursor)
+                        else ""
+                    )
                     cursor.execute(
-                        """
+                        f"""
                         UPDATE plan_nodes
-                        SET state = %(ready)s, retry_at = NULL, updated_at = %(now)s
+                        SET state = %(ready)s, retry_at = NULL,
+                            updated_at = %(now)s{ready_at_assignment}
                         WHERE plan_run_id = %(plan_run_id)s::uuid
                           AND version_number = %(version_number)s
                           AND state = %(retry_wait)s
@@ -2542,6 +2828,242 @@ class PostgresPlanStore:
             raise
         except psycopg.Error as exc:
             raise PlanStoreInvariantError("claim READY 节点失败") from exc
+
+    def claim_next_ready_nodes(
+        self,
+        *,
+        worker_id: str,
+        now: datetime,
+        lease_seconds: int,
+        limit: int = 1,
+        deadline_at: datetime | None = None,
+    ) -> tuple[ClaimedNodeRunView, ...]:
+        """跨 PlanRun 使用 SKIP LOCKED 和稳定优先级创建 NodeRun。"""
+        normalized_now = self._aware_utc(now, "claim 时间")
+        if not worker_id:
+            raise PlanStoreInvariantError("worker_id 不能为空")
+        if type(lease_seconds) is not int or lease_seconds <= 0:
+            raise PlanStoreInvariantError("lease_seconds 必须是正整数")
+        if type(limit) is not int or limit <= 0:
+            raise PlanStoreInvariantError("limit 必须是正整数")
+        normalized_deadline = (
+            None
+            if deadline_at is None
+            else self._aware_utc(deadline_at, "节点 deadline")
+        )
+        try:
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    if not self._phase12b_plan_schema_ready(cursor):
+                        raise PlanStoreInvariantError(
+                            "全局优先级 claim 需要先执行 Phase 12B 数据库迁移"
+                        )
+                    # RETRY_WAIT 晋级与全局候选读取位于同一事务。ready_at 必须刷新，
+                    # 否则重试节点会携带旧年龄越过更早进入 READY 的正常节点。
+                    cursor.execute(
+                        """
+                        UPDATE plan_nodes AS n
+                        SET state = %(ready)s, retry_at = NULL,
+                            ready_at = %(now)s, updated_at = %(now)s
+                        FROM plan_runs AS r
+                        WHERE n.plan_run_id = r.plan_run_id
+                          AND n.version_number = r.current_version
+                          AND r.state = %(active)s
+                          AND n.state = %(retry_wait)s
+                          AND n.retry_at IS NOT NULL
+                          AND n.retry_at <= %(now)s;
+                        """,
+                        {
+                            "ready": PlanNodeState.READY.value,
+                            "active": PlanRunState.ACTIVE.value,
+                            "retry_wait": PlanNodeState.RETRY_WAIT.value,
+                            "now": normalized_now,
+                        },
+                    )
+                    cursor.execute(
+                        """
+                        SELECT n.*
+                        FROM plan_nodes AS n
+                        JOIN plan_runs AS r ON r.plan_run_id = n.plan_run_id
+                        WHERE r.state = %(active)s
+                          AND n.version_number = r.current_version
+                          AND n.state = %(ready)s
+                          AND n.ready_at IS NOT NULL
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM plan_node_dependencies AS d
+                              JOIN plan_nodes AS dependency
+                                ON dependency.node_id = d.dependency_node_id
+                              WHERE d.node_id = n.node_id
+                                AND dependency.state <> %(succeeded)s
+                        )
+                        ORDER BY r.priority DESC, n.ready_at ASC, n.node_id ASC
+                        ;
+                        """,
+                        {
+                            "active": PlanRunState.ACTIVE.value,
+                            "ready": PlanNodeState.READY.value,
+                            "succeeded": PlanNodeState.SUCCEEDED.value,
+                        },
+                    )
+                    candidates = tuple(cursor.fetchall())
+                    claimed: list[ClaimedNodeRunView] = []
+                    locked_plan_runs: set[str] = set()
+                    for ordered_candidate in candidates:
+                        candidate_plan_run_id = str(
+                            ordered_candidate["plan_run_id"]
+                        )
+                        if candidate_plan_run_id not in locked_plan_runs:
+                            # 与 freeze/resume 使用同一 PlanRun 行锁；锁后再次读取状态，
+                            # 禁止在全局候选查询与 claim 之间偷跑被冻结的计划。
+                            cursor.execute(
+                                """
+                                SELECT plan_run_id
+                                FROM plan_runs
+                                WHERE plan_run_id = %(plan_run_id)s::uuid
+                                  AND state = %(active)s
+                                FOR UPDATE SKIP LOCKED;
+                                """,
+                                {
+                                    "plan_run_id": candidate_plan_run_id,
+                                    "active": PlanRunState.ACTIVE.value,
+                                },
+                            )
+                            if cursor.fetchone() is None:
+                                continue
+                            plan_run = self._load_plan_run(
+                                cursor,
+                                candidate_plan_run_id,
+                            )
+                            locked_plan_runs.add(candidate_plan_run_id)
+                            if plan_run.state is not PlanRunState.ACTIVE:
+                                continue
+                        # 全局候选排序不持有 Node 行锁。这里遵循所有既有写路径的
+                        # PlanRun -> PlanNode 锁序，再用 SKIP LOCKED 争抢单个节点并
+                        # 重验 READY/current-version，避免与 freeze 形成锁序反转。
+                        cursor.execute(
+                            """
+                            SELECT n.*
+                            FROM plan_nodes AS n
+                            JOIN plan_runs AS r ON r.plan_run_id = n.plan_run_id
+                            WHERE n.node_id = %(node_id)s::uuid
+                              AND n.state = %(ready)s
+                              AND n.version_number = r.current_version
+                              AND r.state = %(active)s
+                            FOR UPDATE OF n SKIP LOCKED;
+                            """,
+                            {
+                                "node_id": str(ordered_candidate["node_id"]),
+                                "ready": PlanNodeState.READY.value,
+                                "active": PlanRunState.ACTIVE.value,
+                            },
+                        )
+                        candidate = cursor.fetchone()
+                        if candidate is None:
+                            continue
+                        resource_keys = tuple(candidate["resource_keys"] or ())
+                        if not self._try_lock_resource_keys(cursor, resource_keys):
+                            continue
+                        if self._resources_are_held(
+                            cursor,
+                            resource_keys=resource_keys,
+                            now=normalized_now,
+                        ):
+                            continue
+                        cursor.execute(
+                            """
+                            SELECT
+                                COALESCE(max(attempt_number), 0) + 1 AS next_attempt,
+                                COALESCE(max(claim_version), 0) + 1 AS next_claim_version
+                            FROM node_runs
+                            WHERE node_id = %(node_id)s::uuid;
+                            """,
+                            {"node_id": str(candidate["node_id"])},
+                        )
+                        sequence = cursor.fetchone()
+                        persisted_deadline = (
+                            candidate["deadline_at"] or normalized_deadline
+                        )
+                        node_run_id = str(uuid4())
+                        lease_until = normalized_now + timedelta(seconds=lease_seconds)
+                        dependencies = self._load_dependencies_for_node(
+                            cursor,
+                            str(candidate["node_id"]),
+                        )
+                        cursor.execute(
+                            """
+                            UPDATE plan_nodes
+                            SET state = %(running)s,
+                                deadline_at = %(deadline_at)s,
+                                updated_at = %(now)s
+                            WHERE node_id = %(node_id)s::uuid
+                              AND state = %(ready)s;
+                            """,
+                            {
+                                "running": PlanNodeState.RUNNING.value,
+                                "deadline_at": persisted_deadline,
+                                "now": normalized_now,
+                                "node_id": str(candidate["node_id"]),
+                                "ready": PlanNodeState.READY.value,
+                            },
+                        )
+                        if cursor.rowcount != 1:
+                            continue
+                        cursor.execute(
+                            """
+                            INSERT INTO node_runs (
+                                node_run_id, plan_run_id, node_id,
+                                attempt_number, claim_version, state,
+                                lease_owner, lease_until, input_snapshot,
+                                resource_keys, node_type, skill_id,
+                                skill_version, deadline_at
+                            ) VALUES (
+                                %(node_run_id)s::uuid, %(plan_run_id)s::uuid,
+                                %(node_id)s::uuid, %(attempt_number)s,
+                                %(claim_version)s, %(state)s, %(lease_owner)s,
+                                %(lease_until)s, %(input_snapshot)s,
+                                %(resource_keys)s::text[], %(node_type)s,
+                                %(skill_id)s, %(skill_version)s, %(deadline_at)s
+                            );
+                            """,
+                            {
+                                "node_run_id": node_run_id,
+                                "plan_run_id": candidate_plan_run_id,
+                                "node_id": str(candidate["node_id"]),
+                                "attempt_number": int(sequence["next_attempt"]),
+                                "claim_version": int(
+                                    sequence["next_claim_version"]
+                                ),
+                                "state": PlanNodeState.RUNNING.value,
+                                "lease_owner": worker_id,
+                                "lease_until": lease_until,
+                                "input_snapshot": self._jsonb(
+                                    {
+                                        "input_bindings": dict(
+                                            candidate["input_bindings"]
+                                        ),
+                                        "depends_on": list(dependencies),
+                                    }
+                                ),
+                                "resource_keys": list(resource_keys),
+                                "node_type": str(
+                                    dict(candidate["capability"])["node_type"]
+                                ),
+                                "skill_id": candidate["skill_id"],
+                                "skill_version": candidate["skill_version"],
+                                "deadline_at": persisted_deadline,
+                            },
+                        )
+                        record = self._load_node_run(cursor, node_run_id)
+                        claimed.append(self._node_run_view(record))
+                        if len(claimed) == limit:
+                            break
+                connection.commit()
+                return tuple(claimed)
+        except PlanStoreInvariantError:
+            raise
+        except psycopg.Error as exc:
+            raise PlanStoreInvariantError("全局 claim READY 节点失败") from exc
 
     def record_node_input(
         self,
@@ -3731,15 +4253,26 @@ class PostgresPlanStore:
             else PlanNodeState.FAILED
         )
         PlanStateMachine.transition_node(node.state, target_state)
+        ready_at_assignment = (
+            """,
+                ready_at = CASE
+                    WHEN %(state)s = %(ready)s THEN %(completed_at)s
+                    ELSE ready_at
+                END"""
+            if self._phase12b_plan_schema_ready(cursor)
+            else ""
+        )
         cursor.execute(
-            """
+            f"""
             UPDATE plan_nodes
-            SET state = %(state)s, updated_at = %(completed_at)s
+            SET state = %(state)s{ready_at_assignment},
+                updated_at = %(completed_at)s
             WHERE node_id = %(node_id)s::uuid
               AND state = %(expected_state)s;
             """,
             {
                 "state": target_state.value,
+                "ready": PlanNodeState.READY.value,
                 "completed_at": completed_at,
                 "node_id": node.node_id,
                 "expected_state": node.state.value,
@@ -3774,6 +4307,28 @@ class PostgresPlanStore:
         )
         connection.isolation_level = psycopg.IsolationLevel.READ_COMMITTED
         return connection
+
+    @staticmethod
+    def _phase12b_plan_schema_ready(cursor: Any) -> bool:
+        """检查滚动发布所需增量列，普通手卡在迁移前仍保持可执行。"""
+        cursor.execute(
+            """
+            SELECT
+                EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'plan_runs'
+                      AND column_name = 'plan_kind'
+                )
+                AND EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'plan_nodes'
+                      AND column_name = 'ready_at'
+                ) AS phase12b_ready;
+            """
+        )
+        return bool(cursor.fetchone()["phase12b_ready"])
 
     @staticmethod
     def _jsonb(value: Any) -> Any:
@@ -4086,6 +4641,7 @@ class PostgresPlanStore:
             capability=self._capability_from_snapshot(row["capability"]),
             retry_at=row["retry_at"],
             deadline_at=row["deadline_at"],
+            ready_at=row["ready_at"] if "ready_at" in row else None,
         )
 
     def _load_node_run(
@@ -4254,10 +4810,15 @@ class PostgresPlanStore:
     ) -> None:
         """开放依赖全部成功的 PENDING 节点，并在全部成功时闭合 PlanRun。"""
         plan_run = self._load_plan_run(cursor, plan_run_id, for_update=True)
+        ready_at_assignment = (
+            ", ready_at = %(now)s"
+            if self._phase12b_plan_schema_ready(cursor)
+            else ""
+        )
         cursor.execute(
-            """
+            f"""
             UPDATE plan_nodes AS candidate
-            SET state = %(ready)s, updated_at = %(now)s
+            SET state = %(ready)s{ready_at_assignment}, updated_at = %(now)s
             WHERE candidate.plan_run_id = %(plan_run_id)s::uuid
               AND candidate.version_number = %(version_number)s
               AND candidate.state = %(pending)s
@@ -4497,6 +5058,7 @@ class PostgresPlanStore:
             input_bindings=record.input_bindings,
             depends_on=record.depends_on,
             resource_keys=record.capability.resource_keys,
+            ready_at=record.ready_at,
         )
 
     @staticmethod

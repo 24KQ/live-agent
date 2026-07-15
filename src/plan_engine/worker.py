@@ -21,8 +21,17 @@ from src.plan_engine.bindings import (
     VersionedNodeOutput,
 )
 from src.plan_engine.capabilities import ResolvedPlanCapability
+from src.plan_engine.event_state_machine import EventInboxState
+from src.plan_engine.event_store import EventInboxRecord, EventStore
+from src.plan_engine.events import _build_event_authorization_context
 from src.plan_engine.failure_policy import FailureAction, FailurePolicy
-from src.plan_engine.models import CardBatchPlanningInput, InputBinding, PlanNodeState
+from src.plan_engine.models import (
+    CardBatchPlanningInput,
+    EmergencySoldOutPlanningInput,
+    InputBinding,
+    PlanNodeState,
+    PlanRunView,
+)
 from src.plan_engine.store import (
     ClaimedNodeRunView,
     PlanStore,
@@ -30,6 +39,7 @@ from src.plan_engine.store import (
 )
 from src.skill_runtime.catalog import get_default_skill_catalog
 from src.skill_runtime.models import (
+    EventAuthorizationContext,
     SkillCall,
     SkillExecutionContext,
     SkillExecutionResult,
@@ -73,6 +83,7 @@ class PlanWorker:
         self,
         *,
         store: PlanStore,
+        event_store: EventStore | None = None,
         skill_executor: AsyncSkillExecutor,
         worker_id: str,
         failure_policy: FailurePolicy | None = None,
@@ -94,6 +105,7 @@ class PlanWorker:
         ):
             raise ValueError("default_node_deadline_seconds 必须是正整数")
         self._store = store
+        self._event_store = event_store
         self._skill_executor = skill_executor
         self._worker_id = worker_id
         self._failure_policy = failure_policy or FailurePolicy()
@@ -136,6 +148,44 @@ class PlanWorker:
                     claim,
                     deadline_at=resolved_deadline,
                 )
+                for claim in claims
+            )
+        )
+        counts = {
+            "succeeded": 0,
+            "retried": 0,
+            "waiting_human": 0,
+            "waiting_approval": 0,
+            "failed": 0,
+        }
+        for outcome in outcomes:
+            counts[outcome.category] += 1
+        return WorkerRunResult(claimed=len(claims), **counts)
+
+    async def run_next_once(
+        self,
+        *,
+        deadline_at: datetime | None = None,
+    ) -> WorkerRunResult:
+        """跨 PlanRun 领取最高优先级节点，同时复用完全相同的执行核心。"""
+        started_at = self._aware_utc(self._clock(), "Worker 当前时间")
+        resolved_deadline = (
+            started_at + timedelta(seconds=self._default_node_deadline_seconds)
+            if deadline_at is None
+            else self._aware_utc(deadline_at, "节点 deadline")
+        )
+        claims = self._store.claim_next_ready_nodes(
+            worker_id=self._worker_id,
+            now=started_at,
+            lease_seconds=self._lease_seconds,
+            limit=self._max_claims,
+            deadline_at=resolved_deadline,
+        )
+        if not claims:
+            return WorkerRunResult(claimed=0)
+        outcomes = await asyncio.gather(
+            *(
+                self._execute_claim(claim, deadline_at=resolved_deadline)
                 for claim in claims
             )
         )
@@ -197,7 +247,12 @@ class PlanWorker:
             )
             return _NodeOutcome("failed")
 
-        if claim.node_type in {"PREPARE_CARD_BATCH", "COLLECT_CARD_RESULTS"}:
+        if claim.node_type in {
+            "PREPARE_CARD_BATCH",
+            "COLLECT_CARD_RESULTS",
+            "VALIDATE_SOLD_OUT_EVENT",
+            "COLLECT_SOLD_OUT_RESPONSE",
+        }:
             output = self._execute_control(
                 claim,
                 dependency_outputs=dependency_outputs,
@@ -219,15 +274,32 @@ class PlanWorker:
             return _NodeOutcome("failed")
 
         plan_run = self._store.get_plan_run(claim.plan_run_id)
+        event_authorization = None
+        idempotency_key = None
+        lifecycle = LifecycleStage.PRE_LIVE
+        if manifest.skill_id in {
+            "handle_sold_out_event",
+            "recommend_backup_product",
+            "generate_on_live_prompt",
+        }:
+            lifecycle = LifecycleStage.ON_LIVE
+        if manifest.skill_id == "handle_sold_out_event":
+            event_authorization = self._verified_event_authorization(plan_run)
+            idempotency_key = (
+                f"plan:{claim.plan_run_id}:node:{claim.node_id}:v"
+                f"{plan_run.current_version}"
+            )
         call = SkillCall(
             skill_id=manifest.skill_id,
             version=manifest.version,
             context=SkillExecutionContext(
                 room_id=plan_run.room_id,
                 trace_id=plan_run.trace_id,
-                lifecycle=LifecycleStage.PRE_LIVE,
+                lifecycle=lifecycle,
                 execution_route=SkillExecutionRoute.SKILL_RUNTIME,
                 deadline_at=effective_deadline,
+                idempotency_key=idempotency_key,
+                event_authorization=event_authorization,
             ),
             arguments=dict(materialized.parameters),
         )
@@ -337,7 +409,14 @@ class PlanWorker:
             dependencies,
         )
         plan_run = self._store.get_plan_run(claim.plan_run_id)
-        planning_input = CardBatchPlanningInput.model_validate(plan_run.planning_input)
+        if plan_run.plan_kind.value == "EMERGENCY_SOLD_OUT":
+            planning_input = EmergencySoldOutPlanningInput.model_validate(
+                plan_run.planning_input
+            )
+        else:
+            planning_input = CardBatchPlanningInput.model_validate(
+                plan_run.planning_input
+            )
         return (
             self._resolver.materialize(
                 input_bindings=bindings,
@@ -401,7 +480,57 @@ class PlanWorker:
                     dependency_outputs[key].output for key in dependency_outputs
                 ]
             }
+        if claim.node_type == "VALIDATE_SOLD_OUT_EVENT":
+            planning_input = EmergencySoldOutPlanningInput.model_validate(
+                plan_run.planning_input
+            )
+            record = self._verified_event_record(planning_input)
+            return {
+                "validated": True,
+                "event_id": record.event.event_id,
+                "provenance_id": record.provenance.provenance_id,
+                "payload_digest": record.event.payload_digest,
+            }
+        if claim.node_type == "COLLECT_SOLD_OUT_RESPONSE":
+            return {
+                "responses": [
+                    dependency_outputs[key].output for key in dependency_outputs
+                ]
+            }
         raise PlanStoreInvariantError(f"未知控制节点类型: {claim.node_type}")
+
+    def _verified_event_record(
+        self,
+        planning_input: EmergencySoldOutPlanningInput,
+    ) -> EventInboxRecord:
+        """从只读 EventStore 复核状态、事件与 provenance 的完整冻结事实。"""
+        if self._event_store is None:
+            raise PlanStoreInvariantError("紧急计划 Worker 缺少只读 EventStore")
+        record = self._event_store.get_inbox(planning_input.trigger_event_id)
+        if record.state not in {
+            EventInboxState.VERIFIED,
+            EventInboxState.PROCESSING,
+        }:
+            raise PlanStoreInvariantError("售罄事件已冲突、阻断或闭合")
+        if (
+            record.event.model_dump(mode="json")
+            != planning_input.event.model_dump(mode="json")
+            or record.provenance.model_dump(mode="json")
+            != planning_input.provenance.model_dump(mode="json")
+        ):
+            raise PlanStoreInvariantError("紧急计划输入与 EventStore 权威事实不一致")
+        return record
+
+    def _verified_event_authorization(
+        self,
+        plan_run: PlanRunView,
+    ) -> EventAuthorizationContext:
+        """在售罄写派发前再次读取权威事件并重建不可伪造的授权上下文。"""
+        planning_input = EmergencySoldOutPlanningInput.model_validate(
+            plan_run.planning_input
+        )
+        record = self._verified_event_record(planning_input)
+        return _build_event_authorization_context(record.event, record.provenance)
 
     def _manifest_for_claim(self, claim: ClaimedNodeRunView) -> SkillManifest:
         """从启动冻结 Catalog 复核 claim 的 Skill ID 与精确版本。"""

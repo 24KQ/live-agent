@@ -17,6 +17,7 @@ from typing import Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.plan_engine.events import InventoryFactEvent, VerifiedIngressProvenance
 from src.skills.live_plan_generator import LivePlanDraft
 from src.skills.product_catalog import CatalogProduct
 
@@ -286,6 +287,56 @@ class CardBatchPlanningInput(BaseModel):
         return self
 
 
+class EmergencySoldOutPlanningInput(BaseModel):
+    """售罄紧急 child PlanRun 的冻结输入，不持久化不可序列化授权标记。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    room_id: str = Field(..., min_length=1)
+    trace_id: str = Field(..., min_length=1)
+    root_plan_run_id: str = Field(..., min_length=1)
+    parent_plan_run_id: str = Field(..., min_length=1)
+    trigger_event_id: str = Field(..., min_length=1)
+    event: InventoryFactEvent
+    provenance: VerifiedIngressProvenance
+    product_id: str = Field(default="")
+    expected_version: int = Field(..., ge=1, strict=True)
+    run_key: str = Field(default="", max_length=64)
+
+    @model_validator(mode="after")
+    def _close_emergency_facts(self) -> "EmergencySoldOutPlanningInput":
+        """交叉核对事件、来源、lineage 与 CAS 版本并计算稳定 run_key。"""
+        event = InventoryFactEvent.model_validate(self.event.model_dump(mode="json"))
+        provenance = VerifiedIngressProvenance.model_validate(self.provenance.model_dump(mode="json"))
+        if self.trigger_event_id != event.event_id or self.room_id != event.room_id:
+            raise ValueError("紧急计划 lineage 必须与事件一致")
+        if self.product_id and self.product_id != event.product_id:
+            raise ValueError("product_id 必须与事件一致")
+        if self.expected_version != event.observed_version:
+            raise ValueError("expected_version 必须与事件观察版本一致")
+        if provenance.payload_digest != event.payload_digest or provenance.source != event.source:
+            raise ValueError("事件与 provenance 不闭合")
+        object.__setattr__(self, "event", event)
+        object.__setattr__(self, "provenance", provenance)
+        object.__setattr__(self, "product_id", event.product_id)
+        snapshot = {
+            "room_id": self.room_id,
+            "trace_id": self.trace_id,
+            "root_plan_run_id": self.root_plan_run_id,
+            "parent_plan_run_id": self.parent_plan_run_id,
+            "trigger_event_id": self.trigger_event_id,
+            "event": event.model_dump(mode="json"),
+            "provenance": provenance.model_dump(mode="json"),
+            "product_id": event.product_id,
+            "expected_version": self.expected_version,
+        }
+        calculated = _canonical_sha256(snapshot)
+        if self.run_key and self.run_key != calculated:
+            raise ValueError("run_key 必须与冻结紧急输入一致")
+        object.__setattr__(self, "run_key", calculated)
+        return self
+
+
 class CandidatePlanNode(BaseModel):
     """尚未物化到 Store 的受限 DAG 节点声明。
 
@@ -521,6 +572,17 @@ class PlanNodeView(_JsonSafeView):
     input_bindings: Any = Field(default_factory=_frozen_empty_json_object)
     depends_on: tuple[str, ...] = Field(default_factory=tuple)
     resource_keys: tuple[str, ...] = Field(default_factory=tuple)
+    ready_at: datetime | None = None
+
+    @field_validator("ready_at")
+    @classmethod
+    def _ready_at_is_aware(cls, value: datetime | None) -> datetime | None:
+        """READY 排序事实必须是可跨进程比较的 UTC aware 时间。"""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("ready_at 必须包含时区")
+        return value.astimezone(timezone.utc)
 
     @field_validator("input_bindings", mode="after")
     @classmethod
