@@ -28,7 +28,10 @@ from src.core.human_approval import (
     validate_human_approval_response,
 )
 from src.core.on_live_harness_audit import OnLiveHarnessAuditWriter
+from src.plan_engine.preemption import PreemptionEvidenceRef, SoldOutExecutionRoute
+from src.skill_runtime.policy_view import get_default_skill_policy_view
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision, OnLiveHarnessPlanner
+from src.state.models import LifecycleStage
 
 
 class OnLiveHarnessAgentState(TypedDict, total=False):
@@ -69,6 +72,10 @@ class OnLiveHarnessAgentState(TypedDict, total=False):
     error: str | None
     hallucination_issues: list[str]
     completed_nodes: list[str]
+    sold_out_execution_route: str
+    available_tool_names: list[str]
+    preemption_evidence_refs: list[dict[str, Any]]
+    final_suggestion_fact: str | None
 
 
 def create_initial_on_live_harness_state(
@@ -82,6 +89,8 @@ def create_initial_on_live_harness_state(
     current_product: dict[str, Any] | None = None,
     memory_summary: str | None = None,
     max_iterations: int = 5,
+    preemption_evidence_refs: list[PreemptionEvidenceRef | dict[str, Any]] | None = None,
+    final_suggestion_fact: str | None = None,
 ) -> OnLiveHarnessAgentState:
     """创建播中 Harness Agent 初始状态。"""
     return {
@@ -117,6 +126,13 @@ def create_initial_on_live_harness_state(
         "error": None,
         "hallucination_issues": [],
         "completed_nodes": [],
+        "sold_out_execution_route": SoldOutExecutionRoute.LEGACY.value,
+        "available_tool_names": [],
+        "preemption_evidence_refs": [
+            PreemptionEvidenceRef.model_validate(item).model_dump(mode="json")
+            for item in (preemption_evidence_refs or [])
+        ],
+        "final_suggestion_fact": final_suggestion_fact,
     }
 
 
@@ -127,18 +143,41 @@ def build_on_live_harness_agent_graph(
     audit_writer: OnLiveHarnessAuditWriter | None = None,
     *,
     checkpointer: Any | None = None,
+    sold_out_execution_route: SoldOutExecutionRoute | str = SoldOutExecutionRoute.LEGACY,
 ):
     """构建播中 LangGraph Harness Agent Loop。"""
+    frozen_route = SoldOutExecutionRoute(sold_out_execution_route)
+    policy_view = get_default_skill_policy_view()
+    all_on_live_tools = [
+        skill_id
+        for skill_id in policy_view.skill_ids()
+        if policy_view.is_available(skill_id, LifecycleStage.ON_LIVE)
+    ]
+    available_on_live_tools = [
+        skill_id
+        for skill_id in all_on_live_tools
+        if skill_id != "handle_sold_out_event"
+        or frozen_route is SoldOutExecutionRoute.LEGACY
+    ]
     _planner = planner or OnLiveHarnessPlanner()
     _executor = executor or _HarnessDefaultExecutor()
     _hooks = hooks or AgentLifecycleHooks()
     _audit_writer = audit_writer or OnLiveHarnessAuditWriter()
 
     graph = StateGraph(OnLiveHarnessAgentState)
-    graph.add_node("load_context", _load_context_node)
+    graph.add_node(
+        "load_context",
+        lambda state: _load_context_node(state, frozen_route, available_on_live_tools),
+    )
     graph.add_node("pre_reasoning_hook", _pre_reasoning_hook_node)
-    graph.add_node("agent_reasoning", lambda state: _agent_reasoning_node(state, _planner))
-    graph.add_node("post_reasoning_hook", lambda state: _post_reasoning_hook_node(state, _hooks))
+    graph.add_node(
+        "agent_reasoning",
+        lambda state: _agent_reasoning_node(state, _planner, frozen_route),
+    )
+    graph.add_node(
+        "post_reasoning_hook",
+        lambda state: _post_reasoning_hook_node(state, _hooks, frozen_route),
+    )
     graph.add_node("route_agent_decision", _route_agent_decision_node)
     graph.add_node("pre_tool_call_hook", lambda state: _pre_tool_call_hook_node(state, _hooks))
     graph.add_node("route_tool_policy", _route_tool_policy_node)
@@ -200,7 +239,11 @@ def _append_node(state: OnLiveHarnessAgentState, node_name: str) -> list[str]:
     return [*state.get("completed_nodes", []), node_name]
 
 
-def _load_context_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
+def _load_context_node(
+    state: OnLiveHarnessAgentState,
+    route: SoldOutExecutionRoute = SoldOutExecutionRoute.LEGACY,
+    available_tool_names: list[str] | None = None,
+) -> dict[str, Any]:
     """构造压缩后的 Agent 可见上下文。"""
     context = build_agent_context(
         danmaku_summary=state.get("danmaku_summary", []),
@@ -209,11 +252,15 @@ def _load_context_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
         trust_score=state.get("trust_score", 0.7),
         memory_summary=state.get("memory_summary"),
     )
+    evidence_refs = list(state.get("preemption_evidence_refs", []))
     return {
         "system_context": context.system_context,
         "context_summary": context.summary,
         "agent_status": "context_degraded" if context.should_degrade else state.get("agent_status"),
         "completed_nodes": _append_node(state, "load_context"),
+        "sold_out_execution_route": route.value,
+        "available_tool_names": list(available_tool_names or []),
+        "preemption_evidence_refs": evidence_refs,
     }
 
 
@@ -242,8 +289,54 @@ def _context_from_state(state: OnLiveHarnessAgentState) -> AgentContextResult:
     )
 
 
-def _agent_reasoning_node(state: OnLiveHarnessAgentState, planner: Any) -> dict[str, Any]:
+def _agent_reasoning_node(
+    state: OnLiveHarnessAgentState,
+    planner: Any,
+    route: SoldOutExecutionRoute = SoldOutExecutionRoute.LEGACY,
+) -> dict[str, Any]:
     """LLM/Harness planner 决策节点。"""
+    if route is SoldOutExecutionRoute.PLAN_ENGINE:
+        # 售罄执行已由确定性 Coordinator 完成。此路由不调用 Planner，也不开放任何
+        # 新工具决策；只接受摘要闭合的 EvidenceRef 与其中已有的最终建议事实。
+        try:
+            evidence_refs = [
+                PreemptionEvidenceRef.model_validate(item)
+                for item in state.get("preemption_evidence_refs", [])
+            ]
+            suggestion = state.get("final_suggestion_fact")
+            if not evidence_refs or not suggestion:
+                raise ValueError("PlanEngine Harness 缺少售罄 EvidenceRef 或建议事实")
+            if suggestion not in {
+                evidence.final_suggestion_fact for evidence in evidence_refs
+            }:
+                raise ValueError("最终建议与 EvidenceRef 不一致")
+            return {
+                "messages": [
+                    *state.get("messages", []),
+                    {
+                        "role": "assistant",
+                        "content": {
+                            "action": "evidence_only",
+                            "evidence_digests": [
+                                evidence.evidence_digest for evidence in evidence_refs
+                            ],
+                        },
+                    },
+                ],
+                "pending_tool_call": None,
+                "final_suggestion": suggestion,
+                "agent_status": "evidence_only",
+                "error": None,
+                "completed_nodes": _append_node(state, "agent_reasoning"),
+            }
+        except (TypeError, ValueError) as exc:
+            return {
+                "pending_tool_call": None,
+                "final_suggestion": None,
+                "agent_status": "blocked",
+                "error": f"preemption evidence invalid: {exc}",
+                "completed_nodes": _append_node(state, "agent_reasoning"),
+            }
     try:
         decision: OnLiveHarnessDecision = planner.plan_next_step(
             context=_context_from_state(state),
@@ -280,7 +373,11 @@ def _agent_reasoning_node(state: OnLiveHarnessAgentState, planner: Any) -> dict[
 
 
 
-def _post_reasoning_hook_node(state: OnLiveHarnessAgentState, hooks: AgentLifecycleHooks) -> dict[str, Any]:
+def _post_reasoning_hook_node(
+    state: OnLiveHarnessAgentState,
+    hooks: AgentLifecycleHooks,
+    route: SoldOutExecutionRoute = SoldOutExecutionRoute.LEGACY,
+) -> dict[str, Any]:
     """PostReasoning 幻觉检测节点。
 
     在 LLM 决策之后、工具执行之前，对决策结果做交叉验证。
@@ -295,6 +392,26 @@ def _post_reasoning_hook_node(state: OnLiveHarnessAgentState, hooks: AgentLifecy
             "completed_nodes": _append_node(state, "post_reasoning_hook"),
         }
     arguments = call.get("arguments") or {}
+    if (
+        route is SoldOutExecutionRoute.PLAN_ENGINE
+        and tool_name == "handle_sold_out_event"
+    ):
+        # PlanEngine 已经负责唯一售罄写入。Harness 只把持久化 EvidenceRef 转换为
+        # 建议事实，不能将模型重新选择的写 Skill 送入 pre_tool_call_hook。
+        suggestion = state.get("final_suggestion_fact")
+        if not suggestion and state.get("preemption_evidence_refs"):
+            suggestion = state["preemption_evidence_refs"][0].get(
+                "final_suggestion_fact"
+            )
+        return {
+            "pending_tool_call": None,
+            "agent_status": "evidence_only",
+            "final_suggestion": suggestion,
+            "hallucination_issues": [
+                "PlanEngine 路由下售罄写由 PreemptionCoordinator 唯一执行"
+            ],
+            "completed_nodes": _append_node(state, "post_reasoning_hook"),
+        }
     result = hooks.post_reasoning(
         tool_name=tool_name,
         arguments=arguments,

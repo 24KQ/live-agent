@@ -191,6 +191,14 @@ class Settings(BaseSettings):
         validation_alias="PLAN_ENGINE_CARD_EXECUTION_ROUTE",
     )
 
+    # ── Phase 12B 售罄抢占路由配置 ───────────────────────────────────────
+    # 默认 LEGACY 保证升级后不会把播中售罄写路径切换到新协调器；路由在启动时
+    # 复制到 SoldOutRoutePolicy，运行中的 Settings 变化不会影响已开始事件。
+    sold_out_execution_route: Literal["LEGACY", "PLAN_ENGINE"] = Field(
+        default="LEGACY",
+        validation_alias="SOLD_OUT_EXECUTION_ROUTE",
+    )
+
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
         """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。

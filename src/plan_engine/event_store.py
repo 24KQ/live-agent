@@ -227,6 +227,17 @@ class EventStore(Protocol):
         """领取最早可处理事件或返回空。"""
         ...
 
+    def claim_next_for_room(
+        self,
+        worker_id: str,
+        *,
+        room_id: str,
+        now: datetime,
+        lease_seconds: int,
+    ) -> EventClaim | None:
+        """仅领取指定直播间最早可处理事件，避免跨 room 错绑 root。"""
+        ...
+
     def heartbeat(
         self,
         event_id: str,
@@ -416,6 +427,42 @@ class InMemoryEventStore:
         lease_seconds: int,
     ) -> EventClaim | None:
         """领取最早 VERIFIED 或租约已过期的 PROCESSING 事件。"""
+        return self._claim_next(
+            worker_id,
+            room_id=None,
+            now=now,
+            lease_seconds=lease_seconds,
+        )
+
+    def claim_next_for_room(
+        self,
+        worker_id: str,
+        *,
+        room_id: str,
+        now: datetime,
+        lease_seconds: int,
+    ) -> EventClaim | None:
+        """在同一内存锁内筛选 room 并领取，保持全局入口原排序语义。"""
+
+        if not room_id:
+            raise ValueError("room_id 不能为空")
+        return self._claim_next(
+            worker_id,
+            room_id=room_id,
+            now=now,
+            lease_seconds=lease_seconds,
+        )
+
+    def _claim_next(
+        self,
+        worker_id: str,
+        *,
+        room_id: str | None,
+        now: datetime,
+        lease_seconds: int,
+    ) -> EventClaim | None:
+        """实现全局/指定 room 共用的原子 claim 核心。"""
+
         if not worker_id:
             raise ValueError("worker_id 不能为空")
         if lease_seconds < 1:
@@ -426,6 +473,7 @@ class InMemoryEventStore:
                 record
                 for record in self._inbox.values()
                 if record.created_at <= current_time
+                and (room_id is None or record.event.room_id == room_id)
                 and (
                     record.state is EventInboxState.VERIFIED
                     or (
@@ -1008,6 +1056,42 @@ class PostgresEventStore:
         lease_seconds: int,
     ) -> EventClaim | None:
         """用 SKIP LOCKED 领取最早 VERIFIED 或 lease 已过期的事件。"""
+        return self._claim_next(
+            worker_id,
+            room_id=None,
+            now=now,
+            lease_seconds=lease_seconds,
+        )
+
+    def claim_next_for_room(
+        self,
+        worker_id: str,
+        *,
+        room_id: str,
+        now: datetime,
+        lease_seconds: int,
+    ) -> EventClaim | None:
+        """用数据库 JSONB room 事实过滤后再 SKIP LOCKED claim。"""
+
+        if not room_id:
+            raise ValueError("room_id 不能为空")
+        return self._claim_next(
+            worker_id,
+            room_id=room_id,
+            now=now,
+            lease_seconds=lease_seconds,
+        )
+
+    def _claim_next(
+        self,
+        worker_id: str,
+        *,
+        room_id: str | None,
+        now: datetime,
+        lease_seconds: int,
+    ) -> EventClaim | None:
+        """实现全局/指定 room 共用的 PostgreSQL claim 事务。"""
+
         if not worker_id:
             raise ValueError("worker_id 不能为空")
         if lease_seconds < 1:
@@ -1016,11 +1100,15 @@ class PostgresEventStore:
         try:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
+                    room_clause = (
+                        "" if room_id is None else "AND event_payload->>'room_id' = %(room_id)s"
+                    )
                     cursor.execute(
-                        """
+                        f"""
                         SELECT event_id
                         FROM plan_event_inbox
                         WHERE created_at <= %(now)s
+                          {room_clause}
                           AND (
                               state = 'VERIFIED'
                               OR (
@@ -1032,7 +1120,7 @@ class PostgresEventStore:
                         FOR UPDATE SKIP LOCKED
                         LIMIT 1;
                         """,
-                        {"now": current_time},
+                        {"now": current_time, "room_id": room_id},
                     )
                     selected = cursor.fetchone()
                     if selected is None:

@@ -103,6 +103,42 @@ class RecordingExecutor:
         }
 
 
+def test_plan_engine_route_blocks_sold_out_write_and_keeps_evidence() -> None:
+    """PlanEngine 路由下 Harness 只能消费售罄证据，不能再次执行写 Skill。"""
+
+    from src.plan_engine.preemption import PreemptionEvidenceRef, SoldOutExecutionRoute
+
+    executor = RecordingExecutor()
+    graph = build_on_live_harness_agent_graph(
+        planner=HighRiskPlanner(),
+        executor=executor,
+        sold_out_execution_route=SoldOutExecutionRoute.PLAN_ENGINE,
+    )
+    evidence = PreemptionEvidenceRef.create(
+        event_id="event-harness-001",
+        root_plan_run_id="root-harness-001",
+        application_state="APPLIED",
+        emergency_plan_run_id="child-harness-001",
+        applied_plan_version=2,
+        final_suggestion_fact="商品已售罄，请切换备选商品",
+    )
+    state = create_initial_on_live_harness_state(
+        room_id="room-001",
+        trace_id="trace-harness-evidence",
+        inventory_alerts=[{"product_id": "p001", "event_type": "SOLD_OUT"}],
+        preemption_evidence_refs=[evidence],
+        final_suggestion_fact=evidence.final_suggestion_fact,
+    )
+
+    result = graph.invoke(state)
+
+    assert executor.calls == []
+    assert result["agent_status"] == "evidence_only"
+    assert result["final_suggestion"] == evidence.final_suggestion_fact
+    assert "handle_sold_out_event" not in result["available_tool_names"]
+    assert result["preemption_evidence_refs"][0]["event_id"] == evidence.event_id
+
+
 class RecordingAuditWriter:
     """测试用审计 writer，验证 Graph write_audit 节点会真正调用注入对象。"""
 

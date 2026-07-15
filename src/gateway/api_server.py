@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -35,6 +35,7 @@ from src.core.agent_evaluation import AgentRuleEvaluator
 from src.core.agent_replay import AgentReplayService
 from src.gateway.websocket_manager import WebSocketManager
 from src.skills.product_catalog import ProductCatalogRepository
+from src.plan_engine.preemption import PreemptionEvidenceRef
 
 app = FastAPI(title="LiveAgent Dashboard", version="0.4.0")
 settings = get_settings()
@@ -50,6 +51,20 @@ class HarnessStartRequest(BaseModel):
     room_id: str = Field(..., min_length=1)
     trace_id: str | None = None
     anchor_id: str | None = "anchor-demo"
+    preemption_evidence_refs: list[PreemptionEvidenceRef] = Field(default_factory=list)
+    final_suggestion_fact: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _evidence_and_suggestion_are_closed(self) -> "HarnessStartRequest":
+        """PlanEngine 证据与建议必须同时出现，并引用同一已应用事实。"""
+
+        if bool(self.preemption_evidence_refs) != bool(self.final_suggestion_fact):
+            raise ValueError("preemption evidence 与 final_suggestion_fact 必须同时提供")
+        if self.preemption_evidence_refs and self.final_suggestion_fact not in {
+            evidence.final_suggestion_fact for evidence in self.preemption_evidence_refs
+        }:
+            raise ValueError("final_suggestion_fact 与 EvidenceRef 不一致")
+        return self
 
 
 class HarnessApprovalRequest(BaseModel):
@@ -424,6 +439,8 @@ async def start_harness_session(request: HarnessStartRequest):
             room_id=request.room_id,
             trace_id=request.trace_id,
             anchor_id=request.anchor_id,
+            preemption_evidence_refs=request.preemption_evidence_refs,
+            final_suggestion_fact=request.final_suggestion_fact,
         )
         await _broadcast_harness_status(status)
         return status

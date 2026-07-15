@@ -106,6 +106,9 @@ class OnLiveHarnessAuditWriter:
                 "approval_resume_audit_id": state.get("approval_resume_audit_id"),
                 "approval_operator_id": state.get("approval_operator_id"),
                 "approval_reason": state.get("approval_reason"),
+                "sold_out_execution_route": state.get("sold_out_execution_route"),
+                "preemption_evidence_refs": state.get("preemption_evidence_refs", []),
+                "final_suggestion_fact": state.get("final_suggestion_fact"),
                 "error": state.get("error"),
             }
         )

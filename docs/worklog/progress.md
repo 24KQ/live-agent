@@ -451,6 +451,10 @@
 - 二次审查发现 Harness Hook 尚未读取 `gate_decision`；补充低风险 BLOCK 红灯并让 Hook 先执行通用门禁。最终复核确认原问题全部清零，无阻断或重要项。
 - 并行全量时一个 20ms deadline 测试因资源竞争在 Handler 前到期；单独重复 10 次零失败，随后串行完整 unit 全绿，未修改生产 deadline 分类。
 - Task 9 最终专项为 `124 passed`，完整 unit 为 `943 passed, 4 warnings`，完整 integration 为 `96 passed, 3 deselected, 5 warnings`；生产 ToolRegistry import 为 0。
+- Phase 12B Task 10 RED 首次覆盖默认 Legacy、显式 PlanEngine、无 fallback 和 Harness 不重复售罄写，得到 `4 failed`，随后实现 PreemptionCoordinator、EvidenceRef、room-scoped Event Inbox claim、启动冻结路由和 Harness/API 证据入口。
+- Coordinator 形成 Inbox -> ImpactAnalyzer -> PlanStore freeze -> emergency child -> strict read-only reconciliation -> Replan 的可恢复链；未知副作用只复用原 Attempt，等待/重试/失败均不生成成功 EvidenceRef。
+- 独立审查发现并修复 7 项问题：跨 room/root 错绑、对账崩溃窗口、等待状态伪成功、失败状态丢失、事件 lease 不续租、Harness 仍调用 Planner、Dashboard/API 未接路由/证据。最终复核无阻断或重要项。
+- Task 10 专项最终 `141 passed`；完整 unit `957 passed, 4 warnings`；完整 integration `97 passed, 3 deselected, 5 warnings`；Task 12B EventStore/PostgreSQL/Harness 聚合、compileall 和 diff 检查通过。
 
 # 2026-07-11 Phase 7A 进度
 

@@ -28,6 +28,7 @@ from src.gateway.harness_session_store import (
     InMemoryHarnessSessionStore,
     PostgresHarnessSessionStore,
 )
+from src.plan_engine.preemption import PreemptionEvidenceRef, SoldOutRoutePolicy
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision
 
 
@@ -97,6 +98,8 @@ class HarnessDashboardService:
         self._use_postgres_checkpointer = use_postgres_checkpointer
         self._planner = planner or DashboardHighRiskPlanner()
         self._executor = executor or DashboardDemoExecutor()
+        # 启动时冻结售罄路由；首次构图和 interrupt 恢复必须使用同一策略快照。
+        self._sold_out_route = SoldOutRoutePolicy.from_settings(self._settings).route
         self._memory_checkpointers: dict[str, InMemorySaver] = {}
         if hasattr(self._store, "initialize_schema"):
             self._store.initialize_schema()
@@ -107,6 +110,8 @@ class HarnessDashboardService:
         room_id: str,
         trace_id: str | None = None,
         anchor_id: str | None = "anchor-demo",
+        preemption_evidence_refs: list[PreemptionEvidenceRef | dict[str, Any]] | None = None,
+        final_suggestion_fact: str | None = None,
     ) -> dict[str, Any]:
         trace = trace_id or f"trace-dashboard-{uuid4()}"
         state = create_initial_on_live_harness_state(
@@ -115,6 +120,8 @@ class HarnessDashboardService:
             anchor_id=anchor_id,
             inventory_alerts=[{"product_id": "p001", "severity": "sold_out"}],
             current_product={"product_id": "p001", "name": "演示商品", "inventory": 0},
+            preemption_evidence_refs=preemption_evidence_refs,
+            final_suggestion_fact=final_suggestion_fact,
         )
 
         with self._checkpointer_context(trace) as checkpointer:
@@ -122,6 +129,7 @@ class HarnessDashboardService:
                 planner=self._planner,
                 executor=self._executor,
                 checkpointer=checkpointer,
+                sold_out_execution_route=self._sold_out_route,
             )
             result = graph.invoke(state, config=self._graph_config(trace))
 
@@ -186,6 +194,7 @@ class HarnessDashboardService:
                     planner=self._planner,
                     executor=self._executor,
                     checkpointer=checkpointer,
+                    sold_out_execution_route=self._sold_out_route,
                 )
                 result = graph.invoke(
                     Command(

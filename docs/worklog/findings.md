@@ -280,6 +280,10 @@
 - 生产消费者迁移不要求提前删除 ToolRegistry Facade。保留旧测试和位置参数鸭子类型兼容，可以把 Phase 14 的删除动作与本阶段治理事实源切换解耦。
 - BLOCK 与 hard-gate 的语义不能只靠风险等级近似。Hook、Legacy Executor 和不支持 pending 的确定性 Flow 都必须读取真实 `gate_decision`；BLOCK 需在 Reducer、Repository、Runtime 或审计副作用前终止。
 - 旧 Registry 兼容参数不能作为运行时策略对象继续保存。正确做法是启动时核对其与 Catalog 投影一致，随后丢弃旧对象并持有新的冻结 SkillPolicyView。
+- Event Inbox 的全局 claim 不能由调用方事后用 root 校验补救；必须先按 room 原子筛选，claim 后再复核活动 root，歧义时用当前 fencing 退回 VERIFIED。
+- 对账跨 PlanStore/EventStore 不能伪装成原子事务。NodeRun 已闭合、Application 未闭合和 Application 已恢复、Inbox 未闭合都必须有显式补偿分支，且等待/失败不能返回 EvidenceRef。
+- PlanEngine Harness 的“证据优先”不能只在 pre-tool hook 拦截写 Skill；应在 agent_reasoning 前直接绕过 Planner，并要求 `EvidenceRef=APPLIED + digest + final_suggestion` 三者一致。
+- Dashboard 与 HTTP API 是启动路由的真实生产装配点；只在 Graph 工厂增加参数而不从 Settings 和请求入口传入，会形成不可用的伪路由。
 
 # 2026-07-11 Phase 7A 发现
 

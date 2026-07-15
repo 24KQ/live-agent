@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 8：增量 Replan 与结果复用（已提交并推送） |
-| 下一任务 | Task 9：SkillPolicyView 生产消费者迁移 |
-| 下一任务状态 | `IN_PROGRESS` |
-| 当前子步骤 | Task 9 COMMIT：安全审查整改与复核通过，准备精确暂存并推送 |
+| 最近完成任务 | Phase 12B Task 10：PreemptionCoordinator、Harness 证据接入与路由（验证完成，待提交推送） |
+| 下一任务 | Task 11：业务闭环 Demo、验收和阶段留迹 |
+| 下一任务状态 | `PENDING` |
+| 当前子步骤 | Task 10 VERIFY：全量回归、审查和静态门禁通过，准备提交推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `e98df2a feat: incrementally replan card batches` |
-| 远端状态 | `origin/main=e98df2a` |
+| 当前业务基线 | `f6a7d1d refactor: migrate tool policy consumers` |
+| 远端状态 | `origin/main=f6a7d1d` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -28,17 +28,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 9
+Phase / Task: Phase 12B / Task 10
 状态: VERIFY
-目标: 将全部生产治理消费者迁移到启动冻结的 SkillPolicyView，并清空 ToolRegistry 生产导入
-禁止事项: 不删除 ToolRegistry Facade，不改变未知 Skill、生命周期、风险、门禁、Schema 或精确版本的 fail-closed 语义
-当前 HEAD: e98df2a
-本 Task 文件: Planner、Policy、Hook、Flow、AgentToolExecutor、SkillExecutor、SkillPolicyView 测试与状态文档
+目标: 用 PreemptionCoordinator 串联可信 Inbox、影响分析、冻结、紧急 child、对账与 Replan，并让 Harness 只消费结构化证据
+禁止事项: 不让 Harness 执行售罄写，不做同次 Legacy fallback，不进入 Task 11 Demo/Acceptance
+当前 HEAD: f6a7d1d
+本 Task 文件: preemption.py、settings.py、on_live_harness_agent_graph.py、on_live_harness_audit.py、Task 10 单元/集成测试与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: 初始 RED 7 failed/21 passed；审查整改 RED 7 failed 后转绿；最终专项 124 passed；完整 unit 943 passed；完整 integration 96 passed, 3 deselected；生产旧 import 0 命中
-错误与尝试次数: 2；严格编码首次发现 10 个补丁目标混合换行并已统一 LF；并行全量时 20ms deadline 测试一次资源竞争失败，单独重复 10 次及完整 unit 串行复跑均通过，未放宽生产语义
-设计偏差与决策编号: 无；按冻结计划保留 ToolRegistry Facade 到 Phase 14，只迁移生产消费者
-下一条精确操作: 运行最终静态门禁，精确暂存 Task 9 文件并提交推送
+最近命令与结果: Task 10 RED 4 failed；专项最终 `141 passed`；完整 unit `957 passed, 4 warnings`；完整 integration `97 passed, 3 deselected, 5 warnings`；API/路由/编译/差异门禁待最后执行
+错误与尝试次数: 2；一次测试 fixture transport 坐标冲突已修正；审查发现 7 项恢复/安全问题并全部整改
+设计偏差与决策编号: D-094、D-097、D-098；新增 room-scoped claim、恢复补偿和 EvidenceRef APPLIED 门禁均在 Task 10 设计边界内
+下一条精确操作: 严格编码、diff、迁移/导入扫描，精确暂存 Task 10 文件并提交推送
 模型费用累计: 0 元
 ```
 
@@ -116,6 +116,8 @@ Phase / Task: Phase 12B / Task 9
 | Phase 12B Task 8 恢复与审查 | Application 部分补偿、复用链、Store 锁内 superseded 复核、版本输入冻结和 source version 门禁均通过 |
 | Phase 12B Task 9 RED/GREEN | 初始 RED `7 failed, 21 passed`；安全审查整改 RED `7 failed`；最终专项 `124 passed`；生产 ToolRegistry import `0` 命中 |
 | Phase 12B Task 9 完整验证 | unit `943 passed, 4 warnings`；integration `96 passed, 3 deselected, 5 warnings`；独立复核无阻断或重要项 |
+| Phase 12B Task 10 RED/GREEN | RED `4 failed`；Coordinator/Harness/API 专项最终 `141 passed`；生产路由、证据摘要和 no-fallback 门禁通过独立复核 |
+| Phase 12B Task 10 完整验证 | unit `957 passed, 4 warnings`；integration `97 passed, 3 deselected, 5 warnings`；PostgreSQL/EventStore/Harness 聚合 `141 passed` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

@@ -146,7 +146,7 @@
   - [x] Task 7：高优先级紧急 child DAG（`703f072` 已推送）。
   - [x] Task 8：增量 Replan 与结果复用（`e98df2a` 已推送）。
   - [x] Task 9：SkillPolicyView 生产消费者迁移（实现与全量验证完成，随本次提交推送）。
-  - [ ] Task 10：PreemptionCoordinator、Harness 证据接入与路由。
+  - [x] Task 10：PreemptionCoordinator、Harness 证据接入与路由（实现与全量验证完成，待本次提交推送）。
   - [ ] Task 11：业务闭环 Demo、验收和阶段留迹。
 - [ ] Phase 13：三个 Specialist Agent 候选评估与条件化去留。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
