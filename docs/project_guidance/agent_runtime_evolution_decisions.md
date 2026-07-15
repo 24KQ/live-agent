@@ -1070,3 +1070,14 @@
 - **未选理由**：禁止协作浪费可并行的审查工作；直接并发写入会制造冲突和不清晰的责任归属。
 - **影响**：D-093 的“不派发子智能体”影响被本决策替换；每次采用审查结论时必须由主模型复核并记录关键结果。
 - **重新评估条件**：未来使用隔离 worktree、明确代码所有者和独立 CI 队列后，可单独决定是否允许 sub-agent 提交候选改动。
+
+## D-097：紧急计划的跨 PlanRun 优先级 claim
+
+- **状态**：`ACCEPTED`
+- **背景**：现有 `PlanWorker.run_once(plan_run_id)` 和 `PlanStore.claim_ready_nodes(plan_run_id=...)` 只能在指定 PlanRun 内 claim，无法证明 priority 100 的紧急 child 会先于 priority 0 的普通 READY 节点。
+- **候选方案**：由调用方手动优先调用 child Worker；新增跨 PlanRun Store claim 原语；把 priority 仅作为审计字段而不参与调度。
+- **最终选择**：新增不破坏现有按计划 claim 的跨 PlanRun READY claim 原语，候选稳定排序为 `priority DESC`、READY 时间升序、`node_id` 升序；Worker 新增兼容的全局调度入口，原 `run_once(plan_run_id)` 保持播前 Graph 调用契约。
+- **选择理由**：优先级由权威 Store 在锁与 fencing 边界执行，避免调用方调度顺序、进程竞争或未来 Harness 行为绕过紧急计划语义。
+- **未选理由**：调用方手动排序无法在多个 Worker 间保证优先级；仅记录 priority 不能满足 Task 7 的 PostgreSQL 证明要求。
+- **影响**：Task 7 增加 `store.py` 与 Store Protocol 的最小扩展、内存/PostgreSQL 优先级测试；资源锁、lease、fencing、最大并发 4 和既有按计划 claim 行为保持不变。
+- **重新评估条件**：若未来引入独立队列服务，可将该原语实现映射到队列 claim，但排序、不变量和测试证据不得放宽。

@@ -143,6 +143,7 @@
 - Create: `src/plan_engine/emergency.py`
 - Modify: `src/plan_engine/capabilities.py`
 - Modify: `src/plan_engine/proposal.py`
+- Modify: `src/plan_engine/store.py`
 - Modify: `src/plan_engine/worker.py`
 - Test: `tests/unit/test_phase12b_emergency_plan.py`
 - Test: `tests/integration/test_phase12b_emergency_priority.py`
@@ -151,7 +152,7 @@
 
 1. 写规范 DAG、root/parent/trigger lineage、priority 100 和资源锁红灯测试。
 2. 实现固定 `SoldOutEmergencyProposalProvider` 与 Capability Profile 扩展。
-3. 调度查询按 priority 降序、READY 时间和 node ID 稳定排序。
+3. 新增不破坏既有 `claim_ready_nodes(plan_run_id=...)` 的跨 PlanRun claim 原语；调度查询按 priority 降序、READY 时间和 node ID 稳定排序。
 4. 验证紧急计划不能绕过 Skill 版本、授权、FailurePolicy 或 fencing。
 5. 使用真实 PostgreSQL 证明紧急节点优先于普通 READY 节点且同商品串行。
 6. 提交：`feat: run sold out emergency plans`。

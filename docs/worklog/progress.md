@@ -437,6 +437,7 @@
 - Phase 12B Task 6 已以 `9d4bf97 feat: execute versioned sold out writes` 提交并推送；缓存区未包含用户已有文档修改和无关脚本。
 - 执行治理改为 Phase-Gated：Phase 12B 内 Task 可连续推进，Phase 12B Acceptance 后必须进入用户授权的 Phase 13 Gate；Phase 13/14 详细文档降级为讨论基线。
 - 已新增固定 `live-session-p001-sold-out-v1` 业务闭环轨道；Task 11 将输出可重复 Trace/Markdown 报告，Phase 13 只追加条件化 Agent 结论，Phase 14 再纳入 Golden/Release 证据。
+- Task 7 实施前发现现有 Worker 只能按指定 PlanRun claim，无法证明 priority 100 紧急 child 优先于普通 READY 节点；已以 D-097 收敛为 Store 权威的跨 PlanRun priority claim，保留全部既有播前按计划调用。
 
 # 2026-07-11 Phase 7A 进度
 

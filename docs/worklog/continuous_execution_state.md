@@ -37,7 +37,7 @@ Phase / Task: Phase 12B / Task 7
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
 最近命令与结果: Task 6 RED 为 unit 16 failed, 51 passed；GREEN 后专项 64 passed；完整 unit 911 passed, 4 warnings；完整 integration 退出码 0 且无失败，已提交并推送
 错误与尝试次数: 0
-设计偏差与决策编号: D-082、D-083、D-084；D-094 限定自动推进仅在当前 Phase 内，D-095 要求 Task 11 产出固定业务闭环 Trace
+设计偏差与决策编号: D-082、D-083、D-084；D-094 限定自动推进仅在当前 Phase 内，D-095 要求 Task 11 产出固定业务闭环 Trace。D-097 新增跨 PlanRun priority claim，修复 Task 7 原计划无法证明紧急计划优先级的缺口
 下一条精确操作: 重新读取 Task 7 Design/Plan，编写固定 child DAG、lineage、priority 和资源锁的 RED 测试
 模型费用累计: 0 元
 ```
