@@ -152,8 +152,9 @@
 - [ ] Phase 13 业务实施：已获用户授权，按 12 个 TDD Task 连续推进。
   - [x] Task 1：协议、Profile Registry 与确定性路由（`28b2764` 已推送）。
   - [x] Task 2：原生 async 单次 AgentModelPort（`344cb82` 已推送）。
-  - [x] Task 3：持久模型预算账本（技术门禁通过，待独立提交推送）。
-  - [ ] Task 4：BoundedSpecialistRunner 与 Evidence Resolver。
+  - [x] Task 3：持久模型预算账本（`653ebb8` 已推送）。
+  - [x] Task 4：BoundedSpecialistRunner 与 Evidence Resolver（技术门禁通过，等待提交推送）。
+  - [ ] Task 5：Evaluation Store、配对比较与迁移。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

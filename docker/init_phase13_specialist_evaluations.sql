@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS specialist_model_budget_reservations (
         (state = 'RESERVED' AND settled_amount_cny IS NULL AND usage_known IS NULL)
         OR (state = 'RELEASED' AND settled_amount_cny IS NULL AND usage_known IS NULL)
         OR (state = 'SETTLED' AND settled_amount_cny IS NOT NULL AND usage_known IS NOT NULL
-            AND settled_amount_cny >= 0 AND settled_amount_cny <= reserved_amount_cny)
+            AND settled_amount_cny >= 0)
     )
 );
 
@@ -64,7 +64,33 @@ ALTER TABLE specialist_model_calls
     ADD COLUMN IF NOT EXISTS reservation_state TEXT NOT NULL DEFAULT 'SETTLED';
 
 DO $$
+DECLARE
+    constraint_record RECORD;
 BEGIN
+    -- 旧 Task 3 DDL 曾禁止实际费用高于预留；这会在价格表漂移时迫使应用少记
+    -- 已发生费用。滚动迁移时精确删除该表达式约束，再由状态形状约束保持非负要求。
+    FOR constraint_record IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'specialist_model_budget_reservations'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%settled_amount_cny <= reserved_amount_cny%'
+    LOOP
+        EXECUTE format(
+            'ALTER TABLE specialist_model_budget_reservations DROP CONSTRAINT %I',
+            constraint_record.conname
+        );
+    END LOOP;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='specialist_budget_reservation_state_shape') THEN
+        ALTER TABLE specialist_model_budget_reservations
+            ADD CONSTRAINT specialist_budget_reservation_state_shape
+            CHECK (
+                (state = 'RESERVED' AND settled_amount_cny IS NULL AND usage_known IS NULL)
+                OR (state = 'RELEASED' AND settled_amount_cny IS NULL AND usage_known IS NULL)
+                OR (state = 'SETTLED' AND settled_amount_cny IS NOT NULL AND usage_known IS NOT NULL
+                    AND settled_amount_cny >= 0)
+            );
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='specialist_budget_ledger_amounts_finite') THEN
         ALTER TABLE specialist_model_budget_ledgers
             ADD CONSTRAINT specialist_budget_ledger_amounts_finite

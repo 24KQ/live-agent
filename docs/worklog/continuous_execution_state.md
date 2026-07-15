@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 3：持久模型预算账本技术门禁 |
-| 下一任务 | Task 4：BoundedSpecialistRunner 与 Evidence Resolver |
-| 下一任务状态 | `IN_PROGRESS` |
-| 当前子步骤 | Task 3 VERIFY：最终验证、独立提交并推送 |
+| 最近完成任务 | Phase 13 Task 4：BoundedSpecialistRunner 与 Evidence Resolver 技术门禁 |
+| 下一任务 | Task 5：Evaluation Store、配对比较与迁移 |
+| 下一任务状态 | `AWAITING_TASK_4_COMMIT` |
+| 当前子步骤 | Task 4 VERIFY：全量回归、复审、提交与推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=344cb82` |
+| 远端状态 | `origin/main=653ebb8` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 3
+Phase / Task: Phase 13 / Task 4
 状态: VERIFY
-目标: 持久化 3 元总额、Phase 13/14 预留、候选额度与模型调用结算
-禁止事项: 不调用真实模型，不实现 Runner、候选 Agent 或动态 A2A
-当前 HEAD: 344cb82
-本 Task 文件: budget.py、Phase 13 SQL、迁移注册、Task 3 unit/integration tests、状态文档
+目标: 建立 Evidence Resolver Registry、BoundedSpecialistRunner 与受控生产 fallback
+禁止事项: 不调用真实模型，不实现具体候选 Agent、评估 Store 或动态 A2A
+当前 HEAD: 653ebb8
+本 Task 文件: evidence.py、runner.py、Task 4 tests、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 3 单元+真实 PostgreSQL 专项 19 passed；规格与质量复审无阻断
-错误与尝试次数: 规格审查 1 轮整改、质量审查 1 轮整改，均已红灯闭合
+最近命令与结果: Runner 47 passed；Phase 13 Task 1-4 聚合 109 passed；PostgreSQL 预算迁移 7 passed；完整 unit 1071 passed、integration 104 passed
+错误与尝试次数: 审查发现预算低估、重复付费、Token 预检、Evidence/fallback 审计和取消闭环缺口，均已按新增红灯整改
 设计偏差与决策编号: D-100 至 D-108；旧 D-090 由早停与预算预留语义替代
-下一条精确操作: 运行最终全量/编码门禁，只暂存 Task 3 文件后提交并推送
+下一条精确操作: 最终复审无阻断后暂存 Task 4 文件，提交并推送
 模型费用累计: 0 元
 ```
 
@@ -131,6 +131,9 @@ Phase / Task: Phase 13 / Task 3
 | Phase 13 Task 2 审查 | 规格无阻断；质量无 Critical/Important，2 项 Minor 已记录 |
 | Phase 13 Task 3 RED/GREEN | 初始缺模块 RED；审查回归覆盖公共池/NaN/FK/精度；最终专项 `19 passed` |
 | Phase 13 Task 3 审查 | 规格与质量复审无 Critical/Important 阻断项 |
+| Phase 13 Task 4 RED/GREEN | 初始缺模块 RED；多轮审查整改后 Runner `47 passed`，SkillExecutor/预算聚合 `61 passed` |
+| Phase 13 Task 4 完整验证 | Phase 13 Task 1-4 `109 passed`；unit `1071 passed, 4 warnings`；integration `104 passed, 3 deselected, 5 warnings` |
+| Phase 13 Task 4 安全边界 | 完整请求计价、发送前 Token 限制、稳定 Task 执行身份、费用超额如实入账、Evidence/fallback 审计与取消恢复均已覆盖 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

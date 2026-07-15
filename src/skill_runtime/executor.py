@@ -170,6 +170,23 @@ class SkillExecutor:
                 handler.execute(call.skill_id, call.arguments, handler_context),
                 timeout=timeout,
             )
+        except asyncio.CancelledError:
+            # 外层 Worker、Graph 或 Runner 取消协程时，Handler 可能已经把请求发送到平台。
+            # 若直接传播取消，Attempt 会永久停留在 INTENT_RECORDED，后续同幂等键只能
+            # 看到“执行中”且无法对账。因此必须先以副作用未知闭合持久事实，再保留
+            # asyncio 的协作式取消语义交还调用方。
+            try:
+                self._complete_failure(
+                    call,
+                    record,
+                    self._unknown_failure(record),
+                    summary="Skill handler was cancelled after execution started",
+                )
+            except Exception:
+                # Store 故障时保留最初的取消语义；INTENT_RECORDED 仍是可由 Attempt
+                # 恢复扫描发现的持久事故证据，不能用清理异常覆盖 CancelledError。
+                pass
+            raise
         except asyncio.TimeoutError:
             return self._complete_failure(
                 call,

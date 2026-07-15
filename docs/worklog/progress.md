@@ -509,3 +509,10 @@
 - settle 支持已知 usage 退还差额与未知 usage 上限结算；release、重放、冲突和重启待对账扫描均有测试。
 - DDL 通过候选复合外键、结算事实复合外键和全金额 NaN CHECK 防止绕过 Python Store。
 - Task 3 最终单元+真实 PostgreSQL 专项 `19 passed`；测试 fixture 精确清理随机 scope；真实模型费用仍为 0。
+
+# 2026-07-15 Phase 13 Task 4
+
+- 新增八类权威 Evidence Resolver、BoundedSpecialistRunner、RuntimeSkillPort 与 retained-only 生产 fallback 门面。
+- Runner 固定执行 Profile、anchor/Evidence、Token/费用预检、单次模型、动作/Skill/结果 Schema 和审计顺序；正式评估从不调用 baseline。
+- 费用超额按实际值持久化，重复冻结 Task 禁止第二次模型发送；模型响应身份、Skill 调用序号、取消 Attempt 闭环和预算恢复均 fail-closed。
+- 专项 Runner `47 passed`，Phase 13 Task 1-4 聚合 `109 passed`，完整 unit `1071 passed`，integration `104 passed, 3 deselected`；真实模型费用仍为 0。

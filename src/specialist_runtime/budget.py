@@ -164,8 +164,8 @@ class InMemoryModelBudgetStore:
                 if actual_cost_cny is None
                 else _validate_amount(actual_cost_cny, allow_zero=True)
             )
-            if amount > record.reserved_amount_cny:
-                raise BudgetInvariantError("actual cost exceeds reserved amount")
+            # 价格策略异常或上游计量漂移不能改变“费用已经发生”的事实。即使实际费用
+            # 超过预留，也必须如实提交到账本，使后续 reserve 看到真实暴露并 fail-closed。
             if record.state is ReservationState.SETTLED:
                 if record.settled_amount_cny != amount or record.usage_known is not (actual_cost_cny is not None):
                     raise BudgetInvariantError("conflicting settlement replay")
@@ -343,8 +343,8 @@ class PostgresModelBudgetStore:
                     raise BudgetInvariantError("unknown reservation")
                 amount = record.reserved_amount_cny if actual_cost_cny is None else _validate_amount(actual_cost_cny, allow_zero=True)
                 usage_known = actual_cost_cny is not None
-                if amount > record.reserved_amount_cny:
-                    raise BudgetInvariantError("actual cost exceeds reserved amount")
+                # 已知实际费用允许高于预留：这是需要阻断后续调用的预算事故事实，
+                # 不能因写入较低预留值而把超额消费重新释放成可用额度。
                 if record.state is ReservationState.SETTLED:
                     if record.settled_amount_cny != amount or record.usage_known is not usage_known:
                         raise BudgetInvariantError("conflicting settlement replay")

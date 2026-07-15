@@ -303,7 +303,7 @@ class AgentResult(StrictFrozenModel):
         if is_success_shape:
             if self.output is None:
                 raise ValueError("successful or fallback result requires output")
-            if self.failure is not None:
+            if self.status is AgentResultStatus.SUCCEEDED and self.failure is not None:
                 raise ValueError("successful or fallback result cannot carry failure")
         else:
             if self.output is not None:

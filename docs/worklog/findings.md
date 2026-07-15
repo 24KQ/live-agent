@@ -328,6 +328,14 @@
 - Python Decimal 必须无损落入 `NUMERIC(12,6)`；超精度、超范围、NaN 和 Infinity 在 Store 前转为稳定领域错误。
 - 数据库约束也必须拒绝 NUMERIC NaN。ModelCall 通过 state、amount、usage 的复合外键绑定已 SETTLED reservation，不能伪造独立费用事实。
 
+## 2026-07-15 Phase 13 Task 4 发现
+
+- 预算预留必须对完整 ModelRequest 计价，并在发送前用冻结价格策略的 token counter 扣除输入 Token；把剩余总 Token 全部当输出上限会事后突破硬门。
+- 同一 AgentTask 的执行身份使用稳定 task digest；重复执行在模型发送前 fail-closed，不能用随机 UUID 把崩溃重试变成第二笔付费请求。
+- 已知实际费用即使高于预留也必须如实写入 Ledger，并立即停止 case；少记为预留值会把已消费预算错误释放回共享池。
+- EvidenceRef 校验结果必须以冻结投影进入模型上下文，并在成功、失败和 fallback 结果中保留全部中间动作与证据链。
+- Skill Handler 已开始后的外部取消必须先闭合 SIDE_EFFECT_UNKNOWN；若 Store 同时故障，保留原始取消并让持久 pending Attempt 进入恢复扫描，禁止重发。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

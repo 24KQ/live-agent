@@ -133,6 +133,54 @@ def test_timeout_after_handler_started_is_unknown_and_cannot_replay() -> None:
     assert handler.calls == 1
 
 
+def test_external_cancellation_closes_started_attempt_as_side_effect_unknown() -> None:
+    """调用方取消不能留下执行中 Attempt；已开始的副作用必须闭合为未知并禁止重发。"""
+
+    async def scenario() -> tuple[Any, Any]:
+        store = InMemoryAttemptStore()
+        handler = _SlowAsyncHandler()
+        executor = SkillExecutor(handlers={"set_product_price": handler}, attempt_store=store)
+        call = _price_call()
+        running = asyncio.create_task(executor.execute(call))
+        await asyncio.sleep(0.01)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        replay = await executor.execute(call)
+        return replay, handler
+
+    replay, handler = asyncio.run(scenario())
+    assert replay.failure is not None
+    assert replay.failure.category is FailureCategory.SIDE_EFFECT_UNKNOWN
+    assert handler.calls == 1
+
+
+def test_cancellation_cleanup_store_failure_preserves_cancel_and_pending_recovery_fact() -> None:
+    """清理写失败不能覆盖取消；原始 pending Attempt 必须仍可被恢复扫描发现。"""
+
+    class FailingCompletionStore(InMemoryAttemptStore):
+        def complete_failure(self, *args, **kwargs):
+            raise RuntimeError("store unavailable")
+
+    async def scenario():
+        store = FailingCompletionStore()
+        handler = _SlowAsyncHandler()
+        executor = SkillExecutor(
+            handlers={"set_product_price": handler}, attempt_store=store
+        )
+        call = _price_call()
+        running = asyncio.create_task(executor.execute(call))
+        await asyncio.sleep(0.01)
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        return await executor.execute(call), handler
+
+    replay, handler = asyncio.run(scenario())
+    assert replay.summary == "Skill execution attempt is still in progress"
+    assert handler.calls == 1
+
+
 def test_deadline_before_handler_returns_not_sent_failure_without_calling_handler() -> None:
     """发送前 deadline 到期时只写可重放意图终态，绝不调用 Handler。"""
     events: list[str] = []

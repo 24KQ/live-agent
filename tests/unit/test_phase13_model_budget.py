@@ -99,14 +99,15 @@ def test_concurrent_reservations_only_one_crosses_candidate_boundary() -> None:
     assert sorted(results) == [False, True]
 
 
-def test_actual_cost_cannot_exceed_reserved_amount() -> None:
-    """结算不得事后突破请求前已经持久化的预算预留。"""
+def test_actual_cost_overage_is_recorded_instead_of_hidden() -> None:
+    """已发生的超额费用必须如实记账，不能用较低预留值掩盖真实消费。"""
 
     store = InMemoryModelBudgetStore()
     store.reserve("req-1", BudgetCandidate.PLANNER, Decimal("0.10"))
 
-    with pytest.raises(BudgetInvariantError, match="reserved"):
-        store.settle("req-1", Decimal("0.11"))
+    settled = store.settle("req-1", Decimal("0.11"))
+    assert settled.settled_amount_cny == Decimal("0.11")
+    assert store.snapshot().phase13_committed_cny == Decimal("0.11")
 
 
 def test_rejected_candidate_returns_only_unspent_allowance_to_shared_pool() -> None:
