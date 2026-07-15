@@ -1,6 +1,8 @@
 # Phase 13 Specialist Agent Evaluation Implementation Plan
 
-> **For agentic workers:** Implement task-by-task with RED, GREEN, REFACTOR. Do not begin until Phase 12B Acceptance passes and continuous implementation is authorized.
+文档状态：`DISCUSSION_BASELINE`
+
+> **For agentic workers:** Implement task-by-task with RED, GREEN, REFACTOR. Do not begin until Phase 12B Acceptance passes, the Phase 13 Just-in-Time Gate updates this baseline, and the user explicitly authorizes Phase 13 implementation.
 
 **Goal:** 使用统一受限 Harness 和版本化数据集，独立判断三个 Specialist Agent 是否值得进入正式架构。
 
@@ -211,7 +213,7 @@ git diff --check
 python scripts/check_doc_encoding.py
 ```
 
-Acceptance 必须逐候选列出 baseline/Agent 样本数、成功率、领域指标、严重违规、p95、Token、费用、最终结论和删除/保留代码证据。真实模型失败或预算不足不得用 ScriptedModel 代替。
+Acceptance 必须逐候选列出 baseline/Agent 样本数、成功率、领域指标、严重违规、p95、Token、费用、最终结论和删除/保留代码证据，并为 `live-session-p001-sold-out-v1` 生成只读 `agent-decision-appendix.json` 与 Markdown 摘要。主业务 Trace 不依赖 Agent 被保留；真实模型失败或预算不足不得用 ScriptedModel 代替。
 
 提交：`feat: complete phase 13 agent evaluation`。
 

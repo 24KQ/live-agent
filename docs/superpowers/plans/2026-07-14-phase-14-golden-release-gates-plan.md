@@ -1,6 +1,8 @@
 # Phase 14 Golden Dataset and Release Gates Implementation Plan
 
-> **For agentic workers:** Implement task-by-task with RED, GREEN, REFACTOR. Do not begin until Phase 13 has persisted retention decisions and continuous implementation is authorized.
+文档状态：`DISCUSSION_BASELINE`
+
+> **For agentic workers:** Implement task-by-task with RED, GREEN, REFACTOR. Do not begin until Phase 13 has persisted retention decisions, the Phase 14 Just-in-Time Gate updates this baseline, and the user explicitly authorizes Phase 14 implementation.
 
 **Goal:** 把 Golden Dataset、确定性规则、LLM Judge、真实基础设施和版本证据收敛为可重复发布门禁。
 
@@ -27,7 +29,7 @@
 
 1. 写 manifest semantic version、文件哈希、split、case ID、supersedes 和不可变 Release 版本红灯测试。
 2. 实现 canonical SHA-256、Schema 校验和 manifest loader。
-3. 生成 24 个 `runtime-core-v1` case：Skill Runtime、DAG/Checkpoint、Event/Replan 各 8 个，每类固定按 development 2、validation 4、holdout 2 拆分；聚合 Phase 13 已冻结的 240 个 case，拒绝跨 split 重复 ID。
+3. 生成 24 个 `runtime-core-v1` case：Skill Runtime、DAG/Checkpoint、Event/Replan 各 8 个，每类固定按 development 2、validation 4、holdout 2 拆分；其中一个 Event/Replan case 固定为 `live-session-p001-sold-out-v1` 变体。聚合 Phase 13 已冻结的 240 个 case，拒绝跨 split 重复 ID。
 4. 生成器重复运行必须字节一致；首版 manifest 必须锁定 264 个 case、所有文件摘要及来源 manifest，Release 使用过的 manifest 禁止原地覆盖。
 5. 运行数据集与敏感信息专项。
 6. 提交：`feat: version golden evaluation datasets`。
@@ -180,7 +182,7 @@
 3. 第一次 Release PASS 后，才把三批 Skill 默认值切为 `SKILL_RUNTIME`，手卡与可信售罄默认值切为 `PLAN_ENGINE`；显式 Legacy 启动回滚保留一个兼容周期，同次 fallback 继续禁止。
 4. 运行默认路由、配置冻结和无 fallback 回归，提交并推送：`feat: promote agent runtime defaults`。
 5. 对该新提交使用同一 dataset/subject manifest 再运行完整 Release；第二次失败时用新提交恢复 Legacy 默认值并保持 Acceptance 未通过，禁止 `reset` 或改写历史。
-6. 第二次 PASS 后生成测试、覆盖率、数据/模型/Prompt/价格哈希和版本差异报告；Acceptance 记录两次运行的命令、commit、URL/ID（可用时）和 artifact digest。
+6. 第二次 PASS 后生成测试、覆盖率、数据/模型/Prompt/价格哈希和版本差异报告，并把业务闭环 Trace、Agent 条件化附录、Manifest、规则门禁和 ReleaseDecision 汇总为最终业务闭环报告；Acceptance 记录两次运行的命令、commit、URL/ID（可用时）和 artifact digest。
 7. 提交并推送：`feat: complete phase 14 release gates`。
 
 ## Task 10：Agent Runtime 总体验收
@@ -204,7 +206,7 @@ git diff --check
 python scripts/check_doc_encoding.py
 ```
 
-总体验收必须明确三场景能力、最终保留 Agent、默认路由、回滚方式、未完成边界和所有版本哈希。实时状态改为 `COMPLETE` 后提交：`docs: accept agent runtime completion`。
+总体验收必须明确三场景能力、最终保留 Agent、默认路由、回滚方式、未完成边界、所有版本哈希和业务闭环报告结论。若 Release 为 `FAIL` 或 `BLOCKED`，报告必须保留失败事实，不能声称业务闭环成功。实时状态改为 `COMPLETE` 后提交：`docs: accept agent runtime completion`。
 
 ## Plan Self-Review
 

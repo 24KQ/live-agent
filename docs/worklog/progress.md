@@ -342,7 +342,7 @@
 
 ## 2026-07-15 Phase 12A-14 正式连续实施启动
 
-- 用户已明确授权从 Phase 12A Task 6 连续执行至 Phase 14 Final Acceptance，阶段技术门禁通过后不再逐阶段等待确认。
+- 历史上曾授权从 Phase 12A Task 6 连续执行至 Phase 14 Final Acceptance；该跨 Phase 授权已由 D-094 替换为当前 Phase 内连续、Phase 结束后 Just-in-Time Gate。
 - 调整策略为受控自主调整：设计内修正可直接推进；公开接口、Schema、状态机、数据库或安全边界变化先写决策日志；不得放宽安全、预算和 Agent 去留门槛。
 - 已恢复并核对 `HEAD=27a20e4`、`origin/main=27a20e4`，最新业务代码基线为 `37d6f8a`；用户既有 7 个脏文件保持未暂存。
 - 当前进入 Phase 12A Task 6 `RED`，下一步只编写 checkpoint 双向不一致和命令前对账失败测试，不提前修改生产代码。
@@ -434,6 +434,9 @@
 - 最小 GREEN 将售罄 Handler 收敛为一次 `mark_sold_out` 调用，Fake 平台按 `expected_version` 执行 CAS；`SIDE_EFFECT_UNKNOWN` 仅通过新只读对账服务确认，不改写原 Attempt，也不创建第二个 Operation。
 - 完整回归发现三个旧兼容入口仍使用 1.0.0 或把 Context 字段放入 2.0.0 业务参数；已通过红灯测试修正为 Catalog 版本快照、无事件授权时 pending，以及带受控事件授权的无外部依赖 Demo。
 - 当前 Task 6 专项为 `64 passed`，完整单元为 `911 passed, 4 warnings`，完整集成套件无失败；下一步执行静态、编码与暂存范围验证后独立提交。
+- Phase 12B Task 6 已以 `9d4bf97 feat: execute versioned sold out writes` 提交并推送；缓存区未包含用户已有文档修改和无关脚本。
+- 执行治理改为 Phase-Gated：Phase 12B 内 Task 可连续推进，Phase 12B Acceptance 后必须进入用户授权的 Phase 13 Gate；Phase 13/14 详细文档降级为讨论基线。
+- 已新增固定 `live-session-p001-sold-out-v1` 业务闭环轨道；Task 11 将输出可重复 Trace/Markdown 报告，Phase 13 只追加条件化 Agent 结论，Phase 14 再纳入 Golden/Release 证据。
 
 # 2026-07-11 Phase 7A 进度
 

@@ -9,35 +9,36 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 5：ImpactAnalyzer 与协作式冻结（`375b671`） |
-| 下一任务 | Task 6：售罄 CAS Skill 与严格对账 |
-| 下一任务状态 | `VERIFY` |
-| 当前子步骤 | 完整回归已通过，准备按 Task 边界提交并推送 |
+| 最近完成任务 | Phase 12B Task 6：售罄 CAS Skill 与严格对账（`9d4bf97`） |
+| 下一任务 | Task 7：高优先级紧急 child DAG |
+| 下一任务状态 | `RED` |
+| 当前子步骤 | Phase-Gated 文档修订完成后，读取 Task 7 Plan 并编写规范 DAG 与优先级红灯测试 |
 | 当前分支 | `main` |
-| 当前业务基线 | `375b671 feat: freeze impacted plan branches` |
-| 远端状态 | `origin/main=375b671` |
+| 当前业务基线 | `9d4bf97 feat: execute versioned sold out writes` |
+| 远端状态 | `origin/main=9d4bf97` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
 
-- 已授权：从 Phase 12A Task 6 连续实施至 Phase 14 Final Acceptance；技术门禁通过后自动进入下一阶段。
+- 已授权：Phase 12B 内的 Task 7-11 可连续实施至 Phase 12B Acceptance。
+- Phase Gate：Phase 12B Acceptance 后必须转为 `AWAITING_PHASE_13_GATE`；读取实际 Acceptance、预算、风险与 Phase 13 讨论基线，用户单独授权后才能实施下一 Phase。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
 - 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、运行尚未进入阶段的真实模型。
 
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 6
-状态: VERIFY
-目标: 升级 handle_sold_out_event@2.0.0，执行单次 CAS 写并以只读事实严格对账未知副作用
-禁止事项: 不创建紧急 child DAG；不自动重发 SIDE_EFFECT_UNKNOWN；不保留 1.x 单活版本或同次 Legacy fallback
-当前 HEAD: 375b671
-本 Task 文件: Catalog、Executor、Handler、Port/Fake、side_effect_reconciliation.py、Task 6 测试与状态文档
+Phase / Task: Phase 12B / Task 7
+状态: RED
+目标: 建立固定售罄紧急 child DAG、priority 100 调度和同商品资源串行
+禁止事项: 不绕过 Skill 版本、可信授权、FailurePolicy 或 fencing；不开始增量 Replan、Harness 接入或生产双执行
+当前 HEAD: 9d4bf97
+本 Task 文件: emergency.py、capabilities.py、proposal.py、worker.py、Task 7 单元与 PostgreSQL 优先级测试、状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: RED 为 unit 16 failed, 51 passed；集成在缺少严格对账模块时收集失败。GREEN 后专项 64 passed；完整 unit 911 passed, 4 warnings；完整 integration 已退出且无失败输出
-错误与尝试次数: 1；完整单元发现 5 个旧 1.0.0/旧参数兼容入口，已用红灯测试收敛为 2.0.0 版本快照、无可信事件 pending 与显式 Demo 事件证据
-设计偏差与决策编号: 无架构偏差；遵循 D-082、D-083、D-084。Harness 不构造事件授权，后续 Task 10 才改为只消费 PlanEngine EvidenceRef
-下一条精确操作: 对 Task 6 目标文件运行编译、差异与严格 UTF-8 检查，随后提交 feat: execute versioned sold out writes
+最近命令与结果: Task 6 RED 为 unit 16 failed, 51 passed；GREEN 后专项 64 passed；完整 unit 911 passed, 4 warnings；完整 integration 退出码 0 且无失败，已提交并推送
+错误与尝试次数: 0
+设计偏差与决策编号: D-082、D-083、D-084；D-094 限定自动推进仅在当前 Phase 内，D-095 要求 Task 11 产出固定业务闭环 Trace
+下一条精确操作: 重新读取 Task 7 Design/Plan，编写固定 child DAG、lineage、priority 和资源锁的 RED 测试
 模型费用累计: 0 元
 ```
 
@@ -106,6 +107,7 @@ Phase / Task: Phase 12B / Task 6
 | Phase 12B Task 5 提交与推送 | `375b671`，`origin/main=375b671` |
 | Phase 12B Task 6 RED/GREEN | RED：unit `16 failed, 51 passed`，集成因缺模块收集失败；GREEN：专项 `64 passed` |
 | Phase 12B Task 6 完整验证 | unit `911 passed, 4 warnings`；integration 全套退出码 0、无失败输出 |
+| Phase 12B Task 6 提交与推送 | `9d4bf97`，`origin/main=9d4bf97` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

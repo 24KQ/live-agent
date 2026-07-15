@@ -1,6 +1,9 @@
 # Phase 14 Golden Dataset and Release Gates Design
 
-文档状态：`FROZEN_NOT_AUTHORIZED_FOR_IMPLEMENTATION`
+文档状态：`DISCUSSION_BASELINE`
+
+实施前置：Phase 13 Acceptance 通过后，必须先完成用户授权的 Phase 14 Just-in-Time Gate；
+本文保留为讨论输入，不是直接实施授权。
 
 依赖：Phase 13 已为三个候选生成正式去留结论后才允许实施。
 

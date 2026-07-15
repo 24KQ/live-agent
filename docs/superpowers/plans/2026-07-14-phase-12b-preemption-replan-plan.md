@@ -251,6 +251,13 @@ Demo 固定输出：
 7. 多事件合并与旧结果复用。
 8. 版本预算耗尽后冻结。
 
+此外，`live-session-p001-sold-out-v1` 必须支持
+`--scenario live-session-p001-sold-out-v1 --output-dir <dir>`。该场景输出
+`business-loop-trace.json` 与 `business-loop-report.md`，字段与展示边界以
+`docs/project_guidance/agent_runtime_business_closed_loop_track.md` 为准。输出只能
+序列化既有事件、Attempt、NodeRun、PlanVersion 与复用事实；不得为生成报告重发写
+操作、创建新 Operation 或使用 Legacy fallback。
+
 验证命令：
 
 ```text
@@ -264,7 +271,7 @@ git diff --check
 python scripts/check_doc_encoding.py
 ```
 
-Acceptance 必须记录数据库结构、授权边界、Kafka offset 顺序、冻结竞态、紧急 DAG、失败矩阵、Replan 复用、ToolRegistry 调用清单、精确测试结果和 Phase 13 进入条件。
+Acceptance 必须记录数据库结构、授权边界、Kafka offset 顺序、冻结竞态、紧急 DAG、失败矩阵、Replan 复用、ToolRegistry 调用清单、精确测试结果、业务闭环 Trace/报告摘要和 Phase 13 Gate 进入条件。
 
 提交：`feat: complete phase 12b preemption`。
 

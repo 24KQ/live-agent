@@ -1,6 +1,9 @@
 # Phase 13 Specialist Agent Evaluation Design
 
-文档状态：`FROZEN_NOT_AUTHORIZED_FOR_IMPLEMENTATION`
+文档状态：`DISCUSSION_BASELINE`
+
+实施前置：Phase 12B Acceptance 通过后，必须先完成用户授权的 Phase 13 Just-in-Time Gate；
+本文保留为讨论输入，不是直接实施授权。
 
 依赖：Phase 12B Acceptance 通过后才允许实施。
 
