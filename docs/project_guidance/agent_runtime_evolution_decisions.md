@@ -996,13 +996,13 @@
 
 ## D-090：Phase 13 样本、模型、循环与费用
 
-- **状态**：`ACCEPTED`
+- **状态**：`SUPERSEDED`，由 D-104、D-105 替代 Phase 13 的早停与预算语义
 - **背景**：Agent 去留需要足够样本、固定模型和成本门；单人项目又不能手写 240 条重复数据或无限调用模型。
 - **候选方案**：模板生成并固化 JSONL；全部人工；LLM 生成标注。模型配置比较版本化 manifest、代码硬编码和普通 Settings。费用比较 3 元硬门、提高预算或只跑 scripted。
 - **最终选择**：每候选 20 development/40 validation/20 holdout，人工模板与标签、固定 seed 生成并固化 JSONL。Agent 使用 deepseek-v4-flash、temperature 0 和版本化 Evaluation Manifest。LiveOps 2/3、Planner 3/5、Review 3/4 模型/Skill 上限。真实模型总费用 3 元。
 - **选择理由**：样本可重复、标签不依赖被测模型，配置和成本可审计；严格循环满足实时和预算约束。
 - **未选理由**：全手写工作量大且易漂移；LLM 标注污染 holdout；普通 Settings 无法公平比较；无费用门无法无人监控执行。
-- **影响**：按 LiveOps、Planner、Review 顺序消费预算；未完成 60 个正式样本即 INCONCLUSIVE，不保留。当前连续实施使用持久化预算作用域 `agent-runtime-completion-v1`，Phase 14 首次 Release 的保留 Agent 与 Judge 调用只能使用 3 元总上限中的剩余余额。
+- **影响**：80 例拆分、固定 seed、人工标签、模型与循环上限继续有效；“全部候选必须跑满才能拒绝”和“Phase 13 可消费全部 3 元”由 D-104、D-105 替代。
 - **重新评估条件**：官方价格变化导致 3 元无法完成正式集时，保持 INCONCLUSIVE，不自动缩样或提预算。
 
 ## D-091：Judge、三级 CI 与 Nightly 付费开关
@@ -1013,7 +1013,7 @@
 - **最终选择**：deepseek-v4-pro 只评语义，规则优先且 Judge 不得覆盖严重违规。PR 使用 PostgreSQL/ScriptedModel；真实 Kafka 放 Nightly/Release。Nightly 真实模型需 secret 与 ENABLE_PAID_NIGHTLY=true，默认每次 0.10 元。
 - **选择理由**：降低同源偏差，保持 PR 快速免费，并把持续费用变成显式选择。
 - **未选理由**：同模型自评偏置；每 PR Kafka 成本和稳定性差；有 secret 自动付费不可控。
-- **影响**：Release 手动运行完整 holdout；Judge 不可用时不能伪造语义高分。本次连续实施不运行付费 Nightly，首次 Release 复用 D-090 的剩余预算；项目完成后的未来付费 Nightly/Release 必须由受保护环境重新提供显式预算授权。
+- **影响**：Phase 13 Judge 只对规则通过候选抽样最多 10 对 holdout，作为诊断且不参与去留；Phase 14 的三级 CI、显式付费 Nightly 和规则优先边界继续有效。
 - **重新评估条件**：CI 资源和模型价格变化时可调整抽样/基础设施层级，但 PR 免费和严重规则优先不变。
 
 ## D-092：最终默认路由、ToolRegistry 删除与覆盖率
@@ -1103,3 +1103,102 @@
 - **未选理由**：原样 UUID 破坏字节稳定性；修改生产 ID 生成器会让 Demo 需求侵入业务实现，并可能削弱并发身份保证。
 - **影响**：`business-loop-trace.json` 必须通过两次隔离运行的字节等价测试；Markdown 报告不得把随机 ID 缺失误写为证据缺失，也不得声明真实 GMV 或线上效果。
 - **重新评估条件**：未来有受访问控制的真实运营审计导出时，可在非规范附录加入内部 ID 映射；规范业务 Trace 的稳定字段和无重发约束保持不变。
+
+## D-100：Phase 13 采用共享内核与候选纵向切片
+
+- **状态**：`ACCEPTED`
+- **背景**：旧计划把评估平台、四个 Skill、240 例和三个候选一次性建设，反馈过晚且容易让失败候选污染后续实现。
+- **候选方案**：共享内核后逐候选纵向闭合；三个候选各自实现 Harness；所有平台能力完成后统一评估。
+- **最终选择**：Phase 13 拆为 13A 共享评估内核、13B LiveOps、13C Planner、13D ReviewMemory、13E 正式去留与 Acceptance；候选独立判定，前一候选失败不阻止后续。
+- **选择理由**：共享安全与预算边界只实现一次，同时尽早获得每个候选的完整反馈。
+- **未选理由**：独立 Harness 会复制治理逻辑；平台全部先行扩大返工面。
+- **影响**：Implementation Plan 改为 12 个独立 TDD Task；Phase 内授权后可连续推进，Acceptance 后停止。
+- **重新评估条件**：共享 Runner 无法表达某个候选的必要动作时，只扩展候选结果 Schema，不复制安全核心。
+
+## D-101：AgentModelPort 使用原生 async 单次尝试
+
+- **状态**：`ACCEPTED`
+- **背景**：现有同步 LLMClient 内部自动重试，无法让每次请求独立预算、审计和评价。
+- **候选方案**：原生 async 单次 Port；复用同步 LLMClient；只使用 ScriptedModel。
+- **最终选择**：新增 OpenAI-compatible async AgentModelPort，每次只发送一个请求，不隐藏重试；ScriptedModel 用于测试，旧 LLMClient 不进入正式评估。
+- **选择理由**：模型请求数、usage、延迟和费用可以逐次闭合，符合 Phase 11B 单次尝试原则。
+- **未选理由**：旧客户端会把多次外部请求折叠成一次；纯 Scripted 无法形成真实去留结论。
+- **影响**：模型失败形成 MODEL_ERROR 或生产建议 FALLBACK，不由 Adapter 自动重试。
+- **重新评估条件**：未来统一旧模型调用时，可让其他入口适配新 Port，但不能恢复隐藏重试。
+
+## D-102：候选通过后接入并预留受控多 Agent 接口
+
+- **状态**：`ACCEPTED`
+- **背景**：先把全部候选接入生产再删除失败者会留下路由和权限残片；同时项目需要保留未来多 Agent 扩展能力。
+- **候选方案**：通过后接入；先接入再裁剪；Phase 13 永不接入。
+- **最终选择**：候选先只存在于 Evaluation Harness；RETAINED 后才建立默认关闭的生产 Profile/路由。统一 Registry、AgentTask/Result、EvidenceRef 和确定性 Orchestrator 支持多个 Profile 并存，但不实现 A2A、自由 handoff 或共享 scratchpad。
+- **选择理由**：生产面只包含有证据的候选，同时保留可治理的多 Agent 扩展边界。
+- **未选理由**：先接入增加清理风险；完全延后无法验证保留候选装配契约。
+- **影响**：0 表示 0 个新增 Specialist 被保留，不影响现有播中 Agent Harness；Phase 14 决定默认路由是否晋升。
+- **重新评估条件**：出现必须跨 Agent 协商且确定性 EvidenceRef 传递无法表达的真实场景时，再设计 handoff 协议。
+
+## D-103：候选采用严格 AND 保留门
+
+- **状态**：`ACCEPTED`
+- **背景**：确定性 baseline 常为零 Token、低延迟，统一相对成本门不合理；旧 OR 质量门又可能让只改善单项的候选进入生产。
+- **候选方案**：质量绝对值与相对提升 AND；沿用 OR；放宽为展示优先。
+- **最终选择**：严重违规为 0，并同时满足候选绝对质量与相对 baseline 提升。LiveOps 使用 90%/+5pp action 和 85%/+10pp recovery；Planner 使用 95% executable 和 85%/+10pp recovery；Review 使用 90%/+5pp attribution 和 0.85/+0.10 macro-F1。
+- **选择理由**：避免零成本 baseline 的伪成本比较，也防止弱候选靠单一指标被保留。
+- **未选理由**：OR 门证据不足；展示优先会损害项目可信度。
+- **影响**：允许最终保留 0 至 3 个新增候选；保留 0 个仍是有效 Acceptance。
+- **重新评估条件**：有更大真实标注集证明某指标与业务价值不相关时，新增决策替换具体阈值，不能临场放宽。
+
+## D-104：240 例配对评估与安全早停
+
+- **状态**：`ACCEPTED`
+- **背景**：明显失败候选跑满 60 个正式 case 会浪费预算，并使后续候选变成 INCONCLUSIVE。
+- **候选方案**：10 例分片安全早停；全部跑满；仅严重违规早停。
+- **最终选择**：每候选保持 20 development/40 validation/20 holdout；validation 每 10 例检查严重违规和数学可达性。严重违规或剩余全对也无法达标时 REJECTED；只有完成 validation 且仍有资格才运行一次 holdout。
+- **选择理由**：保留样本和配对强度，同时把预算留给仍可能通过的候选。
+- **未选理由**：全部跑满浪费预算；只按安全早停仍会执行数学上不可能通过的调用。
+- **影响**：INCONCLUSIVE 仅表示外部证据不足；规则已证明不能通过时必须 REJECTED。报告保存 paired wins/losses、百分点差和 Wilson 区间。
+- **重新评估条件**：未来预算不再受限时，可继续运行被早停候选的研究集，但不得改写原正式结论。
+
+## D-105：Phase 13 使用 2.40 元并为 Phase 14 预留 0.60 元
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 13 若消费全部 3 元，Phase 14 首次 Release 可能因无预算而 BLOCKED。
+- **候选方案**：2.40/0.60 预留；Phase 13 可用全部；提高总预算。
+- **最终选择**：总预算保持 3.00 元，Phase 13 上限 2.40 元，Phase 14 保留 0.60 元；LiveOps/Planner/Review 初始额度为 0.60/1.00/0.80 元。提前拒绝余额可回到 Phase 13 公共池，不能借用 Phase 14 预留。
+- **选择理由**：评估和首次发布都有可执行预算，且不放宽用户硬边界。
+- **未选理由**：Phase 13 全用会阻断 Release；提高总预算违背既有授权。
+- **影响**：模型身份、官方价格、usage 或哈希不闭合时阻止正式 case；未知 usage 按预留上限结算。
+- **重新评估条件**：官方价格变化时可调整候选内部额度，但 3.00 元总额和 Phase 14 预留只能由用户新授权修改。
+
+## D-106：三个候选的输入、输出与 Skill 边界
+
+- **状态**：`ACCEPTED`
+- **背景**：旧 Planner 在正式评估中重新 query_products 会破坏相同输入；播后能力未进入 Skill Runtime；LiveOps 输出缺少封闭动作集。
+- **候选方案**：冻结输入与候选专用结果 Schema；允许 Agent 自由查询；直接调用旧 Service。
+- **最终选择**：LiveOps 只输出四类建议动作并使用五个播中只读/生成 Skill；Planner 使用冻结商品、记忆和计划证据，运行时 Skill 上限 0，输出受限 CandidatePlanProposal；Review 使用三个新播后 Skill 输出归因和 candidate。新增 retrieve_anchor_memory 供 case/baseline 准备。
+- **选择理由**：baseline 与 Agent 输入可配对，全部业务能力经过版本、Schema、权限和审计治理。
+- **未选理由**：自由查询引入状态漂移；直接 Service 绕过 Skill Runtime。
+- **影响**：Catalog 按 Planner 和 Review 切片从 13 增至 14、再增至 17 个单活 Manifest；Agent 均不能执行高风险写。
+- **重新评估条件**：真实候选需要新的只读业务事实时，先新增受治理 Skill 决策，不开放任意 Store 查询。
+
+## D-107：ReviewMemory 完成受控记忆反馈闭环
+
+- **状态**：`ACCEPTED`
+- **背景**：只 stage candidate 无法证明播后结果能安全反馈到下一次播前；Agent 直接写长期记忆又会污染未来决策。
+- **候选方案**：双证据确定性晋升；只 stage；全部人工晋升。
+- **最终选择**：Agent 只能 stage；PromotionPolicy 在至少两条独立 DecisionTrace、同作用域、无冲突并命中货盘白名单时，以确定性模板幂等晋升，随后由 retrieve_anchor_memory 在下一次播前读取。
+- **选择理由**：形成可演示业务闭环，同时不把长期记忆写权限交给模型。
+- **未选理由**：只 stage 闭环不完整；全部人工无法验证受控自动反馈。
+- **影响**：单证据、冲突、跨作用域、敏感字段和白名单不匹配必须等待人工或拒绝；Agent 自由文本不进入 active memory。
+- **重新评估条件**：真实标注证明单证据安全性满足发布门时，必须新增决策后才能调整证据数。
+
+## D-108：Phase 13 Acceptance 与 Phase 14 Gate
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 13 需要同时交付候选结论、多 Agent 扩展证据和跨阶段业务附录，并遵守按 Phase Just-in-Time 授权。
+- **候选方案**：Phase 13 后自动进入 Phase 14；Acceptance 后等待 Gate；逐候选等待人工授权。
+- **最终选择**：Phase 13 获得实施授权后可连续完成 12 个 Task；Acceptance 逐候选记录样本、早停、指标、区间、成本和结论，并为固定业务场景生成只读 Agent 附录。完成后状态进入 AWAITING_PHASE_14_GATE。
+- **选择理由**：Phase 内保持执行效率，跨 Phase 根据真实保留数量、预算余额和风险修订发布基线。
+- **未选理由**：自动进入 Phase 14 会把旧讨论基线当成实施事实；逐 Task 授权无必要中断已冻结计划。
+- **影响**：本次只持久化 Design/Plan，不修改业务代码或运行模型；Phase 13 实施仍需用户单独授权。
+- **重新评估条件**：无；进入 Phase 14 前必须执行 Gate。

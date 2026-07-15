@@ -293,6 +293,16 @@
 - Demo 报告必须区分可证明的工程事实与不可证明的业务收益。当前证据可证明受控 Fixture 下的抢占、恢复、复用和审计，不能声明真实 GMV、转化率或库存收益。
 - Phase 12B Acceptance 后必须停止在 Phase 13 Gate。已有 Phase 13 文档只提供讨论基线，不能因技术门禁通过而自动运行真实模型。
 
+## 2026-07-15 Phase 13 Just-in-Time 审核发现
+
+- “允许保留 0 个 Agent”必须写成“允许保留 0 个新增 Specialist Agent”；现有播中 Agent Harness 仍然存在，不能把候选数量误解为项目 Agent 总数。
+- 多 Agent 扩展能力与候选去留应解耦。统一 Profile Registry、AgentTask/Result、EvidenceRef 和确定性路由可以预留多个 Specialist 并存，无需提前实现 A2A、自由 handoff 或共享 scratchpad。
+- 旧同步 LLMClient 的隐藏重试无法形成逐请求预算和审计证据；正式评估必须使用原生 async 单次 AgentModelPort。
+- 明显失败候选跑满 60 个正式 case 会浪费 2.40 元阶段预算。10 例 validation shard 的严重违规/数学可达性早停能产生可信 REJECTED，而不是把失败伪装成 INCONCLUSIVE。
+- Phase 13 不能消费全部 3 元后让 Phase 14 首次 Release 无预算；2.40/0.60 元预留需要由持久 ledger 在并发边界强制执行。
+- Planner 在正式评估中重新查询商品会破坏相同输入配对；商品、记忆和计划事实必须在 case 准备阶段冻结。
+- ReviewMemory 只有完成“双 DecisionTrace -> candidate -> 确定性晋升 -> 下一次播前读取”才能形成受控业务闭环；Agent 仍不能直接写 active memory。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

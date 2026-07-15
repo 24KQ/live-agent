@@ -1,78 +1,161 @@
 # Phase 13 Specialist Agent Evaluation Implementation Plan
 
-文档状态：`DISCUSSION_BASELINE`
+文档状态：`REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
 
-> **For agentic workers:** Implement task-by-task with RED, GREEN, REFACTOR. Do not begin until Phase 12B Acceptance passes, the Phase 13 Just-in-Time Gate updates this baseline, and the user explicitly authorizes Phase 13 implementation.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 使用统一受限 Harness 和版本化数据集，独立判断三个 Specialist Agent 是否值得进入正式架构。
+**Goal:** 建立共享受限 Specialist Runtime，以配对数据和硬门槛独立判断三个新增 Agent 候选是否值得进入正式架构。
 
-**Architecture:** 三个候选共用 BoundedSpecialistRunner、Skill Runtime 和 Evaluation Interface；确定性基线与 Agent 使用相同输入、能力、Hook 和证据；最终由严格规则生成条件化去留结论。
+**Architecture:** Phase 13 按评估内核、LiveOps、Planner、ReviewMemory 和正式去留五个纵向阶段推进。候选先存在于 Evaluation Harness，只有 RETAINED 后才建立默认关闭的生产 Profile；统一 Registry 预留多 Agent 扩展，但不实现 Agent 互调。
 
-**Tech Stack:** Python 3.12、Pydantic v2、asyncio、psycopg 3、PostgreSQL、DeepSeek 兼容 API、pytest。
+**Tech Stack:** Python 3.12、Pydantic v2、asyncio、psycopg 3、PostgreSQL、DeepSeek OpenAI-compatible API、pytest。
 
 ---
 
-## Task 1：Agent 协议、Profile 与预算
+## 实施规则
+
+- 每个 Task 使用 `RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> COMMIT -> PUSH`。
+- 每个 Task 独立 ASCII commit 并立即推送 `origin/main`。
+- 新增或修改代码使用详细 UTF-8 中文注释。
+- 不运行未进入 Task 的真实模型；正式调用只能由 Task 11 的预算预检解封。
+- sub-agent 只做独立只读规格、安全和质量审查，主模型负责实现、验证和提交。
+- 不修改真实淘宝 API、Phase 14 默认路由、前端或 HTTP 管理面。
+
+## Task 1：协议、Profile Registry 与确定性路由
 
 **Files:**
 
-- Create: `src/agent_runtime/__init__.py`
-- Create: `src/agent_runtime/models.py`
-- Create: `src/agent_runtime/profiles.py`
-- Create: `src/agent_runtime/budget.py`
-- Test: `tests/unit/test_phase13_agent_models.py`
-- Test: `tests/unit/test_phase13_agent_budget.py`
+- Create: `src/specialist_runtime/models.py`
+- Create: `src/specialist_runtime/profiles.py`
+- Create: `src/specialist_runtime/registry.py`
+- Test: `tests/unit/test_phase13_specialist_models.py`
 
-步骤：
+- [ ] 写红灯测试覆盖 AgentTask/Action/Result 互斥、严格 JSON、深度冻结、稳定摘要、task_kind/profile 匹配和额外字段拒绝。
+- [ ] 写 Registry 红灯测试：同 profile/version 幂等、同身份不同摘要冲突、未知 task_kind fail-closed、多个 Profile 并存但单次只解析一个。
+- [ ] 实现 `LIVE_OPS_ADVICE | PLAN_PROPOSAL | POST_LIVE_REVIEW`、结果状态集和 EvidenceRef 类型集。
+- [ ] 实现冻结 `SpecialistProfile`，固定模型、Prompt/Schema 哈希、Skill 白名单、deadline、模型/Skill/Token/费用上限。
+- [ ] 实现 `SpecialistProfileRegistry` 与确定性 `SpecialistOrchestrator`；不提供 Agent 调 Agent 或动态 handoff 方法。
+- [ ] 运行 `python -m pytest tests/unit/test_phase13_specialist_models.py -q`，预期全部通过。
+- [ ] 提交并推送：`feat: add specialist runtime contracts`。
 
-1. 写 AgentTask/Action/Result/EvidenceRef、动作互斥、严格 JSON 和 Profile 冻结红灯测试。
-2. 写模型/Skill 调用数、Token、deadline、费用和人民币全局预算并发红灯测试。
-3. 实现深度冻结值对象、稳定摘要和 fail-closed BudgetLedger。
-4. 明确不接受 thought/chain_of_thought 字段；额外字段导致 Schema 失败。
-5. 运行专项测试。
-6. 提交：`feat: add bounded specialist contracts`。
-
-## Task 2：AgentModelPort 与共享 Runner
+## Task 2：原生 async 单次 AgentModelPort
 
 **Files:**
 
-- Create: `src/agent_runtime/model_port.py`
-- Create: `src/agent_runtime/deepseek_model.py`
-- Create: `src/agent_runtime/runner.py`
-- Create: `src/agent_runtime/scripted_model.py`
-- Test: `tests/unit/test_phase13_specialist_runner.py`
+- Create: `src/specialist_runtime/model_port.py`
+- Create: `src/specialist_runtime/deepseek_adapter.py`
+- Create: `src/specialist_runtime/scripted_model.py`
+- Test: `tests/unit/test_phase13_agent_model_port.py`
 
-步骤：
+- [ ] 写红灯测试覆盖一次请求、无隐藏重试、绝对 deadline、HTTP/限流/超时/非法 JSON 分类、模型身份和 usage 透传。
+- [ ] 定义 async `AgentModelPort.complete(request)`、冻结 request/success/failure 和 usage 模型；request 固定 endpoint host、model、temperature、Prompt/Schema 哈希和 max tokens。
+- [ ] 实现 OpenAI-compatible DeepSeek Adapter，每次调用只发送一个 `/chat/completions` 请求，不复用旧同步 LLMClient 的重试。
+- [ ] 实现 ScriptedModel，按 case/action 序列返回成功、超时、越权动作和无 usage 结果。
+- [ ] 断言 Adapter 不记录 API key、原始敏感 header 或 chain-of-thought，只保存响应摘要哈希。
+- [ ] 运行专项测试与既有 LLMClient 回归；提交并推送：`feat: add single attempt agent model port`。
 
-1. 写单次模型调用、非法 JSON、越权 Skill、EvidenceRef 伪造、循环预算和结构化 fallback 红灯测试。
-2. 实现原生 async `AgentModelPort`，并在独立 `deepseek_model.py` 中实现无隐藏重试的 DeepSeek Adapter。
-3. 实现 ScriptedModel Fixture，用固定动作序列覆盖全部规则和 CI。
-4. Runner 每轮先校验预算，再调用模型或 Skill；任何失败写结构化结果，不能静默扩展步骤。
-5. 记录 usage、延迟、费用和响应摘要哈希，不保存原始 chain-of-thought。
-6. 提交：`feat: add bounded specialist runner`。
-
-## Task 3：Evaluation Manifest、Store 与规则接口
+## Task 3：持久模型预算账本
 
 **Files:**
 
-- Create: `src/evaluation/__init__.py`
-- Create: `src/evaluation/specialist_models.py`
-- Create: `src/evaluation/specialist_store.py`
+- Create: `src/specialist_runtime/budget.py`
 - Create: `docker/init_phase13_specialist_evaluations.sql`
 - Modify: `scripts/run_db_migrations.py`
+- Test: `tests/unit/test_phase13_model_budget.py`
+- Test: `tests/integration/test_phase13_model_budget_postgres.py`
+
+- [ ] 写红灯测试覆盖 3.00 元总额、2.40 元 Phase 13 上限、0.60 元 Phase 14 预留、候选额度、reserve/settle/release 和未知 usage 保守结算。
+- [ ] 在迁移中创建 budget ledger、reservation 和 model-call 表，使用唯一 request_id、状态约束、金额非负约束和版本列。
+- [ ] 实现内存与 PostgreSQL Store；预留在行锁事务中同时校验总额、阶段预留和候选额度。
+- [ ] 验证两个连接并发预留只能有一个越过临界余额；崩溃后未结 reservation 可按持久状态对账。
+- [ ] 验证提前拒绝只释放未消费候选额度，不能动用 Phase 14 的 0.60 元。
+- [ ] 运行迁移 dry-run、专项和真实 PostgreSQL 测试；提交并推送：`feat: persist agent model budgets`。
+
+## Task 4：BoundedSpecialistRunner 与 Evidence Resolver
+
+**Files:**
+
+- Create: `src/specialist_runtime/evidence.py`
+- Create: `src/specialist_runtime/runner.py`
+- Test: `tests/unit/test_phase13_specialist_runner.py`
+
+- [ ] 写红灯测试覆盖 deadline、调用预算、Profile 覆盖攻击、非法动作、越权 Skill、伪造 EvidenceRef、结果 Schema 和禁止 chain-of-thought。
+- [ ] 实现 Event、Plan、PlanNode、SkillAttempt、Audit、Replay、Memory、Evaluation resolver，并交叉校验 source version、digest、anchor 和 room。
+- [ ] 实现固定 Runner 顺序：预算预留、模型单次尝试、动作校验、Evidence 校验、SkillExecutor、结果校验、费用结算。
+- [ ] 模型失败、预算不足、策略拒绝和非法输出返回对应 AgentResult；正式评估不得调用 baseline。
+- [ ] 实现生产建议门面：只有已保留 Profile 可在失败后调用确定性 baseline，并返回 `FALLBACK`，不得把 fallback 计为 Agent 成功。
+- [ ] 运行 Runner、Skill Runtime、PlanEngine/Harness 权限回归；提交并推送：`feat: add bounded specialist runner`。
+
+## Task 5：Evaluation Store、配对比较与迁移
+
+**Files:**
+
+- Create: `src/specialist_evaluation/models.py`
+- Create: `src/specialist_evaluation/store.py`
+- Create: `src/specialist_evaluation/comparison.py`
+- Modify: `docker/init_phase13_specialist_evaluations.sql`
 - Test: `tests/unit/test_phase13_evaluation_store.py`
 - Test: `tests/integration/test_phase13_evaluation_store_postgres.py`
 
-步骤：
+- [ ] 写红灯测试覆盖 Manifest 哈希、run/case/subject 唯一性、attempt 历史、正式结果选择、retention decision 和重复聚合拒绝。
+- [ ] 扩展迁移，创建 evaluation manifest/run、case attempt、selected result、paired metric 和 retention decision 表。
+- [ ] 实现内存/PostgreSQL Store；同 manifest/candidate/case/subject 只能有一个 selected 结果，重跑保留 attempt。
+- [ ] 实现配对聚合：绝对指标、百分点差、paired wins/losses 和 Wilson 区间；严重违规独立聚合且不可被平均分抵消。
+- [ ] 实现 `RETAINED | REJECTED | INCONCLUSIVE`，并验证 INCONCLUSIVE 只用于外部证据不足。
+- [ ] 运行真实 PostgreSQL 并发 claim/选择测试及 Phase 7A Evaluation 回归；提交并推送：`feat: persist paired specialist evaluations`。
 
-1. 写 manifest 哈希、run/case 唯一性、attempt 历史、正式结果选择、retention decision 和预算并发预留红灯测试。
-2. 新增三张评估结果表与一张 `model_budget_ledgers` 表及索引，结果 JSONB 必须通过 Pydantic 重新校验。
-3. 实现内存与 PostgreSQL Store；同一正式 case 不允许两个结果进入聚合，预算使用行锁和乐观版本阻止并发超额。
-4. 价格表缺失、usage 缺失或哈希不匹配时阻止正式评估；usage 不可确认时按预留上限结算。
-5. 使用真实 PostgreSQL 验证 case claim、预算 reserve/settle、并发上限和稳定重放。
-6. 提交：`feat: persist specialist evaluations`。
+## Task 6：240 例数据集与 Evaluation Manifest
 
-## Task 4：四个跨场景 Skill 与 Memory Candidate Store
+**Files:**
+
+- Create: `evaluation/schemas/phase13_case.schema.json`
+- Create: `evaluation/generators/generate_phase13_cases.py`
+- Create: `evaluation/cases/phase13/*.jsonl`
+- Create: `evaluation/manifests/phase13-v2.json`
+- Test: `tests/unit/test_phase13_dataset.py`
+
+- [ ] 为 LiveOps、Planner、ReviewMemory 各定义 20 development、40 validation、20 holdout 模板、变量范围和确定性 label。
+- [ ] 写红灯测试覆盖 240 个唯一 ID、固定 split、严格 Schema、无敏感字段、稳定排序和 SHA-256。
+- [ ] 实现固定 seed 生成器并固化 JSONL；重复生成必须字节一致，三个候选和 split 不得共享 case ID。
+- [ ] Manifest 固定 endpoint host、model、temperature、generator/Schema/Prompt 版本与哈希；正式价格字段要求来源 URL、日期、币种和输入/输出 token 单价。
+- [ ] 禁止候选 Prompt 代码读取 holdout labels；development 允许 ScriptedModel 和每候选最多 5 个真实 smoke case。
+- [ ] 运行生成器两次、字节比较和敏感信息扫描；提交并推送：`test: add phase 13 paired datasets`。
+
+## Task 7：LiveOpsAgent 纵向切片
+
+**Files:**
+
+- Create: `src/specialist_runtime/live_ops.py`
+- Create: `src/specialist_evaluation/live_ops.py`
+- Test: `tests/unit/test_phase13_live_ops.py`
+- Test: `tests/integration/test_phase13_live_ops_evaluation.py`
+
+- [ ] 写 PriorityLiveOpsPolicy baseline 红灯测试，覆盖未解除风险、已闭合售罄、弹幕优先级和 no action。
+- [ ] 写 Agent 输出枚举、EvidenceRef、2 模型/3 Skill/4000 tokens/5 秒和禁止高风险写测试。
+- [ ] 实现 baseline 与 Agent adapter，保证两者消费同一冻结 case；允许五个播中只读/生成 Skill。
+- [ ] 实现 action success、incident recovery 和严重违规规则；严格门为 90%/+5pp 与 85%/+10pp 的 AND。
+- [ ] 使用 ScriptedModel 跑完整 80 例，验证四个 validation shard、早停数学和 holdout 解封。
+- [ ] 运行 Harness、Preemption Evidence 和 Skill 权限回归；提交并推送：`feat: evaluate live ops specialist`。
+
+## Task 8：PlannerAgent 与记忆读取切片
+
+**Files:**
+
+- Modify: `src/skill_runtime/catalog.py`
+- Modify: `src/skill_runtime/handlers.py`
+- Create: `src/specialist_runtime/planner.py`
+- Create: `src/specialist_evaluation/planner.py`
+- Test: `tests/unit/test_phase13_planner.py`
+- Test: `tests/integration/test_phase13_planner_evaluation.py`
+
+- [ ] 写 `retrieve_anchor_memory@1.0.0` 严格 Schema、作用域、脱敏、active-only 和 limit 红灯测试。
+- [ ] 实现只读 Handler/Port；Catalog 从 13 增至 14 个单活 Manifest，不返回 embedding 或跨主播记忆。
+- [ ] 写 CandidatePlanProposal 白名单、循环、绑定、执行控制字段和禁止 query_products/建播测试。
+- [ ] 实现 Planner baseline、Agent adapter 和 Validator/Compiler；Agent 正式运行 Skill 上限为 0，只读冻结商品、记忆和计划证据。
+- [ ] 实现 executable >=95% 与 constraint recovery >=85%/+10pp 门；非法候选不得用 baseline 替代后计成功。
+- [ ] 使用 ScriptedModel 跑 80 例并运行 PlanEngine/Memory 回归；提交并推送：`feat: evaluate planner specialist`。
+
+## Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy
 
 **Files:**
 
@@ -80,147 +163,73 @@
 - Modify: `src/skill_runtime/handlers.py`
 - Create: `src/memory/candidate_store.py`
 - Create: `src/memory/promotion_policy.py`
-- Create: `src/skill_runtime/post_live_ports.py`
-- Modify: `src/skill_runtime/models.py`
 - Create: `docker/init_phase13_memory_candidates.sql`
-- Modify: `scripts/run_db_migrations.py`
-- Test: `tests/unit/test_skill_catalog.py`
-- Test: `tests/unit/test_phase13_cross_scene_skills.py`
+- Test: `tests/unit/test_phase13_post_live_skills.py`
 - Test: `tests/integration/test_phase13_memory_candidates_postgres.py`
 
-步骤：
+- [ ] 写三个播后 Manifest、显式证据输入、脱敏输出、幂等 staging 和禁止 active write 红灯测试。
+- [ ] 实现 evidence collection、纯确定性 attribution 和 staging Handler；Catalog 从 14 增至 17 个单活 Manifest。
+- [ ] 创建 MemoryCandidate 与 PromotionCommand 表，状态为 STAGED/APPROVED/REJECTED/APPLIED，命令校验唯一 ID、expected version/status。
+- [ ] 实现双 DecisionTrace、同作用域、无冲突、货盘白名单和确定性模板 PromotionPolicy。
+- [ ] 验证单证据、冲突、跨主播/房间、敏感字段和白名单不匹配均不能自动晋升。
+- [ ] 使用真实 PostgreSQL 验证幂等晋升和下一次 `retrieve_anchor_memory` 可读取；提交并推送：`feat: govern post live memory promotion`。
 
-1. 写四个 Manifest、显式输入、脱敏输出、幂等 staging 和禁止 active write 红灯测试。
-2. 定义只读主播记忆与播后证据 Port；I/O Handler 只经注入 Port/Store 读取，deterministic attribution 只消费显式证据快照，不读取隐藏全局状态。
-3. 实现 memory retrieval、evidence collection、deterministic attribution 和 stage handlers；Catalog 从 13 个单活 Manifest 扩展为 17 个，并同步严格 Schema、生命周期和投影回归。
-4. 实现 Candidate Store 状态机和 `MemoryPromotionCommand` 幂等账本，并把 SQL 加入统一迁移清单。
-5. 实现双独立证据、作用域、冲突和货盘白名单 Promotion Policy。
-6. 运行 Catalog、Memory、Replay、DecisionTrace 与真实 PostgreSQL 回归后提交：`feat: govern post live memory candidates`。
-
-## Task 5：数据集生成与冻结
+## Task 10：ReviewMemoryAgent 纵向切片
 
 **Files:**
 
-- Create: `evaluation/schemas/specialist_case.schema.json`
-- Create: `evaluation/generators/generate_phase13_cases.py`
-- Create: `evaluation/cases/development/*.jsonl`
-- Create: `evaluation/cases/validation/*.jsonl`
-- Create: `evaluation/cases/holdout/*.jsonl`
-- Create: `evaluation/manifests/phase13-v1.json`
-- Test: `tests/unit/test_phase13_dataset.py`
-
-步骤：
-
-1. 为三个候选分别定义场景模板、变量范围、确定性 labels 和固定 seed。
-2. 写 case ID 唯一、20/40/20 split、严格 Schema、无敏感字段和 SHA-256 红灯测试。
-3. 生成并固化 240 个 case；生成器重复运行必须字节一致。
-4. development/validation/holdout 目录不得共享 case ID；Prompt 代码不能读取 holdout labels。
-5. 运行数据集专项和敏感信息扫描。
-6. 提交：`test: add specialist evaluation datasets`。
-
-## Task 6：LiveOps 基线、候选与评估
-
-**Files:**
-
-- Create: `src/agent_runtime/live_ops.py`
-- Create: `src/evaluation/live_ops_rules.py`
-- Test: `tests/unit/test_phase13_live_ops_agent.py`
-- Test: `tests/integration/test_phase13_live_ops_evaluation.py`
-
-步骤：
-
-1. 写 PriorityLiveOpsPolicy 的安全/售罄/弹幕/no-action 基线测试。
-2. 写 Profile 白名单、2 模型/3 Skill、无写权限和 final result Schema 红灯测试。
-3. 实现相同输入和 Skill 下的 baseline/Agent runner adapter。
-4. 实现 action success、incident recovery、severe violation、延迟和成本聚合。
-5. 先用 ScriptedModel 跑 80 例，确保评估管线和 fail-closed 规则稳定。
-6. 提交：`feat: evaluate live ops agent`。
-
-## Task 7：Planner 基线、候选 DAG 与评估
-
-**Files:**
-
-- Create: `src/agent_runtime/planner.py`
-- Create: `src/evaluation/planner_rules.py`
-- Modify: `src/plan_engine/proposal.py`
-- Test: `tests/unit/test_phase13_planner_agent.py`
-- Test: `tests/integration/test_phase13_planner_evaluation.py`
-
-步骤：
-
-1. 写固定 Provider 基线和受限 Candidate DAG 红灯测试。
-2. Profile 只允许只读/建议 Skill，最大 3 模型/5 Skill。
-3. PlanValidator 必须拒绝未知节点、循环、非法绑定和候选注入执行控制字段。
-4. 实现 executable plan success、constraint recovery 和 severe violation 聚合。
-5. 使用 ScriptedModel 跑 80 例，确认非法候选不会被模板替代后计为成功。
-6. 提交：`feat: evaluate planner agent`。
-
-## Task 8：ReviewMemory 基线、候选与评估
-
-**Files:**
-
-- Create: `src/agent_runtime/review_memory.py`
-- Create: `src/evaluation/review_memory_rules.py`
-- Test: `tests/unit/test_phase13_review_memory_agent.py`
+- Create: `src/specialist_runtime/review_memory.py`
+- Create: `src/specialist_evaluation/review_memory.py`
+- Test: `tests/unit/test_phase13_review_memory.py`
 - Test: `tests/integration/test_phase13_review_memory_evaluation.py`
 
-步骤：
+- [ ] 写 Review 输入/输出 Schema、3 模型/4 Skill/8000 tokens/20 秒、禁止自由文本记忆和禁止 active write 红灯测试。
+- [ ] 实现确定性 evidence/attribution/stage baseline 与 Agent adapter；两者使用同一三个播后 Skill 和冻结 case。
+- [ ] 实现 grounded attribution >=90%/+5pp 与 macro-F1 >=0.85/+0.10 门，以及无证据、跨主播、敏感信息和绕过 PromotionPolicy 严重违规。
+- [ ] 使用 ScriptedModel 跑 80 例，验证规则、早停、holdout 解封和 Candidate Store 隔离。
+- [ ] 运行 Replay、Evaluation、DecisionTrace、MemoryStore 和 Planner 记忆读取回归。
+- [ ] 提交并推送：`feat: evaluate review memory specialist`。
 
-1. 写固定复盘链基线、Profile 预算和禁止直接正式写红灯测试。
-2. 实现 Agent 结构化 attribution 和 MemoryCandidate 输出。
-3. EvidenceRef 不存在、跨主播、敏感字段或自由文本写入必须 fail-closed。
-4. 实现 grounded attribution accuracy、memory candidate F1 和 severe violation 聚合。
-5. 使用隔离 Candidate Store 与 ScriptedModel 跑 80 例。
-6. 提交：`feat: evaluate review memory agent`。
-
-## Task 9：真实模型正式评估与条件化裁剪
+## Task 11：正式评估、早停与条件生产接入
 
 **Files:**
 
-- Create: `scripts/run_phase13_specialist_evaluation.py`
-- Create: `src/evaluation/retention.py`
-- Test: `tests/unit/test_phase13_retention_policy.py`
-- Test: `tests/external/test_phase13_real_model_evaluation.py`
+- Create: `src/specialist_evaluation/runner.py`
+- Create: `scripts/run_phase13_evaluation.py`
+- Modify: `src/config/settings.py`
+- Test: `tests/unit/test_phase13_retention.py`
+- Test: `tests/integration/test_phase13_formal_evaluation.py`
 
-步骤：
+- [ ] 写价格/模型/endpoint/usage/哈希预检、10 例 shard、严重违规早停、数学早停和一次 holdout 红灯测试。
+- [ ] 实现正式 CLI：先 baseline，再按 LiveOps、Planner、ReviewMemory 顺序运行 validation；只有资格候选运行 holdout。
+- [ ] 每个模型请求使用 Task 3 的 reservation；候选额度不足时尝试 Phase 13 公共剩余，禁止使用 Phase 14 预留。
+- [ ] 对规则通过候选最多抽样 10 对 holdout 调用 Judge；Judge 结果只写诊断字段，不改 retention decision。
+- [ ] `RETAINED` 后才注册默认关闭的 DETERMINISTIC/SPECIALIST_AGENT 路由；REJECTED/INCONCLUSIVE 不创建生产 Profile。
+- [ ] 使用 ScriptedModel 完整演练所有结论；真实模型只在官方价格、manifest、endpoint 和预算预检全部通过后运行。
+- [ ] 逐候选独立提交去留证据，最后提交并推送：`feat: decide specialist retention`。
 
-1. 冻结 flash 模型、temperature 0、三个 Prompt/Schema 哈希和人民币价格表。
-2. 先运行 development，仅允许形成新版本后重跑 validation；holdout 每个正式版本只运行一次。
-3. 按 LiveOps、Planner、ReviewMemory 顺序消费 3 元总预算。
-4. 每候选只有完整 40 validation + 20 holdout 才能进入 `RETAINED | REJECTED`，否则 `INCONCLUSIVE`。
-5. 应用零严重违规、收益、延迟、Token 和费用门槛。
-6. 删除未保留候选的生产 Profile/Prompt/装配；保留评估代码、数据和报告。
-7. 若两个以上保留，实现确定性 SpecialistOrchestrator；否则不增加多 Agent 协调层。
-8. 提交：`feat: decide specialist agent retention`。
-
-## Task 10：阶段验收
+## Task 12：多 Agent 接口、业务附录与 Acceptance
 
 **Files:**
 
+- Create: `scripts/run_phase13_specialist_demo.py`
+- Create: `tests/unit/test_phase13_demo.py`
 - Create: `docs/superpowers/reports/phase-13-specialist-agent-evaluation-acceptance.md`
-- Modify: 路线图、决策日志、实时状态和三个 worklog
+- Modify: 路线图、总控计划、实时状态和三个 worklog
 
-验证命令：
+- [ ] 写 Demo 红灯测试，覆盖 0/1/2/3 retained Profile 的确定性路由、Agent 禁止互调和 EvidenceRef 跨阶段传递。
+- [ ] 实现无付费 Demo，展示三个 baseline、候选结论、可审计 FALLBACK 和记忆双证据闭环。
+- [ ] 为 `live-session-p001-sold-out-v1` 只读生成 `agent-decision-appendix.json` 与 Markdown，不改写 Phase 12B Trace。
+- [ ] Acceptance 逐候选记录样本、早停、绝对指标、paired delta、Wilson 区间、p95、tokens、人民币费用和结论。
+- [ ] 运行 Phase 13 专项、完整 unit/integration、真实 PostgreSQL、Demo、迁移 dry-run、严格 UTF-8、编码扫描和 `git diff --check`。
+- [ ] 将实时状态更新为 `AWAITING_PHASE_14_GATE`，不开始 Phase 14。
+- [ ] 提交并推送：`feat: complete phase 13 specialist evaluation`。
 
-```text
-pytest tests/unit/test_phase13_*.py -q
-pytest tests/integration/test_phase13_*.py -q
-pytest -q
-python scripts/run_phase13_specialist_evaluation.py --mode scripted
-python scripts/run_phase13_specialist_evaluation.py --mode real --budget-cny 3.00
-python scripts/run_db_migrations.py --dry-run
-git diff --check
-python scripts/check_doc_encoding.py
-```
+## Acceptance 硬门
 
-Acceptance 必须逐候选列出 baseline/Agent 样本数、成功率、领域指标、严重违规、p95、Token、费用、最终结论和删除/保留代码证据，并为 `live-session-p001-sold-out-v1` 生成只读 `agent-decision-appendix.json` 与 Markdown 摘要。主业务 Trace 不依赖 Agent 被保留；真实模型失败或预算不足不得用 ScriptedModel 代替。
-
-提交：`feat: complete phase 13 agent evaluation`。
-
-## Plan Self-Review
-
-- 每个候选先有确定性基线，且使用相同 Skill、Hook、权限和 case。
-- 没有 Task 让 Agent 直接执行高风险写或正式记忆写。
-- 去留结果由数据条件化，计划没有预先承诺多 Agent 数量。
-- 3 元费用是并发安全硬门，不是验收后统计信息。
-- 未通过候选最终不会留在生产装配中。
+- 三个候选都有 `RETAINED | REJECTED | INCONCLUSIVE` 结论，且 0 表示 0 个新增 Specialist，不影响现有播中 Agent Harness。
+- 所有 RETAINED 候选完成 40 validation + 20 holdout、严重违规 0，并满足各自严格 AND 门。
+- 240 个 case、Manifest、Prompt/Schema/价格哈希和配对结果可重复。
+- Phase 13 消费不超过 2.40 元，Phase 14 的 0.60 元预留仍可用。
+- 未保留候选从未进入生产 Registry；保留候选路由默认关闭。
+- 多 Profile 可并存，但 Agent 不直接调用 Agent；记忆反馈只通过正式 MemoryStore。

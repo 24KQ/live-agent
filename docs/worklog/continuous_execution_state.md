@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`AWAITING_PHASE_13_GATE`
+文档状态：`AWAITING_PHASE_13_IMPLEMENTATION_AUTHORIZATION`
 
 最后更新：2026-07-15
 
@@ -8,37 +8,38 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 13 Just-in-Time Gate |
-| 最近完成任务 | Phase 12B Task 11：业务闭环 Demo、Acceptance 与阶段留迹 |
-| 下一任务 | 重新审核 Phase 13 讨论基线并等待用户授权 |
+| 当前阶段 | Phase 13 Design/Plan 已审核持久化 |
+| 最近完成任务 | Phase 13 Just-in-Time Design 与 12-Task Implementation Plan 审核 |
+| 下一任务 | 等待用户单独授权 Phase 13 业务实施 |
 | 下一任务状态 | `AWAITING_USER_AUTHORIZATION` |
-| 当前子步骤 | Phase 12B Acceptance 已通过，准备提交推送后暂停 |
+| 当前子步骤 | 文档验证、提交并推送；不得自动开始 Task 1 |
 | 当前分支 | `main` |
-| 当前业务基线 | `e6f3414 feat: coordinate sold out preemption` |
-| 远端状态 | `origin/main=e6f3414` |
+| 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
+| 远端状态 | `origin/main=d585412` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
 
-- 已授权：Phase 12B 内的 Task 7-11 可连续实施至 Phase 12B Acceptance。
-- Phase Gate：Phase 12B Acceptance 后必须转为 `AWAITING_PHASE_13_GATE`；读取实际 Acceptance、预算、风险与 Phase 13 讨论基线，用户单独授权后才能实施下一 Phase。
+- 已完成：Phase 12B Task 1-11 与 Acceptance。
+- 已审核：Phase 13 Design/Plan、D-100 至 D-108 和候选/预算/早停边界。
+- 未授权：Phase 13 业务实施、真实模型调用和数据库迁移；用户单独授权后才能开始 Task 1。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
 - 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、运行尚未进入阶段的真实模型。
 
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 11
+Phase / Task: Phase 13 / Just-in-Time Design and Plan
 状态: VERIFY
-目标: 交付固定业务闭环 Demo、Trace、报告和 Phase 12B Acceptance
-禁止事项: 不夸大业务收益，不修改用户脏文件，不开始 Phase 13 或运行真实模型
-当前 HEAD: e6f3414
-本 Task 文件: run_phase12b_preemption_demo.py、run_all.py、test_phase12b_demo.py、Acceptance 与阶段状态文档
+目标: 持久化共享评估内核、三候选纵向切片、严格 AND 门、预算预留和多 Agent 扩展接口
+禁止事项: 不修改业务代码，不运行模型/测试/迁移，不开始 Phase 13 Task 1
+当前 HEAD: d585412
+本 Task 文件: Phase 13 Design/Plan、决策日志、路线图、总控计划和 worklog
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Demo `3 passed`；Phase 12B unit `104 passed`；integration `19 passed`；全仓 `1057 passed, 3 deselected, 9 warnings`
-错误与尝试次数: 3；补齐 Capability Profile、async Worker 调用和稳定 Trace 的随机 UUID 归一化
-设计偏差与决策编号: D-095、D-099；Trace 只保留稳定业务事实，随机内部 ID 不进入跨运行比较
-下一条精确操作: 静态/编码门禁通过后提交并推送 Task 11，然后停在 Phase 13 Gate
+最近命令与结果: 仅文档审阅；未运行业务测试或真实模型
+错误与尝试次数: 0
+设计偏差与决策编号: D-100 至 D-108；旧 D-090 由早停与预算预留语义替代
+下一条精确操作: 文档结构、UTF-8、编号和 diff 验证后精确提交推送
 模型费用累计: 0 元
 ```
 
@@ -51,7 +52,7 @@ Phase / Task: Phase 12B / Task 11
 - PlanEngine 和 Orchestrator 默认是确定性组件。
 - Agent 候选必须和确定性基线对照，严重安全违规必须为 0。
 - 真实模型总费用不得超过 3 元人民币。
-- Phase 13 与本轮 Phase 14 首次 Release 共用 `agent-runtime-completion-v1` 预算作用域。
+- Phase 13 与 Phase 14 首次 Release 共用 `agent-runtime-completion-v1`；Phase 13 上限 2.40 元，Phase 14 预留 0.60 元。
 
 ## 5. 最近验证证据
 
@@ -121,6 +122,8 @@ Phase / Task: Phase 12B / Task 11
 | Phase 12B Task 10 提交与推送 | `e6f3414`，`origin/main=e6f3414` |
 | Phase 12B Task 11 Demo | `3 passed`；八场景 CLI 与固定 Trace/报告均退出码 0 |
 | Phase 12B Acceptance 聚合 | unit `104 passed`；integration `19 passed`；全仓 `1057 passed, 3 deselected, 9 warnings` |
+| Phase 13 JIT Gate | Design/Plan 已审核；D-100..D-108 已持久化；业务实施未授权 |
+| Phase 13 文档验证 | 9 个目标文件严格 UTF-8 通过；决策 108 项连续完整；全仓仅既有 `4 errors/53 warnings` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

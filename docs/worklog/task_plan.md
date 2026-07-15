@@ -136,7 +136,7 @@
 - [x] Phase 12A Task 7：播前 Graph 局部路由（`7cbf026` 已推送）。
 - [x] Phase 12A Task 8：移除 `TRUSTED_COMPAT`（`9a8e5a6` 已推送）。
 - [x] Phase 12A Task 9：Demo、全量验收与 Acceptance（技术门禁通过）。
-- [ ] Phase 12B：Event Inbox、抢占、紧急 DAG 与增量 Replan（实施中）。
+- [x] Phase 12B：Event Inbox、抢占、紧急 DAG、增量 Replan 与 Acceptance 已完成。
   - [x] Task 1：SkillPolicyView 与事件公共模型（`d794ff3` 已推送）。
   - [x] Task 2：Event Inbox 内存 Store 与状态机（`8b1600b` 已推送）。
   - [x] Task 3：PostgreSQL Event Store 与计划 lineage（`25793f2` 已推送）。
@@ -147,8 +147,9 @@
   - [x] Task 8：增量 Replan 与结果复用（`e98df2a` 已推送）。
   - [x] Task 9：SkillPolicyView 生产消费者迁移（`f6a7d1d` 已推送）。
   - [x] Task 10：PreemptionCoordinator、Harness 证据接入与路由（`e6f3414` 已推送）。
-  - [x] Task 11：业务闭环 Demo、验收和阶段留迹（本次提交）。
-- [ ] Phase 13 Just-in-Time Gate：重新审核候选价值、基线、样本与预算，等待用户授权。
+  - [x] Task 11：业务闭环 Demo、验收和阶段留迹（`d585412` 已推送）。
+- [x] Phase 13 Just-in-Time Gate：候选价值、基线、样本、预算、多 Agent 扩展与 12-Task Plan 已审核持久化。
+- [ ] Phase 13 业务实施：等待用户单独授权，不得自动开始 Task 1。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

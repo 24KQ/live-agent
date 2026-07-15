@@ -1,5 +1,17 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-15 Phase 13 Just-in-Time Design/Plan 审核
+
+- 基于 Phase 12B Acceptance 重新审核 Phase 13，采用共享评估内核与 LiveOps、Planner、ReviewMemory 三个纵向候选切片。
+- 将候选生产接入改为 RETAINED 后创建默认关闭路由，并通过 Registry/统一协议预留受控多 Agent 扩展；不实现 A2A。
+- 将去留门改为候选绝对质量与相对提升严格 AND，明确 0 表示 0 个新增 Specialist，不影响现有播中 Agent Harness。
+- 保持每候选 20/40/20 共 240 例，增加 10 例 validation shard 的安全/数学早停和配对 Wilson 区间。
+- Phase 13 上限固定为 2.40 元，Phase 14 首次 Release 预留 0.60 元；Judge 只做最多 10 对诊断抽样。
+- 确认 ReviewMemory 完成双证据确定性晋升和下一次播前读取闭环。
+- 重写 Phase 13 Design 和 12-Task Implementation Plan，新增 D-100 至 D-108；本轮未修改业务代码、未运行模型、未开始实施。
+- 持久化验证：D-001..D-108 连续唯一，八个标准字段各 108 项；9 个目标文档严格 UTF-8/LF/空白检查通过，`git diff --check` 通过。
+- 全仓编码扫描仍为既有 `4 errors/53 warnings`，错误来自扫描器 replacement-character 自测样例，本次目标文档命中 0。
+
 ## 2026-07-11
 
 - 启动文档编码治理，目标是先防止继续乱码，再处理已有风险文档。

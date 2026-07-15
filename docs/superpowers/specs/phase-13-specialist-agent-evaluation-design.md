@@ -1,41 +1,42 @@
 # Phase 13 Specialist Agent Evaluation Design
 
-文档状态：`DISCUSSION_BASELINE`
+文档状态：`REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
 
-实施前置：Phase 12B Acceptance 通过后，必须先完成用户授权的 Phase 13 Just-in-Time Gate；
-本文保留为讨论输入，不是直接实施授权。
+实施前置：Phase 12B Acceptance 已通过；本 Design 已完成 Just-in-Time 审核，但用户尚未授权业务实施。
 
-依赖：Phase 12B Acceptance 通过后才允许实施。
+## 1. 目标与阶段结构
 
-## 1. 设计目标
+Phase 13 不按数量交付 Agent，而是用相同输入、Skill、权限和数据集判断三个新增 Specialist Agent 是否值得接入正式架构。最终允许保留 0 至 3 个新增候选；现有播中 Agent Harness 不计入该数量。
 
-Phase 13 不以“交付三个 Agent”为目标，而是用可重复证据回答三个问题：
+阶段按纵向切片推进：
 
-- 播中实时建议是否需要 LiveOpsAgent，而不是确定性优先级策略。
-- 播前复杂计划是否需要 PlannerAgent，而不是固定 ProposalProvider。
-- 播后归因和记忆候选是否需要 ReviewMemoryAgent，而不是固定复盘链。
+```text
+13A 共享评估内核
+-> 13B LiveOpsAgent
+-> 13C PlannerAgent
+-> 13D ReviewMemoryAgent
+-> 13E 正式评估、条件接入与 Acceptance
+```
 
-三个候选独立评估，最终允许保留 0 至 3 个。未达到门槛必须删除生产接入。
+每个候选独立判定。前一候选被拒绝不阻止后续候选；保留 0 个新增候选仍是有效的工程结论。
 
 ## 2. 非目标
 
-- 不让 Agent 直接执行高风险售罄、改价、建播或正式记忆写入。
-- 不让 Agent 决定 Skill 版本、授权、资源锁、deadline、重试或发布门禁。
-- 不实现 Agent-to-Agent 直接调用或概率式 Orchestrator。
-- 不使用 Agent 自己生成的数据作为 release holdout 标签。
-- 不因模型费用不足而缩小正式样本后继续宣称通过。
-- 不新增前端或 HTTP 管理接口。
+- 不实现 Agent-to-Agent 直接调用、自由 handoff、共享 scratchpad 或概率式路由。
+- 不让 Agent 执行售罄、改价、建播或正式记忆写入。
+- 不让 Agent 决定 Skill 版本、授权、资源键、deadline、重试或发布门禁。
+- 不使用 LLM 生成或标注正式数据集，不因预算不足缩小正式样本后宣称通过。
+- 不新增前端、HTTP 管理接口、真实淘宝 API 或动态 Profile 热加载。
 
-## 3. 共享 BoundedSpecialistRunner
+## 3. 共享 Specialist Runtime
 
-三个候选共用一个版本化执行核心，避免重复实现上下文、预算和安全边界。
+### 3.1 AgentTask 与路由
 
-### 3.1 AgentTask
-
-固定字段：
+`AgentTask` 是冻结严格 JSON，固定包含：
 
 ```text
 task_id
+task_kind: LIVE_OPS_ADVICE | PLAN_PROPOSAL | POST_LIVE_REVIEW
 profile_id
 profile_version
 room_id
@@ -46,21 +47,13 @@ initial_evidence_refs
 evaluation_case_id
 ```
 
-允许的 Skill、模型、Prompt、预算和结果 Schema 由启动冻结的 Profile 注入，不接受 Task 覆盖。
+`SpecialistProfileRegistry` 可同时注册多个版本化 Profile。确定性 `SpecialistOrchestrator` 只按 `task_kind` 解析一个 Profile，不接受模型自选 Agent，也不允许 Agent 调用 Agent。未来多 Agent 扩展通过新增 Profile 和确定性路由完成。
 
-### 3.2 AgentAction
+### 3.2 AgentAction 与 AgentResult
 
-动作只允许：
+动作只允许 `CALL_SKILL | FINAL | ABSTAIN`。`CALL_SKILL` 必须命中 Profile 白名单和 Catalog 严格 Schema；精确版本由 Runtime 注入。`FINAL` 必须满足候选结果 Schema；`ABSTAIN` 必须提供稳定 reason code。
 
-- `CALL_SKILL`
-- `FINAL`
-- `ABSTAIN`
-
-`CALL_SKILL` 必须提供 Profile 白名单内的 `skill_id` 和严格 Schema arguments；精确版本由 Catalog 注入。`FINAL` 必须符合场景结果 Schema。`ABSTAIN` 必须提供稳定 reason code。
-
-### 3.3 AgentResult
-
-状态集固定为：
+结果状态固定为：
 
 ```text
 SUCCEEDED
@@ -72,179 +65,173 @@ POLICY_DENIED
 INVALID_OUTPUT
 ```
 
-结果保存结构化输出、动作摘要、EvidenceRef、模型调用次数、Skill 调用次数、input/output/total tokens、延迟和按冻结价格表计算的费用。
+结果保存结构化输出、动作摘要、EvidenceRef、模型/Skill 调用数、tokens、延迟、人民币费用和结构化失败，不请求或保存 chain-of-thought。
 
-### 3.4 EvidenceRef
+### 3.3 BoundedSpecialistRunner
 
-类型固定为 `EVENT | PLAN | PLAN_NODE | SKILL_ATTEMPT | AUDIT | REPLAY | MEMORY | EVALUATION`，包含 evidence ID、source version 和 digest。Agent 不得用自然语言伪造证据引用；Runner 在返回前验证引用可解析且摘要一致。
+三个候选共用唯一 Runner。启动冻结 Profile 注入模型、Prompt、Schema、Skill 白名单、deadline、模型/Skill 调用上限、Token 和费用上限；Task 不得覆盖。
 
-### 3.5 模型审计
+Runner 每轮按固定顺序执行：deadline、Profile、预算预留、模型单次尝试、动作 Schema、EvidenceRef、Skill 白名单、Skill Runtime、结果 Schema。任何失败都形成 AgentResult，不静默增加步骤或调用次数。
 
-模型只输出结构化动作和简短 `reason_summary`。系统不请求、不保存 chain-of-thought。持久化内容为：
+正式评估中的 fallback 计为 Agent 失败。只有已保留候选的生产建议路径允许调用确定性 baseline，并显式返回 `FALLBACK`；高风险 Runtime/PlanEngine 写路径继续禁止同次 fallback。
 
-- 校验后的动作与最终结果。
-- 模型 ID、endpoint host、temperature、Prompt/Schema 哈希。
-- usage、延迟、费用和响应摘要哈希。
-- 结构化失败事实。
+### 3.4 EvidenceResolverRegistry
 
-## 4. Model Port 与预算
+EvidenceRef 类型固定为 `EVENT | PLAN | PLAN_NODE | SKILL_ATTEMPT | AUDIT | REPLAY | MEMORY | EVALUATION`，包含 evidence ID、source version 和 digest。Resolver 必须核对来源、版本、摘要及 anchor/room 作用域。无法解析、摘要不符或跨作用域引用返回 `POLICY_DENIED`，不能降级为无证据建议。
 
-新增原生 async 单次尝试 `AgentModelPort`。Adapter 不隐藏重试；每个模型尝试形成独立可评估证据。正式 Evaluation Manifest 固定：
+## 4. AgentModelPort 与模型审计
 
-- Agent model：`deepseek-v4-flash`
-- temperature：0
+新增原生 async 单次尝试 `AgentModelPort` 和 OpenAI-compatible DeepSeek Adapter。每次调用只发送一个请求，不隐藏重试；旧同步 `LLMClient` 不进入正式评估。
+
+正式 Evaluation Manifest 固定：
+
 - endpoint host：`api.deepseek.com`
-- Profile/Prompt/Schema 版本与 SHA-256
-- 每个候选的 max model calls、max Skill calls 和 Token/时间/费用上限
-- 运行日期和人民币价格表版本
+- model：`deepseek-v4-flash`
+- temperature：0
+- Prompt、结果 Schema、数据集、代码和价格表 SHA-256
+- Profile 调用、Token、deadline 和费用上限
+- 官方价格来源 URL、抓取日期和人民币换算版本
 
-如果 API usage 缺失，使用保守字符估算，只能提高成本估计，不能低估。累计费用达到 3 元前停止派发新的付费 case；已经开始的单次请求允许闭合并计费。
+API 返回模型身份不匹配、模型没有公开价格或 usage 缺失时，不开始新的正式 case。请求已发送但 usage 不明时按预留上限结算，不能低估费用。
 
-人民币预算使用持久化 `ModelBudgetLedger`。当前连续实施作用域固定为 `agent-runtime-completion-v1`，保存限额、已预留、已消费和版本；每次模型请求必须在 PostgreSQL 行锁内先按 Profile 单例上限预留，闭合后以实际或保守估算费用结算并释放差额。并发 Worker 不能只做进程内计数，未知 usage 按预留上限计费，任何超额 claim 都 fail-closed。该作用域继续供 Phase 14 首次 Release 使用。
+## 5. 持久预算
 
-## 5. 新增受治理 Skill
+预算作用域继续使用 `agent-runtime-completion-v1`，总上限 3.00 元：
 
-### 5.1 retrieve_anchor_memory
+- Phase 13 最多 2.40 元。
+- Phase 14 首次 Release 保留 0.60 元，不得被 Phase 13 借用。
+- LiveOpsAgent 初始额度 0.60 元。
+- PlannerAgent 初始额度 1.00 元。
+- ReviewMemoryAgent 初始额度 0.80 元。
 
-播前只读 Skill。输入为 anchor/room 和受控 limit，输出脱敏、版本化 MemoryRef 列表。不得返回 embedding、私密原文或非 active 记忆。
+额度覆盖 development 真实 smoke、validation、holdout 和诊断 Judge。候选提前拒绝后的未消费余额可回到 Phase 13 公共池，但总额和 Phase 14 预留不变。
 
-### 5.2 collect_post_live_evidence
+`ModelBudgetLedger` 与 reservation/model-call 记录持久化限额、预留、已消费、结算状态和版本。每次请求前在 PostgreSQL 行锁内预留，完成后按 usage 结算并释放差额；并发 Worker 不能越过总额、阶段预留或候选上限。
 
-播后只读 Skill。按 trace/room 收集 Replay、DecisionTrace、审计和 Plan/Event 证据，输出脱敏不可变快照及 EvidenceRef。
+## 6. 新增受治理 Skill
 
-### 5.3 calculate_post_live_attribution
+### 6.1 retrieve_anchor_memory@1.0.0
 
-纯确定性 Skill。基于显式证据快照计算采纳率、准确率、不可归因项和 reason codes，不读取隐藏 Store。
+播前只读 Skill。输入 anchor_id、room_id 和受控 limit，输出脱敏 active MemoryRef。不得返回 embedding、私密原文或其他主播记忆。Planner 正式评估不重新调用 `query_products`；baseline 和 Agent 使用 case 准备阶段冻结的同一商品和记忆快照。
 
-### 5.4 stage_memory_candidates
+### 6.2 collect_post_live_evidence@1.0.0
 
-幂等 staging 写 Skill。只接受结构化白名单字段和 EvidenceRef，不写正式 MemoryStore，不更新 trust score。
+播后只读 Skill。按 trace/room 收集 Replay、DecisionTrace、Audit、Plan/Event 证据，输出脱敏不可变快照和 EvidenceRef。
 
-## 6. LiveOpsAgent 候选
+### 6.3 calculate_post_live_attribution@1.0.0
 
-### 6.1 职责
+纯确定性 Skill。只消费显式证据快照，输出归因标签、不可归因项和 reason codes，不读取隐藏 Store。
 
-消费 PlanEngine 售罄结果、库存告警、弹幕聚合和当前商品事实，决定是否给主播安全建议、回复哪类问题或 abstain。禁止调用 `handle_sold_out_event`、改价或建播。
+### 6.4 stage_memory_candidates@1.0.0
 
-### 6.2 确定性基线
+幂等 staging Skill。只接受白名单字段与 EvidenceRef，写 MemoryCandidateStore；不写 active MemoryStore，不更新 trust score，不持久化 Agent 自由文本。
 
-`PriorityLiveOpsPolicy` 固定顺序：未解除的安全/对账事件优先人工提示；已闭合售罄结果优先切品提示；高频弹幕按 count 和 severity 选择回复；其他场景 no action。
+## 7. LiveOpsAgent
 
-### 6.3 Profile
+输入为可信售罄 EvidenceRef、商品快照、库存告警、弹幕聚合和未解除风险。输出只允许：
 
-允许 Skill：`on_live_context_collect`、`aggregate_danmaku_questions`、`generate_danmaku_reply`、`recommend_backup_product`、`generate_on_live_prompt`。最大 2 次模型调用、3 次 Skill、4k tokens、p95 5 秒、0.01 美元/例。
+```text
+NO_ACTION
+HUMAN_ATTENTION
+SWITCH_PRODUCT_SUGGESTION
+DANMAKU_REPLY_SUGGESTION
+```
 
-### 6.4 指标
+输出必须包含稳定 reason code、主播建议和可解析 EvidenceRef。允许 `on_live_context_collect`、`aggregate_danmaku_questions`、`generate_danmaku_reply`、`recommend_backup_product`、`generate_on_live_prompt`；禁止售罄写、改价和建播。
 
-- `action_success_rate`：最终动作属于 Golden Case 允许集合且优先级正确。
-- `incident_recovery_rate`：冲突/对账/噪声场景给出安全可执行下一步并引用正确证据。
-- 严重违规：尝试高风险写、忽略未解除风险、伪造 EvidenceRef 或泄露敏感字段。
+Profile 上限：2 次模型、3 次 Skill、4000 total tokens、5 秒。确定性 baseline 为 `PriorityLiveOpsPolicy`。
 
-## 7. PlannerAgent 候选
+保留门：`action_success_rate >= 90%` 且比 baseline 提升至少 5pp；`incident_recovery_rate >= 85%` 且提升至少 10pp。
 
-### 7.1 职责
+## 8. PlannerAgent
 
-基于冻结商品快照、主播记忆和规划目标提出受限 Candidate DAG。它不能执行 DAG，也不能填写版本、资源键、deadline、重试预算或授权。
+输入为冻结商品快照、目标约束、已检索记忆和当前 PlanVersion/节点结果。输出为受限 `CandidatePlanProposal`，只能声明白名单节点、依赖与 `PLAN_INPUT | NODE_OUTPUT | LITERAL` 绑定。
 
-### 7.2 确定性基线
+Planner 正式运行时 Skill 上限为 0，不重新查询商品或计划。PlanValidator/Compiler 注入版本、资源键、deadline、授权和重试；未知节点、循环、非法绑定或执行控制字段直接拒绝。候选可声明计划生成、手卡和价格建议能力，禁止建播和任何写操作。
 
-使用 Phase 12A/12B 固定 ProposalProvider 加现有确定性排品排序，按相同输入生成可执行 DAG。
+Profile 上限：3 次模型、0 次 Skill、8000 total tokens、15 秒。确定性 baseline 为 Phase 12A/12B 固定 Provider 加现有排品排序。
 
-### 7.3 Profile
+保留门：`executable_plan_success_rate >= 95%`；`constraint_recovery_rate >= 85%` 且比 baseline 提升至少 10pp。
 
-允许 Skill：`query_products`、`retrieve_anchor_memory`、`generate_live_plan` 和 `suggest_price_change`。当前 PlanVersion、PlanNode 与执行结果以经 QueryService 校验后写入 `AgentTask.input_snapshot` 和 `initial_evidence_refs` 的冻结证据提供，不把内部 QueryService 伪装成未注册 Skill，也不允许 Agent 自由查询任意计划。最大 3 次模型调用、5 次 Skill、8k tokens、p95 15 秒、0.02 美元/例。
+## 9. ReviewMemoryAgent 与记忆闭环
 
-Candidate DAG 只允许 Capability Profile 白名单节点、`PLAN_INPUT | NODE_OUTPUT | LITERAL` 绑定和静态依赖。PlanValidator/Compiler 注入全部执行事实，非法候选直接拒绝，不 fallback 成另一个模板后冒充 Agent 成功。
+输入为脱敏 Replay、规则 Evaluation、DecisionTrace、货盘白名单和 active memory 摘要。输出为结构化 attribution 与 memory candidate，不包含可直接进入长期记忆的自由文本。
 
-### 7.4 指标
+Profile 允许三个播后 Skill，最多 3 次模型、4 次 Skill、8000 total tokens、20 秒。确定性 baseline 固定执行 evidence collection、attribution、白名单 candidate 生成和 staging。
 
-- `executable_plan_success_rate`：候选通过验证且执行结果满足场景约束。
-- `constraint_recovery_rate`：偏好冲突、缺货、时限或部分失败场景能给出允许的替代计划。
-- 严重违规：越权 Skill、循环 DAG、未声明依赖、绕过审批或让非法候选进入执行。
-
-## 8. ReviewMemoryAgent 候选
-
-### 8.1 职责
-
-读取播后证据，生成结构化归因和记忆候选。不得直接写 active memory、压制旧记忆或更新 trust score。
-
-### 8.2 确定性基线
-
-固定执行 collect evidence、calculate attribution、基于 DecisionTrace 白名单生成候选并 stage。
-
-### 8.3 Profile
-
-允许三个播后 Skill。最大 3 次模型调用、4 次 Skill、8k tokens、p95 20 秒、0.02 美元/例。
-
-### 8.4 MemoryCandidateStore
-
-候选状态为 `STAGED | APPROVED | REJECTED | APPLIED`。自动晋升要求：
+MemoryCandidate 状态为 `STAGED | APPROVED | REJECTED | APPLIED`。确定性 PromotionPolicy 自动晋升必须同时满足：
 
 - 至少两个独立 DecisionTrace。
 - anchor/room 作用域一致。
 - 无相反证据或 active memory 冲突。
-- 类目、标签和商品 ID 命中当前可信货盘白名单。
-- 内容由确定性模板生成，不把模型自由文本直接写入正式记忆。
+- 类目、标签和商品 ID 命中当前货盘白名单。
+- 正式记忆正文由确定性模板生成。
 
-不满足时等待幂等 `MemoryPromotionCommand`。重复 command ID 返回首次结果，错误版本或状态拒绝。
+不满足时等待幂等 `MemoryPromotionCommand` 或拒绝。重复 command ID 返回首次结果，错误版本或状态拒绝。
 
-### 8.5 指标
+保留门：`grounded_attribution_accuracy >= 90%` 且提升至少 5pp；`memory_candidate_macro_f1 >= 0.85` 且提升至少 0.10。
 
-- `grounded_attribution_accuracy`：归因标签和 EvidenceRef 与 Golden 标签一致。
-- `memory_candidate_f1`：应产生/不应产生及候选字段的宏 F1。
-- 严重违规：无证据候选、跨主播污染、敏感信息持久化或绕过 promotion policy。
+闭环验收固定为：
 
-## 9. 数据集与隔离
+```text
+两条独立 DecisionTrace
+-> stage MemoryCandidate
+-> PromotionPolicy
+-> 幂等模板记忆晋升
+-> 下一次播前 retrieve_anchor_memory 可读取
+```
 
-每个候选 80 例，固定拆分：
+## 10. 数据集与安全早停
 
-- 20 development：允许 Prompt 和 Profile 调整。
-- 40 validation：用于版本选择，运行后不得针对单例修改 Prompt 再重跑同一版本。
-- 20 release holdout：只在正式去留判定时运行。
+每个候选固定 80 例：20 development、40 validation、20 holdout，共 240 例。人工场景模板与固定 seed 生成脱敏 JSONL；LLM 不参与生成或标注。Manifest 保存 generator、seed、Schema、case IDs、split 和 SHA-256。
 
-样本由人工定义场景模板、变量范围和确定性标签，使用固定 seed 生成后固化脱敏 JSONL。LLM 不参与生成或标注。manifest 保存 generator version、seed、case IDs、split、Schema 和 SHA-256。
+development 使用 ScriptedModel，并允许每候选最多 5 个真实 smoke case；不进入去留指标。baseline 对全部 80 例运行。
 
-## 10. Evaluation Store
+validation 按稳定 case_id 顺序分成四个 10 例 shard。每个 shard 后执行早停：
 
-新增：
+- 任一严重安全违规立即 `REJECTED`。
+- 即使剩余 case 全部成功也无法达到严格 AND 门时，立即 `REJECTED`。
+- 只有完成 40 validation 且仍满足资格的候选，才能解封并运行一次 20 holdout。
 
-- `specialist_evaluation_runs`：候选/基线版本、数据集、模型、Prompt、价格哈希和运行状态。
-- `specialist_evaluation_cases`：每个 case 的 subject、结果、规则/Judge 分、usage、成本和证据。
-- `specialist_retention_decisions`：聚合指标、严重违规、成本门和 `RETAINED | REJECTED | INCONCLUSIVE`。
-- `model_budget_ledgers`：预算作用域、人民币上限、预留、消费、版本和最近结算事实。
+endpoint、价格、预算或基础设施导致证据不足为 `INCONCLUSIVE`；已经由规则证明无法通过的是 `REJECTED`。
 
-同一 manifest/candidate/case/subject 唯一，失败重跑保留 attempt 历史但只能有一个纳入正式聚合的结果。
+## 11. 配对评估与 Judge
 
-## 11. 保留门槛
+baseline 与 Agent 使用相同 case 和冻结输入。每个 case 保存配对结果，聚合报告绝对指标、百分点差、paired wins/losses 和比例的 Wilson 区间。
 
-共同条件全部满足才可 `RETAINED`：
+规则标签决定安全、权限、结构化正确性和正式去留。Judge 只在候选规则门通过后抽样最多 10 对 holdout，补充语义观察，不参与 `RETAINED | REJECTED | INCONCLUSIVE`，Judge 不可用不阻断规则结论。
 
-1. 40 validation + 20 holdout 全部完成。
-2. 严重安全违规为 0。
-3. 成功率比基线提升至少 5 个百分点，或指定领域指标提升至少 10 个百分点。
-4. 非零基线延迟/Token/费用增幅不超过 20%，零 Token 基线满足 Profile 绝对预算。
-5. Schema、权限、证据和 fallback 规则测试通过。
+共同保留硬门：完成 40 validation + 20 holdout、严重安全违规为 0、无 fallback 冒充成功、Schema/权限/证据门禁通过，并同时满足候选绝对指标和相对提升指标。
 
-真实模型总预算按 LiveOps、Planner、ReviewMemory 顺序消费。预算不足导致不足 60 个正式 case 时，候选为 `INCONCLUSIVE`，不能使用 ScriptedModel 结果替代真实去留证据。
+## 12. Evaluation Store
 
-## 12. 条件化架构结果
+新增关系事实：
 
-- 0 个通过：删除全部候选生产代码，保留确定性系统和评估证据。
-- 1 个通过：只装配该 Profile，不新增跨 Agent Orchestrator 行为。
-- 2-3 个通过：使用确定性 `SpecialistOrchestrator` 按生命周期和任务类型路由。
-- Agent 不直接调用 Agent。跨场景信息通过版本化 `AgentTask -> AgentResult -> EvidenceRef` 或正式 MemoryStore 传递。
+- evaluation manifest/run。
+- case attempt 与唯一正式选中结果。
+- paired metric 与 retention decision。
+- model budget ledger、reservation 和 model-call 审计。
+- memory candidate 与 promotion command。
 
-## 13. 验收
+同一 manifest/candidate/case/subject 只能有一个结果进入正式聚合；失败重跑保留历史。Store 不复用 Phase 7A 通用回放表表达预算和去留，但可通过适配器读取既有 Replay、规则 Evaluation 和 Judge。
+
+## 13. 条件生产接入与多 Agent 预留
+
+候选在 Evaluation Harness 中完成正式判定前没有生产路由。`RETAINED` 后才建立默认关闭、启动冻结的 `DETERMINISTIC | SPECIALIST_AGENT` 路由；Phase 13 只验证显式 Specialist 路由，默认值是否晋升由 Phase 14 Release Gate 决定。
+
+多个候选通过时，Registry 可同时保存 Profile，但 Orchestrator 仍按生命周期和任务类型确定性选择一个。跨场景事实只通过 `AgentTask -> AgentResult -> EvidenceRef` 或正式 MemoryStore 传递。
+
+## 14. Acceptance
+
+Acceptance 必须逐候选记录 baseline/Agent 样本数、早停位置、严重违规、绝对指标、paired delta、Wilson 区间、p95、tokens、人民币费用和最终结论。固定场景 `live-session-p001-sold-out-v1` 追加只读 `agent-decision-appendix.json` 与 Markdown 摘要，不改写 Phase 12B 主 Trace。
 
 必须证明：
 
-- Runner 的循环、预算、Schema、权限和 EvidenceRef fail-closed。
-- 四个新 Skill 与确定性基线使用同一能力和权限。
-- 240 个 JSONL case 的 ID、split、Schema 和哈希稳定。
-- 三个候选各自有完整基线结果和正式判定。
-- 3 元人民币预算无法被并发绕过。
-- 未通过候选的生产接入确实删除。
-- 多 Agent 通过时不存在直接互调。
-- Replay/Evaluation、Memory、PlanEngine 和 Skill Runtime 回归通过。
+- Runner、预算、Schema、权限和 EvidenceRef fail-closed。
+- 240 个 case 的 ID、split、Schema 和哈希稳定。
+- 2.40 元 Phase 13 上限与 0.60 元 Phase 14 预留不能被并发绕过。
+- 未保留候选从未进入生产装配；保留候选只通过默认关闭路由接入。
+- 记忆双证据晋升和下一次播前读取闭环可重复。
+- 多 Profile 并存不产生 Agent 互调或概率式路由。
 
-Acceptance 必须写明最终保留数量和每个候选的证据结论；不得用主观架构价值覆盖量化失败。
+Phase 13 Acceptance 后状态进入 `AWAITING_PHASE_14_GATE`，用户重新审核 Phase 14 后才能实施。
