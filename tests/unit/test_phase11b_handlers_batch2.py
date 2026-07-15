@@ -21,12 +21,14 @@ from src.skill_runtime.fake_platform import (
 from src.skill_runtime.handlers import SkillRuntimeDependencies, build_skill_handlers
 from src.skill_runtime.models import (
     ApprovalContext,
+    EventAuthorizationContext,
     FailureCategory,
     SkillCall,
     SkillExecutionContext,
     SkillExecutionRoute,
     SkillExecutionStatus,
     _build_human_interrupt_approval,
+    _build_verified_event_authorization,
 )
 
 
@@ -103,6 +105,7 @@ def _context(
     lifecycle: str = "PRE_LIVE",
     idempotency_key: str = "idem-setup-001",
     approval: ApprovalContext | None = None,
+    event_authorization: EventAuthorizationContext | None = None,
 ) -> SkillExecutionContext:
     """构造带绝对 deadline 的可信执行上下文。"""
     return SkillExecutionContext(
@@ -112,6 +115,7 @@ def _context(
         execution_route=SkillExecutionRoute.SKILL_RUNTIME,
         idempotency_key=idempotency_key,
         approval=approval,
+        event_authorization=event_authorization,
         deadline_at=datetime.now(timezone.utc) + timedelta(seconds=15),
     )
 
@@ -219,16 +223,20 @@ def test_sold_out_replay_invokes_port_once() -> None:
     executor, store = _executor(platform)
     call = SkillCall(
         skill_id="handle_sold_out_event",
-        version="1.0.0",
+        version="2.0.0",
         context=_context(
             lifecycle="ON_LIVE",
             idempotency_key="idem-sold-out-001",
+            event_authorization=_build_verified_event_authorization(
+                event_id="event-batch2-001",
+                provenance_id="provenance-batch2-001",
+                payload_digest="b" * 64,
+                observed_version=1,
+            ),
         ),
         arguments={
-            "room_id": "room-11b-batch2",
-            "trace_id": "trace-11b-batch2",
             "product_id": "p001",
-            "idempotency_key": "idem-sold-out-001",
+            "expected_version": 1,
         },
     )
 
@@ -242,8 +250,10 @@ def test_sold_out_replay_invokes_port_once() -> None:
     assert platform.mark_sold_out_calls == 1
     assert platform.product("p001").inventory == 0
     assert first.output is not None
-    assert first.output["backup_product"]["product_id"] == "p002"
-    assert "prompt" in first.output
+    assert first.output["previous_version"] == 1
+    assert first.output["new_version"] == 2
+    assert "backup_product" not in first.output
+    assert "prompt" not in first.output
 
 
 def test_sold_out_failure_fact_maps_without_second_call() -> None:
@@ -252,16 +262,20 @@ def test_sold_out_failure_fact_maps_without_second_call() -> None:
     executor, store = _executor(platform)
     call = SkillCall(
         skill_id="handle_sold_out_event",
-        version="1.0.0",
+        version="2.0.0",
         context=_context(
             lifecycle="ON_LIVE",
             idempotency_key="idem-sold-out-missing",
+            event_authorization=_build_verified_event_authorization(
+                event_id="event-batch2-missing",
+                provenance_id="provenance-batch2-missing",
+                payload_digest="c" * 64,
+                observed_version=1,
+            ),
         ),
         arguments={
-            "room_id": "room-11b-batch2",
-            "trace_id": "trace-11b-batch2",
             "product_id": "missing",
-            "idempotency_key": "idem-sold-out-missing",
+            "expected_version": 1,
         },
     )
 

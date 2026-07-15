@@ -91,8 +91,8 @@ def test_default_policy_view_factory_uses_current_catalog_versions() -> None:
     assert actual == expected
 
 
-def test_authorization_requirements_preserve_current_runtime_until_task6() -> None:
-    """Task 1 只增加授权契约，不得提前切断当前售罄 Runtime。"""
+def test_authorization_requirements_expose_versioned_sold_out_runtime() -> None:
+    """Task 6 原子切换后，PolicyView 必须暴露售罄 2.0.0 与可信授权要求。"""
     from src.skill_runtime.models import AuthorizationRequirement
 
     view = _view()
@@ -102,9 +102,9 @@ def test_authorization_requirements_preserve_current_runtime_until_task6() -> No
     assert view.get("set_product_price").authorization_requirement is (
         AuthorizationRequirement.HUMAN_APPROVAL
     )
-    assert view.get("handle_sold_out_event").version == "1.0.0"
+    assert view.get("handle_sold_out_event").version == "2.0.0"
     assert view.get("handle_sold_out_event").authorization_requirement is (
-        AuthorizationRequirement.NONE
+        AuthorizationRequirement.TRUSTED_EVENT_OR_HUMAN
     )
 
 

@@ -225,22 +225,22 @@ _MANIFESTS: tuple[SkillManifest, ...] = (
     ),
     SkillManifest(
         skill_id="handle_sold_out_event",
-        description="处理播中售罄事件，调用 Reducer 下架售罄商品",
+        version="2.0.0",
+        description="按可信事件或人工批准执行带版本保护的售罄写",
         lifecycle=_ON,
         risk_level=RiskLevel.HIGH,
         parameter_schema={
             "type": "object",
-            "required": ["room_id", "product_id", "trace_id", "idempotency_key"],
+            "required": ["product_id", "expected_version"],
             "properties": {
-                "room_id": {"type": "string"},
-                "product_id": {"type": "string"},
-                "trace_id": {"type": "string"},
-                "idempotency_key": {"type": "string"},
+                "product_id": {"type": "string", "minLength": 1},
+                "expected_version": {"type": "integer", "minimum": 1},
             },
             "additionalProperties": False,
         },
         gate_decision=GateDecision.AUTO,
         requires_idempotency_key=True,
+        authorization_requirement=AuthorizationRequirement.TRUSTED_EVENT_OR_HUMAN,
     ),
     SkillManifest(
         skill_id="recommend_backup_product",

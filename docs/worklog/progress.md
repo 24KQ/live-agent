@@ -429,6 +429,11 @@
 - Task 5 最终专项 `16 passed`；完整 unit `900 passed, 4 warnings`；完整 integration `92 passed, 3 deselected, 5 warnings`，新增 warning 为 0。
 - 12 个目标文件严格 UTF-8 往返、无 BOM/U+FFFD/混合换行/尾随空白；`compileall`、迁移 dry-run 和 `git diff --check` 通过。全仓编码扫描仍为历史 `4 errors/56 warnings`，Task 5 目标命中 0。
 - 一次迁移预览命令误写不存在的 `scripts/run_migrations.py`，读取现有入口后使用 `scripts/run_db_migrations.py --dry-run` 成功识别 12 个迁移步骤；错误命令未触发文件修改。
+- Phase 12B Task 5 已以 `375b671 feat: freeze impacted plan branches` 独立提交并推送；连续执行游标进入 Task 6 `RED`。
+- Phase 12B Task 6 RED 固定了售罄单活 2.0.0、可信事件/人工授权、CAS、限流、版本冲突与未知副作用的边界；集成测试最初因严格只读对账模块不存在而按预期无法收集。
+- 最小 GREEN 将售罄 Handler 收敛为一次 `mark_sold_out` 调用，Fake 平台按 `expected_version` 执行 CAS；`SIDE_EFFECT_UNKNOWN` 仅通过新只读对账服务确认，不改写原 Attempt，也不创建第二个 Operation。
+- 完整回归发现三个旧兼容入口仍使用 1.0.0 或把 Context 字段放入 2.0.0 业务参数；已通过红灯测试修正为 Catalog 版本快照、无事件授权时 pending，以及带受控事件授权的无外部依赖 Demo。
+- 当前 Task 6 专项为 `64 passed`，完整单元为 `911 passed, 4 warnings`，完整集成套件无失败；下一步执行静态、编码与暂存范围验证后独立提交。
 
 # 2026-07-11 Phase 7A 进度
 

@@ -747,18 +747,6 @@ NON_CORE_LEGACY_CASES: tuple[tuple[str, dict[str, Any], str, str, str], ...] = (
         "not dispatchable",
     ),
     (
-        "handle_sold_out_event",
-        {
-            "room_id": "room-legacy",
-            "product_id": "p001",
-            "trace_id": "trace-legacy",
-            "idempotency_key": "idem-sold-out-001",
-        },
-        "ON_LIVE",
-        "error",
-        "not dispatchable",
-    ),
-    (
         "recommend_backup_product",
         {"room_id": "room-legacy", "sold_out_product_id": "p001"},
         "ON_LIVE",
@@ -833,8 +821,40 @@ def test_every_non_core_skill_keeps_legacy_dispatch(
     assert runtime.calls == []
 
 
+def test_legacy_agent_executor_rejects_sold_out_without_versioned_event_schema() -> None:
+    """旧 AgentToolExecutor 不能借 LEGACY 路径绕过售罄 2.0.0 的显式 CAS 输入。
+
+    售罄写已经迁移为可信事件或人工批准才能执行的高风险能力。该兼容入口没有
+    可信事件构造职责，因此缺少 ``expected_version`` 时必须在 ToolRegistry Schema
+    校验处停止，也不得把旧参数改写为 Runtime 调用。
+    """
+    runtime = RecordingSkillExecutor()
+    executor = AgentToolExecutor(
+        get_default_tool_registry(),
+        RecordingService(),
+        skill_executor=runtime,
+    )
+
+    observation = executor.execute(
+        "handle_sold_out_event",
+        {
+            "room_id": "room-legacy",
+            "product_id": "p001",
+            "trace_id": "trace-legacy",
+            "idempotency_key": "idem-sold-out-001",
+        },
+        "room-legacy",
+        "trace-legacy",
+        lifecycle="ON_LIVE",
+    )
+
+    assert observation.status == "error"
+    assert "expected_version" in observation.summary
+    assert runtime.calls == []
+
+
 def test_non_core_legacy_cases_cover_exactly_the_default_catalog_remainder() -> None:
-    """参数化清单必须随默认 Catalog 变化而失败，防止新增非核心工具漏测路由。"""
+    """参数化清单必须显式排除已迁移的售罄写，避免其回到 Legacy。"""
     from src.skill_runtime.catalog import get_default_skill_catalog
 
     expected_non_core = {case[0] for case in NON_CORE_LEGACY_CASES}
@@ -849,4 +869,4 @@ def test_non_core_legacy_cases_cover_exactly_the_default_catalog_remainder() -> 
         }
     }
 
-    assert catalog_non_core == expected_non_core
+    assert catalog_non_core == expected_non_core | {"handle_sold_out_event"}

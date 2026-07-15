@@ -21,12 +21,14 @@ from src.skill_runtime.executor import (
 )
 from src.skill_runtime.models import (
     ApprovalContext,
+    EventAuthorizationContext,
     SkillCall,
     SkillExecutionContext,
     SkillExecutionRoute,
     SkillExecutionStatus,
     SkillErrorCode,
     _build_human_interrupt_approval,
+    _build_verified_event_authorization,
 )
 
 # 确保四个核心 Handler 已注册，测试替换后可以恢复原实例。
@@ -64,6 +66,7 @@ def _build_call(
     lifecycle: str = "PRE_LIVE",
     idempotency_key: str | None = None,
     approval: ApprovalContext | None = None,
+    event_authorization: EventAuthorizationContext | None = None,
 ) -> SkillCall:
     """构建测试 SkillCall，参数不完整时用默认值补全。"""
     ctx = SkillExecutionContext(
@@ -73,6 +76,7 @@ def _build_call(
         execution_route=SkillExecutionRoute.SKILL_RUNTIME,
         idempotency_key=idempotency_key,
         approval=approval,
+        event_authorization=event_authorization,
     )
     return SkillCall(
         skill_id=skill_id,
@@ -196,6 +200,113 @@ def test_hard_gate_rejected_approval_fails() -> None:
     result = executor.execute(call)
     assert result.status == SkillExecutionStatus.ERROR
     assert result.error_code == SkillErrorCode.APPROVAL_REJECTED
+
+
+def _event_authorization(observed_version: int = 3) -> EventAuthorizationContext:
+    """构造已由事件边界核验的最小授权证据。"""
+    return _build_verified_event_authorization(
+        event_id="event-sold-out-executor",
+        provenance_id="provenance-sold-out-executor",
+        payload_digest="a" * 64,
+        observed_version=observed_version,
+    )
+
+
+def _sold_out_call(
+    *,
+    approval: ApprovalContext | None = None,
+    event_authorization: EventAuthorizationContext | None = None,
+    expected_version: int = 3,
+) -> SkillCall:
+    """构造售罄 2.0.0 调用，控制字段只进入执行上下文。"""
+    return _build_call(
+        skill_id="handle_sold_out_event",
+        version="2.0.0",
+        args={"product_id": "p001", "expected_version": expected_version},
+        lifecycle="ON_LIVE",
+        idempotency_key="event-sold-out-executor:root-001:handle_sold_out_event",
+        approval=approval,
+        event_authorization=event_authorization,
+    )
+
+
+def test_sold_out_v2_missing_authorization_is_pending_before_attempt() -> None:
+    """缺少事件或人工授权时必须 pending，不能调用 Handler。"""
+    handler = FakeHandler()
+    runtime = SyncSkillExecutorAdapter(
+        SkillExecutor(handlers={"handle_sold_out_event": handler})
+    )
+
+    result = runtime.execute(_sold_out_call())
+
+    assert result.status is SkillExecutionStatus.PENDING
+    assert result.error_code is SkillErrorCode.APPROVAL_REQUIRED
+    assert handler.calls == 0
+
+
+def test_sold_out_v2_accepts_verified_event_or_approved_human() -> None:
+    """可信事件和真实人工批准是两条独立可用路径，任一路径都只执行一次 Handler。"""
+    event_handler = FakeHandler()
+    human_handler = FakeHandler()
+    approved = _build_human_interrupt_approval(
+        decision="APPROVED",
+        operator_id="operator-sold-out",
+        approval_audit_id="approval-sold-out",
+    )
+
+    event_result = SyncSkillExecutorAdapter(
+        SkillExecutor(handlers={"handle_sold_out_event": event_handler})
+    ).execute(_sold_out_call(event_authorization=_event_authorization()))
+    human_result = SyncSkillExecutorAdapter(
+        SkillExecutor(handlers={"handle_sold_out_event": human_handler})
+    ).execute(_sold_out_call(approval=approved))
+
+    assert event_result.status is SkillExecutionStatus.SUCCESS
+    assert human_result.status is SkillExecutionStatus.SUCCESS
+    assert event_handler.calls == 1
+    assert human_handler.calls == 1
+
+
+def test_sold_out_v2_rejects_event_version_mismatch_and_ambiguous_sources() -> None:
+    """事件观察版本必须绑定 CAS 输入，model_copy 伪造的双授权也不能进入 Handler。"""
+    handler = FakeHandler()
+    runtime = SyncSkillExecutorAdapter(
+        SkillExecutor(handlers={"handle_sold_out_event": handler})
+    )
+    mismatched = runtime.execute(
+        _sold_out_call(
+            event_authorization=_event_authorization(observed_version=2),
+            expected_version=3,
+        )
+    )
+    approved = _build_human_interrupt_approval(
+        decision="APPROVED",
+        operator_id="operator-ambiguous",
+        approval_audit_id="approval-ambiguous",
+    )
+    valid = _sold_out_call(event_authorization=_event_authorization())
+    ambiguous_context = valid.context.model_copy(update={"approval": approved})
+    ambiguous = runtime.execute(valid.model_copy(update={"context": ambiguous_context}))
+
+    assert mismatched.error_code is SkillErrorCode.APPROVAL_REJECTED
+    assert ambiguous.error_code is SkillErrorCode.APPROVAL_REJECTED
+    assert handler.calls == 0
+
+
+def test_sold_out_v1_is_rejected_before_handler_and_attempt() -> None:
+    """单活切换后旧 1.0.0 必须精确拒绝，不能 fallback 或隐式升级。"""
+    handler = FakeHandler()
+    runtime = SyncSkillExecutorAdapter(
+        SkillExecutor(handlers={"handle_sold_out_event": handler})
+    )
+    call = _sold_out_call(event_authorization=_event_authorization()).model_copy(
+        update={"version": "1.0.0"}
+    )
+
+    result = runtime.execute(call)
+
+    assert result.error_code is SkillErrorCode.VERSION_MISMATCH
+    assert handler.calls == 0
 
 
 def test_invalid_arguments_never_call_registered_handler() -> None:

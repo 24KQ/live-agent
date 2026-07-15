@@ -28,15 +28,14 @@ FROZEN_NON_CORE_METADATA_HASHES = {
     "create_live_plan_draft": "ba0638ea351ea0dc58820da3e06214a67dfc12445438ab5d39cb2eabe9de0a75",
     "generate_danmaku_reply": "be8f8449906f2fb68910c2836c0c551ea24ed066b6a749e0f745a46e61abf1f6",
     "generate_on_live_prompt": "4adfc3356a0ef922a328c02279cf618418304a490c9923d81669bc16084cc971",
-    "handle_sold_out_event": "e6dbc47e189db110e0e937fbb4198ee759e7a4ee2606dcd6ed2904a361f2d512",
     "on_live_context_collect": "c57bd502ac5d2c4f9a8e105dabc390ed8c7899cdb521d9931b0d00e2a004f1c9",
     "recommend_backup_product": "d45b7f40be744b4d19d7332d247efd1bf3c115b1a1089ab1ba7a74129fa96e98",
     "suggest_price_change": "c64994732b2a184bdc104b0809d6d218b42eed29c7408210113b7caf90dee977",
 }
 
-# 改价 Skill 在 Phase 11B 因新增 CAS 业务前置条件而升级公开契约；它不再属于
-# Phase 11A 冻结的未迁移元数据集合，其余八项仍必须逐字段保持不变。
-VERSIONED_SKILLS = frozenset({"set_product_price"})
+# 改价与售罄写分别因显式 CAS、可信事件授权升级公开契约；它们不再属于 Phase 11A
+# 冻结的未迁移元数据集合，其余七项仍必须逐字段保持不变。
+VERSIONED_SKILLS = frozenset({"set_product_price", "handle_sold_out_event"})
 
 
 def _manifest(skill_id: str) -> SkillManifest:
@@ -73,12 +72,33 @@ def test_all_skill_ids_are_unique() -> None:
     assert len(ids) == len(set(ids))
 
 
-def test_catalog_has_twelve_v1_skills_and_price_v1_1() -> None:
-    """改价新增显式 CAS 输入后，只有它升级为单活 1.1.0。"""
+def test_catalog_has_eleven_v1_skills_and_two_versioned_writes() -> None:
+    """改价与售罄写必须分别钉住单活 1.1.0 和 2.0.0。"""
     versions = {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
 
-    assert list(versions.values()).count("1.0.0") == 12
+    assert list(versions.values()).count("1.0.0") == 11
     assert versions["set_product_price"] == "1.1.0"
+    assert versions["handle_sold_out_event"] == "2.0.0"
+
+
+def test_sold_out_v2_schema_and_authorization_exclude_control_fields() -> None:
+    """售罄写只接收 CAS 业务参数，事件、房间、trace 和幂等身份必须留在 Context。"""
+    from src.skill_runtime.models import AuthorizationRequirement
+
+    manifest = _manifest("handle_sold_out_event")
+    assert manifest.parameter_schema == {
+        "type": "object",
+        "required": ["product_id", "expected_version"],
+        "properties": {
+            "product_id": {"type": "string", "minLength": 1},
+            "expected_version": {"type": "integer", "minimum": 1},
+        },
+        "additionalProperties": False,
+    }
+    assert manifest.requires_idempotency_key is True
+    assert manifest.authorization_requirement is (
+        AuthorizationRequirement.TRUSTED_EVENT_OR_HUMAN
+    )
 
 
 def test_all_schemas_are_valid_draft202012() -> None:
@@ -103,7 +123,7 @@ def test_all_skill_schemas_reject_undeclared_root_arguments() -> None:
 
 
 def test_non_core_skills_strict_match_frozen_metadata() -> None:
-    """剩余 8 个未迁移工具的字段必须与冻结 ToolMetadata 完全一致。"""
+    """剩余 7 个未迁移工具的字段必须与冻结 ToolMetadata 完全一致。"""
     manifests = {item.skill_id: item for item in get_default_skill_catalog()}
     assert set(FROZEN_NON_CORE_METADATA_HASHES) == (
         set(manifests) - CORE_SKILLS - VERSIONED_SKILLS

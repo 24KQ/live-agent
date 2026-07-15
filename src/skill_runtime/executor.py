@@ -30,6 +30,7 @@ from src.skill_runtime.attempt_store import (
 from src.skill_runtime.catalog import get_default_skill_catalog
 from src.skill_runtime.models import (
     AdapterSuccess,
+    AuthorizationRequirement,
     FailureCategory,
     FailureFact,
     SideEffectState,
@@ -256,17 +257,16 @@ class SkillExecutor:
         if manifest.requires_idempotency_key and not call.context.idempotency_key:
             return self._error(call, SkillErrorCode.IDEMPOTENCY_REQUIRED, "该 Skill 需要幂等键")
 
-        approval = call.context.approval
+        authorization = self._validate_authorization(call, manifest)
+        if isinstance(authorization, SkillExecutionResult):
+            return authorization
         gate = evaluate_tool_gate(
             self._tool_registry.get(call.skill_id),
-            confirmed=(
-                approval is not None
-                and approval.provenance_verified
-                and approval.decision == "APPROVED"
-            ),
+            confirmed=authorization,
         )
         if gate.allowed:
             return manifest
+        approval = call.context.approval
         if gate.requires_confirmation and approval is None:
             return SkillExecutionResult(
                 skill_id=call.skill_id,
@@ -286,6 +286,92 @@ class SkillExecutor:
             call,
             SkillErrorCode.APPROVAL_REJECTED,
             f"安全门禁拒绝执行: {gate.reason}",
+        )
+
+    def _validate_authorization(
+        self,
+        call: SkillCall,
+        manifest: SkillManifest,
+    ) -> bool | SkillExecutionResult:
+        """在 Attempt 意图前验证 Manifest 声明的可信授权来源。
+
+        Tool gate 仍负责通用风险策略，本方法只处理 Runtime 已冻结的授权证据。事件
+        授权与人工审批不能相互替代或同时出现；售罄 CAS 还必须把事件观察版本绑定到
+        ``expected_version``，防止同一可信事件被搬运到另一资源版本的写请求。
+        """
+        approval = call.context.approval
+        event_authorization = call.context.event_authorization
+        if approval is not None and event_authorization is not None:
+            return self._error(
+                call,
+                SkillErrorCode.APPROVAL_REJECTED,
+                "授权来源冲突: approval 与 event_authorization 不能同时提供",
+            )
+
+        approved_human = (
+            approval is not None
+            and approval.provenance_verified
+            and approval.decision == "APPROVED"
+        )
+        requirement = manifest.authorization_requirement
+        if requirement is AuthorizationRequirement.NONE:
+            return approved_human
+
+        if requirement is AuthorizationRequirement.HUMAN_APPROVAL:
+            if approval is None:
+                return self._pending_authorization(call, "该 Skill 需要可信人工审批")
+            if approved_human:
+                return True
+            return self._error(
+                call,
+                SkillErrorCode.APPROVAL_REJECTED,
+                "人工审批未通过或来源不可信",
+            )
+
+        if approved_human:
+            return True
+        if approval is not None:
+            return self._error(
+                call,
+                SkillErrorCode.APPROVAL_REJECTED,
+                "人工审批未通过或来源不可信",
+            )
+        if event_authorization is None:
+            return self._pending_authorization(
+                call,
+                "该 Skill 需要可信事件授权或人工审批",
+            )
+        if not event_authorization.provenance_verified:
+            return self._error(
+                call,
+                SkillErrorCode.APPROVAL_REJECTED,
+                "事件授权来源身份未通过验证",
+            )
+        expected_version = call.arguments.get("expected_version")
+        if (
+            type(expected_version) is not int
+            or expected_version != event_authorization.observed_version
+        ):
+            return self._error(
+                call,
+                SkillErrorCode.APPROVAL_REJECTED,
+                "事件观察版本与 CAS expected_version 不一致",
+            )
+        return True
+
+    @staticmethod
+    def _pending_authorization(
+        call: SkillCall,
+        summary: str,
+    ) -> SkillExecutionResult:
+        """构造不会写 Attempt 的统一授权等待结果。"""
+        return SkillExecutionResult(
+            skill_id=call.skill_id,
+            version=call.version,
+            status=SkillExecutionStatus.PENDING,
+            error_code=SkillErrorCode.APPROVAL_REQUIRED,
+            summary=summary,
+            audit_id=None,
         )
 
     @staticmethod

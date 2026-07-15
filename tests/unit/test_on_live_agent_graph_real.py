@@ -199,8 +199,13 @@ class TestRuntimeOnLiveExecutor:
         assert parameter is not None
         assert parameter.default is None
 
-    def test_runtime_executor_preserves_execute_dict_shape_for_sold_out(self):
-        """Runtime 执行器保持旧 execute(...) -> dict 外观，并返回售罄事实。"""
+    def test_runtime_executor_keeps_sold_out_pending_without_trusted_event(self):
+        """播中 Harness 不能把普通 Graph state 伪造成售罄写的可信事件授权。
+
+        Task 6 的售罄 Skill 已收敛为 2.0.0 CAS 写。Harness 仍保留旧 dict 外观，
+        但没有来自 Event Inbox 的 ``EventAuthorizationContext`` 时必须返回 pending，
+        绝不能调用 Fake 平台或回退旧本地服务。
+        """
         from decimal import Decimal
 
         from src.core.on_live_agent_graph import RuntimeOnLiveExecutor
@@ -243,17 +248,21 @@ class TestRuntimeOnLiveExecutor:
 
         result = executor.execute(
             tool_name="handle_sold_out_event",
-            arguments={"product_id": "p001", "idempotency_key": "idem-runtime-sold-out"},
+            arguments={
+                "product_id": "p001",
+                "expected_version": 1,
+                "idempotency_key": "idem-runtime-sold-out",
+            },
             room_id="room-runtime-on-live",
             trace_id="trace-runtime-on-live",
             state={"ignored": True},
         )
 
         assert result["tool_name"] == "handle_sold_out_event"
-        assert result["status"] == "success"
-        assert result["backup_product_id"] == "p002"
-        assert "售罄" in result["message"]
-        assert platform.product("p001").inventory == 0
+        assert result["status"] == "pending"
+        assert result["attempt_id"] is None
+        assert result["summary"].startswith("APPROVAL_REQUIRED:")
+        assert platform.product("p001").inventory == 3
 
     def test_runtime_executor_preserves_sanitized_error_dict_without_fallback(self):
         """Runtime 失败仍返回旧 dict 形状，且摘要不泄露原始商品参数。"""
@@ -304,9 +313,9 @@ class TestRuntimeOnLiveExecutor:
 
         assert result["tool_name"] == "handle_sold_out_event"
         assert result["status"] == "error"
-        assert result["failure_category"] == "INVALID_INPUT"
-        assert result["attempt_id"]
-        assert "HANDLER_FAILED" in result["summary"]
+        assert "failure_category" not in result
+        assert result["attempt_id"] is None
+        assert result["summary"].startswith("INVALID_ARGUMENTS:")
         assert untrusted_product_id not in str(result)
         # 不存在 Runtime -> Legacy fallback；失败调用不能凭空改动 Fake 平台状态。
         assert platform.product("p001").inventory == 3

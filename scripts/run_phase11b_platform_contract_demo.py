@@ -43,6 +43,7 @@ from src.skill_runtime.handlers import (  # noqa: E402
 )
 from src.skill_runtime.models import (  # noqa: E402
     ApprovalContext,
+    EventAuthorizationContext,
     FailureFact,
     SideEffectState,
     SkillCall,
@@ -50,6 +51,7 @@ from src.skill_runtime.models import (  # noqa: E402
     SkillExecutionResult,
     SkillExecutionRoute,
     _build_human_interrupt_approval,
+    _build_verified_event_authorization,
 )
 
 
@@ -148,6 +150,7 @@ def _context(
     lifecycle: str,
     deadline_at: datetime | None = None,
     approval: ApprovalContext | None = None,
+    event_authorization: EventAuthorizationContext | None = None,
 ) -> SkillExecutionContext:
     """构造场景专属可信上下文，使每个 Operation 的幂等身份互不冲突。"""
     return SkillExecutionContext(
@@ -157,6 +160,7 @@ def _context(
         execution_route=SkillExecutionRoute.SKILL_RUNTIME,
         idempotency_key=f"idem-{scenario}",
         approval=approval,
+        event_authorization=event_authorization,
         deadline_at=deadline_at or datetime.now(timezone.utc) + timedelta(seconds=15),
     )
 
@@ -191,17 +195,28 @@ def _setup_call() -> SkillCall:
 
 
 def _sold_out_call() -> SkillCall:
-    """构造自动门禁允许的播中售罄写操作。"""
+    """构造带可信事件证据的 2.0.0 售罄 CAS 写操作。
+
+    Demo 只调用内部工厂构造事件授权，展示正常 Event Inbox 验证完成后进入 Runtime
+    的形状；不会通过普通参数或 Graph state 伪造可信来源。
+    """
     scenario = "sold_out"
     return SkillCall(
         skill_id="handle_sold_out_event",
-        version="1.0.0",
-        context=_context(scenario, lifecycle="ON_LIVE"),
+        version="2.0.0",
+        context=_context(
+            scenario,
+            lifecycle="ON_LIVE",
+            event_authorization=_build_verified_event_authorization(
+                event_id="event-phase11b-demo-sold-out",
+                provenance_id="provenance-phase11b-demo-sold-out",
+                payload_digest="a" * 64,
+                observed_version=1,
+            ),
+        ),
         arguments={
-            "room_id": "room-phase11b-demo",
-            "trace_id": f"trace-{scenario}",
             "product_id": "p001",
-            "idempotency_key": f"idem-{scenario}",
+            "expected_version": 1,
         },
     )
 

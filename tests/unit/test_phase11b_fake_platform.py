@@ -155,8 +155,8 @@ def test_rate_limit_failure_exposes_retry_after_seconds() -> None:
     assert result.side_effect_state == SideEffectState.NOT_SENT
 
 
-def test_sold_out_returns_next_active_product_as_backup() -> None:
-    """售罄后应从同一实例的现存可售商品中确定性选择备选商品。"""
+def test_sold_out_cas_returns_only_updated_product_and_version_facts() -> None:
+    """售罄写只确认 CAS 结果，备选推荐必须留给后续独立 Skill。"""
     backup = FakePlatformProduct(
         product_id="p002",
         name="备选商品",
@@ -172,7 +172,9 @@ def test_sold_out_returns_next_active_product_as_backup() -> None:
 
     assert not isinstance(result, FailureFact)
     assert result.output["sold_out_product"]["product_id"] == "p001"
-    assert result.output["backup_product"]["product_id"] == "p002"
+    assert result.output["previous_version"] == 1
+    assert result.output["new_version"] == 2
+    assert "backup_product" not in result.output
 
 
 def test_resolve_product_context_is_read_only_and_returns_backup_snapshot() -> None:

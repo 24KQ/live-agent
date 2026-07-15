@@ -141,7 +141,8 @@
   - [x] Task 2：Event Inbox 内存 Store 与状态机（`8b1600b` 已推送）。
   - [x] Task 3：PostgreSQL Event Store 与计划 lineage（`25793f2` 已推送）。
   - [x] Task 4：Kafka 入站与启动冻结 Trust Profile（`0762c2c` 已推送）。
-  - [x] Task 5：ImpactAnalyzer 与协作式冻结（技术门禁完成，待提交推送）。
+  - [x] Task 5：ImpactAnalyzer 与协作式冻结（`375b671` 已推送）。
+  - [x] Task 6：售罄 CAS Skill 与严格对账（验证完成，待独立提交）。
 - [ ] Phase 13：三个 Specialist Agent 候选评估与条件化去留。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 

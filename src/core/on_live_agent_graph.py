@@ -18,6 +18,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from src.core.agent_decision import AgentReplanRoute
+from src.skill_runtime.catalog import get_default_skill_catalog
 from src.skill_runtime.compatibility import observation_from_skill_result
 from src.skill_runtime.executor import SyncSkillExecutorAdapter
 from src.skill_runtime.models import (
@@ -538,6 +539,12 @@ class RuntimeOnLiveExecutor:
 
     def __init__(self, skill_executor: SyncSkillExecutorAdapter) -> None:
         self._skill_executor = skill_executor
+        # Catalog 是 Skill 精确版本的唯一事实源。播中兼容入口在装配时冻结快照，
+        # 避免已开始的 Graph 调用因后续 Catalog 重装配而悄然切换版本。
+        self._skill_versions = {
+            manifest.skill_id: manifest.version
+            for manifest in get_default_skill_catalog()
+        }
 
     def execute(
         self,
@@ -557,7 +564,9 @@ class RuntimeOnLiveExecutor:
             result = self._skill_executor.execute(
                 SkillCall(
                     skill_id=tool_name,
-                    version="1.0.0",
+                    # 未登记工具仍保留旧版本占位，让 Executor 返回稳定 SKILL_NOT_FOUND，
+                    # 而不是让兼容层抛 KeyError 后丢失可审计的失败事实。
+                    version=self._skill_versions.get(tool_name, "1.0.0"),
                     context=SkillExecutionContext(
                         room_id=room_id,
                         trace_id=trace_id,
@@ -591,7 +600,12 @@ class RuntimeOnLiveExecutor:
 
     @staticmethod
     def _arguments(tool_name: str, arguments: dict, room_id: str, trace_id: str) -> dict:
-        """补齐旧播中调用常省略的 room_id/trace_id/idempotency_key 字段。"""
+        """只为尚未迁移的读/建议 Skill 补齐旧业务字段。
+
+        ``handle_sold_out_event@2.0.0`` 的业务 Schema 只有 ``product_id`` 与
+        ``expected_version``。room、trace 和幂等键均属于执行 Context，旧 Harness
+        不得把它们重新塞回业务参数以绕过严格 Schema 或伪造事件授权。
+        """
         normalized = dict(arguments)
         if tool_name in {
             "recommend_backup_product",
@@ -606,9 +620,9 @@ class RuntimeOnLiveExecutor:
             normalized.setdefault("room_id", room_id)
             normalized.setdefault("trace_id", trace_id)
         if tool_name == "handle_sold_out_event":
-            normalized.setdefault("room_id", room_id)
-            normalized.setdefault("trace_id", trace_id)
-            normalized.setdefault("idempotency_key", f"{trace_id}:handle_sold_out_event")
+            normalized.pop("room_id", None)
+            normalized.pop("trace_id", None)
+            normalized.pop("idempotency_key", None)
         return normalized
 
     @staticmethod

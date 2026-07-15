@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 12B |
-| 最近完成任务 | Phase 12B Task 4：Kafka 入站与 Trust Profile（`0762c2c`） |
-| 下一任务 | Task 5：ImpactAnalyzer 与协作式冻结 |
-| 下一任务状态 | `COMMIT` |
-| 当前子步骤 | 全部门禁通过，显式暂存 Task 5 的 12 个目标文件并审查 cached diff |
+| 最近完成任务 | Phase 12B Task 5：ImpactAnalyzer 与协作式冻结（`375b671`） |
+| 下一任务 | Task 6：售罄 CAS Skill 与严格对账 |
+| 下一任务状态 | `VERIFY` |
+| 当前子步骤 | 完整回归已通过，准备按 Task 边界提交并推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `0762c2c feat: ingest durable inventory events` |
-| 远端状态 | `origin/main=0762c2c` |
+| 当前业务基线 | `375b671 feat: freeze impacted plan branches` |
+| 远端状态 | `origin/main=375b671` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -27,17 +27,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 12B / Task 5
-状态: COMMIT
-目标: 建立确定性 ImpactAnalyzer、版本内局部冻结、整计划冻结与晚到结果 superseded 证据
-禁止事项: 不强制取消 RUNNING；不让 LLM 控制 scope/resource；不创建紧急 DAG 或新 PlanVersion
-当前 HEAD: 0762c2c
-本 Task 文件: impact.py、store.py、state_machine.py、Plan 视图/DDL、Task 5 测试与状态文档
+Phase / Task: Phase 12B / Task 6
+状态: VERIFY
+目标: 升级 handle_sold_out_event@2.0.0，执行单次 CAS 写并以只读事实严格对账未知副作用
+禁止事项: 不创建紧急 child DAG；不自动重发 SIDE_EFFECT_UNKNOWN；不保留 1.x 单活版本或同次 Legacy fallback
+当前 HEAD: 375b671
+本 Task 文件: Catalog、Executor、Handler、Port/Fake、side_effect_reconciliation.py、Task 6 测试与状态文档
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: RED 10 failed；审查新增 RED 4 failed 与 2 failed；最终专项 16 passed；unit 900 passed；integration 92 passed, 3 deselected；严格编码/compileall/diff/migration dry-run 通过
-错误与尝试次数: 2 次命令路径错误均已按真实文件清单修正；1 次补丁上下文误命中在测试前自检发现并精确移除
-设计偏差与决策编号: 尚无；遵循 D-027、D-081 与冻结 Task 5 计划
-下一条精确操作: 只暂存 12 个 Task 5 文件，核对 staged 文件列表与 cached diff 后提交推送
+最近命令与结果: RED 为 unit 16 failed, 51 passed；集成在缺少严格对账模块时收集失败。GREEN 后专项 64 passed；完整 unit 911 passed, 4 warnings；完整 integration 已退出且无失败输出
+错误与尝试次数: 1；完整单元发现 5 个旧 1.0.0/旧参数兼容入口，已用红灯测试收敛为 2.0.0 版本快照、无可信事件 pending 与显式 Demo 事件证据
+设计偏差与决策编号: 无架构偏差；遵循 D-082、D-083、D-084。Harness 不构造事件授权，后续 Task 10 才改为只消费 PlanEngine EvidenceRef
+下一条精确操作: 对 Task 6 目标文件运行编译、差异与严格 UTF-8 检查，随后提交 feat: execute versioned sold out writes
 模型费用累计: 0 元
 ```
 
@@ -103,6 +103,9 @@ Phase / Task: Phase 12B / Task 5
 | Phase 12B Task 5 最终专项 | `16 passed`，包含 superseded 禁止重试/回收与局部失败隔离 |
 | Phase 12B Task 5 完整验证 | unit `900 passed`；integration `92 passed, 3 deselected` |
 | Phase 12B Task 5 静态门禁 | 12 文件严格 UTF-8、compileall、migration dry-run、diff 通过；历史编码 `4 errors/56 warnings`，目标命中 0 |
+| Phase 12B Task 5 提交与推送 | `375b671`，`origin/main=375b671` |
+| Phase 12B Task 6 RED/GREEN | RED：unit `16 failed, 51 passed`，集成因缺模块收集失败；GREEN：专项 `64 passed` |
+| Phase 12B Task 6 完整验证 | unit `911 passed, 4 warnings`；integration 全套退出码 0、无失败输出 |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 

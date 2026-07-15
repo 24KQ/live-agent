@@ -182,7 +182,7 @@ class FakeLiveCommercePlatform(ProductPricingPort, LiveSessionPort, LiveOperatio
         return AdapterSuccess(output={"session": session}, side_effect_state=SideEffectState.CONFIRMED)
 
     async def mark_sold_out(self, request: AdapterRequest) -> AdapterResult:
-        """将商品库存置零并下架，返回可供后续备选/提示逻辑消费的状态事实。"""
+        """按 expected_version 将商品售罄；备选和提示由后续独立 Skill 负责。"""
         product_id = str(request.payload.get("product_id") or "")
         # 写操作与改价一样必须只消费一次故障规则。UNKNOWN_AFTER_SEND 表示平台
         # 可能已经完成写入，因此先执行状态变更，再将未知事实交给上层对账。
@@ -198,6 +198,21 @@ class FakeLiveCommercePlatform(ProductPricingPort, LiveSessionPort, LiveOperatio
                 "fake.product_not_found",
                 SideEffectState.NOT_SENT,
             )
+        expected_version = request.payload.get("expected_version")
+        if type(expected_version) is not int or expected_version < 1:
+            return self._failure(
+                request,
+                FailureCategory.INVALID_INPUT,
+                "fake.invalid_expected_version",
+                SideEffectState.NOT_SENT,
+            )
+        if expected_version != product.version:
+            return self._failure(
+                request,
+                FailureCategory.VERSION_CONFLICT,
+                "fake.product_version_conflict",
+                SideEffectState.NOT_SENT,
+            )
         updated = product.model_copy(update={"inventory": 0, "is_active": False, "version": product.version + 1})
         self._products[product_id] = updated
         if fault is not None and fault.kind == FakeFaultKind.UNKNOWN_AFTER_SEND:
@@ -207,18 +222,11 @@ class FakeLiveCommercePlatform(ProductPricingPort, LiveSessionPort, LiveOperatio
                 "fake.unknown_after_send",
                 SideEffectState.UNKNOWN,
             )
-        backup = next(
-            (
-                item
-                for item in sorted(self._products.values(), key=lambda value: value.product_id)
-                if item.product_id != product_id and item.is_active and item.inventory > 0
-            ),
-            None,
-        )
         return AdapterSuccess(
             output={
                 "sold_out_product": updated.model_dump(mode="json"),
-                "backup_product": None if backup is None else backup.model_dump(mode="json"),
+                "previous_version": product.version,
+                "new_version": updated.version,
             },
             side_effect_state=SideEffectState.CONFIRMED,
         )

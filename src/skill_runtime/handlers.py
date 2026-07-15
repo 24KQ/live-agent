@@ -362,11 +362,10 @@ class _SetupLiveSessionHandler(_SkillHandler):
 
 
 class _HandleSoldOutEventHandler(_SkillHandler):
-    """通过 LiveOperationsPort 处理售罄状态变化。
+    """通过 LiveOperationsPort 执行一次带资源版本保护的售罄写。
 
-    售罄是写操作，但恢复和重试策略不属于 Handler。Executor 已先写 Attempt 意图；
-    Port 返回成功事实或 FailureFact 后，本类只补充确定性主播提示，确保同一幂等键
-    重放时不会再次调用 Port。
+    Executor 已校验 2.0.0 Schema、可信授权和幂等键，并先写 Attempt 意图。本类不
+    预读商品、不推荐备选、不生成提示、不重试，只把 Port 的成功或失败事实原样返回。
     """
 
     def __init__(self, port: LiveOperationsPort) -> None:
@@ -378,16 +377,9 @@ class _HandleSoldOutEventHandler(_SkillHandler):
         arguments: dict[str, Any],
         context: SkillExecutionContext,
     ) -> AdapterResult | dict[str, Any]:
-        result = await self._port.mark_sold_out(_request(skill_id, arguments, context))
-        if isinstance(result, FailureFact):
-            return result
-        sold_out, backup = _products_from_context_output(result.output)
-        prompt = generate_sold_out_prompt(sold_out_product=sold_out, backup_product=backup)
-        return {
-            "sold_out_product": sold_out.model_dump(mode="json"),
-            "backup_product": None if backup is None else backup.model_dump(mode="json"),
-            "prompt": prompt.model_dump(mode="json"),
-        }
+        return await self._port.mark_sold_out(
+            _request(skill_id, arguments, context)
+        )
 
 
 class _SetProductPriceHandler(_SkillHandler):

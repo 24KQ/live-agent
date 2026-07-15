@@ -80,6 +80,9 @@ def test_demo_emits_six_fixed_scenarios(monkeypatch: Any) -> None:
     assert sold_out_product["is_active"] is False
     assert sold_out["attempt_state"] == "SUCCEEDED"
     assert sold_out["side_effect_state"] == "CONFIRMED"
+    assert sold_out["output"]["previous_version"] == 1
+    assert sold_out["output"]["new_version"] == 2
+    assert sold_out["output"]["sold_out_product"]["product_id"] == "p001"
 
     assert rate_limited["attempt_state"] == "FAILED"
     assert rate_limited["side_effect_state"] == "NOT_SENT"
