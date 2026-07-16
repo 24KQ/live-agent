@@ -414,6 +414,24 @@ class InMemorySpecialistEvaluationStore:
         return metric
 
     @_locked
+    def list_paired_metrics(
+        self,
+        run_id: str,
+        split: EvaluationSplit,
+    ) -> tuple[PairedMetric, ...]:
+        """按稳定指标名读取一个 split 的已保存事实，供重启后的正式结论恢复。"""
+
+        if run_id not in self._runs:
+            raise EvaluationInvariantError("metric run does not exist")
+        return tuple(
+            metric
+            for (metric_run_id, metric_split, _metric_id), metric in sorted(
+                self._metrics.items(), key=lambda item: item[0][2]
+            )
+            if metric_run_id == run_id and metric_split is split
+        )
+
+    @_locked
     def save_retention_decision(
         self,
         decision: RetentionDecisionRecord,
@@ -853,6 +871,35 @@ class PostgresSpecialistEvaluationStore:
         except pg_errors.IntegrityError as error:
             raise EvaluationInvariantError("metric violates evaluation invariants") from error
         return metric
+
+    def list_paired_metrics(
+        self,
+        run_id: str,
+        split: EvaluationSplit,
+    ) -> tuple[PairedMetric, ...]:
+        """读取持久指标但不持有写租约，恢复 Worker 只能观察而不能改写既有事实。"""
+
+        with psycopg.connect(
+            **self._settings.postgres_connection_kwargs,
+            row_factory=dict_row,
+        ) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT 1 FROM specialist_evaluation_runs WHERE run_id=%s;",
+                    (run_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise EvaluationInvariantError("metric run does not exist")
+                cursor.execute(
+                    """
+                    SELECT * FROM specialist_paired_metrics
+                    WHERE run_id=%s AND split=%s
+                    ORDER BY metric_id;
+                    """,
+                    (run_id, split.value),
+                )
+                rows = cursor.fetchall()
+        return tuple(self._metric_from_row(row) for row in rows)
 
     def save_retention_decision(
         self,

@@ -792,6 +792,13 @@ def test_store_recomputes_each_metric_from_its_own_attempt_fact() -> None:
         _run().run_id, EvaluationSplit.VALIDATION, recovery, claim=claim
     )
 
+    # Task 11 崩溃恢复不能依赖调用进程缓存；正式协调器必须能从权威 Store
+    # 读取某个 split 已保存的指标，再重建最终 Holdout 去留结论。
+    assert store.list_paired_metrics(_run().run_id, EvaluationSplit.VALIDATION) == (
+        action,
+        recovery,
+    )
+
 
 def test_decision_hard_gate_summary_must_match_selected_agent_facts() -> None:
     """调用方不能用 hard_gates_passed=True 覆盖 Attempt 中失败的共同安全门。"""

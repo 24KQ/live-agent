@@ -11,8 +11,8 @@
 | 当前阶段 | Phase 13D ReviewMemoryAgent 纵向切片 |
 | 最近完成任务 | Phase 13 Task 10：ReviewMemoryAgent 纵向切片（`e12de15` 已推送） |
 | 当前任务 | Task 11：正式评估、早停与条件生产接入 |
-| 当前任务状态 | `RED` |
-| 当前子步骤 | 正在冻结 Task 11 的预检、正式 Manifest、ScriptedModel 演练和去留红灯 |
+| 当前任务状态 | `GREEN` |
+| 当前子步骤 | 已完成预检、v3 正式数据基线与 Store 驱动 validation/holdout 协调器；正在接入价格、Git 授权、预算与正式执行入口 |
 | 当前分支 | `main` |
 | 当前业务基线 | `e12de15 feat: evaluate review memory specialist` |
 | 远端状态 | `origin/main=e12de15` |
@@ -34,12 +34,12 @@ Phase / Task: Phase 13 / Task 11
 状态: RED
 目标: 正式 Manifest 预检、ScriptedModel 全流程演练、严格早停与三个候选的可审计去留结论
 禁止事项: endpoint、价格、usage、哈希和预算预检前不调用真实模型；不得将 Task 6 数据集基线冒充正式 Run；未保留候选不得注册生产 Profile
-当前 HEAD: e12de15
+当前 HEAD: 30ee32f
 本 Task 文件: 正式 Evaluation Runner/CLI、预检、Retention 测试与 PostgreSQL 集成测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
 最近命令与结果: Task 10 专项 `11 passed`，相关回归 `66 passed`，完整 unit `1164 passed, 4 warnings`，完整 integration `118 passed, 3 deselected, 5 warnings`；提交 `e12de15` 已推送；真实模型费用 0 元
-错误与尝试次数: Task 10 的 baseline 泄漏和多候选评分绕过已由 D-111 收口；Task 11 尚未开始 RED
-设计偏差与决策编号: D-111 固定单候选、冻结货盘白名单、库存优先 baseline 与三分类 macro-F1；Task 11 不得放宽预检或保留门
+错误与尝试次数: D-112 收口了 D-110 的 v3 LiveOps 资产未进入总 Manifest 的版本错配；未调用真实模型
+设计偏差与决策编号: D-111 固定单候选、D-112 固定 v3 正式数据基线；Task 11 正在实现正式执行边界
 下一条精确操作: 读取 Task 11 计划与 Task 6 FormalManifest/Store 约束，编写正式预检拒绝不可信 Manifest 的 RED
 模型费用累计: 0 元
 ```

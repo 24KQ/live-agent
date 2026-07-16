@@ -100,6 +100,27 @@ def test_phase13_dataset_has_exact_candidate_splits_and_unique_ids() -> None:
     assert len(set(all_ids)) == 240
 
 
+def test_phase13_v3_formal_baseline_uses_live_ops_v3_without_rewriting_v2() -> None:
+    """D-110 的修正 LiveOps 资产必须进入新基线，旧 v2 仍保留为审计历史。"""
+
+    v2 = json.loads((EVALUATION_ROOT / "manifests" / "phase13-v2.json").read_text(encoding="utf-8"))
+    v3 = json.loads((EVALUATION_ROOT / "manifests" / "phase13-v3.json").read_text(encoding="utf-8"))
+    live_v3 = json.loads(
+        (EVALUATION_ROOT / "manifests" / "phase13-live-ops-v3.json").read_text(encoding="utf-8")
+    )
+
+    assert v2["manifest_id"] == "phase13-v2"
+    assert v3["manifest_id"] == "phase13-v3"
+    for split in SPLIT_COUNTS:
+        live_case_ids = [
+            case_id
+            for case_id in v3["case_ids"][split]
+            if v3["case_candidate_map"][case_id] == "live_ops"
+        ]
+        assert live_case_ids == live_v3["case_ids"][split]
+        assert all("phase13-live_ops" not in case_id for case_id in live_case_ids)
+
+
 def test_cases_and_labels_are_strict_valid_and_physically_separated() -> None:
     """Prompt 输入不含 gold label；标签只允许 evaluator 从独立目录读取。"""
 

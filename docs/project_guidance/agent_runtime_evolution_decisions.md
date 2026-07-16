@@ -1235,3 +1235,14 @@
 - **未选理由**：任意命中会奖励覆盖式猜测；降低门破坏用户硬边界；用 replay 主信号作 baseline 不构成独立确定性对照。
 - **影响**：Task 10 重新生成数据集基线 Manifest 的源码/Schema 摘要；Task 11 仍必须基于最终 Git commit 生成新的正式 Manifest。selected Attempt 恢复时显式加载 evaluator-only 冻结标签，不能从 Agent 输出推导 gold。
 - **重新评估条件**：未来一个 case 需要评估多条独立 candidate 时，必须新增带集合标签、匹配规则与宏指标定义的决策，不能放宽当前单候选 Schema。
+
+## D-112：正式 Phase 13 数据基线组合 LiveOps v3
+
+- **状态**：`ACCEPTED`
+- **背景**：D-110 已将 LiveOps 的可执行动作与恢复评分迁移到 `phase13-live-ops-v3`，但原 `phase13-v2` 仍引用旧 LiveOps case/label。两套资产的 case ID 与摘要不同，若 Task 11 直接从 v2 派生正式 Manifest，会以已淘汰标签产生保留结论。
+- **候选方案**：继续用 v2 运行正式评估；覆盖写回 v2；新增保留 v2 历史且替换 LiveOps 切片的组合基线。
+- **最终选择**：保留 `phase13-v2` 为不可变审计基线；生成 `phase13-v3`，其 240 例由 `phase13-live-ops-v3` 的 20/40/20 LiveOps 资产和 v2 中未变的 Planner/ReviewMemory 资产组成。Task 11 的正式 Manifest 只能从 v3 的 Store Manifest 派生；顶层 JSONL 使用小写候选目录名，Store 投影使用 `LIVE_OPS | PLANNER | REVIEW_MEMORY` 枚举身份。
+- **选择理由**：正式数据身份必须覆盖每个候选当前实际评分契约，同时保留 v2 以支持历史复现和差异审计。
+- **未选理由**：继续用 v2 违反 D-110；覆盖 v2 会抹掉可复现的历史基线。
+- **影响**：生成器、数据集测试和正式 Manifest 预检必须验证 v3 的 case 映射和字节摘要；真实模型在 v3、Git、价格和预算都通过预检前仍不得调用。
+- **重新评估条件**：Planner 或 ReviewMemory 的评分数据需要版本化修正时，新增下一个组合 Manifest，不修改既有 v3。

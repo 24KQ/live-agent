@@ -308,6 +308,84 @@ def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
     _write(path, b"".join(_canonical_bytes(record) for record in records))
 
 
+def _build_phase13_v3_baseline(root: Path, v2_manifest: dict[str, Any]) -> dict[str, Any]:
+    """将 D-110 的 LiveOps v3 与未变的 Planner/Review 资产组合为新的 240 例基线。"""
+
+    # v3 生成器仍复用 v2 的基础 case 构造函数，因此先完成 v2 的公共资产落盘；局部
+    # 导入避免两个生成器模块在 import 时循环依赖，也保证重复运行得到相同的字节结果。
+    from evaluation.generators.generate_phase13_live_ops_v3 import generate_live_ops_v3
+
+    live_v3 = generate_live_ops_v3(root)
+    case_ids: dict[str, list[str]] = {}
+    candidate_map: dict[str, str] = {}
+    for split in SPLIT_COUNTS:
+        unchanged = [
+            case_id
+            for case_id in v2_manifest["case_ids"][split]
+            if v2_manifest["case_candidate_map"][case_id] != "live_ops"
+        ]
+        case_ids[split] = sorted([*unchanged, *live_v3["case_ids"][split]])
+        for case_id in unchanged:
+            # 顶层数据集用小写目录候选名，Store Manifest 则必须使用 EvaluationCandidate
+            # 的稳定大写枚举值；两层身份不能混用，否则 Pydantic 会拒绝正式 Manifest。
+            candidate_map[case_id] = {
+                "planner": "PLANNER",
+                "review_memory": "REVIEW_MEMORY",
+            }[v2_manifest["case_candidate_map"][case_id]]
+        for case_id in live_v3["case_ids"][split]:
+            candidate_map[case_id] = "LIVE_OPS"
+
+    artifact_digests = {
+        path: digest
+        for path, digest in v2_manifest["artifact_digests"].items()
+        if "cases/phase13/live_ops-" not in path and "labels/phase13/live_ops-" not in path
+    }
+    artifact_digests.update(live_v3["artifact_digests"])
+    dataset_digest = _digest_json(
+        {
+            path: digest
+            for path, digest in artifact_digests.items()
+            if path.startswith("cases/") or path.startswith("labels/")
+        }
+    )
+    dataset_candidate_map = {
+        case_id: candidate.lower()
+        for case_id, candidate in candidate_map.items()
+    }
+    # ReviewMemory 的目录名使用下划线，而 Python 的 StrEnum 转小写会保留它；Planner
+    # 和 LiveOps 同样保持与 JSONL `candidate` 字段一致的目录身份。
+    v3 = {
+        **v2_manifest,
+        "manifest_id": "phase13-v3",
+        "manifest_version": "3.0.0",
+        "supersedes_dataset_manifest": "phase13-v2",
+        "live_ops_dataset_manifest": "phase13-live-ops-v3",
+        "case_ids": case_ids,
+        "case_candidate_map": dict(sorted(dataset_candidate_map.items())),
+        "artifact_digests": dict(sorted(artifact_digests.items())),
+        "dataset_digest": dataset_digest,
+    }
+    store_manifest = {
+        **v3["store_manifest"],
+        "manifest_id": v3["manifest_id"],
+        "manifest_version": v3["manifest_version"],
+        "development_case_ids": case_ids["development"],
+        "validation_case_ids": case_ids["validation"],
+        "holdout_case_ids": case_ids["holdout"],
+        "case_candidate_map": dict(sorted(candidate_map.items())),
+        "dataset_digest": dataset_digest,
+    }
+    store_manifest["manifest_digest"] = _identity_digest_json(
+        {key: value for key, value in store_manifest.items() if key != "manifest_digest"}
+    )
+    v3["store_manifest"] = store_manifest
+    v3["manifest_digest"] = _digest_json(
+        {key: value for key, value in v3.items() if key != "manifest_digest"}
+    )
+    _write_json(root / "manifests" / "phase13-v3.json", v3)
+    return v3
+
+
 def _evidence(
     case_id: str,
     index: int,
@@ -940,6 +1018,8 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
     manifest["store_manifest"] = store_manifest
     manifest["manifest_digest"] = _digest_json(manifest)
     _write_json(root / "manifests" / "phase13-v2.json", manifest)
+    # v2 继续作为审计基线；正式 Task 11 只能从含 D-110 LiveOps 修正资产的 v3 派生。
+    _build_phase13_v3_baseline(root, manifest)
     return manifest
 
 
