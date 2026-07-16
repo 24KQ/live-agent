@@ -146,6 +146,10 @@ RESULT_SCHEMAS = {
             },
             "memory_candidates": {
                 "type": "array",
+                # 每个 Phase 13 case 只有一个独立分类标签；限制基数可防止模型并列输出所有
+                # 类别来规避 macro-F1 评分，也让 JSON Schema 与运行时 Pydantic 模型一致。
+                "minItems": 1,
+                "maxItems": 1,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,

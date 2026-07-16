@@ -8,14 +8,14 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（验证完成） |
-| 当前任务 | Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy |
-| 当前任务状态 | `VERIFY_COMPLETE` |
-| 当前子步骤 | 完整回归通过，等待独立提交与推送 |
+| 当前阶段 | Phase 13D ReviewMemoryAgent 纵向切片 |
+| 最近完成任务 | Phase 13 Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（`b6c1cdf` 已推送） |
+| 当前任务 | Task 10：ReviewMemoryAgent 纵向切片 |
+| 当前任务状态 | `COMMIT` |
+| 当前子步骤 | 专项、完整 unit/integration、严格编码和审查已通过；正在暂存、提交和推送 |
 | 当前分支 | `main` |
-| 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=204aec0` |
+| 当前业务基线 | `b6c1cdf feat: govern post live memory promotion` |
+| 远端状态 | `origin/main=b6c1cdf` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 9
-状态: VERIFY_COMPLETE
-目标: 三个播后 Skill、MemoryCandidate Store、PromotionCommand 与双 DecisionTrace 的确定性记忆晋升闭环
-禁止事项: Task 11 预检前不调用真实模型；不得让 Agent 自由文本写入 active memory；不得自动跨主播或跨房间晋升
-当前 HEAD: 204aec0
-本 Task 文件: Catalog/Handler、Candidate Store、PromotionPolicy、Phase 13 PostgreSQL DDL 与 Task 9 专项/集成测试
+Phase / Task: Phase 13 / Task 10
+状态: COMMIT
+目标: ReviewMemoryAgent 的受限输出、三分类 macro-F1、80 例配对评估与 PostgreSQL 重启恢复
+禁止事项: Task 11 预检前不调用真实模型；不得让 Agent 自由文本写入 active memory；不得绕过白名单、PromotionPolicy 或证据作用域
+当前 HEAD: b6c1cdf
+本 Task 文件: ReviewMemory Runtime/Evaluator、数据集 Manifest、专项单元与集成测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 9 专项/PG 闭环 8 passed；完整 unit 1155 passed/exit 0；完整 integration 116 passed、3 deselected/exit 0；真实模型费用 0 元
-错误与尝试次数: Catalog 14->17、Manifest 源码摘要和旧 Facade 暴露播后 Handler 均有预期 RED 并已修复
-设计偏差与决策编号: 无新决策；三播后 Skill 均只处理显式快照或 Candidate Store，Policy 才能写模板 active memory
-下一条精确操作: 严格编码检查、暂存 Task 9 目标文件，提交并推送 feat: govern post live memory promotion
+最近命令与结果: Task 10 专项 unit/integration `11 passed`，相关数据集/Runner/LiveOps/Planner 回归 `66 passed`；完整 unit `1164 passed, 4 warnings`；完整 integration `118 passed, 3 deselected, 5 warnings`；真实模型费用 0 元
+错误与尝试次数: 初始缺模块 RED；发现 replay 主信号泄漏导致 baseline 40/40；发现多候选 Schema 可规避 macro-F1；均已由 D-111、红灯和最小修复收口
+设计偏差与决策编号: D-111 固定单候选、冻结货盘白名单、库存优先 baseline 与三分类 macro-F1；未改变预算、样本或严格 AND 保留门
+下一条精确操作: 只暂存 Task 10 目标文件，复查 staged diff 后提交并推送 `feat: evaluate review memory specialist`
 模型费用累计: 0 元
 ```
 

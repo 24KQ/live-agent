@@ -1224,3 +1224,14 @@
 - **未选理由**：放宽门破坏用户硬边界；必然拒绝不能衡量 Agent 价值；只改评分会让 baseline 100% 并继续造成数学冲突。
 - **影响**：Task 7 先生成新 LiveOps 数据版本和 Manifest，再实现评分、四个 validation shard 与 holdout 解封；早停使用整数目标，40 例 action/recovery 目标分别为 `max(36, baseline+2)` 与 `max(34, baseline+4)`。Task 11 正式 Manifest 只能引用修正版数据身份。
 - **重新评估条件**：真实人工标注集提供不同的可接受动作或 incident 分母定义时，新增决策和数据版本，不覆盖既有正式结论。
+
+## D-111：ReviewMemory 单候选输出、白名单评分与真实 macro-F1
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 RED/复审发现，单个 ReviewMemory case 只有一个分类标签，但结果 Schema 允许任意多个候选；模型可并列输出全部类别造成虚假命中。与此同时，直接使用 replay 主信号作为 baseline 归因会复制与 gold 同源的事实，使 +5pp 门在 40 个 validation case 上数学不可达。
+- **候选方案**：保留多候选数组并按任意命中计分；降低或取消相对门；每 case 限制一个结构化 candidate，并以冻结标签重建三分类 macro-F1。
+- **最终选择**：`memory_candidates` 必须恰有一个结构化 candidate，Pydantic 模型和冻结 JSON Schema 同步限制 `minItems=1/maxItems=1`；候选商品、类目和标签必须命中同一 case 的冻结货盘白名单，否则为严重违规。baseline 使用固定库存优先规则，不读取与 gold 等价的 replay 主信号。ReviewMemory validation 以 APPLY/REJECT/REVIEW 混淆矩阵计算 macro-F1，满足 `>=0.85` 且较 baseline `+0.10`，归因仍满足 `>=90%` 且 `+5pp`。
+- **选择理由**：单候选标签、结果 Schema、Runner 评估和 PromotionPolicy 的输入语义一致；严格 AND 门保持不变，同时消除数据泄漏和评分投机。
+- **未选理由**：任意命中会奖励覆盖式猜测；降低门破坏用户硬边界；用 replay 主信号作 baseline 不构成独立确定性对照。
+- **影响**：Task 10 重新生成数据集基线 Manifest 的源码/Schema 摘要；Task 11 仍必须基于最终 Git commit 生成新的正式 Manifest。selected Attempt 恢复时显式加载 evaluator-only 冻结标签，不能从 Agent 输出推导 gold。
+- **重新评估条件**：未来一个 case 需要评估多条独立 candidate 时，必须新增带集合标签、匹配规则与宏指标定义的决策，不能放宽当前单候选 Schema。

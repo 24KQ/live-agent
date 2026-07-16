@@ -568,3 +568,11 @@
 - 实现内存/PostgreSQL Candidate Store、命令幂等、乐观版本转换和确定性 PromotionPolicy；双 DecisionTrace、同作用域和货盘白名单通过后才写模板 active memory。
 - `model_copy` 夹带的自由文本、单证据、跨作用域和白名单不匹配均 fail-closed；旧播前兼容 Facade 不注册缺少播后依赖的 Handler。
 - Task 9 专项/真实 PostgreSQL `8 passed`；完整 unit `1155 passed, 4 warnings`；完整 integration `116 passed, 3 deselected, 5 warnings`；真实模型费用 0 元。
+- Task 9 已以 `b6c1cdf feat: govern post live memory promotion` 提交并推送；Task 10 进入 RED。
+
+# 2026-07-16 Phase 13 Task 10（验证中）
+
+- 新增受限 ReviewMemory 输出/Profile/adapter、确定性库存优先 baseline、paired evaluator 和三分类 macro-F1；Agent 只能 stage 单一结构化 candidate，不能写 active memory 或自由文本。
+- D-111 固定单候选 JSON Schema/Pydantic 边界、冻结货盘白名单严重违规、避免 replay 主信号泄漏的 baseline，以及真实 macro-F1 门。
+- 80 个冻结 case 已经真实 BoundedSpecialistRunner、AUDIT EvidenceResolver、ScriptedModel 和 Evaluation Store 配对；40 validation selected facts 可重建并解锁 holdout。
+- PostgreSQL 重启恢复、Task 10 专项共 `11 passed`，相关数据集/Runner/LiveOps/Planner 回归 `66 passed`；完整 unit `1164 passed, 4 warnings`，完整 integration `118 passed, 3 deselected, 5 warnings`，严格目标编码与 `git diff --check` 通过；真实模型费用仍为 0 元，待提交推送。

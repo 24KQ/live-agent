@@ -380,6 +380,13 @@
 - Planner 只声明能力、DAG 和受限输入绑定；Skill 版本、风险、deadline、资源键和并发必须由 Catalog/Compiler 注入。输出可信编译证据不等于创建 PlanRun，避免在 Phase 13 扩大 Phase 12A PlanEngine 范围。
 - 全量 integration 中的历史记忆回滚用例必须隔离 embedding 网络调用；该用例的断言对象是 PostgreSQL 事务回滚，固定本地 embedding 结果可防止外部模型等待掩盖数据库语义。
 
+## 2026-07-16 Phase 13 Task 10 发现
+
+- 单 case 只有一个 ReviewMemory 分类标签时，输出数组必须同样限制为一个 candidate；否则任意命中评分会奖励并列输出所有类别，无法代表 macro-F1。
+- replay 的 dominant signal 与 review gold 归因同源，确定性 baseline 直接复制它会达到 40/40 并使相对提升门不可达；固定库存优先规则保留可审计且可重复的真实对照。
+- ReviewMemory 的分类门必须从 APPLY/REJECT/REVIEW 混淆矩阵计算 macro-F1，不能把多数类逐例正确率冒充为 macro-F1。恢复时读取 evaluator-only 冻结标签与 selected output，不从 Agent 输出反推 gold。
+- 货盘白名单是与 DecisionTrace 同级的冻结事实。候选商品、类目或标签越界即为严重违规，不能只依赖 PromotionPolicy 在后续阶段兜底。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
