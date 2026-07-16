@@ -167,7 +167,25 @@ class FormalEvaluationCoordinator:
 
         for offset in range(0, len(validation_cases), self._SHARD_SIZE):
             for case in validation_cases[offset : offset + self._SHARD_SIZE]:
-                await self._record_case(run=run, claim=claim, slice_=slice_, case=case)
+                try:
+                    await self._record_case(run=run, claim=claim, slice_=slice_, case=case)
+                except ValueError as error:
+                    # 三个领域 recorder 在写入前把 MODEL_ERROR/BUDGET_EXCEEDED 识别为
+                    # 外部基础设施事实，防止只留下 baseline 的半个 pair。此时必须终结为
+                    # INCONCLUSIVE，且不能重试或以 baseline 冒充 Agent 成功。
+                    if "infrastructure failure requires Task 11" not in str(error):
+                        raise
+                    return self._persist_decision(
+                        run=run,
+                        claim=claim,
+                        outcome=CandidateRetentionOutcome(
+                            RetentionDecision.INCONCLUSIVE,
+                            "EXTERNAL_EVIDENCE_INSUFFICIENT",
+                        ),
+                        validation_metrics=(),
+                        holdout_metrics=(),
+                        external_evidence_sufficient=False,
+                    )
             gate = slice_.rebuild_validation_gate(run=run)
             if self._gate_status(gate) == "REJECTED":
                 return self._persist_decision(
@@ -296,6 +314,7 @@ class FormalEvaluationCoordinator:
         outcome: CandidateRetentionOutcome,
         validation_metrics: tuple[PairedMetric, ...],
         holdout_metrics: tuple[PairedMetric, ...],
+        external_evidence_sufficient: bool = True,
     ) -> FormalCandidateEvaluationReport:
         """把 outcome 与从 Attempt 重建的计数一起持久化，调用方不能伪造完成度。"""
 
@@ -308,7 +327,7 @@ class FormalEvaluationCoordinator:
             candidate=run.candidate,
             decision=outcome.decision,
             reason_code=outcome.reason_code,
-            external_evidence_sufficient=True,
+            external_evidence_sufficient=external_evidence_sufficient,
             severe_violation_count=severe_count,
             metrics_digest=self._store.metrics_digest(run.run_id),
             completed_validation_cases=validation_count,
