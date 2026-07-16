@@ -27,6 +27,7 @@ from src.specialist_evaluation.runner import (
     verify_formal_pricing_snapshot,
 )
 from src.specialist_evaluation.store import (
+    EvaluationInvariantError,
     PostgresSpecialistEvaluationStore,
     initialize_specialist_evaluation_schema,
 )
@@ -83,7 +84,16 @@ def main() -> int:
     reports = {}
     for candidate in EvaluationCandidate:
         run = EvaluationRun(run_id=f"{manifest.manifest_id}:{candidate.value.lower()}", manifest_id=manifest.manifest_id, manifest_digest=manifest.manifest_digest, candidate=candidate)
-        store.create_run(run, authorization=authorization)
+        try:
+            store.create_run(run, authorization=authorization)
+        except EvaluationInvariantError as error:
+            # 同一 Manifest/Candidate 已有终局结论时，重放只能读取原证据并继续后续候选；
+            # 绝不能为了“重新运行”创建新 Run 或重新向模型发送请求。
+            if "retention decision already exists" not in str(error):
+                raise
+            decision = store.get_retention_decision(run.run_id)
+            reports[candidate.value] = {"decision": decision.decision.value, "reason_code": decision.reason_code, "run_id": run.run_id}
+            continue
         claim = store.claim_next_run("phase13-formal-cli", manifest_id=manifest.manifest_id)
         if claim is None or claim.run_id != run.run_id:
             raise RuntimeError("formal evaluation run claim failed")
