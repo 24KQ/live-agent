@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13D ReviewMemoryAgent 纵向切片 |
-| 最近完成任务 | Phase 13 Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（`b6c1cdf` 已推送） |
-| 当前任务 | Task 10：ReviewMemoryAgent 纵向切片 |
-| 当前任务状态 | `COMMIT` |
-| 当前子步骤 | 专项、完整 unit/integration、严格编码和审查已通过；正在暂存、提交和推送 |
+| 最近完成任务 | Phase 13 Task 10：ReviewMemoryAgent 纵向切片（`e12de15` 已推送） |
+| 当前任务 | Task 11：正式评估、早停与条件生产接入 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | 正在冻结 Task 11 的预检、正式 Manifest、ScriptedModel 演练和去留红灯 |
 | 当前分支 | `main` |
-| 当前业务基线 | `b6c1cdf feat: govern post live memory promotion` |
-| 远端状态 | `origin/main=b6c1cdf` |
+| 当前业务基线 | `e12de15 feat: evaluate review memory specialist` |
+| 远端状态 | `origin/main=e12de15` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 10
-状态: COMMIT
-目标: ReviewMemoryAgent 的受限输出、三分类 macro-F1、80 例配对评估与 PostgreSQL 重启恢复
-禁止事项: Task 11 预检前不调用真实模型；不得让 Agent 自由文本写入 active memory；不得绕过白名单、PromotionPolicy 或证据作用域
-当前 HEAD: b6c1cdf
-本 Task 文件: ReviewMemory Runtime/Evaluator、数据集 Manifest、专项单元与集成测试
+Phase / Task: Phase 13 / Task 11
+状态: RED
+目标: 正式 Manifest 预检、ScriptedModel 全流程演练、严格早停与三个候选的可审计去留结论
+禁止事项: endpoint、价格、usage、哈希和预算预检前不调用真实模型；不得将 Task 6 数据集基线冒充正式 Run；未保留候选不得注册生产 Profile
+当前 HEAD: e12de15
+本 Task 文件: 正式 Evaluation Runner/CLI、预检、Retention 测试与 PostgreSQL 集成测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 10 专项 unit/integration `11 passed`，相关数据集/Runner/LiveOps/Planner 回归 `66 passed`；完整 unit `1164 passed, 4 warnings`；完整 integration `118 passed, 3 deselected, 5 warnings`；真实模型费用 0 元
-错误与尝试次数: 初始缺模块 RED；发现 replay 主信号泄漏导致 baseline 40/40；发现多候选 Schema 可规避 macro-F1；均已由 D-111、红灯和最小修复收口
-设计偏差与决策编号: D-111 固定单候选、冻结货盘白名单、库存优先 baseline 与三分类 macro-F1；未改变预算、样本或严格 AND 保留门
-下一条精确操作: 只暂存 Task 10 目标文件，复查 staged diff 后提交并推送 `feat: evaluate review memory specialist`
+最近命令与结果: Task 10 专项 `11 passed`，相关回归 `66 passed`，完整 unit `1164 passed, 4 warnings`，完整 integration `118 passed, 3 deselected, 5 warnings`；提交 `e12de15` 已推送；真实模型费用 0 元
+错误与尝试次数: Task 10 的 baseline 泄漏和多候选评分绕过已由 D-111 收口；Task 11 尚未开始 RED
+设计偏差与决策编号: D-111 固定单候选、冻结货盘白名单、库存优先 baseline 与三分类 macro-F1；Task 11 不得放宽预检或保留门
+下一条精确操作: 读取 Task 11 计划与 Task 6 FormalManifest/Store 约束，编写正式预检拒绝不可信 Manifest 的 RED
 模型费用累计: 0 元
 ```
 
