@@ -30,6 +30,7 @@ def test_default_registry_contains_pre_live_tools() -> None:
         "aggregate_danmaku_questions",
         "generate_danmaku_reply",
         "on_live_context_collect",
+        "retrieve_anchor_memory",
     }
 
 

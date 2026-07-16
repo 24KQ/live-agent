@@ -1,6 +1,6 @@
 """Phase 11A Skill Catalog 测试。
 
-测试覆盖：默认 Catalog 包含 13 个工具、ID 唯一、版本固定、
+测试覆盖：默认 Catalog 包含 14 个 Skill、ID 唯一、版本固定、
 Schema 合法性、9 个未迁移工具严格一致、4 个核心工具的 Schema
 差异受控且记录 compatibility_note、ToolRegistry 兼容投影。
 """
@@ -36,6 +36,7 @@ FROZEN_NON_CORE_METADATA_HASHES = {
 # 改价与售罄写分别因显式 CAS、可信事件授权升级公开契约；它们不再属于 Phase 11A
 # 冻结的未迁移元数据集合，其余七项仍必须逐字段保持不变。
 VERSIONED_SKILLS = frozenset({"set_product_price", "handle_sold_out_event"})
+PHASE13_SKILLS = frozenset({"retrieve_anchor_memory"})
 
 
 def _manifest(skill_id: str) -> SkillManifest:
@@ -59,10 +60,10 @@ def _product_snapshot() -> dict:
     }
 
 
-def test_default_catalog_contains_13_skills() -> None:
-    """默认 Catalog 必须包含当前全部 13 个工具。"""
+def test_default_catalog_contains_14_skills() -> None:
+    """默认 Catalog 必须包含原有 13 个能力和 Phase 13 记忆读取 Skill。"""
     catalog = get_default_skill_catalog()
-    assert len(catalog) == 13
+    assert len(catalog) == 14
 
 
 def test_all_skill_ids_are_unique() -> None:
@@ -72,11 +73,11 @@ def test_all_skill_ids_are_unique() -> None:
     assert len(ids) == len(set(ids))
 
 
-def test_catalog_has_eleven_v1_skills_and_two_versioned_writes() -> None:
-    """改价与售罄写必须分别钉住单活 1.1.0 和 2.0.0。"""
+def test_catalog_has_twelve_v1_skills_and_two_versioned_writes() -> None:
+    """新增记忆读取保持 1.0.0，改价与售罄写继续使用升级后的单活版本。"""
     versions = {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
 
-    assert list(versions.values()).count("1.0.0") == 11
+    assert list(versions.values()).count("1.0.0") == 12
     assert versions["set_product_price"] == "1.1.0"
     assert versions["handle_sold_out_event"] == "2.0.0"
 
@@ -126,7 +127,7 @@ def test_non_core_skills_strict_match_frozen_metadata() -> None:
     """剩余 7 个未迁移工具的字段必须与冻结 ToolMetadata 完全一致。"""
     manifests = {item.skill_id: item for item in get_default_skill_catalog()}
     assert set(FROZEN_NON_CORE_METADATA_HASHES) == (
-        set(manifests) - CORE_SKILLS - VERSIONED_SKILLS
+        set(manifests) - CORE_SKILLS - VERSIONED_SKILLS - PHASE13_SKILLS
     )
 
     for skill_id, expected_hash in FROZEN_NON_CORE_METADATA_HASHES.items():
@@ -149,11 +150,11 @@ def test_non_core_skills_strict_match_frozen_metadata() -> None:
         assert manifest.compatibility_note is None
 
 
-def test_only_four_core_skills_have_compatibility_notes() -> None:
-    """只有 4 个核心工具可以有 compatibility_note。"""
+def test_only_schema_migration_skills_have_compatibility_notes() -> None:
+    """兼容说明只允许用于四个旧核心能力和 Phase 13 新增的脱敏读取契约。"""
     catalog = get_default_skill_catalog()
     for manifest in catalog:
-        if manifest.skill_id in CORE_SKILLS:
+        if manifest.skill_id in CORE_SKILLS | PHASE13_SKILLS:
             assert manifest.compatibility_note is not None, (
                 f"{manifest.skill_id} should have compatibility_note describing schema delta"
             )

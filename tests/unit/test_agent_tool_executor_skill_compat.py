@@ -869,4 +869,8 @@ def test_non_core_legacy_cases_cover_exactly_the_default_catalog_remainder() -> 
         }
     }
 
-    assert catalog_non_core == expected_non_core | {"handle_sold_out_event"}
+    # Phase 13 记忆读取不属于 AgentToolExecutor 的四个兼容核心工具，必须由带受控
+    # MemoryStore 的统一 Runtime 单独装配，不能被误纳入 Legacy 参数化分支。
+    assert catalog_non_core - {"retrieve_anchor_memory"} == expected_non_core | {
+        "handle_sold_out_event"
+    }

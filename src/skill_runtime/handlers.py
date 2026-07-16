@@ -10,9 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 from src.core.pre_live_business_flow import PreLiveBusinessFlowService
+from src.memory.models import AnchorMemoryEntry, MemoryLayer, MemoryStatus
 from src.skill_runtime.executor import _SkillHandler, _SkillHandlerResult
 from src.skill_runtime.models import (
     AdapterRequest,
@@ -40,6 +41,18 @@ from src.skills.product_catalog import CatalogProduct
 from src.state.models import LiveRoomState, Product
 
 
+class AnchorMemoryReadPort(Protocol):
+    """播前记忆 Skill 只依赖的最小同步只读 Store 端口。"""
+
+    def list_memories(
+        self,
+        anchor_id: str,
+        room_id: str | None = None,
+        layer: MemoryLayer | None = None,
+    ) -> list[AnchorMemoryEntry]:
+        """返回主播级和当前房间记忆；Handler 仍会执行二次作用域过滤。"""
+
+
 @dataclass(frozen=True)
 class SkillRuntimeDependencies:
     """统一 Handler 工厂的局部依赖。
@@ -51,6 +64,7 @@ class SkillRuntimeDependencies:
 
     platform: ProductPricingPort | LiveSessionPort | LiveOperationsPort
     legacy_pre_live_service: PreLiveBusinessFlowService | None = None
+    memory_port: AnchorMemoryReadPort | None = None
 
     @property
     def product_pricing_port(self) -> ProductPricingPort:
@@ -71,7 +85,7 @@ class SkillRuntimeDependencies:
 def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _SkillHandler]:
     """为一个 Runtime 实例构建局部 Handler 映射。
 
-    返回值包含全部 13 个 Skill 的装配入口。批次一、批次二和批次三均已接入统一
+    返回值包含全部 14 个 Skill 的装配入口。批次一、批次二和批次三均已接入统一
     执行契约；每个外部能力只经对应业务域 Port，禁止静默回退旧执行路径。
     """
     batch_one: dict[str, _SkillHandler] = {
@@ -91,10 +105,80 @@ def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _S
     }
     return {
         **batch_one,
+        "retrieve_anchor_memory": _RetrieveAnchorMemoryHandler(dependencies.memory_port),
         "setup_live_session": _SetupLiveSessionHandler(dependencies.live_session_port),
         "handle_sold_out_event": _HandleSoldOutEventHandler(dependencies.live_operations_port),
         "set_product_price": _SetProductPriceHandler(dependencies.product_pricing_port),
     }
+
+
+class _RetrieveAnchorMemoryHandler(_SkillHandler):
+    """读取同主播作用域的 active 记忆，并投影为不含自由文本的结构化引用。"""
+
+    _SAFE_METADATA_FIELDS = {
+        "preferred_category",
+        "preferred_tags",
+        "preferred_product_ids",
+        "template_key",
+        "tag",
+    }
+
+    def __init__(self, port: AnchorMemoryReadPort | None) -> None:
+        self._port = port
+
+    async def execute(
+        self,
+        skill_id: str,
+        arguments: dict[str, Any],
+        context: SkillExecutionContext,
+    ) -> dict[str, Any]:
+        """在访问 Store 前校验 room，在返回后再次过滤 anchor/room/status。"""
+
+        if self._port is None:
+            raise RuntimeError("retrieve_anchor_memory requires memory_port")
+        anchor_id = arguments["anchor_id"]
+        room_id = arguments["room_id"]
+        limit = int(arguments["limit"])
+        if room_id != context.room_id:
+            raise ValueError("retrieve_anchor_memory room_id does not match trusted context")
+        memories = self._port.list_memories(anchor_id=anchor_id, room_id=room_id)
+        scoped = [
+            memory
+            for memory in memories
+            if memory.status is MemoryStatus.ACTIVE
+            and memory.anchor_id == anchor_id
+            and memory.room_id in {None, room_id}
+            and memory.memory_id is not None
+        ]
+        # 即使 Port 替身没有按生产 SQL 排序，Skill 输出也保持跨实现稳定。
+        scoped.sort(
+            key=lambda memory: (
+                -memory.created_at.timestamp(),
+                memory.memory_id or "",
+            )
+        )
+        return {
+            "memory_refs": [self._project_memory(memory) for memory in scoped[:limit]]
+        }
+
+    @classmethod
+    def _project_memory(cls, memory: AnchorMemoryEntry) -> dict[str, Any]:
+        """只投影排品允许消费的结构化字段，绝不回显 content 或任意 metadata。"""
+
+        metadata = {
+            key: value
+            for key, value in memory.metadata.items()
+            if key in cls._SAFE_METADATA_FIELDS
+        }
+        return {
+            "memory_id": memory.memory_id,
+            "memory_key": memory.memory_key,
+            "layer": memory.layer.value,
+            "source": memory.source.value,
+            "confidence": str(memory.confidence),
+            "evidence_weight": str(memory.evidence_weight),
+            **metadata,
+        }
 
 
 class _QueryProductsHandler(_SkillHandler):

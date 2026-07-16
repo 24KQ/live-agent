@@ -551,3 +551,11 @@
 - 提交前复审发现 infrastructure AgentResult 会在 baseline selected 后失败，留下半 pair；已新增模型错误/预算错误红灯并改为 Store 写入前拒绝，Task 7 unit 更新为 `17 passed`。
 - 最终完整验证已明确捕获退出码：unit `1138 passed, 4 warnings`，integration `113 passed, 3 deselected, 5 warnings`，相关 Harness/Preemption/Store/Skill 权限聚合 `182 passed`；规格与质量复审无剩余 Critical/Important，真实模型费用 0 元。
 - Task 7 已以 `4b26a31 feat: evaluate live ops specialist` 提交并推送，远端 `origin/main` 与本地 HEAD 一致；下一任务为 Task 8 PlannerAgent，尚未开始代码修改。
+
+# 2026-07-16 Phase 13 Task 8（验证完成，待提交）
+
+- 新增 `retrieve_anchor_memory@1.0.0`，严格要求 anchor/room/limit，Handler 按可信 room 二次校验，只返回 active、同主播、当前房间或主播级的白名单结构化引用，不返回正文、embedding、抑制理由或任意 metadata。
+- Catalog 增至 14 个单活 Skill。旧播前兼容 Facade 保持 13 个可执行 Handler，防止在没有 `memory_port` 时暴露必然失败的伪入口；ToolRegistry/PolicyView 仍正确投影新增只读 Skill。
+- 新增 Planner 的受限节点、依赖、绑定、循环与执行控制字段校验，Compiler 从 Catalog 注入版本、风险、deadline、资源锁和并发，正式 Runner Profile 固定为 0 次 Skill 调用。
+- 使用 80 个冻结 Planner case 经真实 BoundedSpecialistRunner、ScriptedModel 和 Evaluation Store 完成配对；四个 validation shard 完整后才解锁 holdout，评分使用 executable/constraint recovery 两个独立指标。
+- 修订 `phase13-v2` 数据 Manifest 的源码闭包摘要。Task 8 专项及相关回归 `104 passed`，完整 unit `1148 passed, 4 warnings`，完整 integration `115 passed, 3 deselected, 5 warnings`；真实模型费用仍为 0 元。

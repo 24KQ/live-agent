@@ -2,8 +2,9 @@
 
 旧导入路径仍由 Graph、Facade 和测试使用，但这里不再维护第二套播前 Handler
 业务逻辑。实际 Handler 均来自统一 `build_skill_handlers()` 工厂；本文件只负责
-把既有 PreLiveBusinessFlowService 包装成兼容 Platform Port，并注册统一工厂的
-全部 13 个入口。Phase 11A 播前外观保持不变；Phase 11B 批次一路由打开时，
+把既有 PreLiveBusinessFlowService 包装成兼容 Platform Port，并注册原有 13 个兼容入口。
+Phase 13 的记忆读取必须由显式 MemoryStore 装配，不能在旧外观中注册一个无依赖 Handler。
+Phase 11A 播前外观保持不变；Phase 11B 批次一路由打开时，
 AgentToolExecutor 默认装配也能执行已迁移的批次一 Handler。
 """
 
@@ -161,16 +162,20 @@ def build_pre_live_handlers(
 ) -> dict[str, _SkillHandler]:
     """为单个 Executor 创建 13 个 Skill 的局部兼容映射。"""
     resolved_service = service or _get_service()
-    return build_skill_handlers(
+    handlers = build_skill_handlers(
         SkillRuntimeDependencies(
             platform=_PreLiveServiceProductPort(resolved_service),
             legacy_pre_live_service=resolved_service,
         )
     )
+    # 兼容 Facade 只拥有旧播前服务，不能伪造 MemoryStore 依赖。若未来调用方需要
+    # retrieve_anchor_memory，必须直接使用统一工厂并显式传入受控的 memory_port。
+    handlers.pop("retrieve_anchor_memory")
+    return handlers
 
 
 def register_pre_live_handlers(service: PreLiveBusinessFlowService | None = None) -> None:
-    """注册 13 个 Handler，保持既有导入副作用兼容。"""
+    """注册 13 个旧兼容 Handler，保持既有导入副作用兼容。"""
     for skill_id, handler in build_pre_live_handlers(service).items():
         register_handler(skill_id, handler)
 

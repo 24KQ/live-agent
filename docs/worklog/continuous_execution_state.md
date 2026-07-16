@@ -10,9 +10,9 @@
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
 | 最近完成任务 | Phase 13 Task 7：LiveOpsAgent 纵向切片（`4b26a31` 已推送） |
-| 下一任务 | Task 8：PlannerAgent 与记忆读取切片 |
-| 下一任务状态 | `READY` |
-| 当前子步骤 | Task 7 PUSHED：等待进入 Task 8 RED |
+| 当前任务 | Task 8：PlannerAgent 与记忆读取切片 |
+| 当前任务状态 | `VERIFY_COMPLETE` |
+| 当前子步骤 | Task 8 通过完整回归，等待独立提交与推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
 | 远端状态 | `origin/main=4b26a31` |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 7
-状态: PUSHED
-目标: LiveOpsAgent baseline、受限候选适配、双指标、四分片早停与 holdout 解封已完成
-禁止事项: Task 11 预检前不调用真实模型；Task 8 不接查询商品、建播或高风险写 Skill
-当前 HEAD: 4b26a31
-本 Task 文件: Task 7 已提交；下一任务文件边界以 Task 8 Implementation Plan 为准
+Phase / Task: Phase 13 / Task 8
+状态: VERIFY_COMPLETE
+目标: 只读记忆 Skill、零 Skill Planner、受限 Candidate DAG、可信编译证据与 80 例 ScriptedModel 配对评估
+禁止事项: Task 11 预检前不调用真实模型；不扩展生产 PlanEngine；不让 Planner 查询商品、建播或调用高风险写 Skill
+当前 HEAD: 5f31383
+本 Task 文件: Catalog/Handler、Planner Runtime/Evaluation、数据集 Manifest 与 Task 8 专项/集成测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 7 unit 17 passed；最终完整 unit 1138 passed/exit 0；integration 113 passed、3 deselected/exit 0；Harness/Preemption/Store/权限聚合 182 passed/exit 0
-错误与尝试次数: 缺 adapter、v3 anchor、重复 selected、v2/v3 资产边界和 infrastructure 半 pair 均有独立 RED，并已修复转绿
-设计偏差与决策编号: D-110 版本化修正 LiveOps case/label 与评分语义；v3 EvidenceRef 增加稳定 case anchor 以满足既有 Task 4 Resolver 边界
-下一条精确操作: 进入 Task 8 RED，先验证 retrieve_anchor_memory Manifest/Handler 与 Planner 受限提案契约
+最近命令与结果: Task 8 专项/相关回归 104 passed；完整 unit 1148 passed/exit 0；完整 integration 115 passed、3 deselected/exit 0；compileall 与 diff 通过
+错误与尝试次数: 旧 13 Skill 断言 5 项 RED 后更新为 14；旧 MemoryStore 回滚集成用例暴露真实 embedding 网络等待，已注入本地结果并回归 3 passed；无业务契约放宽
+设计偏差与决策编号: 无新架构决策；Planner 编译仅输出可信执行能力证据，不创建或扩展 PlanEngine PlanRun；旧兼容 Facade 不暴露无 MemoryStore 的伪 Handler
+下一条精确操作: 严格编码检查和暂存 Task 8 目标文件，提交并推送 feat: evaluate planner specialist
 模型费用累计: 0 元
 ```
 

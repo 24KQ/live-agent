@@ -54,5 +54,6 @@ def test_all_manifests_have_phase11b_attempt_cap() -> None:
     """所有首版 Skill 必须显式拥有一致的单次尝试上限，避免运行时隐式无限等待。"""
     manifests = get_default_skill_catalog()
 
-    assert len(manifests) == 13
+    # Phase 13 新增只读记忆 Skill 后，全部 Manifest 仍必须保留统一单次尝试上限。
+    assert len(manifests) == 14
     assert {manifest.max_attempt_seconds for manifest in manifests} == {15}

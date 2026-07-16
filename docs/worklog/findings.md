@@ -373,6 +373,13 @@
 - `phase13-v2` 生成器原本递归收集整个 cases/labels 目录，导致独立 v3 资产反向改变 v2 的 Manifest。v2 现在仅绑定自身 `phase13` 子树，完整源码闭包仍独立覆盖所有评估代码。
 - infrastructure Attempt 按 Task 5 约束不得进入 selected。LiveOps recorder 若先选择 baseline 再处理模型/预算失败，会留下半个正式 pair；因此该状态必须在任何 Store 写入前交给 Task 11 的重试或 INCONCLUSIVE 流程。
 
+## 2026-07-16 Phase 13 Task 8 发现
+
+- Catalog 新增可执行 Skill 时，历史“固定 13 个能力”的测试、ToolRegistry 投影与低信任工具掩码都必须显式更新；否则旧基线会把已审核的新增只读能力误判为回归。
+- 兼容 Facade 不能注册缺少受控依赖的 Handler。`retrieve_anchor_memory` 只能由显式提供 `memory_port` 的统一 Runtime 装配，旧播前 Facade 保持原有 13 个可执行 Handler。
+- Planner 只声明能力、DAG 和受限输入绑定；Skill 版本、风险、deadline、资源键和并发必须由 Catalog/Compiler 注入。输出可信编译证据不等于创建 PlanRun，避免在 Phase 13 扩大 Phase 12A PlanEngine 范围。
+- 全量 integration 中的历史记忆回滚用例必须隔离 embedding 网络调用；该用例的断言对象是 PostgreSQL 事务回滚，固定本地 embedding 结果可防止外部模型等待掩盖数据库语义。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

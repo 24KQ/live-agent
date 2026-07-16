@@ -18,6 +18,7 @@ from src.memory.memory_aware_plan import MemoryAwarePlanService
 from src.memory.memory_retrieval import MemoryRetriever
 from src.memory.memory_store import MemoryStore
 from src.memory.models import AnchorAction, AnchorMemoryEntry, BusinessResult, MemoryLayer, MemorySource, MemoryStatus
+from src.skills.embedding_service import EmbeddingService
 from src.skills.demo_data_seed import initialize_phase2_schema, seed_phase2_demo_data
 from src.skills.product_catalog import ProductCatalogRepository
 
@@ -114,9 +115,12 @@ def test_memory_key_cannot_move_between_rooms_for_same_anchor() -> None:
     assert reloaded.status == MemoryStatus.ACTIVE
 
 
-def test_revision_rolls_back_suppression_when_new_memory_write_fails() -> None:
+def test_revision_rolls_back_suppression_when_new_memory_write_fails(monkeypatch) -> None:
     """新记忆写入失败时，旧记忆不能被永久压制。"""
 
+    # 本用例只验证 JSON 序列化异常触发的数据库回滚；固定本地 embedding 结果，避免
+    # 测试路径访问外部模型端点，也避免网络等待掩盖真正要断言的事务语义。
+    monkeypatch.setattr(EmbeddingService, "embed", lambda _self, _content: [])
     settings = get_settings()
     initialize_phase2_schema(settings)
     seed_phase2_demo_data(settings)

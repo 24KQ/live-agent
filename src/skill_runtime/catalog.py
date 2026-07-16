@@ -1,6 +1,6 @@
 """Phase 11A Skill Catalog。
 
-13 个 SkillManifest 的唯一事实源。Catalog 在应用启动时统一校验所有 Manifest，
+14 个 SkillManifest 的唯一事实源。Catalog 在应用启动时统一校验所有 Manifest，
 非法 Schema、重复 ID 或空版本导致 Catalog 构建失败。
 
 ToolRegistry 通过本 Catalog 的只读投影生成，不再维护独立元数据。
@@ -120,6 +120,19 @@ _SETUP_LIVE_SESSION_SCHEMA: dict = {
             },
             "additionalProperties": False,
         },
+    },
+    "additionalProperties": False,
+}
+
+# retrieve_anchor_memory：主播与房间属于显式业务作用域，Handler 还会与可信 Context
+# 交叉校验；limit 固定上限避免模型或调用方把只读查询扩大成批量数据导出。
+_RETRIEVE_ANCHOR_MEMORY_SCHEMA: dict = {
+    "type": "object",
+    "required": ["anchor_id", "room_id", "limit"],
+    "properties": {
+        "anchor_id": {"type": "string", "minLength": 1},
+        "room_id": {"type": "string", "minLength": 1},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 20},
     },
     "additionalProperties": False,
 }
@@ -327,6 +340,15 @@ _MANIFESTS: tuple[SkillManifest, ...] = (
             "additionalProperties": False,
         },
         gate_decision=GateDecision.AUTO,
+    ),
+    SkillManifest(
+        skill_id="retrieve_anchor_memory",
+        description="按主播和直播间读取脱敏 active 记忆引用",
+        lifecycle=_PRE,
+        risk_level=RiskLevel.LOW,
+        parameter_schema=_RETRIEVE_ANCHOR_MEMORY_SCHEMA,
+        gate_decision=GateDecision.AUTO,
+        compatibility_note="只返回结构化白名单摘要，不返回记忆正文或 embedding",
     ),
 )
 

@@ -55,4 +55,5 @@ def test_low_trust_anchor_can_only_see_auto_tools() -> None:
 
     visible = policy.visible_tools(Decimal("0.39"), LifecycleStage.PRE_LIVE)
 
-    assert visible == ["query_products"]
+    # 记忆读取是 LOW/AUTO 的播前只读能力，与货盘查询一样可在低信任阶段暴露。
+    assert visible == ["query_products", "retrieve_anchor_memory"]

@@ -53,7 +53,7 @@ def test_policy_view_is_a_frozen_snapshot_not_a_live_sequence_alias() -> None:
     source.clear()
 
     assert view.skill_ids() == expected_ids
-    assert len(expected_ids) == 13
+    assert len(expected_ids) == 14
     with pytest.raises((AttributeError, FrozenInstanceError)):
         view._policies = {}
 
