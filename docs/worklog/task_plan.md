@@ -160,7 +160,9 @@
   - [x] Task 8：PlannerAgent 与记忆读取切片（`204aec0` 已推送）。
   - [x] Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（`b6c1cdf` 已推送）。
   - [x] Task 10：ReviewMemoryAgent 纵向切片（`e12de15` 已推送）。
-  - [ ] Task 11：正式评估预检、ScriptedModel 演练与候选去留结论（RED）。
+  - [x] Task 11：正式评估预检、ScriptedModel 演练与候选去留结论（`ca1e66d` 已推送）。
+  - [x] Task 12：Demo、业务附录与 Acceptance（`e7d6fbb` 已推送）。
+  - [x] Phase 13 Acceptance：0 个新增 Specialist Profile 被保留；停止在 Phase 14 Just-in-Time Gate。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

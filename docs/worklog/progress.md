@@ -576,3 +576,9 @@
 - D-111 固定单候选 JSON Schema/Pydantic 边界、冻结货盘白名单严重违规、避免 replay 主信号泄漏的 baseline，以及真实 macro-F1 门。
 - 80 个冻结 case 已经真实 BoundedSpecialistRunner、AUDIT EvidenceResolver、ScriptedModel 和 Evaluation Store 配对；40 validation selected facts 可重建并解锁 holdout。
 - PostgreSQL 重启恢复、Task 10 专项共 `11 passed`，相关数据集/Runner/LiveOps/Planner 回归 `66 passed`；完整 unit `1164 passed, 4 warnings`，完整 integration `118 passed, 3 deselected, 5 warnings`，严格目标编码与 `git diff --check` 通过；已提交推送为 `e12de15 feat: evaluate review memory specialist`，真实模型费用仍为 0 元，Task 11 进入 RED。
+
+# 2026-07-17 Phase 13 Task 11-12 与 Acceptance
+
+- 正式 Manifest、Git 源码闭包、HTTPS endpoint、价格快照与持久预算预检通过后执行真实模型；LiveOps 为 `REJECTED`，Planner 与 ReviewMemory 为 `INCONCLUSIVE`，0 个新增 Profile 接入生产。
+- 实际费用 `0.042344` CNY，Phase 14 的 `0.60` CNY 预留未使用。Demo 验证默认确定性路由、显式 Specialist 模式与禁止 Agent-to-Agent。
+- Acceptance 与 `live-session-p001-sold-out-v1` 只读附录已生成；Phase 状态转为 `AWAITING_PHASE_14_GATE`，未开始 Phase 14。

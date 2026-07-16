@@ -387,6 +387,12 @@
 - ReviewMemory 的分类门必须从 APPLY/REJECT/REVIEW 混淆矩阵计算 macro-F1，不能把多数类逐例正确率冒充为 macro-F1。恢复时读取 evaluator-only 冻结标签与 selected output，不从 Agent 输出反推 gold。
 - 货盘白名单是与 DecisionTrace 同级的冻结事实。候选商品、类目或标签越界即为严重违规，不能只依赖 PromotionPolicy 在后续阶段兜底。
 
+## 2026-07-17 Phase 13 Task 11-12 发现
+
+- D-110 的 LiveOps v3 case/label 必须进入正式 240-case 基线；保留 v2 审计资产并新增组合 `phase13-v3`，避免以淘汰标签得出正式结论。
+- 正式模型失败前不得选择 baseline Attempt；基础设施失败必须持久为 `INCONCLUSIVE`，规则数学早停必须为 `REJECTED`，两者都不允许 fallback 或第二次请求。
+- 本轮正式结论为 0 个新增 Specialist Profile 保留。统一 Profile/路由接口仍可支持未来受控多 Agent 扩展，但没有 A2A、动态 handoff 或生产默认切换。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
