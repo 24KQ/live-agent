@@ -539,3 +539,14 @@
 - 最终授权整改增加 Git/source digest 公开预检与内部注册证据；最新 Task 6 聚合 `128 passed`，真实 PostgreSQL Evaluation Store `8 passed`，真实模型费用仍为 0 元。
 - 再次复审后将授权门禁延伸到每次 create_run，并拒绝源码目录 symlink、ignored/untracked Python；最新聚合 `129 passed`、PostgreSQL `8 passed`。
 - Task 6 最终完整回归为 unit `1121 passed, 4 warnings`、integration `112 passed, 3 deselected, 5 warnings`；两轮最终复审均无 Critical/Important，真实模型费用 0 元。
+
+# 2026-07-16 Phase 13 Task 7（实施中）
+
+- Task 6 已以 `f13ae6e` 推送；Task 7 首轮缺模块 RED 后完成四类 PriorityLiveOpsPolicy、严格建议模型和冻结 Profile 工厂。
+- 发现 v2 label 与严格保留门数学冲突，新增 D-110；保留 v2 审计基线并生成独立 `phase13-live-ops-v3` case/label/Manifest。
+- v3 评分从 acceptable/recovery 动作集合计算，不复制 gold success；validation 早停使用 40 例整数目标 `max(36, baseline+2)` / `max(34, baseline+4)`。
+- 已完成 AgentTask adapter：固定 case/profile/room/trace/evidence 身份，只调用一次 BoundedSpecialistRunner，失败不 fallback。
+- 已完成 80 例 ScriptedModel 无网络演练和 Evaluation Store 配对：baseline 为零 token/成本，Agent 保存全部共同门禁；validation 从 selected Attempt 重建并在 40 例后解锁 holdout。Task 7 当前 unit `14 passed`，真实模型费用仍为 0 元；PostgreSQL 集成、审查和全量验证尚未完成。
+- 已补 PostgreSQL 重启恢复用例（`1 passed`）和跨候选 case 拒绝。当前 Task 7 unit `15 passed`，Task 6+7 数据集聚合 `25 passed`；一次完整 unit 进程结束时工具遗失最终汇总，需重新捕获后才能进入提交，真实模型费用仍为 0 元。
+- 提交前复审发现 infrastructure AgentResult 会在 baseline selected 后失败，留下半 pair；已新增模型错误/预算错误红灯并改为 Store 写入前拒绝，Task 7 unit 更新为 `17 passed`。
+- 最终完整验证已明确捕获退出码：unit `1138 passed, 4 warnings`，integration `113 passed, 3 deselected, 5 warnings`，相关 Harness/Preemption/Store/Skill 权限聚合 `182 passed`；规格与质量复审无剩余 Critical/Important，真实模型费用 0 元。

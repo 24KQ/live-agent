@@ -785,18 +785,21 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
             _write_jsonl(root / "cases" / "phase13" / f"{candidate}-{split}.jsonl", cases)
             _write_jsonl(root / "labels" / "phase13" / f"{candidate}-{split}.jsonl", labels)
 
+    # v2 的数据资产闭包只能包含它自己生成的 phase13 子树。后续版本化数据集（如
+    # LiveOps v3）必须独立绑定自己的 Manifest，不能因同目录新增文件而反向改变 v2。
+    artifact_directories = (
+        root / "schemas",
+        root / "pricing",
+        root / "prompts",
+        root / "result_schemas",
+        root / "cases" / "phase13",
+        root / "labels" / "phase13",
+    )
     artifact_paths = tuple(
         sorted(
             path.relative_to(root)
-            for directory in (
-                "schemas",
-                "pricing",
-                "prompts",
-                "result_schemas",
-                "cases",
-                "labels",
-            )
-            for path in (root / directory).rglob("*")
+            for directory in artifact_directories
+            for path in directory.rglob("*")
             if path.is_file()
         )
     )

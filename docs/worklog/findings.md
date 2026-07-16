@@ -363,6 +363,16 @@
 - 候选 Prompt 必须描述真实 AgentAction envelope、允许 Skill 与规范结果 Schema；只写业务目标会让真实模型输出与 Runner 协议错位，而 ScriptedModel 无法暴露该问题。
 - 当前不可信执行边界是没有本地文件系统的远端模型，不是任意第三方 Python 插件。holdout label 只进入受审计 Evaluator；未来开放第三方候选代码时必须新增进程级权限隔离。
 
+## 2026-07-16 Phase 13 Task 7 发现
+
+- v2 LiveOps label 是场景属性，不是候选输出评分：HUMAN_ATTENTION 固定 action 失败，人工关注和弹幕固定 recovery 失败，导致任何候选最多 75%/50%。
+- 简单改成“动作匹配即成功”也不成立，因为当前 PriorityLiveOpsPolicy 可命中全部四类循环模板，baseline 会达到 100%，相对提升门不可达。
+- 评估数据必须允许候选在相同显式输入上有可解释改善，同时允许失败。D-110 采用版本化 case/label、可接受动作集合和整数早停目标，不覆盖 Task 6 v2 基线或放宽门槛。
+- v3 EvidenceRef 必须带由 case_id 派生的稳定 `anchor_id`。这不是给测试放宽 Resolver，而是让冻结数据满足 Task 4 已存在的权威证据作用域契约。
+- Store 的 selected-result 幂等写不等于评估流程可安全重放。LiveOps recorder 在写入前必须拒绝已 selected 的 case，恢复只能从 selected Attempt 重建 shard gate。
+- `phase13-v2` 生成器原本递归收集整个 cases/labels 目录，导致独立 v3 资产反向改变 v2 的 Manifest。v2 现在仅绑定自身 `phase13` 子树，完整源码闭包仍独立覆盖所有评估代码。
+- infrastructure Attempt 按 Task 5 约束不得进入 selected。LiveOps recorder 若先选择 baseline 再处理模型/预算失败，会留下半个正式 pair；因此该状态必须在任何 Store 写入前交给 Task 11 的重试或 INCONCLUSIVE 流程。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

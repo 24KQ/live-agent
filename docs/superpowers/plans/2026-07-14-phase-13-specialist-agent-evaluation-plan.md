@@ -1,8 +1,8 @@
 # Phase 13 Specialist Agent Evaluation Implementation Plan
 
-文档状态：`TASK_6_VERIFIED`
+文档状态：`TASK_7_VERIFIED_AWAITING_COMMIT`
 
-> 执行状态（2026-07-16）：Task 1-5 已提交并推送；Task 6 已通过技术门禁，待独立提交推送后进入 Task 7。Task 7-12 已获连续实施授权，Phase 13 Acceptance 后停止在 Phase 14 Gate。
+> 执行状态（2026-07-16）：Task 1-6 已提交并推送；Task 7 LiveOpsAgent 已通过完整技术验证，待独立提交推送。Task 7-12 已获连续实施授权，Phase 13 Acceptance 后停止在 Phase 14 Gate。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -134,12 +134,13 @@
 - Test: `tests/unit/test_phase13_live_ops.py`
 - Test: `tests/integration/test_phase13_live_ops_evaluation.py`
 
-- [ ] 写 PriorityLiveOpsPolicy baseline 红灯测试，覆盖未解除风险、已闭合售罄、弹幕优先级和 no action。
-- [ ] 写 Agent 输出枚举、EvidenceRef、2 模型/3 Skill/4000 tokens/5 秒和禁止高风险写测试。
-- [ ] 实现 baseline 与 Agent adapter，保证两者消费同一冻结 case；允许五个播中只读/生成 Skill。
-- [ ] 实现 action success、incident recovery 和严重违规规则；严格门为 90%/+5pp 与 85%/+10pp 的 AND。
-- [ ] 使用 ScriptedModel 跑完整 80 例，验证四个 validation shard、早停数学和 holdout 解封。
-- [ ] 运行 Harness、Preemption Evidence 和 Skill 权限回归；提交并推送：`feat: evaluate live ops specialist`。
+- [x] 写 PriorityLiveOpsPolicy baseline 红灯测试，覆盖未解除风险、已闭合售罄、弹幕优先级和 no action。
+- [x] 按 D-110 生成版本化 LiveOps 修正版 case/label/Manifest；保留 v2 审计基线，不降低冻结门槛。
+- [x] 写 Agent 输出枚举、EvidenceRef、2 模型/3 Skill/4000 tokens/5 秒和禁止高风险写测试。
+- [x] 实现 baseline 与 Agent adapter，保证两者消费同一冻结 case；允许五个播中只读/生成 Skill。
+- [x] 从 `acceptable_actions`、`incident_recovery_actions` 和共同门禁计算 action success、incident recovery 与严重违规；严格门为 90%/+5pp 与 85%/+10pp 的 AND。
+- [x] 使用 ScriptedModel 跑完整 80 例，验证四个 validation shard、早停数学和 holdout 解封。
+- [x] 运行 Harness、Preemption Evidence 和 Skill 权限回归；提交并推送：`feat: evaluate live ops specialist`。
 
 ## Task 8：PlannerAgent 与记忆读取切片
 

@@ -1213,3 +1213,14 @@
 - **未选理由**：只保存摘要无法证明实际模型输入；只冻结 ID 会在 Catalog 升级后静默漂移；提前声明最终代码摘要在时间上不成立。
 - **影响**：源码摘要保守覆盖全部 `src/**/*.py`；价格使用独立快照；Loader 必须接收外部预期 Manifest 摘要并返回深冻结 case。EvaluationManifest 增加 `DATASET_BASELINE | FORMAL_EVALUATION` 和 `source_commit`，Store 禁止基线创建 Run。正式注册和每次 create_run 都必须携带当前进程的内部可信授权；公开预检只有在 `src/evaluation` 无任意层级 symlink、磁盘 Python 闭包与 Git tracked 闭包一致、源码清洁、HEAD/source commit 及重算 code digest 一致时才签发。holdout label 只进入受审计 Evaluator，不进入模型可见载荷。当前远端模型无文件系统或任意代码执行能力；若未来支持第三方候选插件，必须新增进程级 label 隔离决策。
 - **重新评估条件**：模型端支持可验证 Prompt template ID、Skill Runtime 支持多活精确版本解析，或项目开放不受信第三方候选代码时，分别重新设计远端身份、版本解析或 evaluator 权限域。
+
+## D-110：LiveOps 评分使用可执行动作集合并版本化修正数据集
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 RED 发现 v2 label 把 HUMAN_ATTENTION 固定记为 action 失败，并把人工关注和弹幕建议固定记为 recovery 失败；任何完美匹配候选最多只能达到 75%/50%。若简单改为动作匹配即成功，当前 baseline 又会精确命中全部模板并达到 100%，严格相对提升同样不可达。
+- **候选方案**：放宽保留门；保留 v2 并让 LiveOps 必然拒绝；版本化修正 case/label 与评分语义。
+- **最终选择**：不改变 90%/+5pp 与 85%/+10pp 门。新增版本化 LiveOps 数据身份，label 使用 `acceptable_actions` 与 `incident_recovery_actions`，评分由候选实际输出和共同门禁计算，不复制预设 success 布尔值；case 增加模型可见且脱敏的验证/闭合事实，使 baseline 存在稳定可解释误差、候选有可能通过受限推理改善。v2 保留为 Task 6 审计基线，不覆盖其 Manifest 身份。
+- **选择理由**：去留门必须在数据上既可失败也可达到，且 baseline 与 Agent 仍消费同一输入；修正数据比降低门槛或制造必败结论更可信。
+- **未选理由**：放宽门破坏用户硬边界；必然拒绝不能衡量 Agent 价值；只改评分会让 baseline 100% 并继续造成数学冲突。
+- **影响**：Task 7 先生成新 LiveOps 数据版本和 Manifest，再实现评分、四个 validation shard 与 holdout 解封；早停使用整数目标，40 例 action/recovery 目标分别为 `max(36, baseline+2)` 与 `max(34, baseline+4)`。Task 11 正式 Manifest 只能引用修正版数据身份。
+- **重新评估条件**：真实人工标注集提供不同的可接受动作或 incident 分母定义时，新增决策和数据版本，不覆盖既有正式结论。
