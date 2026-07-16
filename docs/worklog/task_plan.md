@@ -157,7 +157,8 @@
   - [x] Task 5：Evaluation Store、配对比较与迁移（`6edd833` 已推送）。
   - [x] Task 6：240 例字节稳定数据集与冻结 Evaluation Manifest（`f13ae6e` 已推送）。
   - [x] Task 7：LiveOpsAgent 纵向切片（`4b26a31` 已推送）。
-  - [ ] Task 8：PlannerAgent 与记忆读取切片（验证完成，待独立提交推送）。
+  - [x] Task 8：PlannerAgent 与记忆读取切片（`204aec0` 已推送）。
+  - [ ] Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（RED）。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

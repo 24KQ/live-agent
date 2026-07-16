@@ -559,3 +559,5 @@
 - 新增 Planner 的受限节点、依赖、绑定、循环与执行控制字段校验，Compiler 从 Catalog 注入版本、风险、deadline、资源锁和并发，正式 Runner Profile 固定为 0 次 Skill 调用。
 - 使用 80 个冻结 Planner case 经真实 BoundedSpecialistRunner、ScriptedModel 和 Evaluation Store 完成配对；四个 validation shard 完整后才解锁 holdout，评分使用 executable/constraint recovery 两个独立指标。
 - 修订 `phase13-v2` 数据 Manifest 的源码闭包摘要。Task 8 专项及相关回归 `104 passed`，完整 unit `1148 passed, 4 warnings`，完整 integration `115 passed, 3 deselected, 5 warnings`；真实模型费用仍为 0 元。
+- Task 8 已本地提交为 `204aec0 feat: evaluate planner specialist`。向 `origin/main` 连续三次推送均因 GitHub TLS `missing close_notify`/handshake 失败；远端仍为 `5f31383`，按推送门禁暂停，尚未开始 Task 9。
+- 随后网络恢复，`204aec0` 已成功推送并确认 `origin/main=204aec0`；Task 9 进入 RED，后续继续按已授权的 Task 9-12 执行。

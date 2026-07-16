@@ -2,20 +2,20 @@
 
 文档状态：`IN_PROGRESS`
 
-最后更新：2026-07-15
+最后更新：2026-07-16
 
 ## 1. 当前游标
 
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 7：LiveOpsAgent 纵向切片（`4b26a31` 已推送） |
-| 当前任务 | Task 8：PlannerAgent 与记忆读取切片 |
-| 当前任务状态 | `VERIFY_COMPLETE` |
-| 当前子步骤 | Task 8 通过完整回归，等待独立提交与推送 |
+| 最近完成任务 | Phase 13 Task 8：PlannerAgent 与记忆读取切片（`204aec0` 已推送） |
+| 当前任务 | Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 8 推送已确认；正在建立 Task 9 红灯测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=4b26a31` |
+| 远端状态 | `origin/main=204aec0` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 8
-状态: VERIFY_COMPLETE
-目标: 只读记忆 Skill、零 Skill Planner、受限 Candidate DAG、可信编译证据与 80 例 ScriptedModel 配对评估
-禁止事项: Task 11 预检前不调用真实模型；不扩展生产 PlanEngine；不让 Planner 查询商品、建播或调用高风险写 Skill
-当前 HEAD: 5f31383
-本 Task 文件: Catalog/Handler、Planner Runtime/Evaluation、数据集 Manifest 与 Task 8 专项/集成测试
+Phase / Task: Phase 13 / Task 9
+状态: RED
+目标: 三个播后 Skill、MemoryCandidate Store、PromotionCommand 与双 DecisionTrace 的确定性记忆晋升闭环
+禁止事项: Task 11 预检前不调用真实模型；不得让 Agent 自由文本写入 active memory；不得自动跨主播或跨房间晋升
+当前 HEAD: 204aec0
+本 Task 文件: Catalog/Handler、Candidate Store、PromotionPolicy、Phase 13 PostgreSQL DDL 与 Task 9 专项/集成测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 8 专项/相关回归 104 passed；完整 unit 1148 passed/exit 0；完整 integration 115 passed、3 deselected/exit 0；compileall 与 diff 通过
-错误与尝试次数: 旧 13 Skill 断言 5 项 RED 后更新为 14；旧 MemoryStore 回滚集成用例暴露真实 embedding 网络等待，已注入本地结果并回归 3 passed；无业务契约放宽
-设计偏差与决策编号: 无新架构决策；Planner 编译仅输出可信执行能力证据，不创建或扩展 PlanEngine PlanRun；旧兼容 Facade 不暴露无 MemoryStore 的伪 Handler
-下一条精确操作: 严格编码检查和暂存 Task 8 目标文件，提交并推送 feat: evaluate planner specialist
+最近命令与结果: Task 8 专项/相关回归 104 passed；完整 unit 1148 passed/exit 0；完整 integration 115 passed、3 deselected/exit 0；Task 8 已推送并确认 origin/main=204aec0
+错误与尝试次数: 无 Task 9 尝试；先写 Skill/Store/PromotionPolicy 所需红灯测试
+设计偏差与决策编号: 无新决策；Task 9 严格遵循 D-107 的受控记忆晋升边界
+下一条精确操作: 创建并运行 tests/unit/test_phase13_post_live_skills.py，确认缺少 Task 9 模块的预期 RED
 模型费用累计: 0 元
 ```
 
