@@ -206,7 +206,9 @@ class FormalEvaluationCoordinator:
         }
         # ReviewMemory 的 macro-F1 不是逐 case 二元准确率；slice 必须从冻结 evaluator
         # label 与 selected 输出重建该值，再以统一的 (rate, pp delta) 形式输入 AND 门。
-        metric_facts.update(slice_.extra_gate_metrics(split=EvaluationSplit.HOLDOUT))
+        metric_facts.update(
+            slice_.extra_gate_metrics(run=run, split=EvaluationSplit.HOLDOUT)
+        )
         summary = self._selected_summary(run)
         outcome = decide_candidate_retention(
             CandidateGateFacts(

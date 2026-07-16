@@ -119,8 +119,8 @@ class _AlwaysPassingLiveOpsSlice:
         }
         return _Gate("HOLDOUT_UNLOCKED" if len(completed) == 40 else "CONTINUE")
 
-    def extra_gate_metrics(self, *, split: EvaluationSplit) -> dict[str, tuple[Decimal, Decimal]]:
-        del split
+    def extra_gate_metrics(self, *, run, split: EvaluationSplit) -> dict[str, tuple[Decimal, Decimal]]:
+        del run, split
         return {}
 
 
