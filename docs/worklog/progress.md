@@ -550,3 +550,4 @@
 - 已补 PostgreSQL 重启恢复用例（`1 passed`）和跨候选 case 拒绝。当前 Task 7 unit `15 passed`，Task 6+7 数据集聚合 `25 passed`；一次完整 unit 进程结束时工具遗失最终汇总，需重新捕获后才能进入提交，真实模型费用仍为 0 元。
 - 提交前复审发现 infrastructure AgentResult 会在 baseline selected 后失败，留下半 pair；已新增模型错误/预算错误红灯并改为 Store 写入前拒绝，Task 7 unit 更新为 `17 passed`。
 - 最终完整验证已明确捕获退出码：unit `1138 passed, 4 warnings`，integration `113 passed, 3 deselected, 5 warnings`，相关 Harness/Preemption/Store/Skill 权限聚合 `182 passed`；规格与质量复审无剩余 Critical/Important，真实模型费用 0 元。
+- Task 7 已以 `4b26a31 feat: evaluate live ops specialist` 提交并推送，远端 `origin/main` 与本地 HEAD 一致；下一任务为 Task 8 PlannerAgent，尚未开始代码修改。

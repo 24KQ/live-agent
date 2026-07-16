@@ -9,13 +9,13 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 13A 共享评估内核 |
-| 最近完成任务 | Phase 13 Task 6：240 例数据集与 Evaluation Manifest（`f13ae6e` 已推送） |
-| 下一任务 | Task 7：LiveOpsAgent 纵向切片 |
-| 下一任务状态 | `IN_PROGRESS` |
-| 当前子步骤 | Task 7 COMMIT：完整验证与复审通过，执行静态检查、暂存和推送 |
+| 最近完成任务 | Phase 13 Task 7：LiveOpsAgent 纵向切片（`4b26a31` 已推送） |
+| 下一任务 | Task 8：PlannerAgent 与记忆读取切片 |
+| 下一任务状态 | `READY` |
+| 当前子步骤 | Task 7 PUSHED：等待进入 Task 8 RED |
 | 当前分支 | `main` |
 | 当前业务基线 | `d585412 feat: complete phase 12b preemption` |
-| 远端状态 | `origin/main=f13ae6e` |
+| 远端状态 | `origin/main=4b26a31` |
 | 真实模型累计费用 | 0 元 |
 
 ## 2. 当前授权边界
@@ -31,16 +31,16 @@
 
 ```text
 Phase / Task: Phase 13 / Task 7
-状态: COMMIT
-目标: 完成 LiveOpsAgent baseline、受限候选适配、双指标、四分片早停与 holdout 解封
-禁止事项: 不调用真实模型，不运行 Task 11 正式评估，不接高风险写 Skill 或动态 A2A
-当前 HEAD: f13ae6e
-本 Task 文件: specialist_runtime/live_ops.py、specialist_evaluation/live_ops.py、Task 7 unit/integration tests、状态文档
+状态: PUSHED
+目标: LiveOpsAgent baseline、受限候选适配、双指标、四分片早停与 holdout 解封已完成
+禁止事项: Task 11 预检前不调用真实模型；Task 8 不接查询商品、建播或高风险写 Skill
+当前 HEAD: 4b26a31
+本 Task 文件: Task 7 已提交；下一任务文件边界以 Task 8 Implementation Plan 为准
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
 最近命令与结果: Task 7 unit 17 passed；最终完整 unit 1138 passed/exit 0；integration 113 passed、3 deselected/exit 0；Harness/Preemption/Store/权限聚合 182 passed/exit 0
 错误与尝试次数: 缺 adapter、v3 anchor、重复 selected、v2/v3 资产边界和 infrastructure 半 pair 均有独立 RED，并已修复转绿
 设计偏差与决策编号: D-110 版本化修正 LiveOps case/label 与评分语义；v3 EvidenceRef 增加稳定 case anchor 以满足既有 Task 4 Resolver 边界
-下一条精确操作: 完成 compileall、严格 UTF-8、编码扫描、diff/staging 边界检查，提交并推送 Task 7
+下一条精确操作: 进入 Task 8 RED，先验证 retrieve_anchor_memory Manifest/Handler 与 Planner 受限提案契约
 模型费用累计: 0 元
 ```
 
@@ -141,6 +141,7 @@ Phase / Task: Phase 13 / Task 7
 | Phase 13 Task 7 专项/相关回归 | unit `17 passed`；PostgreSQL 恢复 `1 passed`；Harness/Preemption/Store/权限聚合 `182 passed` |
 | Phase 13 Task 7 完整验证 | unit `1138 passed, 4 warnings`；integration `113 passed, 3 deselected, 5 warnings`；退出码均为 0 |
 | Phase 13 Task 7 审查 | infrastructure 失败半 pair Important 已补 RED 修复；规格与质量复审无剩余 Critical/Important |
+| Phase 13 Task 7 提交与推送 | `4b26a31`，`origin/main=4b26a31` |
 
 表中前八项保留进入正式实施前的基线，后续各项按 Task 6-9 的提交与验收顺序追加。
 
