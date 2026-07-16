@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 from src.core.pre_live_business_flow import PreLiveBusinessFlowService
 from src.memory.models import AnchorMemoryEntry, MemoryLayer, MemoryStatus
+from src.memory.candidate_store import InMemoryMemoryCandidateStore, MemoryCandidate
 from src.skill_runtime.executor import _SkillHandler, _SkillHandlerResult
 from src.skill_runtime.models import (
     AdapterRequest,
@@ -53,6 +54,13 @@ class AnchorMemoryReadPort(Protocol):
         """返回主播级和当前房间记忆；Handler 仍会执行二次作用域过滤。"""
 
 
+class PostLiveEvidencePort(Protocol):
+    """播后只读证据端口，禁止 Handler 绕过该端口扫描隐藏业务 Store。"""
+
+    def collect(self, *, anchor_id: str, room_id: str, trace_id: str) -> dict[str, Any]:
+        """返回已脱敏、可序列化的冻结证据快照。"""
+
+
 @dataclass(frozen=True)
 class SkillRuntimeDependencies:
     """统一 Handler 工厂的局部依赖。
@@ -65,6 +73,8 @@ class SkillRuntimeDependencies:
     platform: ProductPricingPort | LiveSessionPort | LiveOperationsPort
     legacy_pre_live_service: PreLiveBusinessFlowService | None = None
     memory_port: AnchorMemoryReadPort | None = None
+    post_live_evidence_port: PostLiveEvidencePort | None = None
+    memory_candidate_store: InMemoryMemoryCandidateStore | None = None
 
     @property
     def product_pricing_port(self) -> ProductPricingPort:
@@ -106,10 +116,66 @@ def build_skill_handlers(dependencies: SkillRuntimeDependencies) -> dict[str, _S
     return {
         **batch_one,
         "retrieve_anchor_memory": _RetrieveAnchorMemoryHandler(dependencies.memory_port),
+        "collect_post_live_evidence": _CollectPostLiveEvidenceHandler(dependencies.post_live_evidence_port),
+        "calculate_post_live_attribution": _CalculatePostLiveAttributionHandler(),
+        "stage_memory_candidates": _StageMemoryCandidatesHandler(dependencies.memory_candidate_store),
         "setup_live_session": _SetupLiveSessionHandler(dependencies.live_session_port),
         "handle_sold_out_event": _HandleSoldOutEventHandler(dependencies.live_operations_port),
         "set_product_price": _SetProductPriceHandler(dependencies.product_pricing_port),
     }
+
+
+class _CollectPostLiveEvidenceHandler(_SkillHandler):
+    """只经显式 Port 取得播后快照，拒绝把隐藏 Store 读取混入业务参数路径。"""
+
+    def __init__(self, port: PostLiveEvidencePort | None) -> None:
+        self._port = port
+
+    async def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+        if self._port is None:
+            raise RuntimeError("collect_post_live_evidence requires post_live_evidence_port")
+        if arguments["room_id"] != context.room_id:
+            raise ValueError("collect_post_live_evidence room_id does not match trusted context")
+        return {"evidence_snapshot": self._port.collect(**arguments)}
+
+
+class _CalculatePostLiveAttributionHandler(_SkillHandler):
+    """归因仅消费调用方提供的冻结 evidence_snapshot，不读取任何 Store。"""
+
+    async def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+        from src.skills.post_live_attribution import PostLiveAttribution
+
+        snapshot = arguments["evidence_snapshot"]
+        result = PostLiveAttribution.calculate(snapshot["decision_traces"])
+        # 历史 AttributionResult 是 dataclass；在 Skill 边界显式投影并把 Decimal
+        # 规范为字符串，避免把内部对象或非 JSON 类型泄露给审计/模型路径。
+        return {
+            "attribution": {
+                "total_decisions": result.total_decisions,
+                "adoption_rate": str(result.adoption_rate),
+                "accuracy_rate": str(result.accuracy_rate),
+                "unattributable_count": result.unattributable_count,
+                "notes": list(result.notes),
+            },
+            "reason_codes": [],
+        }
+
+
+class _StageMemoryCandidatesHandler(_SkillHandler):
+    """仅向 Candidate Store 暂存结构化候选，绝不取得 active MemoryStore 写权限。"""
+
+    def __init__(self, store: InMemoryMemoryCandidateStore | None) -> None:
+        self._store = store
+
+    async def execute(self, skill_id: str, arguments: dict[str, Any], context: SkillExecutionContext) -> dict[str, Any]:
+        if self._store is None:
+            raise RuntimeError("stage_memory_candidates requires memory_candidate_store")
+        candidate = MemoryCandidate(
+            **arguments,
+            idempotency_key=context.idempotency_key or "",
+        )
+        staged = self._store.stage(candidate)
+        return {"candidate_id": staged.candidate_id, "status": staged.status.value, "version": staged.version}
 
 
 class _RetrieveAnchorMemoryHandler(_SkillHandler):

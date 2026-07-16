@@ -158,7 +158,7 @@
   - [x] Task 6：240 例字节稳定数据集与冻结 Evaluation Manifest（`f13ae6e` 已推送）。
   - [x] Task 7：LiveOpsAgent 纵向切片（`4b26a31` 已推送）。
   - [x] Task 8：PlannerAgent 与记忆读取切片（`204aec0` 已推送）。
-  - [ ] Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（RED）。
+  - [ ] Task 9：播后 Skill、MemoryCandidate 与 PromotionPolicy（验证完成，待提交推送）。
 - [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
 
 # 2026-07-11 Phase 7A 任务

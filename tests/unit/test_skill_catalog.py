@@ -36,7 +36,8 @@ FROZEN_NON_CORE_METADATA_HASHES = {
 # 改价与售罄写分别因显式 CAS、可信事件授权升级公开契约；它们不再属于 Phase 11A
 # 冻结的未迁移元数据集合，其余七项仍必须逐字段保持不变。
 VERSIONED_SKILLS = frozenset({"set_product_price", "handle_sold_out_event"})
-PHASE13_SKILLS = frozenset({"retrieve_anchor_memory"})
+PHASE13_SKILLS = frozenset({"retrieve_anchor_memory", "collect_post_live_evidence", "calculate_post_live_attribution", "stage_memory_candidates"})
+SCHEMA_NOTE_SKILLS = CORE_SKILLS | {"retrieve_anchor_memory"}
 
 
 def _manifest(skill_id: str) -> SkillManifest:
@@ -60,10 +61,10 @@ def _product_snapshot() -> dict:
     }
 
 
-def test_default_catalog_contains_14_skills() -> None:
+def test_default_catalog_contains_17_skills() -> None:
     """默认 Catalog 必须包含原有 13 个能力和 Phase 13 记忆读取 Skill。"""
     catalog = get_default_skill_catalog()
-    assert len(catalog) == 14
+    assert len(catalog) == 17
 
 
 def test_all_skill_ids_are_unique() -> None:
@@ -73,11 +74,11 @@ def test_all_skill_ids_are_unique() -> None:
     assert len(ids) == len(set(ids))
 
 
-def test_catalog_has_twelve_v1_skills_and_two_versioned_writes() -> None:
+def test_catalog_has_fifteen_v1_skills_and_two_versioned_writes() -> None:
     """新增记忆读取保持 1.0.0，改价与售罄写继续使用升级后的单活版本。"""
     versions = {manifest.skill_id: manifest.version for manifest in get_default_skill_catalog()}
 
-    assert list(versions.values()).count("1.0.0") == 12
+    assert list(versions.values()).count("1.0.0") == 15
     assert versions["set_product_price"] == "1.1.0"
     assert versions["handle_sold_out_event"] == "2.0.0"
 
@@ -154,7 +155,7 @@ def test_only_schema_migration_skills_have_compatibility_notes() -> None:
     """兼容说明只允许用于四个旧核心能力和 Phase 13 新增的脱敏读取契约。"""
     catalog = get_default_skill_catalog()
     for manifest in catalog:
-        if manifest.skill_id in CORE_SKILLS | PHASE13_SKILLS:
+        if manifest.skill_id in SCHEMA_NOTE_SKILLS:
             assert manifest.compatibility_note is not None, (
                 f"{manifest.skill_id} should have compatibility_note describing schema delta"
             )

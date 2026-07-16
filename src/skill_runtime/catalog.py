@@ -1,6 +1,6 @@
 """Phase 11A Skill Catalog。
 
-14 个 SkillManifest 的唯一事实源。Catalog 在应用启动时统一校验所有 Manifest，
+17 个 SkillManifest 的唯一事实源。Catalog 在应用启动时统一校验所有 Manifest，
 非法 Schema、重复 ID 或空版本导致 Catalog 构建失败。
 
 ToolRegistry 通过本 Catalog 的只读投影生成，不再维护独立元数据。
@@ -24,6 +24,7 @@ from src.skill_runtime.models import (
 _PRE = {LifecycleStage.PRE_LIVE}
 _ON = {LifecycleStage.ON_LIVE}
 _BOTH = {LifecycleStage.PRE_LIVE, LifecycleStage.ON_LIVE}
+_POST = {LifecycleStage.POST_LIVE}
 
 
 # ── 四个核心 Handler 的显式 Schema ──────────────────────────────────
@@ -134,6 +135,24 @@ _RETRIEVE_ANCHOR_MEMORY_SCHEMA: dict = {
         "room_id": {"type": "string", "minLength": 1},
         "limit": {"type": "integer", "minimum": 1, "maximum": 20},
     },
+    "additionalProperties": False,
+}
+
+# 播后证据只按显式 trace/room 定位，归因仅消费已冻结快照，禁止 Handler 隐式读取
+# Replay、Audit 或 MemoryStore。staging 的候选字段严格白名单化，Agent 自由文本无法进入。
+_COLLECT_POST_LIVE_EVIDENCE_SCHEMA: dict = {
+    "type": "object", "required": ["anchor_id", "room_id", "trace_id"],
+    "properties": {"anchor_id": {"type": "string", "minLength": 1}, "room_id": {"type": "string", "minLength": 1}, "trace_id": {"type": "string", "minLength": 1}},
+    "additionalProperties": False,
+}
+_CALCULATE_POST_LIVE_ATTRIBUTION_SCHEMA: dict = {
+    "type": "object", "required": ["evidence_snapshot"],
+    "properties": {"evidence_snapshot": {"type": "object", "required": ["decision_traces"], "properties": {"decision_traces": {"type": "array", "items": {"type": "object"}}}, "additionalProperties": False}},
+    "additionalProperties": False,
+}
+_STAGE_MEMORY_CANDIDATES_SCHEMA: dict = {
+    "type": "object", "required": ["candidate_id", "anchor_id", "room_id", "evidence_ids", "preferred_category", "preferred_product_ids", "confidence"],
+    "properties": {"candidate_id": {"type": "string", "minLength": 1}, "anchor_id": {"type": "string", "minLength": 1}, "room_id": {"type": "string", "minLength": 1}, "evidence_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "preferred_category": {"type": "string", "minLength": 1}, "preferred_tags": {"type": "array", "items": {"type": "string", "minLength": 1}}, "preferred_product_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}, "confidence": {"type": "string", "pattern": "^(?:0(?:\\.[0-9]+)?|1(?:\\.0+)?)$"}},
     "additionalProperties": False,
 }
 
@@ -350,6 +369,9 @@ _MANIFESTS: tuple[SkillManifest, ...] = (
         gate_decision=GateDecision.AUTO,
         compatibility_note="只返回结构化白名单摘要，不返回记忆正文或 embedding",
     ),
+    SkillManifest(skill_id="collect_post_live_evidence", description="收集脱敏播后证据快照", lifecycle=_POST, risk_level=RiskLevel.LOW, parameter_schema=_COLLECT_POST_LIVE_EVIDENCE_SCHEMA, gate_decision=GateDecision.AUTO),
+    SkillManifest(skill_id="calculate_post_live_attribution", description="从显式播后证据计算确定性归因", lifecycle=_POST, risk_level=RiskLevel.LOW, parameter_schema=_CALCULATE_POST_LIVE_ATTRIBUTION_SCHEMA, gate_decision=GateDecision.AUTO),
+    SkillManifest(skill_id="stage_memory_candidates", description="暂存经证据约束的结构化记忆候选", lifecycle=_POST, risk_level=RiskLevel.MEDIUM, parameter_schema=_STAGE_MEMORY_CANDIDATES_SCHEMA, gate_decision=GateDecision.SOFT_GATE, requires_idempotency_key=True),
 )
 
 

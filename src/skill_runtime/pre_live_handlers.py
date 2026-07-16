@@ -170,7 +170,13 @@ def build_pre_live_handlers(
     )
     # 兼容 Facade 只拥有旧播前服务，不能伪造 MemoryStore 依赖。若未来调用方需要
     # retrieve_anchor_memory，必须直接使用统一工厂并显式传入受控的 memory_port。
-    handlers.pop("retrieve_anchor_memory")
+    for skill_id in (
+        "retrieve_anchor_memory",
+        "collect_post_live_evidence",
+        "calculate_post_live_attribution",
+        "stage_memory_candidates",
+    ):
+        handlers.pop(skill_id)
     return handlers
 
 

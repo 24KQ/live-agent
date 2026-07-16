@@ -561,3 +561,10 @@
 - 修订 `phase13-v2` 数据 Manifest 的源码闭包摘要。Task 8 专项及相关回归 `104 passed`，完整 unit `1148 passed, 4 warnings`，完整 integration `115 passed, 3 deselected, 5 warnings`；真实模型费用仍为 0 元。
 - Task 8 已本地提交为 `204aec0 feat: evaluate planner specialist`。向 `origin/main` 连续三次推送均因 GitHub TLS `missing close_notify`/handshake 失败；远端仍为 `5f31383`，按推送门禁暂停，尚未开始 Task 9。
 - 随后网络恢复，`204aec0` 已成功推送并确认 `origin/main=204aec0`；Task 9 进入 RED，后续继续按已授权的 Task 9-12 执行。
+
+# 2026-07-16 Phase 13 Task 9（验证完成，待提交）
+
+- Catalog 增至 17 个 Skill：播后证据收集只经注入 Port，归因只消费显式快照，候选 staging 只写结构化 Candidate Store。
+- 实现内存/PostgreSQL Candidate Store、命令幂等、乐观版本转换和确定性 PromotionPolicy；双 DecisionTrace、同作用域和货盘白名单通过后才写模板 active memory。
+- `model_copy` 夹带的自由文本、单证据、跨作用域和白名单不匹配均 fail-closed；旧播前兼容 Facade 不注册缺少播后依赖的 Handler。
+- Task 9 专项/真实 PostgreSQL `8 passed`；完整 unit `1155 passed, 4 warnings`；完整 integration `116 passed, 3 deselected, 5 warnings`；真实模型费用 0 元。

@@ -31,6 +31,9 @@ def test_default_registry_contains_pre_live_tools() -> None:
         "generate_danmaku_reply",
         "on_live_context_collect",
         "retrieve_anchor_memory",
+        "collect_post_live_evidence",
+        "calculate_post_live_attribution",
+        "stage_memory_candidates",
     }
 
 

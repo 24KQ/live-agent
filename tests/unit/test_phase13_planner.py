@@ -103,7 +103,7 @@ def test_retrieve_anchor_memory_manifest_is_strict_read_only_contract() -> None:
     """Catalog 必须只有 14 个单活 Skill，记忆查询参数不能夹带执行控制字段。"""
 
     catalog = tuple(get_default_skill_catalog())
-    assert len(catalog) == 14
+    assert len(catalog) == 17
     manifest = next(item for item in catalog if item.skill_id == "retrieve_anchor_memory")
     assert manifest.version == "1.0.0"
     assert manifest.lifecycle == {LifecycleStage.PRE_LIVE}

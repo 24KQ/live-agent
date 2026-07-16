@@ -55,5 +55,5 @@ def test_all_manifests_have_phase11b_attempt_cap() -> None:
     manifests = get_default_skill_catalog()
 
     # Phase 13 新增只读记忆 Skill 后，全部 Manifest 仍必须保留统一单次尝试上限。
-    assert len(manifests) == 14
+    assert len(manifests) == 17
     assert {manifest.max_attempt_seconds for manifest in manifests} == {15}
