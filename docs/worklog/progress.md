@@ -646,3 +646,8 @@
 - Task 6 RED/GREEN 已完成：新增 `HumanGuidedSoldOutFlow`、内存/PostgreSQL root Workspace 查询和可信 Incident 事实链；Task 6 unit `7 passed`，Task 5/6 聚合 `15 passed`，Task 6 PostgreSQL `2 passed`。
 - 复审补齐 Compiler 的 `incident_id` 绑定和恢复入口的完整模型重载；自动保护不调用 CommandService，原始 PlanCommand 直接入口 fail-closed，真实模型费用仍为 `0.042344` 元。
 - Task 6 最终规格与质量复核无 Critical/Important 阻断；完整 unit `1275 passed, 4 warnings`，完整 integration `149 passed, 3 deselected, 5 warnings`。新增 `sold_out_flow.py` 后按正式生成器重建 Phase 13 v2/v3 Manifest，所有静态和编码门禁通过，准备提交推送。
+- Task 6 已以 `43d182f feat: coordinate human guided sold out recovery` 独立提交并推送，连续执行游标切换到 Phase 14 Task 7 RED。
+
+# 2026-07-18 Phase 14 Task 7
+
+- Task 7 开始前保持真实模型费用 `0.042344` 元；不新增模型调用，先测试 API 鉴权、幂等、Proposal 版本和 WebSocket 事件顺序。

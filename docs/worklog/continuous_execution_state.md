@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 5：人工决定与受控执行编译（`c20d1ab` 已推送） |
-| 当前任务 | Task 6：复合售罄自动保护与人工恢复 |
-| 当前任务状态 | `COMMIT` |
-| 当前子步骤 | Task 6 规格/质量复核、相关回归、完整 unit/integration、编译、迁移和编码门禁均已通过，准备提交 |
+| 最近完成任务 | Phase 14 Task 6：复合售罄自动保护与人工恢复（`43d182f` 已推送） |
+| 当前任务 | Task 7：统一 API 与 WebSocket 协议 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 6 已完成全量验证、提交和推送；Task 7 尚未开始编写红灯测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 6
-状态: COMMIT
-目标: 将可信售罄自动保护与人工经营恢复接入 Workspace，保持冻结、CAS、陈旧阻断、对账和 OperatorDecision 边界
-禁止事项: 不让 Proposal、Agent 或主播直接执行经营恢复；不绕过 OperatorDecision、版本/CAS、operator lease、幂等、Skill Runtime、PlanEngine 或严格对账；不运行真实模型/平台；不修改用户脏文件
-当前 HEAD: c20d1ab
-本 Task 文件: decision_support/sold_out_flow.py、Task 6 单元/集成测试及必要工作日志
+Phase / Task: Phase 14 / Task 7
+状态: RED
+目标: 暴露受操作员认证保护的 Workspace/Proposal/OperatorDecision API 和有序 WebSocket 更新，不破坏旧 Harness 协议
+禁止事项: 不让 HTTP/Agent 直接执行经营恢复；不绕过 Workspace CAS、operator lease、幂等、Proposal 版本或 CommandService；不运行真实模型/平台；不修改用户脏文件
+当前 HEAD: 43d182f
+本 Task 文件: gateway/api_server.py、gateway/decision_support_service.py、Task 7 API/WebSocket 单元测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 6 unit `7 passed`；相关 unit `79 passed`；Task 6 PostgreSQL `2 passed`；相关 integration `38 passed`；完整 unit `1275 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 12 个目标文件严格编码检查通过
+最近命令与结果: Task 6 unit `7 passed`；相关 unit `79 passed`；Task 6 PostgreSQL `2 passed`；相关 integration `38 passed`；完整 unit `1275 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 12 个目标文件严格编码检查通过；`43d182f` 已推送
 错误与尝试次数: 初始 RED 为缺少 sold_out_flow；首轮 GREEN 补齐 root PlanRun 反查；复审补齐 incident_id 绑定和 CompiledOperatorDecision 重载；全量首次因新增源码未进入 Phase 13 Manifest 闭包失败 2 项，正式生成器重建后通过；未放宽安全门禁
 设计偏差与决策编号: 按 D-113、D-116、D-117 实施；自动保护/对账委托 Phase 12B Coordinator；经营恢复只接受 Compiler 产物，原始 PlanCommand 显式拒绝；未知副作用保持 WAITING_RECONCILIATION
-下一条精确操作: 只暂存 Task 6 代码/测试、Task 5 incident_id 修正、Phase 13 Manifest 和 worklog，提交 `feat: coordinate human guided sold out recovery` 并推送 origin/main
+下一条精确操作: 为 Task 7 编写 API 认证、Workspace/Proposal/Decision 幂等和 WebSocket 顺序的最小 RED 测试
 模型费用累计: 0.042344 元
 ```
 

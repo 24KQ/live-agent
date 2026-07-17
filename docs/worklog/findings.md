@@ -445,6 +445,12 @@
 - Task 6 GREEN 覆盖事件/Workspace room 与 root 绑定、自动保护 Incident 幂等、APPLIED 重放、只读对账、`SIDE_EFFECT_UNKNOWN` 等待和原始 PlanCommand 拒绝；单元专项 `7 passed`，PostgreSQL 专项 `2 passed`。
 - 复审发现并修复两个边界：Compiler 快照显式保存 `incident_id`，恢复入口重载 `CompiledOperatorDecision` 并从权威 Store 重新读取 Incident；不接受 model_construct 产生的伪造恢复事实。
 - Task 6 最终验证：相关 unit `79 passed`、相关 integration `38 passed`；完整 unit `1275 passed, 4 warnings`、完整 integration `149 passed, 3 deselected, 5 warnings`；Manifest 因新增源码闭包重新生成后字节稳定，compileall、迁移 dry-run、diff 和 12 文件编码门禁通过。
+- Task 6 已以 `43d182f feat: coordinate human guided sold out recovery` 独立提交并推送；用户既有脏文件和无关脚本未纳入。连续执行游标进入 Task 7 RED。
+
+## 2026-07-18 Phase 14 Task 7 开始
+
+- Task 7 只新增受操作员认证保护的 Workspace/Proposal/OperatorDecision API 和 `decision_support_workspace_update` WebSocket 更新；旧 `agent_harness_update` 协议必须保持兼容。
+- API 不直接执行 Skill/Adapter/平台写入；Proposal 创建和决定提交必须复用 Workspace Store、Operator lease、Proposal 版本、幂等和 Task 5 Compiler。
 
 ## 2026-07-18 Phase 14 Task 4 发现
 
