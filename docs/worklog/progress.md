@@ -582,3 +582,11 @@
 - 正式 Manifest、Git 源码闭包、HTTPS endpoint、价格快照与持久预算预检通过后执行真实模型；LiveOps 为 `REJECTED`，Planner 与 ReviewMemory 为 `INCONCLUSIVE`，0 个新增 Profile 接入生产。
 - 实际费用 `0.042344` CNY，Phase 14 的 `0.60` CNY 预留未使用。Demo 验证默认确定性路由、显式 Specialist 模式与禁止 Agent-to-Agent。
 - Acceptance 与 `live-session-p001-sold-out-v1` 只读附录已生成；Phase 状态转为 `AWAITING_PHASE_14_GATE`，未开始 Phase 14。
+
+# 2026-07-17 Phase 14 人机协同 Design/Plan 持久化
+
+- 项目定位更新为播前、播中、播后三场景的人机协同决策支持与受控执行 Runtime；历史 Phase 0-13 Design/Acceptance 保留原文，Phase 13 自主候选结论不改写。
+- 新 Phase 14 固定统一 `PREPARE | LIVE | REVIEW` 工作台和播中复合售罄优先切片：确定性系统自动保护，运营主控确认经营恢复，Copilot 只生成可审计结构化方案。
+- 新增 Phase 14 Design/Implementation Plan 与 D-113 至 D-120，固定一个播中 Copilot、结构化修改、规则资格加人工确认记忆晋升、质量与效率严格 AND 门、1.00 元 smoke 预算和默认关闭路由。
+- 旧 Golden/CI/发布门禁从 Phase 14 顺延为 Phase 15 Discussion Baseline；Phase 14 Acceptance 后必须停止并重新进行 Phase 15 Just-in-Time Gate。
+- 本轮只持久化文档，不修改业务代码、不运行真实模型，等待用户单独授权 Phase 14 实施。

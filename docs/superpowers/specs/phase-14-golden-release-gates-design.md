@@ -1,9 +1,8 @@
 # Phase 14 Golden Dataset and Release Gates Design
 
-文档状态：`DISCUSSION_BASELINE`
+文档状态：`MIGRATED_TO_PHASE_15_JIT_BASELINE`
 
-实施前置：Phase 13 Acceptance 通过后，必须先完成用户授权的 Phase 14 Just-in-Time Gate；
-本文保留为讨论输入，不是直接实施授权。
+迁移说明：2026-07-17 起，Golden/CI/发布门禁顺延为 Phase 15。本文件保留其原始讨论输入与链接，不是 Phase 14 或 Phase 15 的直接实施授权；Phase 15 必须基于 Phase 14 Acceptance 重新冻结 Design/Plan。
 
 依赖：Phase 13 已为三个候选生成正式去留结论后才允许实施。
 

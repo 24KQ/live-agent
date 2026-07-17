@@ -1,8 +1,8 @@
 # Phase 14 Golden Dataset and Release Gates Implementation Plan
 
-文档状态：`DISCUSSION_BASELINE`
+文档状态：`MIGRATED_TO_PHASE_15_JIT_BASELINE`
 
-> **For agentic workers:** Implement task-by-task with RED, GREEN, REFACTOR. Do not begin until Phase 13 has persisted retention decisions, the Phase 14 Just-in-Time Gate updates this baseline, and the user explicitly authorizes Phase 14 implementation.
+> **For agentic workers:** Historical discussion input only. Do not implement this file. Phase 15 must be redesigned and separately authorized after Phase 14 Human-Centered Decision Support Acceptance.
 
 **Goal:** 把 Golden Dataset、确定性规则、LLM Judge、真实基础设施和版本证据收敛为可重复发布门禁。
 

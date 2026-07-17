@@ -21,21 +21,20 @@
 
 ## 项目定位
 
-项目覆盖播前、播中、播后三场景，技术目标是可控 Agent Runtime：
+项目覆盖播前、播中、播后三场景，技术目标是人机协同决策支持与受控执行 Runtime：
 
 - Skill Runtime 统一版本、Schema、权限、幂等、审计和执行。
 - PlanEngine 负责确定性 DAG、恢复、抢占和增量 Replan。
-- Agent 只在 Phase 13 作为有确定性基线的候选接受评估。
+- Agent 只能压缩可信证据并提出受限方案；运营拥有高风险经营决定的最终权威。
 - Orchestrator 和 PlanEngine 不默认包装成 Agent。
-- 最终保留 0 个 Agent 是允许且可接受的评估结论。
+- Phase 13 的自主 Specialist 结论保持历史事实；新 Phase 14 只实现一个默认关闭的播中 Copilot，并预留受控多 Agent 接口。
 
 ## 当前阶段基线
 
 - Phase 11A、11B 已完成并通过用户验收。
-- Phase 12A Task 1-5 已完成，最新业务提交为 `37d6f8a`。
-- Phase 12A Task 6-9 尚未实施。
-- Phase 12B、13、14 尚未实施。
-- 当前只完成全程计划持久化；正式实施需要用户单独授权。
+- Phase 12A、12B、13 已完成并有 Acceptance；最新已推送提交为 `e82ef78`。
+- Phase 14 Design/Plan 已审核持久化，状态为 `PHASE_14_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`。
+- Phase 15 只保留 Golden/CI/发布门禁讨论基线；当前不得提前实施。
 
 ## 阶段文件
 
@@ -56,23 +55,27 @@ Phase 13：
 
 Phase 14：
 
-- `D:\java\agent\docs\superpowers\specs\phase-14-golden-release-gates-design.md`
-- `D:\java\agent\docs\superpowers\plans\2026-07-14-phase-14-golden-release-gates-plan.md`
+- `D:\java\agent\docs\superpowers\specs\phase-14-human-centered-decision-support-design.md`
+- `D:\java\agent\docs\superpowers\plans\2026-07-17-phase-14-human-centered-decision-support-plan.md`
+
+Phase 15：
+
+- `D:\java\agent\docs\superpowers\specs\phase-15-golden-release-gates-discussion-baseline.md`
 
 ## 不可遗忘的约束
 
 - 修改代码必须有详细 UTF-8 中文注释。
-- 不派发子智能体，由主模型执行和审查。
+- 可按当前 Phase Plan 派发受控 sub-agent；主模型负责安全边界、集成、验证、提交和推送，并监控二十分钟无进展、重复阻塞和越界接管条件。
 - 严格 RED、GREEN、REFACTOR；不向 `main` 推送红灯或半成品。
-- 每个 Task 至少一个独立 ASCII commit，并在验证后推送 `origin/main`；Phase 14 默认路由晋升按计划使用代码提交和 Acceptance 提交两步闭合。
+- 每个 Task 至少一个独立 ASCII commit，并在验证后推送 `origin/main`；Phase 15 默认路由晋升按未来重新冻结的计划使用代码提交和 Acceptance 提交两步闭合。
 - 不覆盖或提交实时状态文件列出的用户脏文件。
-- ToolRegistry 分阶段退役，Phase 14 删除；新代码使用 Catalog、SkillPolicyView 或 SkillExecutor。
+- ToolRegistry 分阶段退役，Phase 15 决定删除；新代码使用 Catalog、SkillPolicyView 或 SkillExecutor。
 - `TRUSTED_COMPAT` 在 Phase 12A Acceptance 前删除。
 - 可信售罄事件由 PlanEngine 唯一执行写操作，Harness 只消费证据。
 - Agent 严重安全违规必须为 0；未达到收益和成本门槛就删除候选。
-- 当前连续实施的真实模型共享 `agent-runtime-completion-v1` 预算作用域，总费用硬上限为 3 元人民币。
-- 不接真实淘宝 API，不新增前端控制台、HTTP 管理接口、外部插件或热加载。
+- Phase 14 真实模型上限为 1.00 元，Phase 15 Release 预留 0.60 元；真实调用必须先通过全部身份、价格、usage 与哈希预检。
+- 不接真实淘宝 API、自由 A2A、动态 handoff、共享 scratchpad、外部插件或热加载；Phase 14 明确交付受控运营工作台和 API。
 
 ## 恢复后的第一步
 
-读取实时状态中的“下一条精确操作”。如果状态仍为 `AWAITING_IMPLEMENTATION_AUTHORIZATION`，只允许检查或更新文档，不得开始 Phase 12A Task 6。只有用户明确授权正式实施后，才能把状态改为 `IN_PROGRESS` 并执行当前阶段 Plan。
+读取实时状态中的“下一条精确操作”。如果状态仍为 `PHASE_14_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`，只允许检查或更新 Phase 14 文档，不得开始 Runtime/UI/数据库实现。只有用户明确授权 Phase 14 正式实施后，才能把状态改为 `IN_PROGRESS` 并执行当前阶段 Plan。

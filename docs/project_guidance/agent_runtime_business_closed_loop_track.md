@@ -52,8 +52,8 @@ Phase 12B Task 11 的无外部依赖 CLI 使用该场景，接收
 - **Phase 13**：从持久化评估结果生成 `agent-decision-appendix.json` 与 Markdown 摘要；
   三个候选都必须记录 `RETAINED`、`REJECTED` 或 `INCONCLUSIVE`，主 Trace 不依赖
   任一 Agent 被保留。
-- **Phase 14**：在既有 24 个 runtime core Golden case 中固定一个该场景变体，总数
-  保持 264；Release 报告聚合 Trace、Agent 附录、Manifest、规则门禁和 ReleaseDecision。
+- **Phase 14**：将该场景扩展为播前准备、播中复合售罄人工协同、播后反馈/记忆确认的统一工作台证据。
+- **Phase 15**：再将实际 Workspace、Proposal、OperatorDecision 和人工协同结果纳入 Golden 与 Release 证据。
 
 ## 5. 验收规则
 

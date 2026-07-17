@@ -162,8 +162,10 @@
   - [x] Task 10：ReviewMemoryAgent 纵向切片（`e12de15` 已推送）。
   - [x] Task 11：正式评估预检、ScriptedModel 演练与候选去留结论（`ca1e66d` 已推送）。
   - [x] Task 12：Demo、业务附录与 Acceptance（`e7d6fbb` 已推送）。
-  - [x] Phase 13 Acceptance：0 个新增 Specialist Profile 被保留；停止在 Phase 14 Just-in-Time Gate。
-- [ ] Phase 14：Golden Dataset、发布门禁与 Final Acceptance。
+  - [x] Phase 13 Acceptance：0 个新增 Specialist Profile 被保留；历史自主评估结论冻结。
+- [x] Phase 14 Design Persistence：三场景人机协同定位、Design/Plan、决策、恢复协议和 Phase 15 Discussion Baseline 已生成。
+- [ ] Phase 14：Human-Centered Decision Support，等待用户单独实施授权。
+- [ ] Phase 15：Golden Dataset、发布门禁与 Final Acceptance，必须在 Phase 14 Acceptance 后重新讨论。
 
 # 2026-07-11 Phase 7A 任务
 

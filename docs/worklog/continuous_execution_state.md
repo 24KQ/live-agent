@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`AWAITING_PHASE_14_GATE`
+文档状态：`PHASE_14_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
 
 最后更新：2026-07-17
 
@@ -8,40 +8,40 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 13E Acceptance |
+| 当前阶段 | Phase 14 Design Persistence |
 | 最近完成任务 | Phase 13 Task 12：Demo、业务附录与 Acceptance |
-| 当前任务 | Phase 14 Just-in-Time Gate |
-| 当前任务状态 | `AWAITING_USER_REVIEW` |
-| 当前子步骤 | Phase 13 已完成；不得自动进入 Phase 14 |
+| 当前任务 | Phase 14 人机协同 Design/Plan 审核完成 |
+| 当前任务状态 | `AWAITING_IMPLEMENTATION_AUTHORIZATION` |
+| 当前子步骤 | 阶段 A 文档持久化完成后停止；不得自动写 Phase 14 业务代码 |
 | 当前分支 | `main` |
-| 当前业务基线 | `ca1e66d fix: persist formal evaluation infrastructure gaps` |
-| 远端状态 | `origin/main=ca1e66d` |
+| 当前业务基线 | `e82ef78 docs: record phase 13 acceptance` |
+| 远端状态 | `origin/main=e82ef78` |
 | 真实模型累计费用 | 0.042344 元 |
 
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
-- 已审核：Phase 13 Design/Plan、D-100 至 D-108 和候选/预算/早停边界。
-- 已授权：Phase 13 Task 1-12 可按技术门禁连续实施。
-- 仍禁止：Task 11 预检前运行真实模型、提前进入 Phase 14、修改用户脏文件。
+- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-120 和 Phase 15 Discussion Baseline。
+- 当前授权：仅允许完成本轮文档验证、提交和推送；Phase 14 实施需要用户单独授权。
+- 仍禁止：运行 Phase 14 真实模型、启动 Phase 14 Runtime/UI/数据库实现、修改用户脏文件。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
-- 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、运行尚未进入阶段的真实模型。
+- 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、自动进入 Phase 14 或 Phase 15。
 
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 13 / Task 11
-状态: RED
-目标: 正式 Manifest 预检、ScriptedModel 全流程演练、严格早停与三个候选的可审计去留结论
-禁止事项: endpoint、价格、usage、哈希和预算预检前不调用真实模型；不得将 Task 6 数据集基线冒充正式 Run；未保留候选不得注册生产 Profile
-当前 HEAD: 30ee32f
-本 Task 文件: 正式 Evaluation Runner/CLI、预检、Retention 测试与 PostgreSQL 集成测试
+Phase / Task: Phase 14 / Design and Plan Persistence
+状态: COMMIT
+目标: 固化三场景人机协同定位、Phase 14 Design/Plan、Phase 15 Discussion Baseline、决策、路线和恢复协议
+禁止事项: 不写业务代码、不运行真实模型、不启动迁移或前端实现；不修改用户脏文件
+当前 HEAD: e82ef78
+本 Task 文件: Phase 14/15 文档、路线图、总控计划、决策日志、三个 worklog、连续恢复提示词
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 10 专项 `11 passed`，相关回归 `66 passed`，完整 unit `1164 passed, 4 warnings`，完整 integration `118 passed, 3 deselected, 5 warnings`；提交 `e12de15` 已推送；真实模型费用 0 元
-错误与尝试次数: D-112 收口了 D-110 的 v3 LiveOps 资产未进入总 Manifest 的版本错配；未调用真实模型
-设计偏差与决策编号: D-111 固定单候选、D-112 固定 v3 正式数据基线；Task 11 正在实现正式执行边界
-下一条精确操作: 读取 Task 11 计划与 Task 6 FormalManifest/Store 约束，编写正式预检拒绝不可信 Manifest 的 RED
-模型费用累计: 0 元
+最近命令与结果: D-001..D-120 连续唯一；15 个目标文档严格 UTF-8 检查通过；`git diff --check` 通过；编码扫描仅报告扫描器自测样例的 4 个历史 error 与 53 个历史 warning，目标文档 0 命中
+错误与尝试次数: 无；不运行业务测试
+设计偏差与决策编号: D-113 至 D-120 固定人机协同、三视图、一个播中 Copilot、自动保护、结构化修改、人工确认记忆、指标、预算与 Phase 15 顺延
+下一条精确操作: 只暂存本轮目标文档，复核暂存边界后提交并推送 `docs: define human centered phase 14`
+模型费用累计: 0.042344 元
 ```
 
 ## 4. 当前关键不变量
@@ -51,9 +51,9 @@ Phase / Task: Phase 13 / Task 11
 - 不得在同次 Runtime/PlanEngine 调用失败后 fallback Legacy。
 - `TRUSTED_COMPAT` 必须在 Phase 12A Acceptance 前退役。
 - PlanEngine 和 Orchestrator 默认是确定性组件。
-- Agent 候选必须和确定性基线对照，严重安全违规必须为 0。
-- 真实模型总费用不得超过 3 元人民币。
-- Phase 13 与 Phase 14 首次 Release 共用 `agent-runtime-completion-v1`；Phase 13 上限 2.40 元，Phase 14 预留 0.60 元。
+- Agent 候选必须和确定性基线对照，严重安全违规必须为 0；人机协同 Copilot 不得代替高风险运营决定。
+- Phase 14 真实模型预算上限为 1.00 元，Phase 15 Release 预留 0.60 元，项目规划上限为 4.00 元。
+- 可信售罄的冻结/CAS/陈旧执行阻断可自动完成；备品、提示、优先级和恢复时机必须由 OperatorDecision 确认。
 
 ## 5. 最近验证证据
 
@@ -176,14 +176,30 @@ Phase / Task:
 模型费用累计:
 ```
 
+每次派发 sub-agent 还必须追加：
+
+```text
+Sub-agent ID / 角色:
+派发时间:
+只读或写入文件边界:
+预期交付物与测试:
+首次回报:
+最近可验证进展:
+状态: RUNNING | REVIEWING | COMPLETED | STOPPED | TAKEN_OVER
+接管原因（如适用）:
+```
+
+监控规则：首次回报、核心 GREEN 和提交前必须由主模型检查实际 diff 与测试；二十分钟无可验证进展、连续两次同一阻塞、越界或建议放宽安全/预算/指标时立即停止并接管。每个 Task 提交前不得保留运行中的 sub-agent。
+
 更新时机固定为：
 
 1. Task 开始前。
-2. RED 失败符合预期后。
-3. 核心 GREEN 后。
-4. 规格或质量审查发现需要整改时。
-5. 全部验证完成、准备提交时。
-6. 推送成功并切换到下一 Task 时。
+2. 每次 sub-agent 派发、首次回报、停止或接管时。
+3. RED 失败符合预期后。
+4. 核心 GREEN 后。
+5. 规格或质量审查发现需要整改时。
+6. 全部验证完成、准备提交时。
+7. 推送成功并切换到下一 Task 时。
 
 ## 8. 三次失败协议
 
