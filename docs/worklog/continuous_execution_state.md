@@ -11,11 +11,11 @@
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
 | 最近完成任务 | Phase 14 Task 12：三场景 Demo、Acceptance 与 Phase 15 Gate 留痕 |
 | 当前任务 | Phase 15 Just-in-Time Gate |
-| 当前任务状态 | `AWAITING_PHASE_15_GATE` |
+| 当前任务状态 | `PUSHED` / `AWAITING_PHASE_15_GATE` |
 | 当前子步骤 | Task 12 Demo、报告、专项/全量验证已完成；真实模型证据不足，Phase 14 结论为 `INCONCLUSIVE` |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
-| 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
+| 远端状态 | `origin/main=c4124ce` 已包含 Phase 14 Task 12 Demo、Acceptance 和阶段留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
 | 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
 
 ## 2. 当前授权边界
@@ -31,16 +31,16 @@
 
 ```text
 Phase / Task: Phase 14 / Task 12
-状态: VERIFY
+状态: PUSHED
 目标: 生成无外部依赖的播前/播中/播后 Demo、Acceptance 和 Phase 15 Gate 留痕
 禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
-当前 HEAD: 6a79359
+当前 HEAD: c4124ce
 本 Task 文件: scripts/run_phase14_human_support_demo.py、Phase 14 Acceptance 报告及 Demo 测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
 最近命令与结果: Task 12 专项 `3 passed`；Task 10/11/Manifest 回归 `19 passed`；Demo CLI `exit 0`；src 与 Task 12 定向编译、`git diff --check` 通过；完整 unit `1320 passed, 4 warnings`；integration `150 passed, 3 deselected, 5 warnings`；external smoke `1 skipped`
 错误与尝试次数: 首轮 CLI 发现直接执行时仓库根路径未加入导入路径，已补入口引导并串行复验；未运行真实模型
 设计偏差与决策编号: Task 12 沿用 D-113、D-119、D-120；Demo 显式使用 `DECISION_SUPPORT`，生产默认保持 `DETERMINISTIC_ONLY`；正式结论因真实模型未运行保持 `INCONCLUSIVE`
-下一条精确操作: 暂存 Task 12 目标文件，复核 staged diff/编码边界，提交 `docs: accept phase 14 human decision support` 并推送；随后停止在 Phase 15 Gate
+下一条精确操作: 等待用户重新审核并授权 Phase 15 Just-in-Time Design；不得自动开始 Phase 15
 模型费用累计: 0.042344 元
 ```
 
