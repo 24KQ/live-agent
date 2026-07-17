@@ -717,4 +717,4 @@
 - Demo 输出固定三场景同会话回放、自动保护 `APPLIED`、结构化人工 `MODIFY` 决定、未提交经营命令、记忆 `APPLIED`/幂等重放、生产默认 `DETERMINISTIC_ONLY` 和真实模型 `INCONCLUSIVE`。
 - 验证：Task 12 专项 `3 passed`；Task 10/11/Manifest 回归 `19 passed`；CLI `exit 0`；src 与 Task 12 定向编译、`git diff --check` 通过；全量 unit `1320 passed, 4 warnings`，integration `150 passed, 3 deselected, 5 warnings`，external smoke `1 skipped`。
 - 生成 Phase 14 Acceptance 报告；阶段状态改为 `AWAITING_PHASE_15_GATE`，不实施 Phase 15。
-- Task 12 已以 `c4124ce docs: accept phase 14 human decision support` 提交并推送，状态留痕以 `d250533 docs: record phase 14 gate` 更新并推送，`origin/main=d250533`；连续执行停止，等待 Phase 15 Just-in-Time Gate。
+- Task 12 已以 `c4124ce docs: accept phase 14 human decision support` 提交并推送，状态留痕随后以 `d250533`、`5cd090b` 更新并推送；连续执行停止，等待 Phase 15 Just-in-Time Gate。恢复时以 `git log -1 --oneline --decorate` 读取最新 HEAD。
