@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 8：三视图运营工作台（`0a8f08c` 已推送） |
-| 当前任务 | Task 9：播后反馈与人工确认记忆晋升 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | Task 9 GREEN、审查整改、专项与全量验证已完成；准备严格编码检查、提交和推送 |
+| 最近完成任务 | Phase 14 Task 9：播后反馈与人工确认记忆晋升（`dbd5768` 已推送） |
+| 当前任务 | Task 10：复合事故数据集与离线人机协同评估 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 9 已提交并推送；Task 10 尚未修改业务代码，准备建立复合事故数据集、离线规则回归和人工对照的预期失败测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 9
-状态: VERIFY
-目标: 将播后结构化候选经过规则资格和人工确认后幂等晋升为 active memory，并供下一次 PREPARE 受治理读取
-禁止事项: 不让主播拥有审批控件；不把自然语言或 UI 直接转成经营写操作；不绕过 API/OperatorDecision/PlanEngine；不运行真实模型/平台；不修改用户脏文件
-当前 HEAD: 0a8f08c
-本 Task 文件: src/decision_support/review_feedback.py、Task 9 unit/integration 测试及必要工作日志
+Phase / Task: Phase 14 / Task 10
+状态: RED
+目标: 建立固定复合事故数据集、离线规则回归、人机配对评估和人工对照证据，不运行真实模型
+禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
+当前 HEAD: dbd5768
+本 Task 文件: Task 10 数据集、评估与人工对照模块及对应测试，尚未开始编码
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 9 相关 unit `20 passed`；Task 9/Phase 13 相关 integration `2 passed`；完整 unit `1301 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；Manifest 重建、compileall 和 `git diff --check` 通过
+最近命令与结果: Task 9 相关 unit `20 passed`；Task 9/Phase 13 相关 integration `2 passed`；完整 unit `1301 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；Task 9 编码、compileall 和 `git diff --check` 通过；提交/推送 `dbd5768`
 错误与尝试次数: RED 缺少 review_feedback；GREEN 首轮修复内存/PostgreSQL 状态同构；审查整改收紧 PromotionPolicy 的人工 intent、可信 Trace Resolver、确认重放绑定、active conflict 和 active-write/CAS 恢复；未放宽安全门禁
-设计偏差与决策编号: Task 9 按 D-113、D-118、D-120 实施；Agent/规则只能 stage，资格先持久化为 `ELIGIBLE_AWAITING_OPERATOR`，人工 intent 先落账，PromotionPolicy 验证资格/Trace/意图后才是唯一 active memory 写入口；历史 Phase 13 直接晋升测试迁移到同一受控门面
-下一条精确操作: 将 Task 9 只读复审线程标记为 STOPPED，完成目标文件严格 UTF-8/LF/空白和 diff 检查，只暂存目标文件，提交 `feat: confirm governed memory promotion` 并推送
+设计偏差与决策编号: Task 9 按 D-113、D-118、D-120 实施并已冻结；Task 10 沿用 D-113、D-119、D-120 的三场景人机协同边界，先做离线证据，不连接真实模型
+下一条精确操作: 读取 Task 10 Design/Plan，建立 RED 测试并确认失败原因；随后按 RED/GREEN/REVIEW/VERIFY/DOCS/COMMIT/PUSH 执行
 模型费用累计: 0.042344 元
 ```
 

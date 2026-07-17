@@ -506,3 +506,8 @@
 - 未返回可验证报告的 Task 9 只读复审线程已由主模型停止并接管；其结论未作为验收依据。
 - 主模型复核确认资格事实、人工 intent、可信 Trace、作用域锁、候选版本 CAS、active-write/CAS 恢复和命令重放均有对应测试；未发现需要新增决策或放宽安全边界的问题。
 - 复跑证据为 Task 9 相关 unit `20 passed`、相关 PostgreSQL integration `2 passed`、完整 unit `1301 passed, 4 warnings`、完整 integration `150 passed, 3 deselected, 5 warnings`；真实模型费用未增加。
+
+## 2026-07-18 Phase 14 Task 9 提交与 Task 10 RED
+
+- Task 9 已以 `dbd5768 feat: confirm governed memory promotion` 独立提交并推送，远端与本地 HEAD 一致；受保护用户脏文件未纳入。
+- Task 10 开始前真实模型费用保持 `0.042344` 元；本任务先固定复合事故数据集、规则门禁、配对评估和人工对照协议，不调用真实模型。

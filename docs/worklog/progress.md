@@ -683,3 +683,8 @@
 - 未返回可验证报告的只读复审线程已停止，主模型完成规格与安全边界复核。
 - Task 9 复跑证据：相关 unit `20 passed`、相关 PostgreSQL integration `2 passed`、完整 unit `1301 passed, 4 warnings`、完整 integration `150 passed, 3 deselected, 5 warnings`。
 - 当前进入严格编码/差异检查和提交推送；不暂存用户已有脏文件。
+
+# 2026-07-18 Phase 14 Task 9 已提交，Task 10 RED
+
+- Task 9 已以 `dbd5768 feat: confirm governed memory promotion` 提交并推送，`origin/main=dbd5768`。
+- 连续游标切换到 Task 10 RED：先实现固定复合事故数据集、离线规则回归、配对人机评估和 3-5 名代理运营的随机交叉对照；真实模型仍需等待 Task 11 全部预检。
