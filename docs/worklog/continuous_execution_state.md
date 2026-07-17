@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 6：复合售罄自动保护与人工恢复（`43d182f` 已推送） |
-| 当前任务 | Task 7：统一 API 与 WebSocket 协议 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | Task 7 API/Service/WebSocket GREEN、旧 Harness 回归、完整 unit/integration 和静态门禁均已通过，待提交 |
+| 最近完成任务 | Phase 14 Task 7：统一 API 与 WebSocket 协议（`eb28885` 已推送） |
+| 当前任务 | Task 8：三视图运营工作台 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 7 已完成验证、提交和推送；Task 8 尚未开始编写界面契约测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 7
-状态: VERIFY
-目标: 暴露受操作员认证保护的 Workspace/Proposal/OperatorDecision API 和有序 WebSocket 更新，不破坏旧 Harness 协议
-禁止事项: 不让 HTTP/Agent 直接执行经营恢复；不绕过 Workspace CAS、operator lease、幂等、Proposal 版本或 CommandService；不运行真实模型/平台；不修改用户脏文件
-当前 HEAD: ef40820
-本 Task 文件: gateway/api_server.py、gateway/decision_support_service.py、gateway/websocket_manager.py、Task 7 API/WebSocket 单元测试、Phase 13 Manifest 和必要工作日志
+Phase / Task: Phase 14 / Task 8
+状态: RED
+目标: 将现有副屏升级为共享 PREPARE/LIVE/REVIEW session 的运营主控工作台，主播端只读
+禁止事项: 不让主播拥有审批控件；不把自然语言或 UI 直接转成经营写操作；不绕过 API/OperatorDecision/PlanEngine；不运行真实模型/平台；不修改用户脏文件
+当前 HEAD: eb28885
+本 Task 文件: front/index.html、Task 8 Dashboard contract 测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 7 专项 `7 passed`；旧 WebSocket/Harness 回归 `14 passed`；完整 unit `1282 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 6 个目标文件严格编码检查通过
+最近命令与结果: Task 7 专项 `7 passed`；旧 WebSocket/Harness 回归 `14 passed`；完整 unit `1282 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 6 个目标文件严格编码检查通过；`eb28885` 已推送
 错误与尝试次数: RED 缺少 decision_support_service；首轮两个测试替身/冻结模型构造问题已修正；复审补齐 HTTP 幂等键绑定、默认 REJECT 留痕和 WebSocket session scope；Manifest 已由正式生成器重建；未放宽安全门禁
 设计偏差与决策编号: Task 7 按 D-113、D-116、D-117 实施；API 只调用 DecisionSupportService，不直接执行 Runtime；APPROVE/MODIFY 未装配 Recovery Flow 时 503 fail-closed，REJECT 可只追加 OperatorDecision；旧 `agent_harness_update` 保持兼容
-下一条精确操作: 只暂存 Task 7 API/Service/WebSocket、Phase 13 Manifest、测试和 worklog，提交 `feat: expose decision support workspace api` 并推送 origin/main
+下一条精确操作: 为 Task 8 编写三视图、共享 session、运营控件与状态覆盖的 RED 合约测试
 模型费用累计: 0.042344 元
 ```
 

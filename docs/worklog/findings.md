@@ -454,6 +454,12 @@
 - Task 7 GREEN 新增 `DecisionSupportService` 和三类受 Operator 鉴权的 Workspace/Proposal/Decision API；APPROVE/MODIFY 仍需 Task 6 Recovery Flow，未装配时返回 503，REJECT 可安全追加事实。
 - WebSocket 使用 `decision_support_workspace_update`、按 session 单调 sequence 和 scope 定向广播；旧 `agent_harness_update` 与无 scope 的历史全局广播保持兼容。
 - Task 7 验证为专项 `7 passed`、旧 API/WebSocket/Harness `14 passed`、完整 unit `1282 passed, 4 warnings`、integration `149 passed, 3 deselected, 5 warnings`，真实模型费用未增加。
+- Task 7 已以 `eb28885 feat: expose decision support workspace api` 独立提交并推送；用户既有脏文件和无关脚本未纳入。连续执行游标进入 Task 8 RED。
+
+## 2026-07-18 Phase 14 Task 8 开始
+
+- Task 8 固定单一 `live_session_id` 跨 `PREPARE | LIVE | REVIEW` 三视图；运营主控拥有方案比较、结构化修改和决定入口，主播端只读取确认后的提示。
+- UI 只调用 Task 7 API，不直接连接 Store、PlanEngine、Skill 或 Adapter；错误、DEGRADED、等待对账和 WebSocket 重连必须可见且不改变执行权限。
 
 ## 2026-07-18 Phase 14 Task 4 发现
 
