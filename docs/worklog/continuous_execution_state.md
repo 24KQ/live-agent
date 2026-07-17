@@ -9,14 +9,14 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 3：确定性 EvidenceBundle 与只读 Resolver（`d3a53a8` 已推送） |
-| 当前任务 | Task 4：播中 Copilot 与结构化方案 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | GREEN、预算跨后端隔离和安全审查整改已完成；全量 unit/integration 与静态门禁已通过，待提交 |
+| 最近完成任务 | Phase 14 Task 4：播中 Copilot 与结构化方案（`4ad8de5` 已推送） |
+| 当前任务 | Task 5：人工决定与受控执行编译 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 4 已独立提交并推送；Task 5 开始读取现有命令、审批和 PlanCommand 事实，准备 RED |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
-| 真实模型累计费用 | 0.042344 元；本 Task 新增 0 元 |
+| 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
 
 ## 2. 当前授权边界
 
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 4
-状态: VERIFY
-目标: 基于受治理 EvidenceBundle 生成 1-3 个结构化 LiveDecisionProposal，严格复用受限 Specialist Runtime
-禁止事项: 不实现 OperatorDecision/经营写入；不允许写 Skill、Agent 互调、自由工具探索或同次 Legacy fallback；不运行真实模型；不修改用户脏文件
-当前 HEAD: 94c8d2b
-本 Task 文件: decision_support/live_ops_copilot.py、proposal.py、specialist_runtime/budget.py、runner.py、Phase 13 预算迁移/Manifest、Task 4 测试及必要工作日志
+Phase / Task: Phase 14 / Task 5
+状态: RED
+目标: 对 READY/DEGRADED Proposal 实施批准、拒绝和受限修改，生成可审计且受控的 OperatorDecision/ExecutionCommand
+禁止事项: 不让自然语言或 Agent 直接执行经营写入；不绕过 OperatorDecision、版本/CAS、operator lease、幂等、Skill Runtime 或 PlanEngine；不运行真实模型；不修改用户脏文件
+当前 HEAD: 4ad8de5
+本 Task 文件: decision_support/commands.py、Task 5 单元/集成测试及必要迁移/工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 4 专项/预算聚合 `28 passed`；完整 unit `1260 passed, 4 warnings`；完整 integration `146 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 均通过；Phase 13 v2/v3 Manifest 由正式生成器重建并绑定新增源码
-错误与尝试次数: RED 新增 9 个失败，分别覆盖 Profile digest、完整证据闭合、不可提案/过期、备品和风险码；修复后专项 `15 passed`；全量首次因 Phase 13 Manifest 源码闭包滞后出现 2 个失败，重跑正式生成器后 unit 全绿；预算审查发现 PostgreSQL 曾把 Phase 14 暴露额计入 Phase 13，已补隔离与 SETTLED 回归
-设计偏差与决策编号: 按 D-113、D-116、D-117、D-119、D-122 实施；Phase 13 Manifest 必须随源码闭包重建，未改变 case/label 内容；Phase 14 Copilot 仍只读建议，不创建 SkillCall、PlanCommand 或经营写入
-下一条精确操作: 严格检查 Task 4 目标文件编码和暂存边界，提交 `feat: add live decision support copilot` 并推送 origin/main
+最近命令与结果: Task 4 专项/预算聚合 `28 passed`；完整 unit `1260 passed, 4 warnings`；完整 integration `146 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 14 个目标文件严格编码检查均通过；`4ad8de5` 已推送
+错误与尝试次数: Task 4 RED 新增 9 个失败后转绿；全量首次因 Phase 13 Manifest 源码闭包滞后出现 2 个失败，正式生成器重建后通过；预算审查发现 PostgreSQL 阶段暴露额串池，补隔离与 SETTLED 回归后通过
+设计偏差与决策编号: Task 4 按 D-113、D-116、D-117、D-119、D-122 实施；Phase 13 Manifest 随源码闭包重建，case/label 未变；Task 5 按 D-116/D-117 延续运营主控、结构化修改和受控执行边界
+下一条精确操作: 读取 OperatorDecision、ExecutionCommand、PlanCommand、SkillCall 现有 API，先编写 Task 5 的最小 RED 测试
 模型费用累计: 0.042344 元
 ```
 

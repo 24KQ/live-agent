@@ -168,7 +168,8 @@
   - [x] Task 1：旧 Planner/Harness 权限审计、默认关闭路由、旧 checkpoint 最终执行门与原子终态会话。
   - [x] Task 2：统一 Workspace 与不可变 PostgreSQL Store（`42991ec` 已推送）。
   - [x] Task 3：确定性 EvidenceBundle 与只读 Resolver（`d3a53a8` 已提交并推送）。
-  - [ ] Task 4：播中 Copilot 与结构化方案（当前 VERIFY，待独立提交推送）。
+  - [x] Task 4：播中 Copilot 与结构化方案（`4ad8de5` 已推送）。
+  - [ ] Task 5：人工决定与受控执行编译（当前开始 RED）。
 - [ ] Phase 15：Golden Dataset、发布门禁与 Final Acceptance，必须在 Phase 14 Acceptance 后重新讨论。
 
 # 2026-07-11 Phase 7A 任务
