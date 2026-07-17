@@ -528,3 +528,10 @@
 
 - Task 10 已以 `3dc7f40 test: add human decision support evaluation` 独立提交并推送，远端与本地 HEAD 一致；用户脏文件未纳入。
 - Task 11 开始前真实模型累计费用保持 `0.042344` 元；预检前禁止发送真实请求，先固定缺少 endpoint、公开价格、usage、Prompt/Schema/数据集/代码哈希或预算时的 fail-closed 证据。
+
+## 2026-07-18 Phase 14 Task 11 验证
+
+- 新增 `formal_evaluation.py`：精确核对 `deepseek-v4-flash`、endpoint、零温度、十例上限、1.00 元预算、Manifest 和 Prompt/Schema/价格/数据/代码摘要；缺失任一事实返回 `INCONCLUSIVE` 且 `can_send=false`。
+- Scripted rehearsal 重用 Task 10 固定数据，零模型调用、零费用并明确 `REAL_MODEL_SMOKE_NOT_RUN`；external smoke 测试默认跳过，不自动联网。
+- 未知 usage 按单例 reservation 上限结算；fallback 或严重安全违规为 `FAIL`；预检结果含内部可信标记，伪造 `model_construct(can_send=True)` 无法打开发送门。
+- Task 11 专项 `7 passed`，Task 10/11/Manifest 回归 `27 passed`，完整 unit `1317 passed, 4 warnings`，完整 integration `150 passed, 3 deselected, 5 warnings`，external smoke `1 skipped`；真实模型费用仍为 `0.042344` 元。

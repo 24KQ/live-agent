@@ -175,7 +175,8 @@
   - [x] Task 8：三视图运营工作台（`0a8f08c` 已推送）。
   - [x] Task 9：播后反馈与人工确认记忆晋升（`dbd5768` 已提交并推送）。
   - [x] Task 10：固定复合事故数据集、离线规则回归、人机配对评估与人工对照（`3dc7f40` 已提交并推送）。
-  - [ ] Task 11：真实模型 smoke 预检与严格结论。
+  - [ ] Task 11：真实模型 smoke 预检与严格结论（验证完成，待提交推送）。
+  - [ ] Task 12：三场景 Demo、Phase 14 Acceptance 与 Phase 15 Gate。
 - [ ] Phase 15：Golden Dataset、发布门禁与 Final Acceptance，必须在 Phase 14 Acceptance 后重新讨论。
 
 # 2026-07-11 Phase 7A 任务

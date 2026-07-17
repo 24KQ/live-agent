@@ -11,8 +11,8 @@
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
 | 最近完成任务 | Phase 14 Task 10：冻结数据集与离线人机协同评估（`3dc7f40` 已推送） |
 | 当前任务 | Task 11：真实模型 smoke 预检与严格结论 |
-| 当前任务状态 | `RED` |
-| 当前子步骤 | Task 10 已提交并推送；Task 11 尚未修改业务代码，准备建立 endpoint/价格/usage/哈希/预算预检的预期失败测试 |
+| 当前任务状态 | `VERIFY` |
+| 当前子步骤 | Task 11 RED/GREEN、预检信任门、Scripted rehearsal、未知 usage 结算和 external skip 已完成；全量验证通过，准备提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 10
-状态: RED
+Phase / Task: Phase 14 / Task 11
+状态: VERIFY
 目标: 在正式预检通过前阻止真实模型发送，并形成 ScriptedModel 演练与严格结论事实
 禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
-当前 HEAD: 3dc7f40
-本 Task 文件: Task 11 formal evaluation/preflight 模块与测试，尚未开始编码
+当前 HEAD: 3f34bbb
+本 Task 文件: src/decision_support/formal_evaluation.py、tests/unit/test_phase14_formal_evaluation.py、tests/external/test_phase14_real_smoke.py、Phase 13 Manifest 重建
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 10 专项 `9 passed`；数据/Phase 13 回归 `20 passed`；完整 unit `1310 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；提交/推送 `3dc7f40`
-错误与尝试次数: Task 10 质量审查的 5 个 Important 已整改并验证；Task 11 尚未开始编码或调用真实模型
-设计偏差与决策编号: Task 11 沿用 D-113、D-119、D-120；真实模型在预检完成前严格禁止，外部证据不足只能形成 `INCONCLUSIVE`
-下一条精确操作: 读取 Task 11 Design/Plan，先写预检 RED 测试并确认缺失 endpoint/价格/usage/哈希/预算时 fail-closed
+最近命令与结果: Task 11 专项 `7 passed`；Task 10/11/Manifest 回归 `27 passed`；完整 unit `1317 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；external smoke `1 skipped`；compileall/diff 通过
+错误与尝试次数: RED 缺少 formal_evaluation；GREEN 修复 usage 价格期望和伪造 PreflightResult 发送门；未运行真实模型
+设计偏差与决策编号: Task 11 沿用 D-113、D-119、D-120；Scripted rehearsal 明确为 `INCONCLUSIVE`，external smoke 默认 skip，只有内部预检工厂产物可打开真实发送门
+下一条精确操作: 只暂存 Task 11 代码、测试、Phase 13 Manifest 和 worklog，执行 staged diff 检查，提交 `feat: evaluate human decision support formally` 并推送
 模型费用累计: 0.042344 元
 ```
 

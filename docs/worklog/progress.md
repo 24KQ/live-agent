@@ -699,3 +699,9 @@
 
 - Task 10 已以 `3dc7f40 test: add human decision support evaluation` 提交并推送，`origin/main=3dc7f40`。
 - 连续游标切换到 Task 11 RED：先实现真实模型正式预检、ScriptedModel 全量演练和 `PASS | INCONCLUSIVE | FAIL` 严格结论；预检通过前不访问外部模型。
+
+# 2026-07-18 Phase 14 Task 11 验证完成，待提交
+
+- Task 11 已完成正式预检、可信发送门、Scripted rehearsal、未知 usage 保守结算和默认跳过 external smoke；真实模型未调用。
+- 验证：专项 `7 passed`，Task 10/11/Manifest `27 passed`，完整 unit `1317 passed, 4 warnings`，完整 integration `150 passed, 3 deselected, 5 warnings`，external `1 skipped`。
+- 当前只剩编码/差异确认、暂存、提交和推送，之后进入 Task 12 Demo/Acceptance。
