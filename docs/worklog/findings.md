@@ -429,6 +429,14 @@
 - receipt 只能在正常受控调用面代表 Assembler 产物；Task 3 通过 `EvidenceBundleAssemblyService` 隐藏 receipt/Store，WeakKeyDictionary 绑定签发时的 Bundle 身份，并用 D-121 明确任意同进程代码执行属于服务进程失陷而非插件安全边界。
 - Task 3 最终证据为专项 `79 passed`、完整 unit `1244 passed`、integration `145 passed, 3 deselected`；Phase 13 Manifest 在源码闭包变化后连续两次生成哈希稳定。
 
+## 2026-07-18 Phase 14 Task 5 发现
+
+- OperatorDecision 输入必须和 Proposal 版本、操作员身份、有效 lease/fencing 以及幂等键分别校验；普通 Graph approval 或自由文本不能代替事实。
+- MODIFY 只允许备品、主播提示、优先级和时机四个结构化字段；策略、EvidenceRef、工具调用和任意 JSON 均不可修改。空修改在模型边界直接拒绝。
+- Proposal、OperatorDecision、ExecutionCommand 和最终 PlanCommand 必须分别追加；REJECT 不创建经营命令，APPROVE/MODIFY 的命令必须使用节点 `APPROVE`，不能误用只针对冻结 PlanRun 的 `RESUME`。
+- Compiler 只构造不可变命令意图，不调用 SkillExecutor、Adapter 或真实平台；PlanStore/Workspace Store 在后续追加时再次执行 CAS、状态、lease、fencing 和幂等门禁。
+- PostgreSQL Task 5 专项覆盖真实六角色证据、决定/命令重启读取、当前 lease 约束和重复投递；完整验证为 unit `1268 passed`、integration `147 passed, 3 deselected, 5 warnings`。
+
 ## 2026-07-18 Phase 14 Task 4 发现
 
 - Copilot 的 Profile 身份不能只核对 ID、版本和 task kind；启动时必须重跑完整 Profile 校验并比较 `profile_digest`，否则绕过 Pydantic validator 的对象可能改变预算、Skill 或 Schema。

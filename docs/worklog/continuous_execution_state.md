@@ -11,8 +11,8 @@
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
 | 最近完成任务 | Phase 14 Task 4：播中 Copilot 与结构化方案（`4ad8de5` 已推送） |
 | 当前任务 | Task 5：人工决定与受控执行编译 |
-| 当前任务状态 | `RED` |
-| 当前子步骤 | Task 4 已独立提交并推送；Task 5 开始读取现有命令、审批和 PlanCommand 事实，准备 RED |
+| 当前任务状态 | `COMMIT` |
+| 当前子步骤 | Task 5 规格/质量复核由主模型接管完成，目标文件已严格检查并暂存，准备独立提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -31,22 +31,31 @@
 
 ```text
 Phase / Task: Phase 14 / Task 5
-状态: RED
+状态: COMMIT
 目标: 对 READY/DEGRADED Proposal 实施批准、拒绝和受限修改，生成可审计且受控的 OperatorDecision/ExecutionCommand
 禁止事项: 不让自然语言或 Agent 直接执行经营写入；不绕过 OperatorDecision、版本/CAS、operator lease、幂等、Skill Runtime 或 PlanEngine；不运行真实模型；不修改用户脏文件
-当前 HEAD: 4ad8de5
-本 Task 文件: decision_support/commands.py、Task 5 单元/集成测试及必要迁移/工作日志
+当前 HEAD: 4c09d0a
+本 Task 文件: decision_support/commands.py、Phase 13 v2/v3 Manifest、Task 5 单元/集成测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 4 专项/预算聚合 `28 passed`；完整 unit `1260 passed, 4 warnings`；完整 integration `146 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 14 个目标文件严格编码检查均通过；`4ad8de5` 已推送
-错误与尝试次数: Task 4 RED 新增 9 个失败后转绿；全量首次因 Phase 13 Manifest 源码闭包滞后出现 2 个失败，正式生成器重建后通过；预算审查发现 PostgreSQL 阶段暴露额串池，补隔离与 SETTLED 回归后通过
-设计偏差与决策编号: Task 4 按 D-113、D-116、D-117、D-119、D-122 实施；Phase 13 Manifest 随源码闭包重建，case/label 未变；Task 5 按 D-116/D-117 延续运营主控、结构化修改和受控执行边界
-下一条精确操作: 读取 OperatorDecision、ExecutionCommand、PlanCommand、SkillCall 现有 API，先编写 Task 5 的最小 RED 测试
+最近命令与结果: Task 5 单元专项 `8 passed`；PostgreSQL Task 5 专项 `1 passed`；完整 unit `1268 passed, 4 warnings`；完整 integration `147 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 通过
+错误与尝试次数: RED 缺模块后转绿；首轮修复审计 JSON tuple 和空修改边界；PlanCommand 语义审查将节点命令从 RESUME 修正为 APPROVE；PostgreSQL 集成修正数据库墙钟与幂等重放后的当前 Workspace 版本；Manifest 源码闭包已由正式生成器重建
+设计偏差与决策编号: 按 D-116、D-117 实施；REJECT 只追加 OperatorDecision，不创建命令；APPROVE/MODIFY 只编译节点 APPROVE 意图，实际执行仍交给 PlanEngine/Skill Runtime；原 Proposal 永不覆盖
+下一条精确操作: 创建并推送 `feat: compile operator decisions safely`，确认远端 HEAD 后切换 Task 6 RED
 模型费用累计: 0.042344 元
 ```
 
 当前 sub-agent：
 
 ```text
+Sub-agent ID / 角色: Task 5 Compiler 规格与代码质量只读审查
+派发时间: 2026-07-18
+只读或写入文件边界: 只读 src/decision_support/commands.py、Task 5 单元/集成测试、Phase 14 Design/Plan；禁止修改文件
+预期交付物与测试: 核对 OperatorDecision/ExecutionCommand/PlanCommand 的权限、版本、lease/fencing、幂等和禁止直接执行边界，报告 Critical/Important/Normal 发现
+首次回报: 未返回可验证报告
+最近可验证进展: 主模型已完成全量 unit/integration、compileall、迁移 dry-run 和 git diff --check
+状态: STOPPED / TAKEN_OVER
+接管原因（如适用）: 提交前未返回可验证进展；主模型复核实际差异、计划契约和全部验证证据后接管
+
 Sub-agent ID / 角色: Task 4 Specialist Runtime API 只读分析（已登记任务）
 派发时间: 2026-07-18
 只读或写入文件边界: 只读 specialist_runtime/model_port.py、runner.py、profiles.py、registry.py 与相关单元测试

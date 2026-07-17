@@ -628,3 +628,12 @@
 - Phase 13 v2/v3 Manifest 已由正式生成器重建，以包含新增源码闭包；case/label 内容未变化。真实模型新增费用为 0。
 - 最终验证：Task 4/预算专项 `28 passed`，完整 unit `1260 passed, 4 warnings`，完整 integration `146 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和目标文件编码检查通过。
 - Task 4 已以 `4ad8de5 feat: add live decision support copilot` 独立提交并推送；用户已有脏文件未纳入。连续游标切换到 Phase 14 Task 5 RED。
+
+# 2026-07-18 Phase 14 Task 5
+
+- 新增 `src/decision_support/commands.py`，定义 `OperatorDecisionDraft`、`OperatorModification`、权威 `DecisionExecutionContext` 和 `DecisionSupportCommandCompiler`；编译器只构造 append-only 事实，不执行任何 Runtime 或平台调用。
+- APPROVE/MODIFY 必须绑定 READY Proposal、精确版本、操作员有效 lease/fencing、选项和结构化修改；修改仅允许备品、提示语、优先级和时机。REJECT 只保存人工拒绝事实，不生成命令。
+- 编译结果分别生成 `OperatorDecision`、`ExecutionCommand` 和节点级 `PlanCommandType.APPROVE`；原 Proposal 不可变，实际执行继续由 PlanStore/Skill Runtime 负责。
+- 新增真实 PostgreSQL Task 5 测试，覆盖六角色 EvidenceRef Proposal、Workspace CAS、operator lease、fencing、幂等重放和重启读取。
+- Phase 13 v2/v3 Manifest 已由正式生成器重建以绑定新增 `commands.py` 源码闭包；case/label 未改变，真实模型费用新增 0。
+- 当前验证：Task 5 unit `8 passed`，PostgreSQL 专项 `1 passed`，完整 unit `1268 passed, 4 warnings`，完整 integration `147 passed, 3 deselected, 5 warnings`；compileall 和 `git diff --check` 通过，待提交推送。
