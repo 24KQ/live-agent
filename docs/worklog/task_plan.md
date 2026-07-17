@@ -172,7 +172,8 @@
   - [x] Task 5：人工决定与受控执行编译（`c20d1ab` 已推送）。
   - [x] Task 6：复合售罄自动保护与人工恢复（`43d182f` 已推送）。
   - [x] Task 7：统一 API 与 WebSocket 协议（`eb28885` 已推送）。
-  - [ ] Task 8：三视图运营工作台（GREEN/VERIFY 已完成，待独立提交推送）。
+  - [x] Task 8：三视图运营工作台（`0a8f08c` 已推送）。
+  - [ ] Task 9：播后反馈与人工确认记忆晋升（当前 RED，尚未开始编写失败测试）。
 - [ ] Phase 15：Golden Dataset、发布门禁与 Final Acceptance，必须在 Phase 14 Acceptance 后重新讨论。
 
 # 2026-07-11 Phase 7A 任务

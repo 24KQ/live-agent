@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 7：统一 API 与 WebSocket 协议（`eb28885` 已推送） |
-| 当前任务 | Task 8：三视图运营工作台 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | Task 8 GREEN、审查整改和全量验证已完成；待更新留痕、提交并推送，Task 9 尚未开始 |
+| 最近完成任务 | Phase 14 Task 8：三视图运营工作台（`0a8f08c` 已推送） |
+| 当前任务 | Task 9：播后反馈与人工确认记忆晋升 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 8 已完成验证、提交和推送；Task 9 尚未开始编写失败测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 8
-状态: VERIFY
-目标: 将现有副屏升级为共享 PREPARE/LIVE/REVIEW session 的运营主控工作台，主播端只读
+Phase / Task: Phase 14 / Task 9
+状态: RED
+目标: 将播后结构化候选经过规则资格和人工确认后幂等晋升为 active memory，并供下一次 PREPARE 受治理读取
 禁止事项: 不让主播拥有审批控件；不把自然语言或 UI 直接转成经营写操作；不绕过 API/OperatorDecision/PlanEngine；不运行真实模型/平台；不修改用户脏文件
-当前 HEAD: eb28885（Task 8 工作区修改尚未提交）
-本 Task 文件: front/index.html、Task 8 Dashboard contract 测试及必要工作日志
+当前 HEAD: 0a8f08c
+本 Task 文件: src/decision_support/review_feedback.py、Task 9 unit/integration 测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 8 专项 `6 passed`；相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`；完整 unit `1288 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；JavaScript `new Function` 语法检查和 `compileall` 通过
-错误与尝试次数: 初始契约缺少稳定 `live-session-id` 与显式资源后缀；审查发现并修复对账/降级/重连写入门控、旧会话 HTTP/WS 竞态、方案选择重置、Token 缺失、Proposal 未实际同步、记忆候选/执行结果未渲染；未放宽安全门禁
-设计偏差与决策编号: Task 8 按 D-113、D-116、D-117、D-121 实施；UI 只调用 Task 7 API，不直接访问 Store/Runtime；APPROVE/MODIFY/REJECT 在状态、连接和 Token 不满足时均禁用并二次拒绝；主播区保持只读
-下一条精确操作: 完成目标文件严格 UTF-8/LF/空白检查与 git diff --check，邀请审查结论收口，只暂存 Task 8 文件，提交 `feat: build operator decision workspace` 并推送；随后更新状态到 Task 9 RED
+最近命令与结果: Task 8 专项 `6 passed`；相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`；完整 unit `1288 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；Task 8 `0a8f08c` 已推送
+错误与尝试次数: Task 8 的前端审查缺口已全部整改；Task 9 尚未编写 RED，不运行真实模型、不扩大 Memory Store/PromotionPolicy 安全边界
+设计偏差与决策编号: Task 9 按 D-113、D-118、D-120 实施；Agent/规则只能 stage，规则资格是人工确认的前置门，PromotionPolicy 是唯一 active memory 写入口；单证据、冲突、跨作用域、白名单不匹配和敏感字段均禁止晋升
+下一条精确操作: 读取 Candidate Store、PromotionPolicy、DecisionTrace 和 retrieve_anchor_memory 的现有接口，先编写双证据/资格/人工确认/幂等/恢复 RED 测试
 模型费用累计: 0.042344 元
 ```
 

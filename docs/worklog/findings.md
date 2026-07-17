@@ -487,3 +487,9 @@
 - 只读审查发现决定按钮在 `WAITING_RECONCILIATION`、`DEGRADED` 和 `RECONNECTING` 时仍可点击；已增加 `decisionBlockReason`、Token 检查、连接状态和二次提交门禁，主播区继续只读。
 - 只读审查发现旧 HTTP/WS 会话竞态、方案选择重置、Proposal 仅静态声明、Review 不显示候选/执行结果；已用请求序列号、目标 session 绑定、`selectedOptionId`、显式 Proposal 同步、`memory_candidates` 和命令结果渲染修复。
 - 修复后 Task 8 专项 `6 passed`，相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`，完整 unit `1288 passed, 4 warnings`，完整 integration `149 passed, 3 deselected, 5 warnings`；真实模型费用未增加。
+
+## 2026-07-18 Phase 14 Task 9 开始
+
+- Task 9 复用 Phase 13 的 Candidate Store、PromotionPolicy、DecisionTrace 和 `retrieve_anchor_memory@1.0.0`，不重新实现 Agent 记忆逻辑。
+- 公开安全边界固定为：候选先 stage，规则资格检查双独立 DecisionTrace、作用域、货盘白名单、冲突和敏感字段；只有 `ELIGIBLE_AWAITING_OPERATOR` 才能等待人工确认，PromotionPolicy 是唯一 active memory 写入口。
+- 当前状态为 RED，尚未修改业务代码或调用真实模型；下一步先以失败测试固定资格事实、人工确认、拒绝强制晋升、CAS/幂等、PostgreSQL 重启和 PREPARE 读取闭环。

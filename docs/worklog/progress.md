@@ -662,3 +662,9 @@
 - 独立前端审查发现并修复对账/降级/重连仍可写、旧 HTTP/WS session 竞态、方案选择重置、Token 缺失、Proposal 仅静态声明、Review 候选/执行结果缺失和移动状态换行风险；修复不改变后端公开接口。
 - 修复后 Task 8 专项 `6 passed`；相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`；完整 unit `1288 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；JavaScript 语法、compileall、真实模型费用门禁通过，新增真实模型费用为 0。
 - 当前待完成：严格 UTF-8/LF/尾随空白、`git diff --check`、最终复审收口、独立提交 `feat: build operator decision workspace` 并推送；推送后切换 Task 9 RED。
+
+# 2026-07-18 Phase 14 Task 8 已提交，Task 9 RED
+
+- Task 8 已以 `0a8f08c feat: build operator decision workspace` 独立提交并推送，提交只包含工作台、契约测试、路线图和本阶段工作日志；用户已有脏文件和无关脚本未纳入。
+- Task 8 最终证据为专项 `6 passed`、相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`、完整 unit `1288 passed, 4 warnings`、完整 integration `149 passed, 3 deselected, 5 warnings`；新增真实模型费用为 0。
+- 连续游标切换到 Phase 14 Task 9 RED。Task 9 只复用 Phase 13 Candidate Store/PromotionPolicy 与受治理 `retrieve_anchor_memory`，增加规则资格事实和人工确认命令，不允许 Agent 或 UI 直接写 active memory。
