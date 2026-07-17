@@ -493,3 +493,16 @@
 - Task 9 复用 Phase 13 的 Candidate Store、PromotionPolicy、DecisionTrace 和 `retrieve_anchor_memory@1.0.0`，不重新实现 Agent 记忆逻辑。
 - 公开安全边界固定为：候选先 stage，规则资格检查双独立 DecisionTrace、作用域、货盘白名单、冲突和敏感字段；只有 `ELIGIBLE_AWAITING_OPERATOR` 才能等待人工确认，PromotionPolicy 是唯一 active memory 写入口。
 - 当前状态为 RED，尚未修改业务代码或调用真实模型；下一步先以失败测试固定资格事实、人工确认、拒绝强制晋升、CAS/幂等、PostgreSQL 重启和 PREPARE 读取闭环。
+
+## 2026-07-18 Phase 14 Task 9 审查整改
+
+- 规格审查阻断了首版实现：旧 PromotionPolicy 仍可由 STAGED 直接写 active memory，Trace 摘要可由调用方伪造，确认重放未绑定完整身份，active 写入/CAS/账本存在恢复窗口。
+- 整改后 PromotionPolicy 只接受 `ELIGIBLE_AWAITING_OPERATOR`，从持久化资格 Store 读取真实 Trace ID，经 `InMemoryDecisionTraceResolver`/`PostgresDecisionTraceResolver` 重载事实，并要求同 command 的 operator intent；调用方不能携带 Trace 字典替代事实。
+- 资格事实先落库再完成 Candidate CAS；确认 intent 先落库，active memory 使用确定性 key，候选 CAS 或命令账本中断后可由同一 command 重放；同作用域已有相同结构化模板冲突时保持 `ELIGIBLE_AWAITING_OPERATOR`。
+- 审查补测覆盖直接 Policy 绕过、未知 Trace、active 冲突和 active-write/CAS 失败恢复；Task 9 相关 unit `34 passed`、integration `4 passed`，全量 unit/integration 均无失败。
+
+## 2026-07-18 Phase 14 Task 9 最终复核
+
+- 未返回可验证报告的 Task 9 只读复审线程已由主模型停止并接管；其结论未作为验收依据。
+- 主模型复核确认资格事实、人工 intent、可信 Trace、作用域锁、候选版本 CAS、active-write/CAS 恢复和命令重放均有对应测试；未发现需要新增决策或放宽安全边界的问题。
+- 复跑证据为 Task 9 相关 unit `20 passed`、相关 PostgreSQL integration `2 passed`、完整 unit `1301 passed, 4 warnings`、完整 integration `150 passed, 3 deselected, 5 warnings`；真实模型费用未增加。

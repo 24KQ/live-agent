@@ -668,3 +668,18 @@
 - Task 8 已以 `0a8f08c feat: build operator decision workspace` 独立提交并推送，提交只包含工作台、契约测试、路线图和本阶段工作日志；用户已有脏文件和无关脚本未纳入。
 - Task 8 最终证据为专项 `6 passed`、相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`、完整 unit `1288 passed, 4 warnings`、完整 integration `149 passed, 3 deselected, 5 warnings`；新增真实模型费用为 0。
 - 连续游标切换到 Phase 14 Task 9 RED。Task 9 只复用 Phase 13 Candidate Store/PromotionPolicy 与受治理 `retrieve_anchor_memory`，增加规则资格事实和人工确认命令，不允许 Agent 或 UI 直接写 active memory。
+
+# 2026-07-18 Phase 14 Task 9 验证完成，待提交
+
+- 新增 `review_feedback.py` 与 Phase 14 资格/确认 DDL；候选状态固定为 `STAGED -> ELIGIBLE_AWAITING_OPERATOR -> APPLIED`，资格事实、人工确认意图和确认结果均可幂等重放。
+- PromotionPolicy 现在必须验证持久化资格事实、可信 Trace Resolver、候选版本和 operator confirmation intent；直接调用、伪造 Trace、跨作用域/冲突/敏感字段、白名单不匹配均 fail-closed。
+- 资格事实先持久化再 CAS 状态转换，重试可修复中断；active memory 使用稳定 key，active 写入后候选 CAS 失败时可通过同一确认命令恢复，不创建第二条记忆。
+- Phase 13 历史直接晋升回归迁移到新受控门面；正式生成器重建 `phase13-v2/v3` Manifest 以包含新源码闭包。
+- 最终验证：Task 9 专项 unit `12 passed`，相关 unit `34 passed`，相关 PostgreSQL integration `4 passed`，完整 unit `1300 passed, 4 warnings`，完整 integration `150 passed, 3 deselected, 5 warnings`；compileall、Manifest、diff 和真实模型费用门禁通过。
+- 当前待完成：目标文件严格 UTF-8/LF/尾随空白检查，提交 `feat: confirm governed memory promotion` 并推送。
+
+# 2026-07-18 Phase 14 Task 9 最终复核
+
+- 未返回可验证报告的只读复审线程已停止，主模型完成规格与安全边界复核。
+- Task 9 复跑证据：相关 unit `20 passed`、相关 PostgreSQL integration `2 passed`、完整 unit `1301 passed, 4 warnings`、完整 integration `150 passed, 3 deselected, 5 warnings`。
+- 当前进入严格编码/差异检查和提交推送；不暂存用户已有脏文件。

@@ -13,9 +13,13 @@ from src.memory.candidate_store import (
     InMemoryMemoryCandidateStore,
     MemoryCandidate,
     MemoryCandidateStatus,
-    MemoryPromotionCommand,
 )
 from src.memory.promotion_policy import PromotionPolicy
+from src.decision_support.review_feedback import (
+    InMemoryDecisionTraceResolver,
+    InMemoryReviewFeedbackStore,
+    ReviewFeedbackService,
+)
 from src.memory.models import AnchorMemoryEntry
 from src.skill_runtime.catalog import get_default_skill_catalog
 from src.state.models import LifecycleStage, RiskLevel
@@ -57,28 +61,39 @@ def test_promotion_requires_two_matching_traces_and_expected_version() -> None:
 
     store = InMemoryMemoryCandidateStore()
     staged = store.stage(_candidate())
-    policy = PromotionPolicy(store=store, active_memory_port=None)
-    command = MemoryPromotionCommand(
-        command_id="promote-001",
+    feedback = InMemoryReviewFeedbackStore()
+    resolver = InMemoryDecisionTraceResolver(
+        (
+            {"trace_id": "trace-a", "anchor_id": "anchor-001", "room_id": "room-001"},
+        )
+    )
+    service = ReviewFeedbackService(
+        candidate_store=store,
+        feedback_store=feedback,
+        decision_trace_resolver=resolver,
+        promotion_policy=PromotionPolicy(
+            store=store,
+            active_memory_port=None,
+            eligibility_store=feedback,
+            decision_trace_resolver=resolver,
+        ),
+    )
+    result = service.evaluate_eligibility(
+        command_id="eligibility-001",
         candidate_id=staged.candidate_id,
         expected_version=staged.version,
-        expected_status=MemoryCandidateStatus.STAGED,
-    )
-
-    result = policy.promote(
-        command,
-        decision_traces=(
-            {"decision_trace_id": "trace-a", "anchor_id": "anchor-001", "room_id": "room-001"},
-        ),
+        trace_ids=("trace-a",),
         product_whitelist={"p001"},
     )
 
     assert result.status is MemoryCandidateStatus.STAGED
     assert result.reason_code == "INSUFFICIENT_INDEPENDENT_EVIDENCE"
     with pytest.raises(ValueError, match="expected_version"):
-        policy.promote(
-            command.model_copy(update={"command_id": "promote-stale", "expected_version": 2}),
-            decision_traces=(),
+        service.evaluate_eligibility(
+            command_id="eligibility-stale",
+            candidate_id=staged.candidate_id,
+            expected_version=2,
+            trace_ids=(),
             product_whitelist={"p001"},
         )
 
@@ -120,6 +135,14 @@ class _ActiveMemoryPort:
         self.entries.append(entry)
         return "memory-001"
 
+    def list_memories(self, _anchor_id: str, _room_id: str | None = None):
+        return list(self.entries)
+
+    def promotion_scope_lock(self, _anchor_id: str, _room_id: str | None = None):
+        from contextlib import nullcontext
+
+        return nullcontext()
+
 
 def test_promotion_applies_two_scoped_traces_as_deterministic_template_memory() -> None:
     """双独立 trace 且货盘命中时才可写 active memory；命令重放不得二次写入。"""
@@ -127,26 +150,54 @@ def test_promotion_applies_two_scoped_traces_as_deterministic_template_memory() 
     store = InMemoryMemoryCandidateStore()
     candidate = store.stage(_candidate())
     memory = _ActiveMemoryPort()
-    policy = PromotionPolicy(store=store, active_memory_port=memory)
-    command = MemoryPromotionCommand(command_id="promote-ok", candidate_id=candidate.candidate_id, expected_version=1, expected_status=MemoryCandidateStatus.STAGED)
-    traces = (
-        {"decision_trace_id": "trace-a", "anchor_id": "anchor-001", "room_id": "room-001"},
-        {"decision_trace_id": "trace-b", "anchor_id": "anchor-001", "room_id": "room-001"},
+    feedback = InMemoryReviewFeedbackStore()
+    resolver = InMemoryDecisionTraceResolver(
+        (
+            {"trace_id": "trace-a", "anchor_id": "anchor-001", "room_id": "room-001"},
+            {"trace_id": "trace-b", "anchor_id": "anchor-001", "room_id": "room-001"},
+        )
     )
-
-    result = policy.promote(command, decision_traces=traces, product_whitelist={"p001"})
+    service = ReviewFeedbackService(
+        candidate_store=store,
+        feedback_store=feedback,
+        decision_trace_resolver=resolver,
+        promotion_policy=PromotionPolicy(
+            store=store,
+            active_memory_port=memory,
+            eligibility_store=feedback,
+            decision_trace_resolver=resolver,
+        ),
+    )
+    eligible = service.evaluate_eligibility(
+        command_id="eligibility-ok",
+        candidate_id=candidate.candidate_id,
+        expected_version=1,
+        trace_ids=("trace-a", "trace-b"),
+        product_whitelist={"p001"},
+    )
+    result = service.confirm_promotion(
+        command_id="promote-ok",
+        candidate_id=candidate.candidate_id,
+        expected_version=eligible.version,
+        operator_id="operator-001",
+    )
 
     assert result.status is MemoryCandidateStatus.APPLIED
     assert len(memory.entries) == 1
     assert "model" not in memory.entries[0].content.lower()
-    assert policy.promote(command, decision_traces=traces, product_whitelist={"p001"}) == result
+    assert service.confirm_promotion(
+        command_id="promote-ok",
+        candidate_id=candidate.candidate_id,
+        expected_version=eligible.version,
+        operator_id="operator-001",
+    ) == result
     assert len(memory.entries) == 1
 
 
 @pytest.mark.parametrize(
     ("traces", "whitelist", "reason"),
     [
-        (({"decision_trace_id": "trace-a", "anchor_id": "anchor-x", "room_id": "room-001"}, {"decision_trace_id": "trace-b", "anchor_id": "anchor-x", "room_id": "room-001"}), {"p001"}, "INSUFFICIENT_INDEPENDENT_EVIDENCE"),
+            (({"decision_trace_id": "trace-a", "anchor_id": "anchor-001", "room_id": "room-001"},), {"p001"}, "INSUFFICIENT_INDEPENDENT_EVIDENCE"),
         (({"decision_trace_id": "trace-a", "anchor_id": "anchor-001", "room_id": "room-001"}, {"decision_trace_id": "trace-b", "anchor_id": "anchor-001", "room_id": "room-001"}), {"p999"}, "PRODUCT_WHITELIST_MISMATCH"),
     ],
 )
@@ -156,9 +207,24 @@ def test_promotion_keeps_candidate_staged_when_scope_or_whitelist_fails(traces, 
     store = InMemoryMemoryCandidateStore()
     candidate = store.stage(_candidate())
     memory = _ActiveMemoryPort()
-    result = PromotionPolicy(store=store, active_memory_port=memory).promote(
-        MemoryPromotionCommand(command_id=f"command-{reason}", candidate_id=candidate.candidate_id, expected_version=1, expected_status=MemoryCandidateStatus.STAGED),
-        decision_traces=traces,
+    feedback = InMemoryReviewFeedbackStore()
+    resolver = InMemoryDecisionTraceResolver(tuple({"trace_id": item["decision_trace_id"], **item} for item in traces))
+    service = ReviewFeedbackService(
+        candidate_store=store,
+        feedback_store=feedback,
+        decision_trace_resolver=resolver,
+        promotion_policy=PromotionPolicy(
+            store=store,
+            active_memory_port=memory,
+            eligibility_store=feedback,
+            decision_trace_resolver=resolver,
+        ),
+    )
+    result = service.evaluate_eligibility(
+        command_id=f"eligibility-{reason}",
+        candidate_id=candidate.candidate_id,
+        expected_version=1,
+        trace_ids=tuple(item["decision_trace_id"] for item in traces),
         product_whitelist=whitelist,
     )
     assert result.status is MemoryCandidateStatus.STAGED

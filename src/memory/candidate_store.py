@@ -18,6 +18,7 @@ class MemoryCandidateStatus(StrEnum):
     """候选只能按受控命令从暂存进入终态，Agent 不能直接写 active memory。"""
 
     STAGED = "STAGED"
+    ELIGIBLE_AWAITING_OPERATOR = "ELIGIBLE_AWAITING_OPERATOR"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     APPLIED = "APPLIED"
@@ -107,11 +108,23 @@ class InMemoryMemoryCandidateStore:
         return self._commands.get(command_id)
 
     def transition(self, candidate_id: str, *, status: MemoryCandidateStatus) -> MemoryCandidate:
-        """Policy 是唯一可变更状态的调用方；每次合法终态转换递增候选版本。"""
+        """Policy/人工确认门面是唯一可变更状态的调用方；每次转换递增版本。"""
 
         candidate = self.get(candidate_id)
-        if candidate.status is not MemoryCandidateStatus.STAGED:
-            raise ValueError("memory candidate is not staged")
+        allowed = {
+            MemoryCandidateStatus.STAGED: {
+                MemoryCandidateStatus.ELIGIBLE_AWAITING_OPERATOR,
+                MemoryCandidateStatus.APPROVED,
+                MemoryCandidateStatus.REJECTED,
+                MemoryCandidateStatus.APPLIED,
+            },
+            MemoryCandidateStatus.ELIGIBLE_AWAITING_OPERATOR: {
+                MemoryCandidateStatus.APPLIED,
+                MemoryCandidateStatus.REJECTED,
+            },
+        }
+        if status not in allowed.get(candidate.status, set()):
+            raise ValueError("memory candidate has no legal status transition")
         updated = candidate.model_copy(update={"status": status, "version": candidate.version + 1})
         self._by_id[candidate_id] = updated
         return updated
@@ -172,11 +185,23 @@ class PostgresMemoryCandidateStore:
 
     def transition(self, candidate_id: str, *, status: MemoryCandidateStatus) -> MemoryCandidate:
         candidate = self.get(candidate_id)
-        if candidate.status is not MemoryCandidateStatus.STAGED:
-            raise ValueError("memory candidate is not staged")
+        allowed = {
+            MemoryCandidateStatus.STAGED: {
+                MemoryCandidateStatus.ELIGIBLE_AWAITING_OPERATOR,
+                MemoryCandidateStatus.APPROVED,
+                MemoryCandidateStatus.REJECTED,
+                MemoryCandidateStatus.APPLIED,
+            },
+            MemoryCandidateStatus.ELIGIBLE_AWAITING_OPERATOR: {
+                MemoryCandidateStatus.APPLIED,
+                MemoryCandidateStatus.REJECTED,
+            },
+        }
+        if status not in allowed.get(candidate.status, set()):
+            raise ValueError("memory candidate has no legal status transition")
         with psycopg.connect(**self._settings.postgres_connection_kwargs, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE phase13_memory_candidates SET status=%s,version=version+1,updated_at=NOW() WHERE candidate_id=%s AND version=%s AND status='STAGED' RETURNING *", (status.value, candidate_id, candidate.version))
+                cur.execute("UPDATE phase13_memory_candidates SET status=%s,version=version+1,updated_at=NOW() WHERE candidate_id=%s AND version=%s AND status IN ('STAGED','ELIGIBLE_AWAITING_OPERATOR') RETURNING *", (status.value, candidate_id, candidate.version))
                 row = cur.fetchone()
             conn.commit()
         if row is None:
