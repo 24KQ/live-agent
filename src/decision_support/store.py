@@ -119,6 +119,21 @@ class InMemoryDecisionSupportStore:
             except KeyError as exc:
                 raise WorkspaceNotFoundError("workspace not found") from exc
 
+    def get_workspace_by_root_plan(self, root_plan_run_id: str) -> LiveSessionWorkspace:
+        """按唯一 root PlanRun 反查会话，拒绝零个或多个匹配事实。"""
+
+        if not root_plan_run_id:
+            raise ValueError("root_plan_run_id must not be empty")
+        with self._lock:
+            matches = tuple(
+                workspace
+                for workspace in self._workspaces.values()
+                if workspace.root_plan_run_id == root_plan_run_id
+            )
+        if len(matches) != 1:
+            raise WorkspaceNotFoundError("root PlanRun does not identify one workspace")
+        return matches[0]
+
     def acquire_operator_lock(
         self,
         live_session_id: str,
@@ -678,6 +693,24 @@ class PostgresDecisionSupportStore:
         if row is None:
             raise WorkspaceNotFoundError("workspace not found")
         return self._workspace_from_row(row)
+
+    def get_workspace_by_root_plan(self, root_plan_run_id: str) -> LiveSessionWorkspace:
+        """按数据库中的 root PlanRun 反查唯一 Workspace，避免调用方自报 room。"""
+
+        if not root_plan_run_id:
+            raise ValueError("root_plan_run_id must not be empty")
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT * FROM phase14_live_session_workspaces
+                       WHERE root_plan_run_id=%s
+                       ORDER BY live_session_id""",
+                    (root_plan_run_id,),
+                )
+                rows = cur.fetchall()
+        if len(rows) != 1:
+            raise WorkspaceNotFoundError("root PlanRun does not identify one workspace")
+        return self._workspace_from_row(rows[0])
 
     def append_incident(
         self, fact: Incident, *, expected_workspace_version: int

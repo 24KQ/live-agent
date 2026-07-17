@@ -643,3 +643,6 @@
 
 - 已切换到 Task 6 RED，目标是接入可信售罄自动保护与人工经营恢复，严格复用 Phase 12B Preemption/售罄 CAS/对账控制面。
 - 当前尚未编写 Task 6 生产代码或运行真实模型；下一步先建立可信事件、冻结/CAS/陈旧阻断、无 OperatorDecision 拒绝恢复和 `SIDE_EFFECT_UNKNOWN` 保持对账的预期失败测试。
+- Task 6 RED/GREEN 已完成：新增 `HumanGuidedSoldOutFlow`、内存/PostgreSQL root Workspace 查询和可信 Incident 事实链；Task 6 unit `7 passed`，Task 5/6 聚合 `15 passed`，Task 6 PostgreSQL `2 passed`。
+- 复审补齐 Compiler 的 `incident_id` 绑定和恢复入口的完整模型重载；自动保护不调用 CommandService，原始 PlanCommand 直接入口 fail-closed，真实模型费用仍为 `0.042344` 元。
+- Task 6 最终规格与质量复核无 Critical/Important 阻断；完整 unit `1275 passed, 4 warnings`，完整 integration `149 passed, 3 deselected, 5 warnings`。新增 `sold_out_flow.py` 后按正式生成器重建 Phase 13 v2/v3 Manifest，所有静态和编码门禁通过，准备提交推送。

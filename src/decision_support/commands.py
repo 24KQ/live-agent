@@ -187,6 +187,7 @@ class DecisionSupportCommandCompiler:
             "proposal_version": persisted_proposal.proposal_version,
         }
         decision_snapshot: dict[str, Any] = {
+            "incident_id": persisted_proposal.incident_id,
             "option_id": None if selected_option is None else selected_option.option_id,
             "changes": changes,
             "validation": validation,
