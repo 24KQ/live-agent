@@ -16,7 +16,17 @@ from src.core.on_live_harness_agent_graph import (
     build_on_live_harness_agent_graph,
     create_initial_on_live_harness_state,
 )
+from src.decision_support.routing import DecisionSupportRoute
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision
+
+
+def _build_decision_support_graph(**kwargs):
+    """历史 Harness 行为必须显式选择新路由，避免测试掩盖生产默认关闭。"""
+
+    return build_on_live_harness_agent_graph(
+        decision_support_route=DecisionSupportRoute.DECISION_SUPPORT,
+        **kwargs,
+    )
 
 
 class NoActionPlanner:
@@ -163,7 +173,7 @@ class FailingAuditWriter:
 
 def test_harness_graph_runs_start_to_end() -> None:
     """Graph 能从 START 到 END。"""
-    graph = build_on_live_harness_agent_graph(planner=NoActionPlanner())
+    graph = _build_decision_support_graph(planner=NoActionPlanner())
     state = create_initial_on_live_harness_state(room_id="room-5g", trace_id="trace-5g")
     result = graph.invoke(state)
     assert result["agent_status"] == "no_action"
@@ -173,7 +183,7 @@ def test_harness_graph_runs_start_to_end() -> None:
 
 def test_no_event_path_skips_tool_nodes() -> None:
     """无事件路径不进入工具节点。"""
-    graph = build_on_live_harness_agent_graph(planner=NoActionPlanner())
+    graph = _build_decision_support_graph(planner=NoActionPlanner())
     state = create_initial_on_live_harness_state(room_id="room-5g", trace_id="trace-5g")
     result = graph.invoke(state)
     assert "execute_tool" not in result["completed_nodes"]
@@ -182,7 +192,7 @@ def test_no_event_path_skips_tool_nodes() -> None:
 
 def test_final_answer_writes_suggestion() -> None:
     """final_answer 分支应写入 final_suggestion。"""
-    graph = build_on_live_harness_agent_graph(planner=FinalAnswerPlanner())
+    graph = _build_decision_support_graph(planner=FinalAnswerPlanner())
     state = create_initial_on_live_harness_state(
         room_id="room-5g",
         trace_id="trace-5g",
@@ -196,7 +206,7 @@ def test_final_answer_writes_suggestion() -> None:
 def test_call_tool_path_executes_and_replans() -> None:
     """call_tool 路径应执行工具、回灌 observation，并触发下一轮 reasoning。"""
     executor = RecordingExecutor()
-    graph = build_on_live_harness_agent_graph(planner=ToolThenFinalPlanner(), executor=executor)
+    graph = _build_decision_support_graph(planner=ToolThenFinalPlanner(), executor=executor)
     state = create_initial_on_live_harness_state(
         room_id="room-5g",
         trace_id="trace-5g",
@@ -254,7 +264,7 @@ def test_harness_graph_accepts_runtime_on_live_executor() -> None:
             )
         )
     )
-    graph = build_on_live_harness_agent_graph(planner=ToolThenFinalPlanner(), executor=executor)
+    graph = _build_decision_support_graph(planner=ToolThenFinalPlanner(), executor=executor)
     state = create_initial_on_live_harness_state(
         room_id="room-5g",
         trace_id="trace-5g",
@@ -268,10 +278,10 @@ def test_harness_graph_accepts_runtime_on_live_executor() -> None:
     assert result["executed_tools"][0]["backup_product_id"] == "p002"
 
 
-def test_high_risk_tool_pending_not_executed() -> None:
-    """高风险工具只能 pending，不自动执行。"""
+def test_high_risk_tool_requires_structured_operator_decision() -> None:
+    """旧 HumanApproval 不再授予经营写权限，必须等待 Phase 14 OperatorDecision。"""
     executor = RecordingExecutor()
-    graph = build_on_live_harness_agent_graph(planner=HighRiskPlanner(), executor=executor)
+    graph = _build_decision_support_graph(planner=HighRiskPlanner(), executor=executor)
     state = create_initial_on_live_harness_state(
         room_id="room-5g",
         trace_id="trace-5g",
@@ -279,13 +289,14 @@ def test_high_risk_tool_pending_not_executed() -> None:
     )
     result = graph.invoke(state)
     assert executor.calls == []
-    assert result["agent_status"] == "pending_human"
-    assert "high risk" in result["error"] or "pending" in result["error"]
+    assert result["agent_status"] == "operator_decision_required"
+    assert "OperatorDecision" in result["error"]
+    assert result["approval_request"] is None
 
 
 def test_max_iterations_forces_finish() -> None:
     """超过 max_iterations 时强制结束，避免死循环。"""
-    graph = build_on_live_harness_agent_graph(planner=InfiniteToolPlanner(), executor=RecordingExecutor())
+    graph = _build_decision_support_graph(planner=InfiniteToolPlanner(), executor=RecordingExecutor())
     state = create_initial_on_live_harness_state(
         room_id="room-5g",
         trace_id="trace-5g",
@@ -309,7 +320,7 @@ def test_old_on_live_graph_still_works() -> None:
 def test_write_audit_node_calls_injected_audit_writer() -> None:
     """Phase 5H：write_audit 节点应调用注入的 audit writer 并回填审计 ID。"""
     audit_writer = RecordingAuditWriter()
-    graph = build_on_live_harness_agent_graph(planner=FinalAnswerPlanner(), audit_writer=audit_writer)
+    graph = _build_decision_support_graph(planner=FinalAnswerPlanner(), audit_writer=audit_writer)
     state = create_initial_on_live_harness_state(room_id="room-5h", trace_id="trace-5h")
 
     result = graph.invoke(state)
@@ -323,7 +334,7 @@ def test_write_audit_node_calls_injected_audit_writer() -> None:
 
 def test_audit_writer_error_does_not_crash_graph() -> None:
     """Phase 5H：审计写入失败时 Graph 返回 audit_status=error，而不是直接崩溃。"""
-    graph = build_on_live_harness_agent_graph(planner=FinalAnswerPlanner(), audit_writer=FailingAuditWriter())
+    graph = _build_decision_support_graph(planner=FinalAnswerPlanner(), audit_writer=FailingAuditWriter())
     state = create_initial_on_live_harness_state(room_id="room-5h", trace_id="trace-5h")
 
     result = graph.invoke(state)
@@ -334,7 +345,7 @@ def test_audit_writer_error_does_not_crash_graph() -> None:
 def test_post_reasoning_detects_missing_product() -> None:
     """Phase 9B: 幻觉检测 —— 调用工具时 product_id 不存在应被拦截"""
     # 使用带 inventory_alerts 的初始状态，但 LLM 决策使用不存在的 product_id
-    graph = build_on_live_harness_agent_graph(planner=MissingProductPlanner())
+    graph = _build_decision_support_graph(planner=MissingProductPlanner())
     state = create_initial_on_live_harness_state(
         room_id="room-9b",
         trace_id="trace-9b",
@@ -352,7 +363,7 @@ def test_post_reasoning_detects_missing_product() -> None:
 
 def test_post_reasoning_passes_valid_decision() -> None:
     """Phase 9B: 幻觉检测 —— 正常决策应通过检测，不被拦截"""
-    graph = build_on_live_harness_agent_graph(planner=ToolThenFinalPlanner())
+    graph = _build_decision_support_graph(planner=ToolThenFinalPlanner())
     state = create_initial_on_live_harness_state(
         room_id="room-9b",
         trace_id="trace-9b",
@@ -367,7 +378,7 @@ def test_post_reasoning_passes_valid_decision() -> None:
 
 def test_post_reasoning_detects_no_event_tool_call() -> None:
     """Phase 9B: 幻觉检测 —— 无库存告警时调用售罄工具应被拦截"""
-    graph = build_on_live_harness_agent_graph(planner=SoldOutWithoutAlertPlanner())
+    graph = _build_decision_support_graph(planner=SoldOutWithoutAlertPlanner())
     state = create_initial_on_live_harness_state(
         room_id="room-9b",
         trace_id="trace-9b",

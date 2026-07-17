@@ -12,6 +12,7 @@ from src.core.on_live_harness_agent_graph import (
     build_on_live_harness_agent_graph,
     create_initial_on_live_harness_state,
 )
+from src.decision_support.routing import DecisionSupportRoute
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision
 
 
@@ -71,6 +72,7 @@ def test_inventory_alert_harness_flow() -> None:
     graph = build_on_live_harness_agent_graph(
         planner=InventoryHarnessPlanner(),
         executor=HarnessExecutor(),
+        decision_support_route=DecisionSupportRoute.DECISION_SUPPORT,
     )
     state = create_initial_on_live_harness_state(
         room_id="room-integration-5g",
@@ -86,7 +88,11 @@ def test_inventory_alert_harness_flow() -> None:
 
 def test_danmaku_harness_flow() -> None:
     """弹幕高频：直接生成主播建议，不调用工具。"""
-    graph = build_on_live_harness_agent_graph(planner=DanmakuHarnessPlanner(), executor=HarnessExecutor())
+    graph = build_on_live_harness_agent_graph(
+        planner=DanmakuHarnessPlanner(),
+        executor=HarnessExecutor(),
+        decision_support_route=DecisionSupportRoute.DECISION_SUPPORT,
+    )
     state = create_initial_on_live_harness_state(
         room_id="room-integration-5g",
         trace_id="trace-integration-5g",

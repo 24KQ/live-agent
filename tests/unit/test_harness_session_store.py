@@ -33,6 +33,42 @@ def test_pending_session_can_be_saved_and_loaded() -> None:
     assert loaded.interrupt_payload["risk_level"] == "HIGH"
 
 
+def test_terminal_session_is_created_without_pending_transition() -> None:
+    """无审批终态必须一次创建，并对相同 trace 保持首个事实不变。"""
+
+    store = InMemoryHarnessSessionStore()
+    first = store.save_terminal(
+        HarnessSessionRecord(
+            trace_id="trace-terminal-001",
+            room_id="room-dashboard-001",
+            status="completed",
+            latest_state={"agent_status": "decision_support_disabled"},
+        )
+    )
+    repeated = store.save_terminal(
+        HarnessSessionRecord(
+            trace_id="trace-terminal-001",
+            room_id="room-other",
+            status="error",
+            latest_state={"agent_status": "error"},
+        )
+    )
+
+    assert first.status == "completed"
+    assert repeated == first
+    assert store.latest_for_room("room-dashboard-001") == [first]
+    assert store.latest_for_room("room-other") == []
+
+
+def test_terminal_create_rejects_pending_status() -> None:
+    """原子终态接口不能被旧审批流程误用来创建 pending_human。"""
+
+    store = InMemoryHarnessSessionStore()
+
+    with pytest.raises(ValueError, match="terminal"):
+        store.save_terminal(_pending_record("trace-terminal-invalid"))
+
+
 def test_approval_update_is_idempotent_for_completed_session() -> None:
     store = InMemoryHarnessSessionStore()
     store.save_pending(_pending_record())

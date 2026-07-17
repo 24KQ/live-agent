@@ -12,6 +12,7 @@ from src.core.on_live_harness_agent_graph import (
     build_on_live_harness_agent_graph,
     create_initial_on_live_harness_state,
 )
+from src.decision_support.routing import DecisionSupportRoute
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision
 
 
@@ -81,6 +82,9 @@ def test_harness_inventory_flow_writes_audit_after_observation() -> None:
         planner=InventoryThenFinalPlanner(),
         executor=IntegrationExecutor(),
         audit_writer=audit_writer,
+        # 该历史用例验证的是显式 Agent 路径的只读工具审计。Phase 14 默认路由
+        # 已关闭 Planner，因此测试必须明确选择 DECISION_SUPPORT，不能依赖旧默认值。
+        decision_support_route=DecisionSupportRoute.DECISION_SUPPORT,
     )
     state = create_initial_on_live_harness_state(
         room_id="room-5h-integration",

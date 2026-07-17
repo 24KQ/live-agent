@@ -28,7 +28,9 @@ from src.core.human_approval import (
     validate_human_approval_response,
 )
 from src.core.on_live_harness_audit import OnLiveHarnessAuditWriter
+from src.decision_support.routing import DecisionSupportRoute
 from src.plan_engine.preemption import PreemptionEvidenceRef, SoldOutExecutionRoute
+from src.skill_runtime.models import AuthorizationRequirement
 from src.skill_runtime.policy_view import get_default_skill_policy_view
 from src.skills.on_live_harness_planner import OnLiveHarnessDecision, OnLiveHarnessPlanner
 from src.state.models import LifecycleStage
@@ -76,6 +78,7 @@ class OnLiveHarnessAgentState(TypedDict, total=False):
     available_tool_names: list[str]
     preemption_evidence_refs: list[dict[str, Any]]
     final_suggestion_fact: str | None
+    decision_support_route: str
 
 
 def create_initial_on_live_harness_state(
@@ -133,6 +136,7 @@ def create_initial_on_live_harness_state(
             for item in (preemption_evidence_refs or [])
         ],
         "final_suggestion_fact": final_suggestion_fact,
+        "decision_support_route": DecisionSupportRoute.DETERMINISTIC_ONLY.value,
     }
 
 
@@ -144,9 +148,15 @@ def build_on_live_harness_agent_graph(
     *,
     checkpointer: Any | None = None,
     sold_out_execution_route: SoldOutExecutionRoute | str = SoldOutExecutionRoute.LEGACY,
+    decision_support_route: DecisionSupportRoute | str = DecisionSupportRoute.DETERMINISTIC_ONLY,
 ):
-    """构建播中 LangGraph Harness Agent Loop。"""
+    """构建播中 LangGraph Harness Agent Loop。
+
+    两类路由都在构图时冻结。售罄路由决定确定性保护由谁执行；决策支持路由
+    只决定是否调用 Planner/Copilot，不能扩大任何 Skill 权限。
+    """
     frozen_route = SoldOutExecutionRoute(sold_out_execution_route)
+    frozen_decision_support_route = DecisionSupportRoute(decision_support_route)
     policy_view = get_default_skill_policy_view()
     all_on_live_tools = [
         skill_id
@@ -159,7 +169,21 @@ def build_on_live_harness_agent_graph(
         if skill_id != "handle_sold_out_event"
         or frozen_route is SoldOutExecutionRoute.LEGACY
     ]
-    _planner = planner or OnLiveHarnessPlanner()
+    if frozen_decision_support_route is DecisionSupportRoute.DETERMINISTIC_ONLY:
+        available_on_live_tools = []
+    authorization_required_tools = frozenset(
+        skill_id
+        for skill_id in all_on_live_tools
+        if policy_view.get(skill_id).authorization_requirement
+        is not AuthorizationRequirement.NONE
+    )
+    _planner = planner or OnLiveHarnessPlanner(
+        # 旧 Harness 仍可保留历史规则降级；显式 Phase 14 路由必须把模型失败
+        # 暴露为 DEGRADED，不能在同次调用中暗中切回旧 Planner。
+        fallback_enabled=(
+            frozen_decision_support_route is not DecisionSupportRoute.DECISION_SUPPORT
+        )
+    )
     _executor = executor or _HarnessDefaultExecutor()
     _hooks = hooks or AgentLifecycleHooks()
     _audit_writer = audit_writer or OnLiveHarnessAuditWriter()
@@ -167,21 +191,46 @@ def build_on_live_harness_agent_graph(
     graph = StateGraph(OnLiveHarnessAgentState)
     graph.add_node(
         "load_context",
-        lambda state: _load_context_node(state, frozen_route, available_on_live_tools),
+        lambda state: _load_context_node(
+            state,
+            frozen_route,
+            frozen_decision_support_route,
+            available_on_live_tools,
+        ),
     )
     graph.add_node("pre_reasoning_hook", _pre_reasoning_hook_node)
     graph.add_node(
         "agent_reasoning",
-        lambda state: _agent_reasoning_node(state, _planner, frozen_route),
+        lambda state: _agent_reasoning_node(
+            state,
+            _planner,
+            frozen_route,
+            frozen_decision_support_route,
+        ),
     )
     graph.add_node(
         "post_reasoning_hook",
         lambda state: _post_reasoning_hook_node(state, _hooks, frozen_route),
     )
     graph.add_node("route_agent_decision", _route_agent_decision_node)
-    graph.add_node("pre_tool_call_hook", lambda state: _pre_tool_call_hook_node(state, _hooks))
+    graph.add_node(
+        "pre_tool_call_hook",
+        lambda state: _pre_tool_call_hook_node(
+            state,
+            _hooks,
+            authorization_required_tools,
+        ),
+    )
     graph.add_node("route_tool_policy", _route_tool_policy_node)
-    graph.add_node("execute_tool", lambda state: _execute_tool_node(state, _executor))
+    graph.add_node(
+        "execute_tool",
+        lambda state: _execute_tool_node(
+            state,
+            _executor,
+            authorization_required_tools,
+            frozen_decision_support_route,
+        ),
+    )
     graph.add_node("human_approval_interrupt", _human_approval_interrupt_node)
     graph.add_node("post_tool_call_hook", lambda state: _post_tool_call_hook_node(state, _hooks))
     graph.add_node("observe_result", _observe_result_node)
@@ -242,6 +291,7 @@ def _append_node(state: OnLiveHarnessAgentState, node_name: str) -> list[str]:
 def _load_context_node(
     state: OnLiveHarnessAgentState,
     route: SoldOutExecutionRoute = SoldOutExecutionRoute.LEGACY,
+    decision_support_route: DecisionSupportRoute = DecisionSupportRoute.DETERMINISTIC_ONLY,
     available_tool_names: list[str] | None = None,
 ) -> dict[str, Any]:
     """构造压缩后的 Agent 可见上下文。"""
@@ -259,6 +309,7 @@ def _load_context_node(
         "agent_status": "context_degraded" if context.should_degrade else state.get("agent_status"),
         "completed_nodes": _append_node(state, "load_context"),
         "sold_out_execution_route": route.value,
+        "decision_support_route": decision_support_route.value,
         "available_tool_names": list(available_tool_names or []),
         "preemption_evidence_refs": evidence_refs,
     }
@@ -293,6 +344,7 @@ def _agent_reasoning_node(
     state: OnLiveHarnessAgentState,
     planner: Any,
     route: SoldOutExecutionRoute = SoldOutExecutionRoute.LEGACY,
+    decision_support_route: DecisionSupportRoute = DecisionSupportRoute.DETERMINISTIC_ONLY,
 ) -> dict[str, Any]:
     """LLM/Harness planner 决策节点。"""
     if route is SoldOutExecutionRoute.PLAN_ENGINE:
@@ -337,6 +389,16 @@ def _agent_reasoning_node(
                 "error": f"preemption evidence invalid: {exc}",
                 "completed_nodes": _append_node(state, "agent_reasoning"),
             }
+    if decision_support_route is DecisionSupportRoute.DETERMINISTIC_ONLY:
+        # 默认路由只保留 Event/PlanEngine 的确定性保护。没有已闭合的 PlanEngine
+        # Evidence 时不调用任何旧 Planner，避免升级后意外恢复 Agent 自主决策。
+        return {
+            "pending_tool_call": None,
+            "final_suggestion": None,
+            "agent_status": "decision_support_disabled",
+            "error": None,
+            "completed_nodes": _append_node(state, "agent_reasoning"),
+        }
     try:
         decision: OnLiveHarnessDecision = planner.plan_next_step(
             context=_context_from_state(state),
@@ -366,7 +428,7 @@ def _agent_reasoning_node(
         }
     except Exception as exc:
         return {
-            "agent_status": "fallback",
+            "agent_status": "degraded",
             "error": f"agent_reasoning failed: {exc}",
             "completed_nodes": _append_node(state, "agent_reasoning"),
         }
@@ -444,11 +506,30 @@ def _agent_decider(state: OnLiveHarnessAgentState) -> str:
     return "write_audit"
 
 
-def _pre_tool_call_hook_node(state: OnLiveHarnessAgentState, hooks: AgentLifecycleHooks) -> dict[str, Any]:
+def _pre_tool_call_hook_node(
+    state: OnLiveHarnessAgentState,
+    hooks: AgentLifecycleHooks,
+    authorization_required_tools: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     """工具调用前 Hook：校验白名单、生命周期、风险和重复调用。"""
     call = state.get("pending_tool_call") or {}
     tool_name = call.get("tool_name") or ""
     arguments = call.get("arguments") or {}
+    if tool_name in authorization_required_tools:
+        # 幻觉/事实校验已经在上一个节点完成。旧 HumanApprovalResponse 不能冒充
+        # Phase 14 OperatorDecision，因此授权型 Skill 在 Task 5 前只能留痕退出。
+        error = f"Skill {tool_name} requires a trusted OperatorDecision"
+        return {
+            "pending_tool_call": None,
+            "tool_policy": {
+                "status": "operator_decision_required",
+                "reason": error,
+                "tool_name": tool_name,
+            },
+            "agent_status": "operator_decision_required",
+            "error": error,
+            "completed_nodes": _append_node(state, "pre_tool_call_hook"),
+        }
     policy: HookResult = hooks.pre_tool_call(
         tool_name=tool_name,
         arguments=arguments,
@@ -514,13 +595,15 @@ def _human_approval_interrupt_node(state: OnLiveHarnessAgentState) -> dict[str, 
         "completed_nodes": completed_nodes,
     }
     if response.decision == HumanApprovalDecision.APPROVED:
+        # 兼容读取旧 checkpoint 时仍保存人工响应，但旧 HumanApprovalResponse 已不再
+        # 构成经营写授权。Task 5 将通过不可伪造的 OperatorDecision 编译入口执行命令。
         return {
             **base_result,
-            "agent_status": "call_tool",
-            "error": None,
+            "agent_status": "operator_decision_required",
+            "error": "legacy approval cannot authorize a Phase 14 business command",
             "tool_policy": {
                 **(state.get("tool_policy") or {}),
-                "status": "human_approved",
+                "status": "legacy_approval_recorded",
                 "reason": response.reason,
             },
         }
@@ -555,28 +638,66 @@ def _build_on_live_approval_request(state: OnLiveHarnessAgentState) -> HumanAppr
 
 
 def _human_approval_decider(state: OnLiveHarnessAgentState) -> str:
-    """根据人工审批结果决定执行工具还是写审计结束。"""
+    """旧 interrupt 只能写审计，不能把普通 Graph state 升级为可信授权。"""
 
-    if state.get("approval_decision") == HumanApprovalDecision.APPROVED.value:
-        return "execute_tool"
     return "write_audit"
 
 
-def _execute_tool_node(state: OnLiveHarnessAgentState, executor: Any) -> dict[str, Any]:
-    """执行工具节点。"""
+def _execute_tool_node(
+    state: OnLiveHarnessAgentState,
+    executor: Any,
+    authorization_required_tools: frozenset[str] = frozenset(),
+    decision_support_route: DecisionSupportRoute = DecisionSupportRoute.DECISION_SUPPORT,
+) -> dict[str, Any]:
+    """在最终执行边界再次校验授权后，只调用执行器一次。
+
+    前置 Hook 不是唯一安全边界：升级前的持久化 checkpoint 可能已经把下一节点
+    排到 ``execute_tool``。因此授权型 Skill 必须在这里继续 fail-closed，直到 Task 5
+    提供不可由普通 Graph JSON 伪造的可信 ``OperatorDecision`` 能力。
+    """
     call = state.get("pending_tool_call") or {}
     tool_name = call.get("tool_name") or ""
     arguments = call.get("arguments") or {}
-    try:
-        result = executor.execute(
-            tool_name=tool_name,
-            arguments=arguments,
-            room_id=state.get("room_id", ""),
-            trace_id=state.get("trace_id", ""),
-            state=state,
-        )
-    except TypeError:
-        result = executor.execute(tool_name, arguments, state.get("room_id", ""), state.get("trace_id", ""))
+    if decision_support_route is DecisionSupportRoute.DETERMINISTIC_ONLY:
+        # 路由关闭必须在最终执行边界再次生效。升级前 checkpoint 可能已经跳过
+        # load_context 与前置 Hook，任何旧工具（包括只读工具）都不得在恢复时运行。
+        error = "decision support route is DETERMINISTIC_ONLY"
+        return {
+            "pending_tool_call": None,
+            "tool_result": {
+                "tool_name": tool_name,
+                # AgentObservation 的稳定协议只接受 error/pending/success；路由阻断
+                # 属于确定失败，用 error 表达并由 agent_status 保留更精确原因。
+                "status": "error",
+                "summary": error,
+            },
+            "agent_status": "decision_support_disabled",
+            "error": error,
+            "completed_nodes": _append_node(state, "execute_tool"),
+        }
+    if tool_name in authorization_required_tools:
+        error = f"Skill {tool_name} requires a trusted OperatorDecision"
+        return {
+            "pending_tool_call": None,
+            "tool_result": None,
+            "tool_policy": {
+                "status": "operator_decision_required",
+                "reason": error,
+                "tool_name": tool_name,
+            },
+            "agent_status": "operator_decision_required",
+            "error": error,
+            "completed_nodes": _append_node(state, "execute_tool"),
+        }
+    # 运行时捕获 TypeError 后换签名重试会在第一次调用已产生副作用时造成双写。
+    # Executor 必须在装配阶段满足统一关键字协议，调用中的异常原样向上传播。
+    result = executor.execute(
+        tool_name=tool_name,
+        arguments=arguments,
+        room_id=state.get("room_id", ""),
+        trace_id=state.get("trace_id", ""),
+        state=state,
+    )
     if not isinstance(result, dict):
         result = {"tool_name": tool_name, "status": "error", "summary": "executor returned non-dict"}
     result.setdefault("tool_name", tool_name)
@@ -606,6 +727,19 @@ def _post_tool_call_hook_node(state: OnLiveHarnessAgentState, hooks: AgentLifecy
 
 def _observe_result_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
     """观察工具结果并递增 iteration。"""
+
+    terminal_status = state.get("agent_status")
+    if terminal_status in {
+        "decision_support_disabled",
+        "operator_decision_required",
+    }:
+        # 最终执行边界拦截旧 checkpoint 后必须保持阻断状态，不能把它改写为
+        # tool_observed 并再次进入 Planner。Observation 仅作为事故审计证据保留。
+        return {
+            "pending_tool_call": None,
+            "agent_status": terminal_status,
+            "completed_nodes": _append_node(state, "observe_result"),
+        }
     return {
         "iteration": state.get("iteration", 0) + 1,
         "pending_tool_call": None,
@@ -627,7 +761,11 @@ def _route_replan_node(state: OnLiveHarnessAgentState) -> dict[str, Any]:
 
 def _replan_decider(state: OnLiveHarnessAgentState) -> str:
     """工具 observation 回灌后是否继续推理。"""
-    if state.get("agent_status") == "max_iterations":
+    if state.get("agent_status") in {
+        "max_iterations",
+        "decision_support_disabled",
+        "operator_decision_required",
+    }:
         return "write_audit"
     return "pre_reasoning_hook"
 

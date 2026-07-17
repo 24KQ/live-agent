@@ -13,7 +13,7 @@ api_server.set_harness_dashboard_service(create_in_memory_harness_dashboard_serv
 client = TestClient(api_server.app)
 
 
-def test_harness_start_endpoint_returns_pending_status() -> None:
+def test_harness_start_endpoint_returns_deterministic_only_status() -> None:
     resp = client.post(
         "/api/agent/harness/start",
         json={"room_id": "room-dashboard-001", "trace_id": "trace-api-start"},
@@ -22,8 +22,9 @@ def test_harness_start_endpoint_returns_pending_status() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["trace_id"] == "trace-api-start"
-    assert data["status"] == "pending_human"
-    assert data["pending_approval"] is True
+    assert data["status"] == "completed"
+    assert data["pending_approval"] is False
+    assert data["agent_status"] == "decision_support_disabled"
 
 
 def test_harness_status_endpoint_returns_saved_node_path() -> None:
@@ -40,7 +41,7 @@ def test_harness_status_endpoint_returns_saved_node_path() -> None:
     assert "load_context" in data["completed_nodes"]
 
 
-def test_harness_approval_endpoint_approves_pending_tool() -> None:
+def test_legacy_harness_approval_endpoint_cannot_execute_without_pending_request() -> None:
     client.post(
         "/api/agent/harness/start",
         json={"room_id": "room-dashboard-001", "trace_id": "trace-api-approval"},
@@ -61,7 +62,9 @@ def test_harness_approval_endpoint_approves_pending_tool() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "completed"
-    assert data["approval_decision"] == "approved"
+    assert data["approval_decision"] is None
+    assert data["executed_tools"] == []
+    assert data["agent_status"] == "decision_support_disabled"
 
 
 def test_harness_approval_rejects_invalid_decision() -> None:

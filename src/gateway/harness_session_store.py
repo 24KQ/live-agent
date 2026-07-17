@@ -110,6 +110,24 @@ class InMemoryHarnessSessionStore:
         self._records[saved.trace_id] = saved
         return saved
 
+    def save_terminal(self, record: HarnessSessionRecord) -> HarnessSessionRecord:
+        """一次写入无 interrupt 的终态会话，并保持 trace 级幂等。
+
+        该入口专门服务于默认关闭、明确失败等直接终止的 Graph 结果。它不允许先
+        伪造 ``pending_human`` 再更新终态，否则进程在两次写之间崩溃会暴露一个
+        实际不存在的审批请求。重复 trace 返回首个事实，避免重放覆盖审计证据。
+        """
+
+        if record.status == "pending_human":
+            raise ValueError("terminal session cannot use pending_human status")
+        current = self._records.get(record.trace_id)
+        if current is not None:
+            return current
+        saved = replace(record, updated_at=datetime.now(timezone.utc))
+        self._order.append(saved.trace_id)
+        self._records[saved.trace_id] = saved
+        return saved
+
     def get(self, trace_id: str) -> HarnessSessionRecord:
         try:
             return self._records[trace_id]
@@ -318,6 +336,57 @@ class PostgresHarnessSessionStore:
                 "decision_trace_ids": Jsonb(record.decision_trace_ids),
             },
         )
+
+    def save_terminal(self, record: HarnessSessionRecord) -> HarnessSessionRecord:
+        """用单条 INSERT 原子创建终态会话，绝不经过旧审批状态。
+
+        ``ON CONFLICT DO NOTHING`` 让相同 trace 的重放复用数据库中的首个权威事实。
+        冲突时的只读查询不会产生中间状态；首次创建则由一个事务一次提交完整终态。
+        """
+
+        if record.status == "pending_human":
+            raise ValueError("terminal session cannot use pending_human status")
+        sql = """
+            INSERT INTO live_agent_harness_sessions (
+                trace_id, room_id, anchor_id, status, approval_request,
+                interrupt_payload, latest_state, approval_decision, operator_id,
+                reason, audit_status, audit_ids, decision_trace_ids
+            )
+            VALUES (
+                %(trace_id)s, %(room_id)s, %(anchor_id)s, %(status)s,
+                %(approval_request)s, %(interrupt_payload)s, %(latest_state)s,
+                %(approval_decision)s, %(operator_id)s, %(reason)s,
+                %(audit_status)s, %(audit_ids)s, %(decision_trace_ids)s
+            )
+            ON CONFLICT (trace_id) DO NOTHING
+            RETURNING *;
+        """
+        params = {
+            "trace_id": record.trace_id,
+            "room_id": record.room_id,
+            "anchor_id": record.anchor_id,
+            "status": record.status,
+            "approval_request": Jsonb(record.approval_request),
+            "interrupt_payload": Jsonb(record.interrupt_payload),
+            "latest_state": Jsonb(record.latest_state),
+            "approval_decision": record.approval_decision,
+            "operator_id": record.operator_id,
+            "reason": record.reason,
+            "audit_status": record.audit_status,
+            "audit_ids": Jsonb(record.audit_ids),
+            "decision_trace_ids": Jsonb(record.decision_trace_ids),
+        }
+        with psycopg.connect(
+            **self._settings.postgres_connection_kwargs,
+            row_factory=dict_row,
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+            conn.commit()
+        if row is None:
+            return self.get(record.trace_id)
+        return self._row_to_record(dict(row))
 
     def get(self, trace_id: str) -> HarnessSessionRecord:
         sql = "SELECT * FROM live_agent_harness_sessions WHERE trace_id = %(trace_id)s;"

@@ -164,7 +164,9 @@
   - [x] Task 12：Demo、业务附录与 Acceptance（`e7d6fbb` 已推送）。
   - [x] Phase 13 Acceptance：0 个新增 Specialist Profile 被保留；历史自主评估结论冻结。
 - [x] Phase 14 Design Persistence：三场景人机协同定位、Design/Plan、决策、恢复协议和 Phase 15 Discussion Baseline 已生成。
-- [ ] Phase 14：Human-Centered Decision Support，等待用户单独实施授权。
+- [ ] Phase 14：Human-Centered Decision Support 已获连续实施授权。
+  - [x] Task 1：旧 Planner/Harness 权限审计、默认关闭路由、旧 checkpoint 最终执行门与原子终态会话。
+  - [ ] Task 2：统一 Workspace 与不可变 PostgreSQL Store。
 - [ ] Phase 15：Golden Dataset、发布门禁与 Final Acceptance，必须在 Phase 14 Acceptance 后重新讨论。
 
 # 2026-07-11 Phase 7A 任务

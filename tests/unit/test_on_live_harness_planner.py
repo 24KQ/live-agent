@@ -195,3 +195,23 @@ def test_llm_failure_falls_back_to_phase5f_planner() -> None:
         )
     assert decision.action in {"final_answer", "fallback"}
     assert decision.fallback_reason is not None
+
+
+def test_decision_support_mode_disables_phase5f_fallback() -> None:
+    """显式新路由的模型失败必须上抛，由 Graph 标记 DEGRADED。"""
+
+    planner = OnLiveHarnessPlanner(api_key="test-key", fallback_enabled=False)
+    from src.skills.llm_client import LLMResponse
+
+    with patch.object(
+        planner._llm_client,
+        "call",
+        return_value=LLMResponse(content="", fallback_triggered=True),
+    ):
+        with pytest.raises(RuntimeError, match="fallback"):
+            planner.plan_next_step(
+                context=_context(),
+                danmaku_summary=[{"category": "price", "count": 15}],
+                inventory_alerts=[],
+                observations=[],
+            )

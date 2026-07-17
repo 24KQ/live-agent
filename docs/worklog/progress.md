@@ -590,3 +590,11 @@
 - 新增 Phase 14 Design/Implementation Plan 与 D-113 至 D-120，固定一个播中 Copilot、结构化修改、规则资格加人工确认记忆晋升、质量与效率严格 AND 门、1.00 元 smoke 预算和默认关闭路由。
 - 旧 Golden/CI/发布门禁从 Phase 14 顺延为 Phase 15 Discussion Baseline；Phase 14 Acceptance 后必须停止并重新进行 Phase 15 Just-in-Time Gate。
 - 本轮只持久化文档，不修改业务代码、不运行真实模型，等待用户单独授权 Phase 14 实施。
+
+# 2026-07-17 Phase 14 Task 1
+
+- 用户已授权 Task 1-12 连续实施。Task 1 新增启动冻结的 `DETERMINISTIC_ONLY | DECISION_SUPPORT` 路由，默认不调用旧 Planner 或 Executor；PlanEngine 售罄 evidence-only 路径保持不变。
+- 旧 HumanApproval interrupt 不再授予经营写权限；普通 Graph state 不能伪造 OperatorDecision。显式 Decision Support 的默认 Planner 禁止 Phase 5F fallback，失败记录为 `DEGRADED`。
+- 多轮独立审查补齐三项执行边界：真实旧 checkpoint 已排队 `execute_tool` 时仍按冻结路由阻断、授权型 Skill 最终节点二次校验、执行器 `TypeError` 不再触发第二次调用。
+- Dashboard 的无 interrupt 会话改为单事务原子终态创建，不经过 `pending_human`；API 文档同步退役旧审批授权语义。
+- 最终验证为 unit `1191 passed, 4 warnings`、integration `119 passed, 3 deselected, 5 warnings`；专项复审无 Critical/Important/Minor，真实模型费用仍为 `0.042344` 元累计值且本 Task 新增费用为 0。

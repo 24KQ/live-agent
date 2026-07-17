@@ -430,8 +430,8 @@ async def get_agent_suggestion(room_id: str = ""):
 async def start_harness_session(request: HarnessStartRequest):
     """启动一条 Web 可观测的播中 Harness Agent 会话。
 
-    返回值会包含 LangGraph 节点路径、pending 审批信息和 trace_id。若触发高风险工具，
-    会话会停在 `pending_human`，等待 `/api/agent/harness/approval` 恢复。
+    返回值包含 LangGraph 节点路径、审计状态和 trace_id。旧 Harness approval 不能
+    授予经营写权限；Phase 14 的可信 OperatorDecision 将由受控工作台链路提供。
     """
 
     try:
@@ -748,4 +748,3 @@ app.router.lifespan_context = lifespan
 front_dir = Path(__file__).resolve().parent.parent.parent / "front"
 if front_dir.exists():
     app.mount("/", StaticFiles(directory=str(front_dir), html=True), name="static")
-

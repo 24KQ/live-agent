@@ -402,6 +402,14 @@
 - 多 Agent 扩展应通过 Profile Registry 和确定性路由预留；本期只实现一个播中 Copilot，禁止用“三场景”推导出三个 Agent。
 - sub-agent 可以提高独立分析和审查效率，但共享迁移、状态机、决策和提交必须串行；没有可验证进展、重复阻塞或越界时主模型必须停止并接管。
 
+## 2026-07-17 Phase 14 Task 1 发现
+
+- 默认关闭不能只放在 Graph 起点或条件路由。升级前 checkpoint 可能已经排队到 `execute_tool`，因此最终执行边界也必须消费启动冻结路由，并在 `DETERMINISTIC_ONLY` 下阻止包括只读工具在内的全部旧调用。
+- 旧 HumanApproval state、普通字符串 ID 和恢复 payload 都不是可信 `OperatorDecision`。Task 5 受控编译链建立前，授权型 Skill 必须在 pre-hook 与最终执行节点双重 fail-closed。
+- 执行器调用不能捕获任意 `TypeError` 后换签名重试；第一次调用可能已经产生副作用。兼容签名必须在装配阶段统一，运行时保持单次调用。
+- 无 interrupt 的禁用、降级或完成会话必须通过单事务终态 INSERT 创建，不能先写 `pending_human` 再更新，否则故障窗口会留下虚假审批事实。
+- `phase13-v2/v3` 是生成器持续校验的源码闭包数据基线，并非正式去留结论行；新增生产源码后必须由生成器更新，手工排除会使字节稳定和完整源码集合测试失败。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

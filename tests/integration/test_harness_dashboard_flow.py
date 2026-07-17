@@ -17,17 +17,18 @@ def _service() -> HarnessDashboardService:
     return HarnessDashboardService(store=store, settings=settings, use_postgres_checkpointer=True)
 
 
-def test_postgres_harness_dashboard_approve_flow_recovers_from_checkpoint() -> None:
+def test_postgres_dashboard_persists_default_deterministic_only_completion() -> None:
     trace_id = f"trace-phase6c-approve-{uuid4()}"
     first_service = _service()
 
-    pending = first_service.start_session(room_id="room-dashboard-001", trace_id=trace_id)
+    completed = first_service.start_session(room_id="room-dashboard-001", trace_id=trace_id)
 
-    assert pending["status"] == "pending_human"
-    assert pending["interrupt_payload"]["tool_name"] == "handle_sold_out_event"
+    assert completed["status"] == "completed"
+    assert completed["pending_approval"] is False
+    assert completed["agent_status"] == "decision_support_disabled"
 
-    resumed_service = _service()
-    completed = resumed_service.submit_approval(
+    loaded = _service().get_status(trace_id)
+    legacy_approval = _service().submit_approval(
         trace_id=trace_id,
         room_id="room-dashboard-001",
         tool_name="handle_sold_out_event",
@@ -36,18 +37,18 @@ def test_postgres_harness_dashboard_approve_flow_recovers_from_checkpoint() -> N
         reason="确认执行售罄处理",
     )
 
-    assert completed["status"] == "completed"
-    assert completed["approval_decision"] == "approved"
-    assert completed["executed_tools"][0]["tool_name"] == "handle_sold_out_event"
-    assert completed["audit_status"] in {"dry_run", "recorded", None}
+    assert loaded["status"] == "completed"
+    assert loaded["agent_status"] == "decision_support_disabled"
+    assert legacy_approval["approval_decision"] is None
+    assert legacy_approval["executed_tools"] == []
 
 
-def test_postgres_harness_dashboard_reject_flow_persists_decision() -> None:
+def test_postgres_dashboard_legacy_rejection_cannot_reopen_session() -> None:
     trace_id = f"trace-phase6c-reject-{uuid4()}"
     service = _service()
     service.start_session(room_id="room-dashboard-001", trace_id=trace_id)
 
-    rejected = service.submit_approval(
+    unchanged = service.submit_approval(
         trace_id=trace_id,
         room_id="room-dashboard-001",
         tool_name="handle_sold_out_event",
@@ -58,7 +59,7 @@ def test_postgres_harness_dashboard_reject_flow_persists_decision() -> None:
 
     loaded = _service().get_status(trace_id)
 
-    assert rejected["status"] == "rejected"
-    assert loaded["status"] == "rejected"
-    assert loaded["approval_decision"] == "rejected"
+    assert unchanged["status"] == "completed"
+    assert loaded["status"] == "completed"
+    assert loaded["approval_decision"] is None
     assert loaded["executed_tools"] == []

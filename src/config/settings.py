@@ -199,6 +199,16 @@ class Settings(BaseSettings):
         validation_alias="SOLD_OUT_EXECUTION_ROUTE",
     )
 
+    # ── Phase 14 人机协同决策支持路由 ────────────────────────────────────
+    # 默认仅运行确定性控制面。应用装配时把值复制到冻结 RoutePolicy；只有显式
+    # DECISION_SUPPORT 才允许进入受限方案生成路径，运行中修改 Settings 不生效。
+    decision_support_execution_route: Literal[
+        "DETERMINISTIC_ONLY", "DECISION_SUPPORT"
+    ] = Field(
+        default="DETERMINISTIC_ONLY",
+        validation_alias="DECISION_SUPPORT_EXECUTION_ROUTE",
+    )
+
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
         """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。

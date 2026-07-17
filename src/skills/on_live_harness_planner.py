@@ -181,8 +181,8 @@ def parse_harness_decision(llm_output: str) -> OnLiveHarnessDecision:
 class OnLiveHarnessPlanner:
     """播中 Harness Planner。
 
-    负责把播中上下文转成 LangGraph 可路由的结构化决策。失败时降级到
-    Phase 5F 的 OnLiveLLMPlanner，保证播中流程不中断。
+    负责把播中上下文转成 LangGraph 可路由的结构化决策。历史路由允许失败时
+    降级到 Phase 5F；Phase 14 显式 Decision Support 会冻结为禁用该降级。
     """
 
     def __init__(
@@ -191,6 +191,7 @@ class OnLiveHarnessPlanner:
         api_key: str = "",
         *,
         policy_view: SkillPolicyView | None = None,
+        fallback_enabled: bool = True,
     ) -> None:
         # Planner 持有启动冻结策略；prompt 白名单与后续 Hook 使用同一事实来源。
         self._policy_view = policy_view or get_default_skill_policy_view()
@@ -222,6 +223,9 @@ class OnLiveHarnessPlanner:
             temperature=temperature,
         )
         self._fallback_planner = OnLiveLLMPlanner(settings=settings, api_key=api_key)
+        # Phase 14 的显式 Decision Support 路由禁用旧规则 Planner；模型不可用必须
+        # 由 Graph 记录 DEGRADED，而不是让调用者误以为获得了新路径的正常建议。
+        self._fallback_enabled = fallback_enabled
 
     def plan_next_step(
         self,
@@ -271,7 +275,10 @@ class OnLiveHarnessPlanner:
         inventory_alerts: list[dict[str, Any]],
         reason: str,
     ) -> OnLiveHarnessDecision:
-        """降级到 Phase 5F planner，并映射为 Harness decision。"""
+        """按启动冻结策略选择旧规则降级，或把失败显式上抛。"""
+
+        if not self._fallback_enabled:
+            raise RuntimeError(f"legacy planner fallback disabled: {reason}")
         fallback = self._fallback_planner.plan(
             danmaku_summary=danmaku_summary,
             inventory_alerts=inventory_alerts,

@@ -22,6 +22,7 @@ from src.core.on_live_harness_agent_graph import (
     build_on_live_harness_agent_graph,
     create_initial_on_live_harness_state,
 )
+from src.decision_support.routing import DecisionSupportRoutePolicy
 from src.gateway.harness_session_store import (
     HarnessSessionNotFoundError,
     HarnessSessionRecord,
@@ -60,8 +61,8 @@ class DashboardHighRiskPlanner:
 class DashboardDemoExecutor:
     """副屏演示用工具执行器。
 
-    真实平台 API 尚未接入，本执行器只返回结构化 observation，用于证明 approved
-    后才会执行工具；rejected 路径不会调用到这里。
+    真实平台 API 尚未接入，本执行器只服务历史只读演示。旧 Harness approval 已
+    不能授予经营写权限；Phase 14 后续命令必须来自受控 OperatorDecision 编译链。
     """
 
     def execute(
@@ -100,6 +101,11 @@ class HarnessDashboardService:
         self._executor = executor or DashboardDemoExecutor()
         # 启动时冻结售罄路由；首次构图和 interrupt 恢复必须使用同一策略快照。
         self._sold_out_route = SoldOutRoutePolicy.from_settings(self._settings).route
+        # 决策支持路由与售罄执行路由相互独立，均在服务启动时冻结。默认只运行
+        # 确定性保护；后续 Settings 变化不能改变已创建会话或恢复路径。
+        self._decision_support_route = DecisionSupportRoutePolicy.from_settings(
+            self._settings
+        ).route
         self._memory_checkpointers: dict[str, InMemorySaver] = {}
         if hasattr(self._store, "initialize_schema"):
             self._store.initialize_schema()
@@ -130,6 +136,7 @@ class HarnessDashboardService:
                 executor=self._executor,
                 checkpointer=checkpointer,
                 sold_out_execution_route=self._sold_out_route,
+                decision_support_route=self._decision_support_route,
             )
             result = graph.invoke(state, config=self._graph_config(trace))
 
@@ -163,7 +170,10 @@ class HarnessDashboardService:
             audit_ids=result.get("audit_ids", []),
             decision_trace_ids=result.get("decision_trace_ids", []),
         )
-        return self._store.save_pending(record).to_status_payload()
+        # 无 interrupt 的 Graph 必须一次写入真实终态。禁止先创建 pending_human，
+        # 否则两次事务之间的故障会留下可被旧审批 API 误认的虚假待处理会话。
+        saved = self._store.save_terminal(record)
+        return saved.to_status_payload()
 
     def get_status(self, trace_id: str) -> dict[str, Any]:
         return self._store.get(trace_id).to_status_payload()
@@ -195,6 +205,7 @@ class HarnessDashboardService:
                     executor=self._executor,
                     checkpointer=checkpointer,
                     sold_out_execution_route=self._sold_out_route,
+                    decision_support_route=self._decision_support_route,
                 )
                 result = graph.invoke(
                     Command(
