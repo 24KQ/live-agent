@@ -1356,3 +1356,113 @@
 - **未选理由**：进程内计数无法覆盖并发/重启；复用旧候选会让 Phase 13 评估费用与 Phase 14 smoke 费用不可审计地区分。
 - **影响**：Task 4 扩展预算枚举、Runner 精确 Profile 映射、PostgreSQL 候选约束和迁移；真实模型仍须等 Task 11 全部预检，Phase 15 保留额不在本阶段可用。
 - **重新评估条件**：Phase 15 Gate 重新设计统一预算账本时，必须保留历史 Phase 13/14 reservation 的不可变身份和对账记录。
+
+## D-123：Phase 15 采用技术发布与 Copilot 晋升双轨结论
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 14 Acceptance 为 `INCONCLUSIVE`，确定性 Runtime 的可发布性与 Decision Support 是否值得默认开启不能由同一个布尔结论表达。
+- **候选方案**：单一 Release PASS/FAIL；技术发布和 Copilot 晋升分别判定；缺少模型证据时直接判定整个 Runtime 失败。
+- **最终选择**：技术发布使用 `PASS | FAIL | BLOCKED`，Copilot 晋升使用 `PROMOTE | KEEP_DISABLED | BLOCKED`，最终状态按两轨组合为启用、禁用发布或未发布。
+- **选择理由**：允许确定性安全基础设施在外部证据不足时独立发布，同时不把证据不足误写成 Copilot 已经具备生产收益。
+- **未选理由**：单轨结论会把技术质量与业务收益混淆；因外部证据缺失否定确定性 Runtime 会降低交付价值。
+- **影响**：Phase 15 Acceptance 必须同时保存两轨结论、输入摘要、规则结果和外部证据状态。
+- **重新评估条件**：未来所有生产经营路径都不再区分确定性执行与 Decision Support 时，新增决策统一结论模型，不能临场合并字段。
+
+## D-124：Phase 15 活跃 Golden Dataset 固定为 48 例
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 13 的 240 例是 Specialist 候选评估资产，不能未经重审直接充当当前三场景 Runtime 的发布清单。
+- **候选方案**：继续使用 240 例；重新固定 48 例覆盖三场景和运行时安全；只验证少量 Demo case。
+- **最终选择**：活跃清单固定 48 例，含 24 个 Runtime 安全 case、16 个播中复合事故 case、8 个 PREPARE/REVIEW 生命周期 case，拆分为 `12 development / 24 validation / 12 holdout`。Phase 13 240 例只做历史 Manifest 完整性检查。
+- **选择理由**：覆盖真实发布边界并控制可审计规模；历史 Specialist 结论保持可复现而不污染当前 Release 语义。
+- **未选理由**：沿用 240 例会把已拒绝或证据不足的候选评估混入 Runtime 发布；只测 Demo 无法证明安全状态机。
+- **影响**：Golden Manifest、来源摘要、Schema、规则、生成器和源码摘要均不可变；holdout label 只进入评估器。
+- **重新评估条件**：真实故障分布或三场景工作台接口发生结构性变化时，新增版本化 Manifest，不覆盖 48 例历史资产。
+
+## D-125：Phase 15 采用规则优先 Evaluation Interface
+
+- **状态**：`ACCEPTED`
+- **背景**：Skill 版本、授权、CAS、fencing、敏感信息和 no-fallback 等违规不能由模型文本或平均分抵消；Phase 15 也没有新增 Judge 预算。
+- **候选方案**：增加付费 LLM Judge；规则与 Judge 平均；规则优先且 Judge 不进入发布结论。
+- **最终选择**：新增统一 `GoldenCase`、`SubjectManifest`、`EvaluationCaseResult` 和 artifact digest；确定性规则先判定严重违规，Judge 不参与技术发布或 Copilot 去留。
+- **选择理由**：关键安全属性必须可重复、可解释、无额外模型依赖；结构化输出和真人交叉对照足以承担业务诊断。
+- **未选理由**：Judge 既增加预算与不确定性，又不能替代状态机事实；平均分会掩盖单 case 严重违规。
+- **影响**：任何严重规则违规直接使 case 失败，技术 Release 不能被文本质量覆盖；Judge 只能作为未来诊断扩展。
+- **重新评估条件**：出现有公开标注、可重复成本和独立校准证据的 Judge 时，必须新增决策并保持规则硬门不变。
+
+## D-126：真人交叉对照必须是真实参与者证据
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 14 只有受控流程和 Scripted rehearsal，不能把模拟参与者记录冒充真实运营证据。
+- **候选方案**：用 ScriptedModel 代替真人；采集 3-5 名真实参与者；缺失时伪造完整样本以完成晋升。
+- **最终选择**：使用 3-5 名真实参与者、每人 8 次、共 24-40 条记录，固定 seed 平衡顺序；只保存加盐身份摘要、封闭动作、负担评分和服务端耗时。缺失或不完整时 Promotion 必须为 `BLOCKED`。
+- **选择理由**：真人数据仅作为可用性与协同价值证据，且不需要保存 PII 或自由文本；证据缺失时保持诚实结论。
+- **未选理由**：ScriptedModel 不能证明人工工作负担或真实决策耗时；伪造样本会使发布结论失去可信度。
+- **影响**：Study collector 必须阻断重复 assignment、客户端伪造耗时、自由文本和 PII；Scripted 结果只能用于诊断。
+- **重新评估条件**：参与者数量、试验次数或指标改变时，必须重新冻结统计协议，不能在采集后调整门槛。
+
+## D-127：Phase 15 真实模型预算固定为 0.60 元并执行预检
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 13 和 Phase 14 已有独立预算身份；Phase 15 仅保留 0.60 元用于最多十个 Copilot smoke，不能跨阶段借用。
+- **候选方案**：复用历史预算；开放完整模型评估；固定 0.60 元并在发送前核对全部身份和价格事实。
+- **最终选择**：新增 `PHASE15_COPILOT_SMOKE` 预算身份，最多十个 `deepseek-v4-flash` case、temperature 0、每例单次调用，总额不超过 0.60 元。endpoint、公开价格、usage、Prompt、Schema、数据、代码摘要和预算任一缺失即禁止发送；usage 不明按预留额结算并阻断晋升。
+- **选择理由**：预算、执行身份和证据摘要形成不可变闭环，限制真实调用规模并避免跨阶段费用污染。
+- **未选理由**：复用历史账本无法审计；开放完整评估不符合既定预算；缺失 usage 时继续晋升会低估成本。
+- **影响**：默认本地和 CI 不联网；真实 smoke 只在受保护 Release 环境执行，实际费用单独留痕。
+- **重新评估条件**：官方模型、价格或 endpoint 变化时重新生成预检和预算决策，不得仅修改配置绕过哈希校验。
+
+## D-128：Phase 15 发布证据必须包含覆盖率与托管 CI
+
+- **状态**：`ACCEPTED`
+- **背景**：本地测试不能替代真实 PostgreSQL/Kafka/PostgresSaver 和 GitHub Actions 环境证据；发布门禁需要区分 PR、Nightly 与 Release 风险。
+- **候选方案**：只运行本地测试；三级 CI；只在 Release 运行全部检查。
+- **最终选择**：建立 PR/Nightly/Release 三级工作流，关键包覆盖率门为 line `90%`、branch `85%`；技术 PASS 必须绑定精确 commit 上真实绿色 PR Gate 和 Release Actions run evidence，artifact 分别保留 14/30/180 天。
+- **选择理由**：PR 快速发现确定性回归，Nightly 验证完整基础设施，Release 提供可审计发布证据和长周期留存。
+- **未选理由**：只靠本地或只跑 Release 都无法及时发现问题或证明托管环境可复现。
+- **影响**：缺少强制外部 run evidence 时技术发布为 `BLOCKED`，不得伪造绿色结果；覆盖率和编码/敏感扫描均为硬门。
+- **重新评估条件**：CI 平台、基础设施版本或合规留存期限改变时，新增决策调整工作流，不降低覆盖率门。
+
+## D-129：默认路由采用显式 Release、晋升后再验证
+
+- **状态**：`ACCEPTED`
+- **背景**：Skill Runtime、PlanEngine 和 Decision Support 的风险与证据不同，不能在一次 Release 中同时隐式切换默认值。
+- **候选方案**：一次性切换全部默认；先显式验证确定性 Runtime，再独立晋升 Copilot；保持全部旧默认。
+- **最终选择**：第一次 Release 使用显式 `SKILL_RUNTIME`/`PLAN_ENGINE` SubjectManifest；技术 PASS 后独立切换 Skill/Plan 默认值，只有 Promotion `PROMOTE` 才切换 `DECISION_SUPPORT`；随后以新默认运行第二次 Release。
+- **选择理由**：把确定性基础设施晋升与模型业务收益隔离，并能在第二次验证失败时使用新 revert commit 回滚。
+- **未选理由**：一次性切换扩大故障面；永不切换无法证明新 Runtime 的发布价值。
+- **影响**：默认路由变更、Acceptance 留痕和回滚必须是不可变 Git 提交，任何同次 Runtime 失败不得回退 Legacy 执行。
+- **重新评估条件**：生产路由出现新的能力类别或回滚机制变化时，新增路由状态机决策。
+
+## D-130：Phase 15 退役 ToolRegistry Facade 并保留显式回滚期
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 12B 已迁移生产消费者到 `SkillPolicyView`，旧 ToolRegistry Facade 继续存在会掩盖治理边界和兼容债务。
+- **候选方案**：继续保留 Facade；立即删除且无回滚；确认生产导入为零后删除，Legacy 仅保留显式回滚路由。
+- **最终选择**：Task 10 先用源码和回归证明生产消费者已迁移，再删除公共 Facade 与只验证旧 API 的兼容测试；Legacy 只保留一个显式回滚周期，任何同次调用禁止 Runtime 失败后 fallback Legacy。
+- **选择理由**：删除有明确前置证据，同时保留可审计的人工回滚选项，不把兼容层变成隐式执行路径。
+- **未选理由**：永久保留 Facade 会扩大旧 API 使用面；立即删除可能遗漏隐藏生产消费者。
+- **影响**：新代码只能依赖 Catalog、SkillPolicyView 或 SkillExecutor；退役报告必须进入 Acceptance。
+- **重新评估条件**：出现未迁移的真实生产消费者时停止删除并新增迁移计划，不恢复隐式兼容调用。
+
+## D-131：Phase 15 Acceptance 采用双轨严格门槛与确定性默认关闭
+
+- **状态**：`ACCEPTED`
+- **背景**：技术发布通过不代表 Copilot 已证明业务收益；Phase 14 已明确生产默认应保持确定性路径。
+- **候选方案**：技术 PASS 即开启 Decision Support；只按模型指标晋升；技术门和 Copilot 门分别满足严格条件。
+- **最终选择**：技术 Release 只接受 Golden、迁移、测试、覆盖率、编码、敏感扫描和托管 CI 全部通过；Copilot 还必须满足 10/10 smoke、fallback 0、严重违规 0、usage 可核算、安全正确率至少 90%，以及真人交叉对照的安全正确率至少 90%、关键冲突漏报下降至少 30%、决策中位耗时下降至少 20%。证据不足为 `BLOCKED`，完整但未达标为 `KEEP_DISABLED`。
+- **选择理由**：严格 AND 门防止单项收益掩盖安全或协作退化，并保持默认关闭的可解释状态。
+- **未选理由**：技术 PASS 自动开启会把基础设施证据误当业务价值；OR 门或缺证据强行判断均不可靠。
+- **影响**：最终可合法得到 `RELEASED_DECISION_SUPPORT_DISABLED`；没有真人/真实模型证据时不得写成 `PROMOTE`。
+- **重新评估条件**：只有真实生产研究证明指标与业务目标失配时，才可新增决策修订阈值。
+
+## D-132：Phase 15 Stage A 与 Stage B 分离，完成后停止
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 15 涉及代码、数据库、真人采集、外部模型和 GitHub Actions，必须先完成可审计的设计持久化，再获得独立实施授权。
+- **候选方案**：文档与业务实现合并；Stage A 持久化后自动开始；Stage A 完成后等待用户单独授权并在 Acceptance 后停止。
+- **最终选择**：本轮只完成 Design、Implementation Plan、决策、路线图、worklog 和恢复协议；实时状态固定为 `PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`。只有用户明确授权 Stage B 后才开始 Task 1-12；Phase 15 Acceptance 后不自动进入新阶段。
+- **选择理由**：为上下文恢复、审批边界和用户审阅保留稳定事实源，避免把讨论状态误当实施授权。
+- **未选理由**：自动开始会绕过跨阶段 Gate；合并文档和代码提交会降低审计清晰度。
+- **影响**：Stage A 不修改业务代码、数据库、真实模型或 CI；Stage B 继续采用每 Task 的 RED/GREEN/REVIEW/VERIFY/DOCS/COMMIT/PUSH 和受控 sub-agent 监控协议。
+- **重新评估条件**：用户授权范围、预算、外部基础设施或项目定位发生变化时，先更新决策日志和 Design/Plan，再开始受影响 Task。

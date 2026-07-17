@@ -548,3 +548,12 @@
 - 两条独立 DecisionTrace 经过资格规则、人工确认和同 command 幂等重放，active memory 只出现一条结构化记忆。
 - Task 12 专项 `3 passed`，Demo CLI 返回 0，Scripted rehearsal gate 为真；真实模型未重新运行，Acceptance 严格记为 `INCONCLUSIVE`，费用仍为 `0.042344` 元。
 - Phase 14 完成后实时状态固定为 `AWAITING_PHASE_15_GATE`；Phase 15 不自动开始。
+
+## 2026-07-18 Phase 15 Stage A 设计持久化
+
+- Phase 15 重新冻结为技术发布与 Copilot 晋升双轨：Technical `PASS | FAIL | BLOCKED`，Promotion `PROMOTE | KEEP_DISABLED | BLOCKED`；技术发布通过不自动开启 `DECISION_SUPPORT`。
+- 活跃 Golden Dataset 固定为 48 例，拆分 `12 development / 24 validation / 12 holdout`；Phase 13 的 240 例保留为历史 Manifest 完整性资产，不进入当前 Release 执行。
+- 真人证据固定为 3-5 名真实参与者、每人 8 次、24-40 条记录；缺少真人记录时只能为 `BLOCKED`，不得用 ScriptedModel 伪造 Promotion。
+- Phase 15 真实模型预算固定为 0.60 元，最多十个 `deepseek-v4-flash` smoke；endpoint、价格、usage、Prompt、Schema、数据和代码摘要任一缺失时禁止发送。
+- Technical PASS 需要 line 90%/branch 85%、规则优先门禁、迁移和敏感扫描，以及精确 commit 上真实 GitHub Actions PR/Release run evidence；缺失外部证据不得伪造通过。
+- 当前状态已改为 `PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`。Stage A 只持久化文档，Stage B Task 1-12 必须等待用户单独授权，Phase 15 Acceptance 后停止。

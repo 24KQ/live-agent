@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`AWAITING_PHASE_15_GATE`
+文档状态：`PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
 
 最后更新：2026-07-18
 
@@ -8,43 +8,43 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 12：三场景 Demo、Acceptance 与 Phase 15 Gate 留痕 |
-| 当前任务 | Phase 15 Just-in-Time Gate |
-| 当前任务状态 | `PUSHED` / `AWAITING_PHASE_15_GATE` |
-| 当前子步骤 | Task 12 Demo、报告、专项/全量验证已完成；真实模型证据不足，Phase 14 结论为 `INCONCLUSIVE` |
+| 当前阶段 | Phase 15 Golden Release Gates Stage A |
+| 最近完成任务 | Phase 15 Stage A：Design/Plan、D-123 至 D-132、路线图、worklog 和恢复协议持久化 |
+| 当前任务 | Phase 15 Stage B 授权 Gate |
+| 当前任务状态 | `PUSHED` / `PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION` |
+| 当前子步骤 | Stage A 文档验证、独立提交和推送完成；等待用户单独授权 Stage B，Task 1 尚未开始 |
 | 当前分支 | `main` |
-| 当前业务基线 | `7025d88 docs: define human centered phase 14` |
-| 远端状态 | `origin/main` 已包含 Phase 14 Task 12 Demo、Acceptance 和最终阶段留痕；恢复时以 `git log -1 --oneline --decorate` 解析精确 HEAD |
+| 当前业务基线 | Phase 14 Task 12 Acceptance；Stage A 文档提交以 `git log -1 --oneline --decorate` 解析 |
+| 远端状态 | `origin/main` 应包含 Stage A 独立文档提交；恢复时必须核对本地/远端 HEAD 和目标文档 |
 | 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
 
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
-- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-122 和 Phase 15 Discussion Baseline。
-- 当前授权：Phase 14 Task 1-12 按技术门禁连续实施；Acceptance 后停止在 Phase 15 Gate。
-- 仍禁止：Task 11 全部预检通过前运行真实模型、修改用户脏文件、自动进入 Phase 15。
+- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-122；Phase 15 Design/Plan、D-123 至 D-132 和恢复协议。
+- 当前授权：仅 Phase 15 Stage A 文档持久化；Stage B Task 1-12 需要用户单独授权。
+- 仍禁止：Stage B 授权前修改业务代码、数据库、CI、前端、真人采集器或运行真实模型；修改用户脏文件；伪造真人或 GitHub Actions 证据。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
-- 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、自动进入 Phase 15。
+- 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、自动进入 Stage B 或下一 Phase。
 
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 12
-状态: PUSHED
-目标: 生成无外部依赖的播前/播中/播后 Demo、Acceptance 和 Phase 15 Gate 留痕
-禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
+Phase / Task: Phase 15 / Stage A
+状态: PUSHED / AWAITING_IMPLEMENTATION_AUTHORIZATION
+目标: 持久化双轨 Golden Release Design、Implementation Plan、决策、路线图、worklog 和恢复入口
+禁止事项: 不修改业务代码、数据库、CI、前端或真人采集器；不调用真实模型；不伪造真人/托管 CI 证据；不修改用户脏文件
 当前 HEAD: 本文件已包含在最新远端提交；恢复时以 `git log -1 --oneline --decorate` 读取精确值
-本 Task 文件: scripts/run_phase14_human_support_demo.py、Phase 14 Acceptance 报告及 Demo 测试
+本 Task 文件: Phase 15 Design/Plan、Discussion Baseline、D-123 至 D-132、路线图、总控计划、worklog 和恢复提示词
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 12 专项 `3 passed`；Task 10/11/Manifest 回归 `19 passed`；Demo CLI `exit 0`；src 与 Task 12 定向编译、`git diff --check` 通过；完整 unit `1320 passed, 4 warnings`；integration `150 passed, 3 deselected, 5 warnings`；external smoke `1 skipped`
-错误与尝试次数: 首轮 CLI 发现直接执行时仓库根路径未加入导入路径，已补入口引导并串行复验；未运行真实模型
-设计偏差与决策编号: Task 12 沿用 D-113、D-119、D-120；Demo 显式使用 `DECISION_SUPPORT`，生产默认保持 `DETERMINISTIC_ONLY`；正式结论因真实模型未运行保持 `INCONCLUSIVE`
-下一条精确操作: 等待用户重新审核并授权 Phase 15 Just-in-Time Design；不得自动开始 Phase 15
+最近命令与结果: 只读核对 Phase 15 Design/Plan、Discussion Baseline、D-122 后决策和既有用户脏文件；Stage A 文档目标待提交前执行严格 UTF-8、`git diff --check` 和暂存边界检查
+错误与尝试次数: 本轮未运行业务测试、数据库迁移、真实模型或 CI；用户既有脏文件保持原状
+设计偏差与决策编号: D-123 至 D-132 冻结双轨 Release、48 例 Golden、真人证据、0.60 元预算、CI/覆盖率、路由晋升和 Stage A/B 边界
+下一条精确操作: 完成目标文档编码/diff 检查，只暂存 Stage A 文件，提交 `docs: define phase 15 release gates` 并推送；推送后停止等待 Stage B 单独授权
 模型费用累计: 0.042344 元
 ```
 
-当前 sub-agent：
+当前 sub-agent：Stage A 未派发 sub-agent；文档一致性、暂存边界、提交和推送由主模型串行负责。以下为历史 sub-agent 留痕：
 
 ```text
 Sub-agent ID / 角色: Task 5 Compiler 规格与代码质量只读审查

@@ -718,3 +718,11 @@
 - 验证：Task 12 专项 `3 passed`；Task 10/11/Manifest 回归 `19 passed`；CLI `exit 0`；src 与 Task 12 定向编译、`git diff --check` 通过；全量 unit `1320 passed, 4 warnings`，integration `150 passed, 3 deselected, 5 warnings`，external smoke `1 skipped`。
 - 生成 Phase 14 Acceptance 报告；阶段状态改为 `AWAITING_PHASE_15_GATE`，不实施 Phase 15。
 - Task 12 已以 `c4124ce docs: accept phase 14 human decision support` 提交并推送，状态留痕随后以 `d250533`、`5cd090b` 更新并推送；连续执行停止，等待 Phase 15 Just-in-Time Gate。恢复时以 `git log -1 --oneline --decorate` 读取最新 HEAD。
+
+# 2026-07-18 Phase 15 Stage A 设计持久化
+
+- 新增并审核 Phase 15 Golden Release Gates Design、Implementation Plan 和连续恢复入口；旧 Phase 14 Golden/CI 文档标记为 `MIGRATED_TO_PHASE_15_JIT_BASELINE`，历史 Discussion Baseline 标记为 `SUPERSEDED_BY_PHASE_15_DESIGN`。
+- 追加 D-123 至 D-132，冻结双轨 Release、48 例 Golden、规则优先评估、真人交叉对照、0.60 元模型预算、三级 CI/覆盖率、ToolRegistry 退役、默认路由两次 Release 和 Stage A/B 边界。
+- 更新路线图、总控计划、task_plan、findings、progress 和 continuous state，使阶段状态、预算、路由和下一步一致。
+- 本轮不修改业务代码、数据库、CI、真人采集器或真实模型；不运行测试；仅在目标文档验证通过后提交 `docs: define phase 15 release gates` 并推送。
+- 当前状态：`PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`；Stage B Task 1-12 等待用户单独授权，Phase 15 完成后停止，不自动进入新 Phase。
