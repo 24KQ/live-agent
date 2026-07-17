@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 4：播中 Copilot 与结构化方案（`4ad8de5` 已推送） |
-| 当前任务 | Task 5：人工决定与受控执行编译 |
-| 当前任务状态 | `COMMIT` |
-| 当前子步骤 | Task 5 规格/质量复核由主模型接管完成，目标文件已严格检查并暂存，准备独立提交 |
+| 最近完成任务 | Phase 14 Task 5：人工决定与受控执行编译（`c20d1ab` 已推送） |
+| 当前任务 | Task 6：复合售罄自动保护与人工恢复 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 5 已提交推送；Task 6 尚未开始编写红灯测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 5
-状态: COMMIT
-目标: 对 READY/DEGRADED Proposal 实施批准、拒绝和受限修改，生成可审计且受控的 OperatorDecision/ExecutionCommand
-禁止事项: 不让自然语言或 Agent 直接执行经营写入；不绕过 OperatorDecision、版本/CAS、operator lease、幂等、Skill Runtime 或 PlanEngine；不运行真实模型；不修改用户脏文件
-当前 HEAD: 4c09d0a
-本 Task 文件: decision_support/commands.py、Phase 13 v2/v3 Manifest、Task 5 单元/集成测试及必要工作日志
+Phase / Task: Phase 14 / Task 6
+状态: RED
+目标: 将可信售罄自动保护与人工经营恢复接入 Workspace，保持冻结、CAS、陈旧阻断、对账和 OperatorDecision 边界
+禁止事项: 不让 Proposal、Agent 或主播直接执行经营恢复；不绕过 OperatorDecision、版本/CAS、operator lease、幂等、Skill Runtime、PlanEngine 或严格对账；不运行真实模型/平台；不修改用户脏文件
+当前 HEAD: c20d1ab
+本 Task 文件: decision_support/sold_out_flow.py、Task 6 单元/集成测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 5 单元专项 `8 passed`；PostgreSQL Task 5 专项 `1 passed`；完整 unit `1268 passed, 4 warnings`；完整 integration `147 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 通过
+最近命令与结果: Task 5 单元专项 `8 passed`；PostgreSQL Task 5 专项 `1 passed`；完整 unit `1268 passed, 4 warnings`；完整 integration `147 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 和 9 个目标文件严格编码检查通过；`c20d1ab` 已推送
 错误与尝试次数: RED 缺模块后转绿；首轮修复审计 JSON tuple 和空修改边界；PlanCommand 语义审查将节点命令从 RESUME 修正为 APPROVE；PostgreSQL 集成修正数据库墙钟与幂等重放后的当前 Workspace 版本；Manifest 源码闭包已由正式生成器重建
 设计偏差与决策编号: 按 D-116、D-117 实施；REJECT 只追加 OperatorDecision，不创建命令；APPROVE/MODIFY 只编译节点 APPROVE 意图，实际执行仍交给 PlanEngine/Skill Runtime；原 Proposal 永不覆盖
-下一条精确操作: 创建并推送 `feat: compile operator decisions safely`，确认远端 HEAD 后切换 Task 6 RED
+下一条精确操作: 为 Task 6 编写售罄自动保护、人工恢复和未知副作用保持对账的最小 RED 测试
 模型费用累计: 0.042344 元
 ```
 

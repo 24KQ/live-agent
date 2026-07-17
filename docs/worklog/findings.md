@@ -436,6 +436,12 @@
 - Proposal、OperatorDecision、ExecutionCommand 和最终 PlanCommand 必须分别追加；REJECT 不创建经营命令，APPROVE/MODIFY 的命令必须使用节点 `APPROVE`，不能误用只针对冻结 PlanRun 的 `RESUME`。
 - Compiler 只构造不可变命令意图，不调用 SkillExecutor、Adapter 或真实平台；PlanStore/Workspace Store 在后续追加时再次执行 CAS、状态、lease、fencing 和幂等门禁。
 - PostgreSQL Task 5 专项覆盖真实六角色证据、决定/命令重启读取、当前 lease 约束和重复投递；完整验证为 unit `1268 passed`、integration `147 passed, 3 deselected, 5 warnings`。
+- Task 5 提交前只读审查线程未返回可验证报告，已由主模型按实际差异、Design/Plan 和全量测试接管复核；未发现需要新增决策或放宽安全边界的问题。提交 `c20d1ab` 已推送。
+
+## 2026-07-18 Phase 14 Task 6 开始
+
+- Task 6 固定沿用 Phase 12B 的可信售罄自动保护：冻结受影响计划、CAS 售罄标记、阻断陈旧执行和严格只读对账；备品、主播提示、优先级与恢复时机没有 `OperatorDecision` 不得执行。
+- Task 6 不新增模型调用、真实平台或新的经营写 Skill；未知副作用必须保持 `WAITING_RECONCILIATION`，不得被工作台建议或人工恢复命令掩盖。
 
 ## 2026-07-18 Phase 14 Task 4 发现
 

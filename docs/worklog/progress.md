@@ -637,3 +637,9 @@
 - 新增真实 PostgreSQL Task 5 测试，覆盖六角色 EvidenceRef Proposal、Workspace CAS、operator lease、fencing、幂等重放和重启读取。
 - Phase 13 v2/v3 Manifest 已由正式生成器重建以绑定新增 `commands.py` 源码闭包；case/label 未改变，真实模型费用新增 0。
 - 当前验证：Task 5 unit `8 passed`，PostgreSQL 专项 `1 passed`，完整 unit `1268 passed, 4 warnings`，完整 integration `147 passed, 3 deselected, 5 warnings`；compileall 和 `git diff --check` 通过，待提交推送。
+- Task 5 已以 `c20d1ab feat: compile operator decisions safely` 独立提交并推送；9 个目标文件进入提交，用户已有脏文件和无关脚本未纳入。Task 5 规格与质量复核由主模型接管完成，无阻断项。
+
+# 2026-07-18 Phase 14 Task 6
+
+- 已切换到 Task 6 RED，目标是接入可信售罄自动保护与人工经营恢复，严格复用 Phase 12B Preemption/售罄 CAS/对账控制面。
+- 当前尚未编写 Task 6 生产代码或运行真实模型；下一步先建立可信事件、冻结/CAS/陈旧阻断、无 OperatorDecision 拒绝恢复和 `SIDE_EFFECT_UNKNOWN` 保持对账的预期失败测试。
