@@ -511,3 +511,15 @@
 
 - Task 9 已以 `dbd5768 feat: confirm governed memory promotion` 独立提交并推送，远端与本地 HEAD 一致；受保护用户脏文件未纳入。
 - Task 10 开始前真实模型费用保持 `0.042344` 元；本任务先固定复合事故数据集、规则门禁、配对评估和人工对照协议，不调用真实模型。
+
+## 2026-07-18 Phase 14 Task 10 规格审查与整改
+
+- 只读审查发现初版未覆盖过期证据、CAS/版本冲突和未知副作用；已在四组 case 的固定 slot 中加入三类显式布尔事实及 JSON 状态，并将其纳入脱敏数据和 Manifest schema。
+- 已让 `Phase14Dataset` 重新校验 case 顺序、分组和 JSONL `dataset_digest`；ScriptedModel 与人工评估入口只接受经重验的 Dataset，不能用 `model_construct` 篡改样本复用旧 Manifest。
+- `schema_digest` 现在覆盖 case、facts、assignment 和 record 的全部字段；`generator_digest` 绑定当前评估模块源码；交叉评估验证两个条件使用同一 case；门槛使用未四舍五入的精确比例。
+- 严重违规按 baseline/copilot 每条结果计数；新增嵌套敏感字段拒绝和场景组 case ID 回归。只读审查线程没有 Critical，但报告的 5 个 Important 已全部整改并由主模型复跑验证。
+
+## 2026-07-18 Phase 14 Task 10 最终验证
+
+- Task 10 专项 `9 passed`；数据/Phase 13 回归 `20 passed`；完整 unit `1310 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`。
+- Phase 13 v2/v3 Manifest 已由官方生成器按新增源码闭包重建；Task 10 目标文件严格 UTF-8、无 BOM/replacement/mixed newline/trailing whitespace，compileall 和 `git diff --check` 通过；真实模型费用未增加。

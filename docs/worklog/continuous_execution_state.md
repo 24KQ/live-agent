@@ -11,8 +11,8 @@
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
 | 最近完成任务 | Phase 14 Task 9：播后反馈与人工确认记忆晋升（`dbd5768` 已推送） |
 | 当前任务 | Task 10：复合事故数据集与离线人机协同评估 |
-| 当前任务状态 | `RED` |
-| 当前子步骤 | Task 9 已提交并推送；Task 10 尚未修改业务代码，准备建立复合事故数据集、离线规则回归和人工对照的预期失败测试 |
+| 当前任务状态 | `VERIFY` |
+| 当前子步骤 | Task 10 审查发现已整改；专项、受影响回归、完整 unit/integration、Manifest、编码和 diff 门禁均通过，准备提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -31,16 +31,16 @@
 
 ```text
 Phase / Task: Phase 14 / Task 10
-状态: RED
+状态: VERIFY
 目标: 建立固定复合事故数据集、离线规则回归、人机配对评估和人工对照证据，不运行真实模型
 禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
-当前 HEAD: dbd5768
-本 Task 文件: Task 10 数据集、评估与人工对照模块及对应测试，尚未开始编码
+当前 HEAD: 357a2ab
+本 Task 文件: src/decision_support/evaluation.py、evaluation/phase14_human_support、tests/unit/test_phase14_human_support_evaluation.py、Phase 13 Manifest 重建
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 9 相关 unit `20 passed`；Task 9/Phase 13 相关 integration `2 passed`；完整 unit `1301 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；Task 9 编码、compileall 和 `git diff --check` 通过；提交/推送 `dbd5768`
-错误与尝试次数: RED 缺少 review_feedback；GREEN 首轮修复内存/PostgreSQL 状态同构；审查整改收紧 PromotionPolicy 的人工 intent、可信 Trace Resolver、确认重放绑定、active conflict 和 active-write/CAS 恢复；未放宽安全门禁
-设计偏差与决策编号: Task 9 按 D-113、D-118、D-120 实施并已冻结；Task 10 沿用 D-113、D-119、D-120 的三场景人机协同边界，先做离线证据，不连接真实模型
-下一条精确操作: 读取 Task 10 Design/Plan，建立 RED 测试并确认失败原因；随后按 RED/GREEN/REVIEW/VERIFY/DOCS/COMMIT/PUSH 执行
+最近命令与结果: Task 10 专项 `9 passed`；数据/Phase 13 回归 `20 passed`；完整 unit `1310 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；Phase 13 Manifest 由官方生成器重建；10 个目标文件严格编码、compileall 和 `git diff --check` 通过
+错误与尝试次数: RED 缺少 evaluation 模块；GREEN 修复 FrozenDict 序列化、Phase 13 源码闭包、Manifest 过期、工作负担记录和稳定随机种子；质量审查整改覆盖三类事故维度、Dataset/Manifest 重验、schema/generator digest、同 case 配对、精确门槛、逐条严重违规计数和嵌套脱敏；未运行真实模型
+设计偏差与决策编号: Task 10 沿用 D-113、D-119、D-120；离线人工对照严格标记为 usability evidence，不冒充生产 A/B；新增字段和校验均在 Task 10 既定数据/评估范围内，无需新增决策
+下一条精确操作: 只暂存 Task 10 代码、测试、冻结数据、Phase 13 Manifest 和 worklog，执行 staged diff 检查，提交 `test: add human decision support evaluation` 并推送
 模型费用累计: 0.042344 元
 ```
 
@@ -408,3 +408,16 @@ Sub-agent ID / 角色:
 ```
 
 恢复后必须先回答：当前 Task 是什么、已完成到哪个子步骤、最近证据是什么、下一条命令是什么、哪些用户文件不能提交。不能回答时不得直接修改代码。
+
+## 10. Phase 14 Task 10 Sub-agent 留痕
+
+```text
+Sub-agent ID / 角色: 019f71a6-421e-73f0-9a40-ae6e93bafa34 / Task 10 规格与质量只读审查
+派发时间: 2026-07-18
+只读或写入文件边界: 只读 evaluation.py、Task 10 测试/冻结数据、Phase 13 Manifest、Phase 14 Design/Plan；禁止修改文件
+预期交付物与测试: 检查事故维度覆盖、Manifest 身份绑定、配对指标数学、脱敏和生产边界
+首次回报: 两次等待未返回；后续返回一份包含 5 个 Important 和 2 个 Minor 的审查报告
+最近可验证进展: 主模型逐项整改后重跑 Task 10 专项 `9 passed`、数据/Phase 13 回归 `20 passed`、完整 unit `1310 passed`、integration `150 passed`
+状态: STOPPED / COMPLETED_REPORT_CONSUMED
+接管原因（如适用）: 审查线程未在提交前稳定收敛，主模型停止线程并独立复查所有发现；报告中 Critical 为 0，5 个 Important 已全部修复并重新验证
+```
