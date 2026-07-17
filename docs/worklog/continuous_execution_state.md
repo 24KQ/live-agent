@@ -15,7 +15,7 @@
 | 当前子步骤 | 文档已提交推送；等待用户单独授权 Phase 14 业务实施 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
-| 远端状态 | `origin/main=7025d88` |
+| 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
 | 真实模型累计费用 | 0.042344 元 |
 
 ## 2. 当前授权边界
@@ -34,7 +34,7 @@ Phase / Task: Phase 14 / Design and Plan Persistence
 状态: PUSHED
 目标: 固化三场景人机协同定位、Phase 14 Design/Plan、Phase 15 Discussion Baseline、决策、路线和恢复协议
 禁止事项: 不写业务代码、不运行真实模型、不启动迁移或前端实现；不修改用户脏文件
-当前 HEAD: 7025d88
+当前 HEAD: 7025d88（阶段 A 内容提交；状态留痕提交以恢复时 Git 事实为准）
 本 Task 文件: Phase 14/15 文档、路线图、总控计划、决策日志、三个 worklog、连续恢复提示词
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
 最近命令与结果: D-001..D-120 连续唯一；15 个目标文档严格 UTF-8 检查通过；`git diff --check` 通过；编码扫描仅报告扫描器自测样例的 4 个历史 error 与 53 个历史 warning，目标文档 0 命中；`7025d88 docs: define human centered phase 14` 已推送到 origin/main
