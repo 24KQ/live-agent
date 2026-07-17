@@ -480,3 +480,10 @@
 - 评估任务的汇总和维度明细必须事务一致，否则会产生“任务完成但证据缺失”的排障陷阱。
 
 ---
+
+## 2026-07-18 Phase 14 Task 8 发现与整改
+
+- 首个 RED 暴露前端稳定身份契约缺口：会话输入使用非冻结 ID，Proposal/Decision 资源后缀也未显式保留；已统一为 `live-session-id`、`/proposals` 和 `/decisions`。
+- 只读审查发现决定按钮在 `WAITING_RECONCILIATION`、`DEGRADED` 和 `RECONNECTING` 时仍可点击；已增加 `decisionBlockReason`、Token 检查、连接状态和二次提交门禁，主播区继续只读。
+- 只读审查发现旧 HTTP/WS 会话竞态、方案选择重置、Proposal 仅静态声明、Review 不显示候选/执行结果；已用请求序列号、目标 session 绑定、`selectedOptionId`、显式 Proposal 同步、`memory_candidates` 和命令结果渲染修复。
+- 修复后 Task 8 专项 `6 passed`，相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`，完整 unit `1288 passed, 4 warnings`，完整 integration `149 passed, 3 deselected, 5 warnings`；真实模型费用未增加。

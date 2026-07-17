@@ -2,398 +2,533 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LiveAgent 直播副屏</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiveAgent 运营工作台</title>
 <style>
+  :root {
+    --bg: #0b0f14;
+    --surface: #121820;
+    --surface-2: #18212b;
+    --surface-3: #202b36;
+    --border: #2c3a47;
+    --text: #e6edf3;
+    --muted: #8d9aa7;
+    --teal: #2dd4bf;
+    --teal-dark: #0f766e;
+    --amber: #f4b942;
+    --red: #f87171;
+    --green: #61d095;
+    --blue: #76a9fa;
+  }
   *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
   body {
-    margin: 0;
-    width: 1280px;
-    height: 800px;
-    overflow: hidden;
     font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
-    background: #0d1117;
-    color: #c9d1d9;
-    display: grid;
-    grid-template-rows: 42px 1.08fr 1fr;
-    grid-template-columns: 350px 465px 465px;
+    font-size: 14px;
+    line-height: 1.45;
+    overflow-x: hidden;
   }
-  .toolbar {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    padding: 0 14px;
-    background: #161b22;
-    border-bottom: 1px solid #30363d;
-    font-size: 12px;
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .45; }
+  .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+  .topbar {
+    position: sticky; top: 0; z-index: 5; min-height: 64px; display: flex;
+    align-items: center; gap: 14px; padding: 10px 22px; background: #10161d;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
   }
-  .logo { color: #58a6ff; font-weight: 700; font-size: 15px; letter-spacing: 1px; }
-  .badge { padding: 2px 8px; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; background: #21262d; }
-  .spacer { flex: 1; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #d29922; display: inline-block; }
-  .dot.ok { background: #3fb950; }
-  .dot.err { background: #f85149; }
+  .brand { color: var(--teal); font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
+  .session-control { display: flex; align-items: center; gap: 8px; min-width: 260px; }
+  .session-control label, .auth-control label { color: var(--muted); font-size: 12px; }
+  .session-control input, .auth-control input, .field input, .field select, .field textarea {
+    width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 5px;
+    background: #0e141b; color: var(--text); padding: 7px 9px; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--teal); }
+  .auth-control { display: flex; gap: 6px; align-items: center; min-width: 240px; }
+  .auth-control input { width: 112px; }
+  .status-indicator { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); white-space: nowrap; }
+  .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); }
+  .status-dot.ok { background: var(--green); }
+  .status-dot.err { background: var(--red); }
+  .topbar-spacer { flex: 1; }
+  .view-tabs { display: flex; gap: 4px; padding: 3px; background: #0e141b; border: 1px solid var(--border); border-radius: 6px; }
+  .view-tab {
+    border: 0; border-radius: 4px; padding: 7px 12px; color: var(--muted); background: transparent;
+  }
+  .view-tab:hover, .view-tab.active { color: var(--text); background: var(--surface-3); }
+  .workspace-panel { width: min(1600px, 100%); margin: 0 auto; padding: 20px 22px 36px; }
+  .view { display: none; }
+  .view.active { display: block; }
+  .view-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+  h1, h2, h3, p { margin: 0; }
+  h1 { font-size: 24px; line-height: 1.2; }
+  h2 { font-size: 16px; line-height: 1.3; }
+  h3 { font-size: 13px; color: var(--muted); font-weight: 700; }
+  .eyebrow { color: var(--teal); text-transform: uppercase; font-size: 11px; letter-spacing: .08em; margin-bottom: 5px; }
+  .muted { color: var(--muted); }
+  .grid { display: grid; gap: 12px; min-width: 0; }
+  .grid.prepare { grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr); }
+  .grid.live { grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); align-items: start; }
+  .grid.review { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .panel {
-    margin: 6px;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    background: #161b22;
+    min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
   }
-  .panel-header {
-    min-height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 10px;
-    border-bottom: 1px solid #30363d;
+  .panel-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--border); }
+  .panel-body { padding: 15px; min-width: 0; }
+  .panel-body + .panel-body { border-top: 1px solid var(--border); }
+  .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .button {
+    border: 1px solid var(--border); border-radius: 5px; padding: 8px 12px; background: var(--surface-3); color: var(--text);
   }
-  .panel-header h2 {
-    margin: 0;
-    font-size: 12px;
-    color: #58a6ff;
-    letter-spacing: 0;
-    font-weight: 700;
+  .button:hover { border-color: var(--teal); }
+  .button.primary { background: var(--teal-dark); border-color: var(--teal); color: #ecfffb; }
+  .button.warn { background: #654b13; border-color: var(--amber); color: #fff6d7; }
+  .button.danger { background: #6d2525; border-color: var(--red); color: #fff1f1; }
+  .metric-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .metric { min-width: 0; padding: 11px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); }
+  .metric-label { color: var(--muted); font-size: 11px; }
+  .metric-value { margin-top: 3px; color: var(--text); font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+  .checklist, .fact-list, .risk-list, .decision-list, .timeline { display: grid; gap: 8px; }
+  .check, .fact, .risk, .timeline-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); }
+  .check-mark { color: var(--green); font-weight: 800; }
+  .fact-label { width: 112px; flex: 0 0 112px; color: var(--muted); font-size: 12px; }
+  .fact-value { min-width: 0; overflow-wrap: anywhere; }
+  .risk { border-left: 3px solid var(--amber); }
+  .risk.critical { border-left-color: var(--red); }
+  .decision-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-2); }
+  .decision-option.selected { border-color: var(--teal); background: #12312e; }
+  .decision-option input { margin-top: 4px; accent-color: var(--teal); }
+  .option-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .tag { padding: 3px 7px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); font-size: 11px; }
+  .tag.warn { color: var(--amber); border-color: #80641f; }
+  .operator-controls { display: grid; gap: 12px; }
+  .field { display: grid; gap: 5px; min-width: 0; }
+  .field label { color: var(--muted); font-size: 12px; }
+  .field textarea { min-height: 72px; resize: vertical; }
+  .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .presenter-copy { padding: 14px; border-left: 3px solid var(--teal); background: #0f2524; color: #d9fffa; overflow-wrap: anywhere; }
+  .state-banner { margin-bottom: 12px; padding: 11px 13px; border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 5px; background: var(--surface-2); }
+  .state-banner.degraded { border-left-color: var(--amber); }
+  .state-banner.reconnecting { border-left-color: var(--red); }
+  .state-banner.waiting { border-left-color: var(--red); }
+  .status-pill { display: inline-flex; align-items: center; padding: 4px 8px; border: 1px solid var(--border); border-radius: 99px; color: var(--muted); font-size: 11px; }
+  .status-pill.ready { color: var(--green); border-color: #286647; }
+  .status-pill.degraded { color: var(--amber); border-color: #80641f; }
+  .status-pill.waiting { color: var(--red); border-color: #8a3434; }
+  .empty, .loading, .error { padding: 18px 10px; color: var(--muted); text-align: center; }
+  .error { color: var(--red); }
+  .toast { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); padding: 11px 14px; border: 1px solid var(--border); border-radius: 5px; background: #161e27; color: var(--text); box-shadow: 0 8px 24px #0008; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  @media (max-width: 940px) {
+    .topbar { position: static; padding: 12px 14px; }
+    .topbar-spacer { display: none; }
+    .workspace-panel { padding: 16px 14px 28px; }
+    .grid.prepare, .grid.live, .grid.review { grid-template-columns: minmax(0, 1fr); }
+    .session-control, .auth-control { flex: 1 1 220px; min-width: 0; }
+    .view-tabs { order: 4; width: 100%; }
+    .view-tab { flex: 1; }
   }
-  .panel-body { flex: 1; overflow-y: auto; padding: 10px; font-size: 13px; line-height: 1.55; }
-  .panel-body::-webkit-scrollbar { width: 4px; }
-  .panel-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
-  .wide { grid-column: 2 / 4; }
-  .btn {
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    background: #21262d;
-    color: #c9d1d9;
-    font-size: 12px;
-    padding: 5px 10px;
-    cursor: pointer;
-  }
-  .btn:hover { background: #30363d; }
-  .btn.primary { border-color: #238636; background: #238636; color: #fff; }
-  .btn.danger { border-color: #da3633; background: #da3633; color: #fff; }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-  .muted { color: #8b949e; }
-  .empty, .loading, .error { color: #8b949e; text-align: center; padding: 18px 8px; }
-  .error { color: #f85149; }
-  .section { margin-bottom: 10px; }
-  .label { color: #8b949e; font-size: 11px; margin-bottom: 2px; }
-  .value { color: #e6edf3; word-break: break-word; }
-  .status-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; background: #21262d; border: 1px solid #30363d; color: #c9d1d9; font-size: 11px; }
-  .pill.pending { color: #d29922; border-color: #8a6d1d; }
-  .pill.done { color: #3fb950; border-color: #2ea043; }
-  .pill.err { color: #f85149; border-color: #da3633; }
-  .timeline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .node { padding: 3px 7px; border-radius: 5px; background: #0d1117; border: 1px solid #30363d; color: #8b949e; font-size: 11px; }
-  .approval-box { border: 1px solid #8a6d1d; border-left: 4px solid #d29922; border-radius: 8px; background: #0d1117; padding: 10px; margin-bottom: 10px; }
-  .approval-actions { display: flex; gap: 8px; margin-top: 10px; }
-  .suggestion { border-left: 4px solid #3fb950; background: #0d1117; border-radius: 8px; padding: 10px; margin-bottom: 8px; color: #e6edf3; }
-  .list-item { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; margin-bottom: 6px; }
-  .heat { height: 5px; border-radius: 99px; background: #238636; margin-top: 6px; }
-  pre {
-    margin: 6px 0 0;
-    padding: 8px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #8b949e;
-    font-size: 11px;
-    white-space: pre-wrap;
-    word-break: break-word;
+  @media (max-width: 560px) {
+    .topbar { gap: 9px; }
+    .brand { width: 100%; }
+    .metric-row, .field-grid { grid-template-columns: minmax(0, 1fr); }
+    h1 { font-size: 21px; }
+    .view-heading { align-items: flex-start; flex-direction: column; }
   }
 </style>
 </head>
 <body>
-  <div class="toolbar">
-    <div class="logo">LIVEAGENT</div>
-    <span class="badge" id="room-badge">room-dashboard-001</span>
-    <span>信任分 <b id="trust-score">0.70</b></span>
-    <span>当前链路 <b id="trace-label">未启动</b></span>
-    <div class="spacer"></div>
-    <span class="dot" id="health-dot"></span>
-    <span id="health-text">连接中</span>
-    <span id="clock"></span>
-  </div>
-
-  <section class="panel">
-    <div class="panel-header">
-      <h2>讲解手卡</h2>
-      <button class="btn" onclick="refreshCard()">刷新</button>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="brand">LIVEAGENT / OPS</div>
+    <div class="session-control">
+      <label for="live-session-id">会话</label>
+      <input id="live-session-id" value="live-session-p001-sold-out-v1" autocomplete="off">
     </div>
-    <div class="panel-body" id="card-content"><div class="loading">点击刷新手卡</div></div>
-  </section>
+    <div class="auth-control">
+      <label for="operator-input">运营</label>
+      <input id="operator-input" value="operator-dashboard" autocomplete="off">
+      <input id="token-input" type="password" placeholder="Token" autocomplete="off" aria-label="操作员 Token">
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="status-indicator"><span id="status-dot" class="status-dot"></span><span id="connection-status">连接中</span></div>
+    <nav class="view-tabs" aria-label="工作台视图">
+      <button class="view-tab active" data-target-view="PREPARE" type="button" onclick="switchView('PREPARE')">播前</button>
+      <button class="view-tab" data-target-view="LIVE" type="button" onclick="switchView('LIVE')">播中</button>
+      <button class="view-tab" data-target-view="REVIEW" type="button" onclick="switchView('REVIEW')">播后</button>
+    </nav>
+  </header>
 
-  <section class="panel wide">
-    <div class="panel-header">
-      <h2>Agent Harness / 人审</h2>
-      <div>
-        <button class="btn" onclick="loadHarnessStatus()">状态</button>
-        <button class="btn primary" onclick="startHarness()">启动演示</button>
+  <main id="workspace-panel" class="workspace-panel" data-session-view="PREPARE">
+    <section class="view active" data-view="PREPARE">
+      <div class="view-heading">
+        <div><div class="eyebrow">PREPARE / 冻结</div><h1>播前准备</h1></div>
+        <span id="prepare-status" class="status-pill">读取中</span>
       </div>
-    </div>
-    <div class="panel-body" id="harness-content"><div class="empty">尚未启动 Harness Agent 会话</div></div>
-  </section>
+      <div class="grid prepare">
+        <section class="panel">
+          <div class="panel-header"><h2>会话基线</h2><span id="prepare-session" class="muted">--</span></div>
+          <div class="panel-body">
+            <div class="metric-row">
+              <div class="metric"><div class="metric-label">Workspace</div><div id="prepare-workspace-version" class="metric-value">--</div></div>
+              <div class="metric"><div class="metric-label">Root PlanRun</div><div id="prepare-plan" class="metric-value">--</div></div>
+              <div class="metric"><div class="metric-label">证据版本</div><div id="prepare-evidence-count" class="metric-value">--</div></div>
+            </div>
+            <div class="section-gap"></div>
+            <div id="prepare-facts" class="fact-list"><div class="loading">加载会话事实</div></div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-header"><h2>开播检查</h2><span class="status-pill ready">确定性</span></div>
+          <div class="panel-body">
+            <div class="checklist">
+              <div class="check"><span class="check-mark">OK</span><span>商品与货盘快照已冻结</span></div>
+              <div class="check"><span class="check-mark">OK</span><span>风险与售罄保护已装配</span></div>
+              <div class="check"><span class="check-mark">OK</span><span>运营锁与审计身份可用</span></div>
+              <div class="check"><span id="memory-check" class="check-mark">--</span><span>受治理记忆锚点</span></div>
+            </div>
+            <div class="button-row" style="margin-top:14px">
+              <button class="button primary" type="button" onclick="switchView('LIVE')">进入播中</button>
+              <button class="button" type="button" onclick="loadWorkspace()">刷新事实</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
 
-  <section class="panel">
-    <div class="panel-header">
-      <h2>弹幕洞察</h2>
-      <span class="muted" id="danmaku-time">--</span>
-    </div>
-    <div class="panel-body" id="danmaku-content"><div class="loading">等待弹幕聚合</div></div>
-  </section>
+    <section class="view" data-view="LIVE">
+      <div class="view-heading">
+        <div><div class="eyebrow">LIVE / 运营主控</div><h1>播中决策台</h1></div>
+        <span id="live-status" class="status-pill">等待事实</span>
+      </div>
+      <div id="live-state-banner" class="state-banner">加载实时证据与方案</div>
+      <div class="grid live">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-header"><h2>事实与风险</h2><div class="button-row"><span id="live-incident-id" class="muted">--</span><button class="button" id="proposal-sync" type="button" onclick="appendCurrentProposal()">同步当前方案</button></div></div>
+            <div class="panel-body">
+              <div id="evidence-list" class="fact-list"><div class="loading">等待 EvidenceBundle</div></div>
+              <div style="height:12px"></div>
+              <div id="risk-list" class="risk-list"><div class="empty">暂无风险标记</div></div>
+            </div>
+          </section>
+          <section id="presenter-readonly" class="panel" data-readonly="true">
+            <div class="panel-header"><h2>主播提示</h2><span class="status-pill">只读</span></div>
+            <div class="panel-body"><div id="presenter-copy" class="presenter-copy">等待运营确认后的精简提示</div></div>
+          </section>
+        </div>
+        <section class="panel" id="operator-controls">
+          <div class="panel-header"><h2>运营决定</h2><span class="status-pill" id="operator-lock-status">未锁定</span></div>
+          <div class="panel-body">
+            <div id="decision-options" class="decision-list"><div class="loading">等待结构化方案</div></div>
+          </div>
+          <div class="panel-body operator-controls">
+            <div class="field-grid">
+              <div class="field"><label for="backup-product">备品</label><input id="backup-product" placeholder="仅填写商品 ID"></div>
+              <div class="field"><label for="priority">优先级</label><input id="priority" type="number" min="0" max="100" value="50"></div>
+              <div class="field"><label for="timing">时机</label><select id="timing"><option value="AFTER_OPERATOR_CONFIRMATION">运营确认后</option><option value="NOW">立即</option><option value="NEXT_BEAT">下个节奏点</option><option value="AFTER_RECONCILIATION">对账后</option></select></div>
+              <div class="field"><label for="reason-code">原因码</label><input id="reason-code" value="OPERATOR_CONFIRMATION"></div>
+            </div>
+            <div class="field"><label for="host-prompt">主播提示修改</label><textarea id="host-prompt" maxlength="300" placeholder="只允许结构化提示语"></textarea></div>
+            <div class="button-row">
+              <button class="button primary" type="button" data-decision-action="approve" onclick="submitDecision('APPROVE')">批准方案</button>
+              <button class="button warn" type="button" data-decision-action="modify" onclick="submitDecision('MODIFY')">修改后批准</button>
+              <button class="button danger" type="button" data-decision-action="reject" onclick="submitDecision('REJECT')">拒绝方案</button>
+            </div>
+            <div id="execution-status" class="state-banner">等待运营决定</div>
+          </div>
+        </section>
+      </div>
+    </section>
 
-  <section class="panel">
-    <div class="panel-header">
-      <h2>实时告警</h2>
-      <span class="muted" id="alert-time">--</span>
-    </div>
-    <div class="panel-body" id="alert-content"><div class="loading">等待告警</div></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-header">
-      <h2>场次复盘</h2>
-      <span class="muted" id="review-time">--</span>
-    </div>
-    <div class="panel-body" id="review-content"><div class="loading">等待复盘</div></div>
-  </section>
+    <section class="view" data-view="REVIEW">
+      <div class="view-heading">
+        <div><div class="eyebrow">REVIEW / 回放</div><h1>播后复盘</h1></div>
+        <span id="review-status" class="status-pill">等待回放</span>
+      </div>
+      <div class="grid review">
+        <section class="panel"><div class="panel-header"><h2>事实回放</h2></div><div id="review-facts" class="panel-body"><div class="empty">暂无回放事实</div></div></section>
+        <section class="panel"><div class="panel-header"><h2>决定与结果</h2></div><div id="review-decisions" class="panel-body"><div class="empty">暂无运营决定</div></div></section>
+        <section class="panel"><div class="panel-header"><h2>记忆候选</h2><span class="status-pill">规则 + 人工</span></div><div id="review-memory" class="panel-body"><div class="empty">暂无待确认候选</div></div></section>
+      </div>
+    </section>
+  </main>
+  <div id="toast" class="toast" hidden></div>
+</div>
 
 <script>
 const API = window.location.origin;
-const ROOM_ID = "room-dashboard-001";
-const WS_URL = (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/ws";
-let ws = null;
-let wsReconnectTimer = null;
-let currentTraceId = "";
+const DEFAULT_SESSION_ID = "live-session-p001-sold-out-v1";
+const DECISION_EVENT = "decision_support_workspace_update";
+// API 路径把提案与决定作为独立资源保留，避免前端把两类事实混成一个写入口。
+const WORKSPACE_PATH = "/api/decision-support/workspaces/";
+const PROPOSAL_SUFFIX = "/proposals";
+const DECISION_SUFFIX = "/decisions";
+const state = {
+  workspace: null, view: "PREPARE", socket: null, socketSessionId: null,
+  reconnectTimer: null, requestSequence: 0, lastSequence: 0, selectedOptionId: null,
+  connectionState: "CONNECTING", dataState: "LOADING"
+};
 
 function escapeHtml(value) {
-  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
-function fmtTime(value) {
-  try { return new Date(value || Date.now()).toLocaleTimeString("zh-CN", { hour12: false }); }
-  catch { return "--"; }
+function sessionId() { return document.getElementById("live-session-id").value.trim() || DEFAULT_SESSION_ID; }
+function operatorId() { return document.getElementById("operator-input").value.trim() || "operator-dashboard"; }
+function hasOperatorToken() { return document.getElementById("token-input").value.trim().length > 0; }
+function authHeaders() {
+  const headers = { "Content-Type": "application/json", "X-Operator-Id": operatorId() };
+  const token = document.getElementById("token-input").value.trim();
+  if (token) headers["X-Operator-Token"] = token;
+  return headers;
+}
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.hidden = false;
+  setTimeout(() => { toast.hidden = true; }, 3500);
+}
+function setConnection(ok, text) {
+  state.connectionState = ok ? "CONNECTED" : text;
+  document.getElementById("connection-status").textContent = text;
+  document.getElementById("status-dot").className = "status-dot " + (ok ? "ok" : "err");
+  setDecisionControls();
+}
+function setPill(id, text, mode) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = "status-pill " + (mode || "");
+}
+function switchView(view) {
+  state.view = view;
+  document.getElementById("workspace-panel").dataset.sessionView = view;
+  document.querySelectorAll(".view").forEach((section) => section.classList.toggle("active", section.dataset.view === view));
+  document.querySelectorAll(".view-tab").forEach((button) => button.classList.toggle("active", button.dataset.targetView === view));
+  if (view === "LIVE") renderLive();
+  if (view === "REVIEW") renderReview();
 }
 
-function setHealth(ok, text) {
-  const dot = document.getElementById("health-dot");
-  dot.className = ok ? "dot ok" : "dot err";
-  document.getElementById("health-text").textContent = text;
-}
-
-async function checkHealth() {
+async function loadWorkspace() {
+  const requestSequence = ++state.requestSequence;
+  const requestedSessionId = sessionId();
+  const id = encodeURIComponent(sessionId());
   try {
-    const res = await fetch(API + "/api/health");
-    setHealth(res.ok, res.ok ? "已连接" : "异常");
-  } catch {
-    setHealth(false, "未连接");
+    const response = await fetch(API + WORKSPACE_PATH + id, { headers: authHeaders() });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Workspace 读取失败");
+    if (requestSequence !== state.requestSequence || requestedSessionId !== sessionId()) return;
+    state.dataState = "READY";
+    state.workspace = payload;
+    renderWorkspace(payload);
+    setConnection(state.socket && state.socket.readyState === WebSocket.OPEN, state.socket && state.socket.readyState === WebSocket.OPEN ? "实时连接" : "等待实时连接");
+    renderLive();
+  } catch (error) {
+    if (requestSequence !== state.requestSequence || requestedSessionId !== sessionId()) return;
+    state.dataState = "DEGRADED";
+    state.workspace = null;
+    setConnection(false, "Workspace 不可用");
+    renderLive();
+    document.getElementById("live-state-banner").className = "state-banner degraded";
+    document.getElementById("live-state-banner").textContent = "DEGRADED：" + error.message;
+    showToast(error.message);
   }
 }
 
-function connectWebSocket() {
-  if (ws && ws.readyState === WebSocket.OPEN) return;
-  try {
-    ws = new WebSocket(WS_URL);
-    ws.onopen = () => {
-      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
-      wsReconnectTimer = null;
-      setHealth(true, "实时连接");
-    };
-    ws.onmessage = (event) => {
-      try { handleWSMessage(JSON.parse(event.data)); }
-      catch (e) { console.error("WS parse error", e); }
-    };
-    ws.onclose = () => {
-      ws = null;
-      setHealth(false, "重连中");
-      if (!wsReconnectTimer) wsReconnectTimer = setTimeout(connectWebSocket, 3000);
-    };
-    ws.onerror = () => setHealth(false, "连接异常");
-  } catch {
-    if (!wsReconnectTimer) wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+function renderWorkspace(workspace) {
+  const root = workspace || {};
+  document.getElementById("prepare-session").textContent = root.live_session_id || sessionId();
+  document.getElementById("prepare-workspace-version").textContent = root.version ?? "--";
+  document.getElementById("prepare-plan").textContent = root.root_plan_run_id || "--";
+  document.getElementById("prepare-evidence-count").textContent = (root.execution_commands || []).length;
+  document.getElementById("prepare-facts").innerHTML = [
+    ["房间", root.room_id], ["Trace", root.trace_id], ["Anchor", root.anchor_id], ["视图", root.view]
+  ].map(([label, value]) => '<div class="fact"><span class="fact-label">' + escapeHtml(label) + '</span><span class="fact-value">' + escapeHtml(value || "--") + '</span></div>').join("");
+  document.getElementById("memory-check").textContent = (root.proposals || []).length ? "OK" : "--";
+  setPill("prepare-status", root.view === "PREPARE" ? "已冻结" : root.view || "未知", root.view === "PREPARE" ? "ready" : "");
+  renderLive();
+  renderReview();
+}
+
+function currentProposal() {
+  const proposals = state.workspace && state.workspace.proposals || [];
+  return proposals[proposals.length - 1] || null;
+}
+function reconciliationRequired() {
+  return (state.workspace && state.workspace.incidents || []).some((item) => item.snapshot && item.snapshot.status === "WAITING_RECONCILIATION");
+}
+function decisionBlockReason(decisionKind = null) {
+  if (!state.workspace) return "Workspace 尚未加载";
+  if (!currentProposal()) return "暂无 Proposal";
+  const snapshot = currentProposal().snapshot || {};
+  if (!(snapshot.options || []).length && decisionKind !== "REJECT") return "暂无可批准方案";
+  if (reconciliationRequired()) return "WAITING_RECONCILIATION：未知副作用必须先完成只读对账";
+  if (state.dataState === "DEGRADED" || snapshot.status === "DEGRADED") return "DEGRADED：当前只能查看确定性事实摘要";
+  if (state.connectionState === "RECONNECTING") return "RECONNECTING：实时事实尚未恢复";
+  if (state.connectionState !== "CONNECTED") return "实时连接尚未建立";
+  if (!hasOperatorToken()) return "需要操作员 Token 才能提交决定";
+  return "";
+}
+function setDecisionControls() {
+  document.querySelectorAll("[data-decision-action]").forEach((button) => {
+    const reason = decisionBlockReason(button.dataset.decisionAction.toUpperCase());
+    button.disabled = Boolean(reason);
+    button.title = reason || "提交受操作员认证保护的决定";
+  });
+  const proposalButton = document.getElementById("proposal-sync");
+  if (proposalButton) {
+    proposalButton.disabled = !currentProposal() || !hasOperatorToken() || state.dataState !== "READY" || state.connectionState !== "CONNECTED" || reconciliationRequired();
   }
 }
-
-function handleWSMessage(msg) {
-  if (msg.type === "agent_harness_update") renderHarness(msg.payload);
-  if (msg.type === "danmaku_update") renderDanmaku(msg.payload);
-  if (msg.type === "alert_update") renderAlerts(msg.payload);
-  if (msg.type === "review_update") renderReview(msg.payload);
+function renderLive() {
+  const workspace = state.workspace || {};
+  const proposal = currentProposal();
+  const snapshot = proposal && proposal.snapshot || {};
+  const status = snapshot.status || "WAITING";
+  const degraded = state.dataState === "DEGRADED" || status === "DEGRADED";
+  const waiting = reconciliationRequired();
+  const reconnecting = state.connectionState === "RECONNECTING";
+  const notConnected = state.connectionState !== "CONNECTED";
+  const liveStatus = waiting ? "WAITING_RECONCILIATION" : (degraded ? "DEGRADED" : (reconnecting ? "RECONNECTING" : (notConnected ? "CONNECTING" : status)));
+  setPill("live-status", liveStatus, waiting ? "waiting" : (degraded ? "degraded" : (reconnecting ? "waiting" : "ready")));
+  const banner = document.getElementById("live-state-banner");
+  banner.className = "state-banner" + (waiting ? " waiting" : (degraded ? " degraded" : (reconnecting ? " reconnecting" : "")));
+  banner.textContent = waiting ? "WAITING_RECONCILIATION：未知副作用必须先完成只读对账" : (degraded ? "DEGRADED：仅展示确定性事实摘要，经营恢复仍需运营决定" : (reconnecting ? "RECONNECTING：实时事实恢复后才能提交决定" : (notConnected ? "实时连接建立后才能提交决定" : "事实已汇聚，运营决定不会被 Agent 自动执行")));
+  const incidents = workspace.incidents || [];
+  const incident = incidents[incidents.length - 1];
+  document.getElementById("live-incident-id").textContent = incident && incident.incident_id || "--";
+  const evidence = snapshot.evidence_refs || [];
+  document.getElementById("evidence-list").innerHTML = evidence.length ? evidence.map((ref) => '<div class="fact"><span class="fact-label">' + escapeHtml(ref.kind) + '</span><span class="fact-value">' + escapeHtml(ref.evidence_id) + '<br><span class="muted">digest ' + escapeHtml((ref.digest || "").slice(0, 12)) + '...</span></span></div>').join("") : '<div class="empty">暂无 EvidenceRef</div>';
+  const risks = (snapshot.options || []).flatMap((option) => option.risk_flags || []).filter((value, index, list) => list.indexOf(value) === index);
+  document.getElementById("risk-list").innerHTML = risks.length ? risks.map((risk) => '<div class="risk ' + (risk.includes("CONFLICT") ? "critical" : "") + '"><span class="tag warn">风险</span><span>' + escapeHtml(risk) + '</span></div>').join("") : '<div class="empty">暂无风险标记</div>';
+  renderDecisionOptions(snapshot.options || []);
+  const option = (snapshot.options || []).find((item) => item.option_id === state.selectedOptionId) || (snapshot.options || [])[0];
+  document.getElementById("presenter-copy").textContent = option && option.host_prompt ? option.host_prompt : "等待运营确认后的精简提示";
+  setDecisionControls();
 }
 
-async function refreshCard(productId) {
-  const el = document.getElementById("card-content");
-  el.innerHTML = '<div class="loading">加载手卡中</div>';
-  try {
-    const res = await fetch(API + "/api/card/" + (productId || "p001"));
-    const card = await res.json();
-    if (!res.ok || card.error) throw new Error(card.error || "请求失败");
-    el.innerHTML =
-      section("商品", `${escapeHtml(card.title)} (${escapeHtml(card.product_id)})`) +
-      section("开场话术", escapeHtml(card.opening_script || "--")) +
-      section("讲解要点", formatList(card.talking_points)) +
-      section("价格提示", escapeHtml(card.price_hint || "--")) +
-      section("风险提示", formatList(card.risk_tips));
-  } catch (e) {
-    el.innerHTML = '<div class="error">手卡加载失败：' + escapeHtml(e.message) + '</div>';
-  }
-}
-
-function section(label, value) {
-  return '<div class="section"><div class="label">' + label + '</div><div class="value">' + value + '</div></div>';
-}
-
-function formatList(items) {
-  if (!items || items.length === 0) return "--";
-  return Array.isArray(items) ? items.map(item => "· " + escapeHtml(item)).join("<br>") : escapeHtml(items);
-}
-
-async function startHarness() {
-  const traceId = "trace-web-" + Date.now();
-  document.getElementById("harness-content").innerHTML = '<div class="loading">启动 Harness Agent 中</div>';
-  try {
-    const res = await fetch(API + "/api/agent/harness/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room_id: ROOM_ID, trace_id: traceId, anchor_id: "anchor-demo" })
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "启动失败");
-    renderHarness(data);
-  } catch (e) {
-    document.getElementById("harness-content").innerHTML = '<div class="error">启动失败：' + escapeHtml(e.message) + '</div>';
-  }
-}
-
-async function loadHarnessStatus() {
-  if (!currentTraceId) return;
-  try {
-    const res = await fetch(API + "/api/agent/harness/status?trace_id=" + encodeURIComponent(currentTraceId));
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "读取失败");
-    renderHarness(data);
-  } catch (e) {
-    document.getElementById("harness-content").innerHTML = '<div class="error">状态读取失败：' + escapeHtml(e.message) + '</div>';
-  }
-}
-
-async function submitApproval(decision) {
-  if (!currentTraceId || !window.latestHarnessPayload) return;
-  const payload = window.latestHarnessPayload.interrupt_payload || {};
-  const reason = decision === "approved" ? "副屏人工批准执行" : "副屏人工拒绝执行";
-  try {
-    const res = await fetch(API + "/api/agent/harness/approval", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        trace_id: currentTraceId,
-        room_id: ROOM_ID,
-        tool_name: payload.tool_name,
-        decision,
-        operator_id: "dashboard-operator",
-        reason
-      })
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || "审批失败");
-    renderHarness(data);
-  } catch (e) {
-    document.getElementById("harness-content").innerHTML += '<div class="error">审批失败：' + escapeHtml(e.message) + '</div>';
-  }
-}
-
-function renderHarness(data) {
-  if (!data) return;
-  window.latestHarnessPayload = data;
-  currentTraceId = data.trace_id || currentTraceId;
-  document.getElementById("trace-label").textContent = currentTraceId || "未启动";
-  const statusClass = data.pending_approval ? "pending" : (data.status === "error" ? "err" : "done");
-  const nodes = (data.completed_nodes || []).map(n => '<span class="node">' + escapeHtml(n) + '</span>').join("");
-  const payload = data.interrupt_payload || {};
-  let approval = "";
-  if (data.pending_approval) {
-    approval =
-      '<div class="approval-box">' +
-        '<div class="label">等待人工审批</div>' +
-        '<div class="value">工具：' + escapeHtml(payload.tool_name || "--") + ' / 风险：' + escapeHtml(payload.risk_level || "--") + '</div>' +
-        '<pre>' + escapeHtml(JSON.stringify(payload.tool_arguments || {}, null, 2)) + '</pre>' +
-        '<div class="muted">' + escapeHtml(payload.context_summary || "") + '</div>' +
-        '<div class="approval-actions">' +
-          '<button class="btn primary" onclick="submitApproval(\'approved\')">批准</button>' +
-          '<button class="btn danger" onclick="submitApproval(\'rejected\')">拒绝</button>' +
-        '</div>' +
-      '</div>';
-  }
-  const suggestion = data.final_suggestion ? '<div class="suggestion">' + escapeHtml(data.final_suggestion) + '</div>' : "";
-  document.getElementById("harness-content").innerHTML =
-    '<div class="status-row">' +
-      '<span class="pill ' + statusClass + '">' + escapeHtml(data.status || "--") + '</span>' +
-      '<span class="pill">agent: ' + escapeHtml(data.agent_status || "--") + '</span>' +
-      '<span class="pill">audit: ' + escapeHtml(data.audit_status || "--") + '</span>' +
-    '</div>' +
-    section("Trace", escapeHtml(data.trace_id || "--")) +
-    approval +
-    section("LangGraph 节点路径", '<div class="timeline">' + nodes + '</div>') +
-    suggestion +
-    section("工具执行", renderMiniList(data.executed_tools, "tool_name")) +
-    section("观察结果", renderMiniList(data.observations, "summary"));
-}
-
-function renderMiniList(items, field) {
-  if (!items || items.length === 0) return '<span class="muted">暂无</span>';
-  return items.map(item => '<div class="list-item">' + escapeHtml(item[field] || item.tool_name || JSON.stringify(item)) + '</div>').join("");
-}
-
-function renderDanmaku(data) {
-  const groups = data.question_groups || [];
-  document.getElementById("danmaku-time").textContent = (data.danmaku_count || 0) + " 条";
-  if (groups.length === 0) {
-    document.getElementById("danmaku-content").innerHTML = '<div class="empty">暂无弹幕聚合</div>';
-    return;
-  }
-  const maxCount = Math.max(...groups.map(g => g.count || 1), 1);
-  document.getElementById("danmaku-content").innerHTML = groups.map(g => {
-    const pct = Math.round(((g.count || 0) / maxCount) * 100);
-    return '<div class="list-item"><b>' + escapeHtml(g.question || g.category || "") + '</b><span class="muted"> · ' + (g.count || 0) + ' 次</span><div class="heat" style="width:' + pct + '%"></div></div>';
+function renderDecisionOptions(options) {
+  const root = document.getElementById("decision-options");
+  if (!options.length) { root.innerHTML = '<div class="empty">暂无可执行方案</div>'; return; }
+  const available = options.slice(0, 3);
+  const selected = available.find((option) => option.option_id === state.selectedOptionId) || available[0];
+  state.selectedOptionId = selected.option_id;
+  root.innerHTML = available.map((option) => {
+    const isSelected = option.option_id === state.selectedOptionId;
+    return '<label class="decision-option ' + (isSelected ? "selected" : "") + '"><input type="radio" name="decision-option" value="' + escapeHtml(option.option_id) + '" ' + (isSelected ? "checked" : "") + ' onchange="selectOption(this)"><span><span class="option-title"><b>' + escapeHtml(option.option_id) + '</b><span class="status-pill">' + escapeHtml(option.timing || "--") + '</span></span><span class="muted">' + escapeHtml(option.product_strategy || "--") + ' / ' + escapeHtml(option.host_prompt || "") + '</span><span class="tag-row">' + (option.risk_flags || []).map((risk) => '<span class="tag warn">' + escapeHtml(risk) + '</span>').join("") + '</span></span></label>';
   }).join("");
 }
-
-function renderAlerts(data) {
-  const alerts = data.alerts || [];
-  document.getElementById("alert-time").textContent = alerts.length + " 条";
-  document.getElementById("alert-content").innerHTML = alerts.length
-    ? alerts.map(a => '<div class="list-item"><b>' + escapeHtml(a.type) + '</b><br>' + escapeHtml(a.message || "") + '</div>').join("")
-    : '<div class="empty">暂无告警</div>';
+function selectOption(input) {
+  state.selectedOptionId = input.value;
+  document.querySelectorAll(".decision-option").forEach((item) => item.classList.remove("selected"));
+  input.closest(".decision-option").classList.add("selected");
+  renderLive();
 }
 
-function renderReview(data) {
-  const s = data.structured || {};
-  document.getElementById("review-time").textContent = (data.decision_count || 0) + " 条决策";
-  document.getElementById("review-content").innerHTML =
-    section("总决策", escapeHtml(s.total_decisions ?? 0)) +
-    section("采纳率 / 准确率", escapeHtml((s.adoption_rate || "0") + " / " + (s.accuracy_rate || "0"))) +
-    section("LLM 复盘", escapeHtml(data.summary || "暂无复盘"));
+function renderReview() {
+  const workspace = state.workspace || {};
+  document.getElementById("review-facts").innerHTML = (workspace.incidents || []).map((item) => '<div class="timeline-item"><span class="tag">Incident</span><span>' + escapeHtml(item.incident_id) + '<br><span class="muted">' + escapeHtml(item.created_at || "") + '</span></span></div>').join("") || '<div class="empty">暂无回放事实</div>';
+  const commands = workspace.execution_commands || [];
+  document.getElementById("review-decisions").innerHTML = (workspace.operator_decisions || []).map((item) => {
+    const command = commands.find((candidate) => candidate.snapshot && candidate.snapshot.decision_id === item.decision_id);
+    const result = command && command.snapshot && (command.snapshot.status || command.snapshot.result || command.command_kind) || "未生成执行命令";
+    return '<div class="timeline-item"><span class="tag">' + escapeHtml(item.decision_kind) + '</span><span>' + escapeHtml(item.operator_id) + '<br><span class="muted">' + escapeHtml(item.reason_code) + ' / 结果：' + escapeHtml(result) + '</span></span></div>';
+  }).join("") || '<div class="empty">暂无运营决定</div>';
+  const candidates = workspace.memory_candidates || [];
+  document.getElementById("review-memory").innerHTML = candidates.length ? candidates.map((candidate) => '<div class="timeline-item"><span class="tag">' + escapeHtml(candidate.status || "STAGED") + '</span><span>' + escapeHtml(candidate.candidate_id || "--") + '<br><span class="muted">' + escapeHtml(candidate.reason_code || candidate.preferred_category || "待规则与人工确认") + '</span></span></div>').join("") : '<div class="empty">记忆候选必须经过规则资格与人工确认</div>';
+  setPill("review-status", (workspace.operator_decisions || []).length + " 条决定", "");
 }
 
-async function initFallback() {
-  refreshCard("p001");
-  try { const r = await fetch(API + "/api/danmaku/summary?room_id=" + ROOM_ID); if (r.ok) renderDanmaku(await r.json()); } catch {}
-  try { const r = await fetch(API + "/api/alert/" + ROOM_ID); if (r.ok) renderAlerts(await r.json()); } catch {}
-  try { const r = await fetch(API + "/api/review/llm/" + ROOM_ID); if (r.ok) renderReview(await r.json()); } catch {}
+async function submitDecision(kind) {
+  const blockedReason = decisionBlockReason(kind);
+  if (blockedReason) { showToast(blockedReason); return; }
+  const proposal = currentProposal();
+  if (!proposal) { showToast("暂无 Proposal"); return; }
+  const selected = document.querySelector("input[name=decision-option]:checked");
+  const draft = {
+    decision_id: "decision-" + Date.now(), proposal_id: proposal.proposal_id,
+    expected_proposal_version: proposal.proposal_version, operator_id: operatorId(),
+    decision_kind: kind, reason_code: document.getElementById("reason-code").value || "OPERATOR_CONFIRMATION",
+    idempotency_key: "decision-http-" + Date.now(), option_id: kind === "REJECT" ? null : (selected && selected.value),
+    modification: kind === "MODIFY" ? {
+      backup_product_id: document.getElementById("backup-product").value || null,
+      host_prompt: document.getElementById("host-prompt").value || null,
+      priority: Number(document.getElementById("priority").value || 50),
+      timing: document.getElementById("timing").value
+    } : null
+  };
+  const body = { draft, execution_context: { plan_run_id: (state.workspace || {}).root_plan_run_id, expected_plan_version: 1, node_id: "waiting-approval", expected_node_status: "WAITING_APPROVAL" } };
+  try {
+    const response = await fetch(API + WORKSPACE_PATH + encodeURIComponent(sessionId()) + DECISION_SUFFIX, { method: "POST", headers: { ...authHeaders(), "X-Idempotency-Key": draft.idempotency_key }, body: JSON.stringify(body) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "决定未提交");
+    document.getElementById("execution-status").textContent = payload.status || "已记录";
+    showToast("运营决定已记录");
+    await loadWorkspace();
+  } catch (error) {
+    document.getElementById("execution-status").textContent = "DEGRADED：" + error.message;
+    showToast(error.message);
+  }
 }
 
-setInterval(() => {
-  document.getElementById("clock").textContent = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-}, 1000);
-checkHealth();
-setInterval(checkHealth, 15000);
-connectWebSocket();
-initFallback();
+async function appendCurrentProposal() {
+  const proposal = currentProposal();
+  if (!proposal) { showToast("暂无 Proposal"); return; }
+  if (!hasOperatorToken()) { showToast("需要操作员 Token 才能同步方案"); return; }
+  const workspace = state.workspace;
+  if (!workspace || state.dataState !== "READY") { showToast("Workspace 尚未就绪"); return; }
+  if (state.connectionState !== "CONNECTED") { showToast("实时连接尚未建立"); return; }
+  if (reconciliationRequired()) { showToast("WAITING_RECONCILIATION：未知副作用必须先完成只读对账"); return; }
+  const body = { proposal, expected_workspace_version: workspace.version, request_idempotency_key: proposal.idempotency_key };
+  try {
+    const response = await fetch(API + WORKSPACE_PATH + encodeURIComponent(sessionId()) + PROPOSAL_SUFFIX, { method: "POST", headers: { ...authHeaders(), "X-Idempotency-Key": proposal.idempotency_key }, body: JSON.stringify(body) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "方案同步失败");
+    showToast("方案事实已同步");
+    await loadWorkspace();
+  } catch (error) { showToast(error.message); }
+}
+
+function closeDecisionSupportSocket() {
+  const socket = state.socket;
+  state.socket = null;
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  if (socket) { socket.intentionalClose = true; socket.close(); }
+}
+
+function connectDecisionSupportSocket() {
+  const targetSession = sessionId();
+  if (state.socket && state.socket.readyState === WebSocket.OPEN && state.socketSessionId === targetSession) return;
+  if (state.socket) closeDecisionSupportSocket();
+  state.socketSessionId = targetSession;
+  state.connectionState = "CONNECTING";
+  setConnection(false, "连接中");
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const socket = new WebSocket(protocol + "//" + location.host + "/ws/decision-support?live_session_id=" + encodeURIComponent(targetSession));
+  state.socket = socket;
+  socket.onopen = () => { if (socket !== state.socket) return; setConnection(true, "实时连接"); if (state.reconnectTimer) clearTimeout(state.reconnectTimer); state.reconnectTimer = null; renderLive(); };
+  socket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      if (socket !== state.socket || message.type !== DECISION_EVENT || !message.payload || message.payload.live_session_id !== targetSession) return;
+      if (message.payload.sequence <= state.lastSequence) return;
+      state.lastSequence = message.payload.sequence;
+      if (message.payload.data) { state.dataState = "READY"; state.workspace = message.payload.data.workspace || state.workspace; renderWorkspace(state.workspace); }
+    } catch (error) { console.error("decision support websocket parse error", error); }
+  };
+  socket.onclose = () => { if (socket !== state.socket || socket.intentionalClose) return; setConnection(false, "RECONNECTING"); state.socket = null; renderLive(); if (!state.reconnectTimer) state.reconnectTimer = setTimeout(connectDecisionSupportSocket, 3000); };
+  socket.onerror = () => { if (socket === state.socket) { setConnection(false, "RECONNECTING"); renderLive(); } };
+}
+
+document.getElementById("live-session-id").addEventListener("change", () => { state.requestSequence += 1; state.lastSequence = 0; state.selectedOptionId = null; state.dataState = "LOADING"; state.workspace = null; renderLive(); closeDecisionSupportSocket(); connectDecisionSupportSocket(); loadWorkspace(); });
+document.getElementById("token-input").addEventListener("input", setDecisionControls);
+switchView("PREPARE");
+loadWorkspace();
+connectDecisionSupportSocket();
 </script>
 </body>
 </html>

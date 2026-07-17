@@ -655,6 +655,10 @@
 - 最终验证：Task 7 专项 `7 passed`，旧 API/WebSocket/Harness `14 passed`，完整 unit `1282 passed, 4 warnings`，完整 integration `149 passed, 3 deselected, 5 warnings`；Manifest、compileall、迁移 dry-run、diff 和编码检查通过，待独立提交推送。
 - Task 7 已以 `eb28885 feat: expose decision support workspace api` 独立提交并推送，连续执行游标切换到 Phase 14 Task 8 RED。
 
-# 2026-07-18 Phase 14 Task 8
+# 2026-07-18 Phase 14 Task 8 验证完成，待提交
 
-- Task 8 尚未修改前端；先建立三视图 DOM/状态/权限契约，复用 Task 7 Workspace/Proposal/Decision API，不新增客户端执行旁路。
+- Task 8 完成 `PREPARE | LIVE | REVIEW` 三视图工作台，固定单一 `live_session_id`，运营区拥有结构化决定入口，主播提示区只读；UI 不直接访问 Store、PlanEngine、Skill 或 Adapter。
+- 首轮 RED 暴露稳定 session ID 和资源后缀契约缺口；随后补齐 `live-session-id`、`/proposals`、`/decisions` 和 WebSocket 事件契约。
+- 独立前端审查发现并修复对账/降级/重连仍可写、旧 HTTP/WS session 竞态、方案选择重置、Token 缺失、Proposal 仅静态声明、Review 候选/执行结果缺失和移动状态换行风险；修复不改变后端公开接口。
+- 修复后 Task 8 专项 `6 passed`；相关 API/Store/WebSocket 聚合 `60 passed, 1 warning`；完整 unit `1288 passed, 4 warnings`；完整 integration `149 passed, 3 deselected, 5 warnings`；JavaScript 语法、compileall、真实模型费用门禁通过，新增真实模型费用为 0。
+- 当前待完成：严格 UTF-8/LF/尾随空白、`git diff --check`、最终复审收口、独立提交 `feat: build operator decision workspace` 并推送；推送后切换 Task 9 RED。
