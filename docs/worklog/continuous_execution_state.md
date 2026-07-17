@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 2：Workspace 与不可变事实 Store（`42991ec` 已推送） |
-| 当前任务 | Task 3：确定性证据聚合与只读取证 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | Task 3 聚合 `79 passed`；完整 unit `1244 passed`、integration `145 passed, 3 deselected`；双重复审无阻断 |
+| 最近完成任务 | Phase 14 Task 3：确定性 EvidenceBundle 与只读 Resolver（`d3a53a8` 已推送） |
+| 当前任务 | Task 4：播中 Copilot 与结构化方案 |
+| 当前任务状态 | `PENDING` |
+| 当前子步骤 | Task 3 已提交并推送；Task 4 尚未开始，等待 RED |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 3
-状态: VERIFY
-目标: 聚合可信事件、商品/计划、弹幕与节奏证据，形成深冻结 EvidenceBundle 和白名单只读 Resolver
-禁止事项: 不实现 Copilot/Proposal；不开放任意 Store 查询或写 Skill；不运行真实模型；不修改用户脏文件
-当前 HEAD: 42991ec
-本 Task 文件: decision_support/evidence.py、models/store、Task 3 单元/集成测试、Phase 13 manifests、四份 worklog
+Phase / Task: Phase 14 / Task 4
+状态: PENDING
+目标: 基于受治理 EvidenceBundle 生成 1-3 个结构化 LiveDecisionProposal，严格复用受限 Specialist Runtime
+禁止事项: 不实现 OperatorDecision/经营写入；不允许写 Skill、Agent 互调、自由工具探索或同次 Legacy fallback；不运行真实模型；不修改用户脏文件
+当前 HEAD: d3a53a8
+本 Task 文件: decision_support/live_ops_copilot.py、proposal.py、Task 4 单元测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 3 聚合 `79 passed`；相关 Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`、integration `145 passed, 3 deselected, 5 warnings`；compileall 与两次 Manifest 生成哈希一致
+最近命令与结果: Task 3 聚合 `79 passed`；相关 Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`、integration `145 passed, 3 deselected, 5 warnings`；compileall 与两次 Manifest 生成哈希一致；`d3a53a8` 已推送
 错误与尝试次数: 首轮缺模块 RED；审查后修复墙钟进入持久化、组件 envelope 未摘要、父事实可伪造、外层快照重载、自由摘要注入、receipt 伪造/重绑定和调用面过宽；一次全量 integration 的 Git 子进程异常单独重跑后通过
 设计偏差与决策编号: 按 D-114、D-117 实施；receipt 进程信任边界按 D-121 明确，未扩大为插件或跨进程授权
-下一条精确操作: 执行严格 UTF-8/LF/尾随空白、git diff --check 与目标暂存边界检查；通过后提交并推送 Task 3
+下一条精确操作: 读取 Task 4 设计和现有 Specialist Runtime 模式，先编写 Copilot/Proposal 的 RED 测试
 模型费用累计: 0.042344 元
 ```
 

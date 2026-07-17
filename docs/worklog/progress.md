@@ -617,3 +617,4 @@
 - 当前验证：Task 3 聚合 `71 passed`；相关回归 unit `176 passed`、integration `17 passed`；完整 unit `1238 passed, 4 warnings`、integration `143 passed, 3 deselected, 5 warnings`。真实模型新增费用为 0。
 - 最终整改：receipt 由受控 Assembler 闭包登记并绑定原始 Bundle 身份；新增 `EvidenceBundleAssemblyService`，调用面只接受 `EvidenceAssemblyRequest`；D-121 明确无插件/热加载下的进程信任边界。
 - 最终验证：Task 3 聚合 `79 passed`；Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`；完整 integration `145 passed, 3 deselected, 5 warnings`；`compileall`、`git diff --check` 前置检查和 Manifest 两次生成哈希均通过；真实模型新增费用 0。
+- Task 3 已以 `d3a53a8 feat: assemble governed live evidence` 独立提交并推送至 `origin/main`；用户已有脏文件未纳入。连续游标切换到 Phase 14 Task 4，尚未开始编码。
