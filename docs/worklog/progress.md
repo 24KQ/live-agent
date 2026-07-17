@@ -705,3 +705,15 @@
 - Task 11 已完成正式预检、可信发送门、Scripted rehearsal、未知 usage 保守结算和默认跳过 external smoke；真实模型未调用。
 - 验证：专项 `7 passed`，Task 10/11/Manifest `27 passed`，完整 unit `1317 passed, 4 warnings`，完整 integration `150 passed, 3 deselected, 5 warnings`，external `1 skipped`。
 - 当前只剩编码/差异确认、暂存、提交和推送，之后进入 Task 12 Demo/Acceptance。
+
+# 2026-07-18 Phase 14 Task 11 已提交，Task 12 RED
+
+- Task 11 已以 `6a79359 feat: evaluate human decision support formally` 提交并推送，`origin/main=6a79359`。
+- 连续游标切换到 Task 12 RED：固定 PREPARE/LIVE/REVIEW 三视图同一 session 的无外部依赖 Demo、回放证据和 Acceptance；真实模型仍不调用。
+
+# 2026-07-18 Phase 14 Task 12 Demo 与 Acceptance
+
+- 新增无外部依赖 `scripts/run_phase14_human_support_demo.py` 和 Demo 契约测试，复用 Workspace、售罄保护 Flow、OperatorDecision Compiler、PromotionPolicy 与 Task 11 Scripted rehearsal。
+- Demo 输出固定三场景同会话回放、自动保护 `APPLIED`、结构化人工 `MODIFY` 决定、未提交经营命令、记忆 `APPLIED`/幂等重放、生产默认 `DETERMINISTIC_ONLY` 和真实模型 `INCONCLUSIVE`。
+- 验证：Task 12 专项 `3 passed`；Task 10/11/Manifest 回归 `19 passed`；CLI `exit 0`；src 与 Task 12 定向编译、`git diff --check` 通过；全量 unit `1320 passed, 4 warnings`，integration `150 passed, 3 deselected, 5 warnings`，external smoke `1 skipped`。
+- 生成 Phase 14 Acceptance 报告；阶段状态改为 `AWAITING_PHASE_15_GATE`，不实施 Phase 15。

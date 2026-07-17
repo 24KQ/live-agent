@@ -535,3 +535,16 @@
 - Scripted rehearsal 重用 Task 10 固定数据，零模型调用、零费用并明确 `REAL_MODEL_SMOKE_NOT_RUN`；external smoke 测试默认跳过，不自动联网。
 - 未知 usage 按单例 reservation 上限结算；fallback 或严重安全违规为 `FAIL`；预检结果含内部可信标记，伪造 `model_construct(can_send=True)` 无法打开发送门。
 - Task 11 专项 `7 passed`，Task 10/11/Manifest 回归 `27 passed`，完整 unit `1317 passed, 4 warnings`，完整 integration `150 passed, 3 deselected, 5 warnings`，external smoke `1 skipped`；真实模型费用仍为 `0.042344` 元。
+
+## 2026-07-18 Phase 14 Task 11 提交与 Task 12 RED
+
+- Task 11 已以 `6a79359 feat: evaluate human decision support formally` 独立提交并推送，远端与本地 HEAD 一致；用户脏文件未纳入。
+- Task 12 开始前真实模型累计费用保持 `0.042344` 元；Demo 必须使用确定性内存/已有受控门面，不连接淘宝、LLM、Kafka 或生产数据库。
+
+## 2026-07-18 Phase 14 Task 12 Demo 与 Acceptance
+
+- Demo 固定回放 `PREPARE -> LIVE -> REVIEW`，三视图共享 `live-session-p001-sold-out-v1`；可信售罄保护底层事实为 `APPLIED`，第二次调用复用 Incident 且不重复保护。
+- 经营恢复只由真实 Compiler 生成结构化 `MODIFY` 决定和候选 PlanCommand；Demo 不提交命令，证明没有人工决定就没有经营恢复写入。
+- 两条独立 DecisionTrace 经过资格规则、人工确认和同 command 幂等重放，active memory 只出现一条结构化记忆。
+- Task 12 专项 `3 passed`，Demo CLI 返回 0，Scripted rehearsal gate 为真；真实模型未重新运行，Acceptance 严格记为 `INCONCLUSIVE`，费用仍为 `0.042344` 元。
+- Phase 14 完成后实时状态固定为 `AWAITING_PHASE_15_GATE`；Phase 15 不自动开始。

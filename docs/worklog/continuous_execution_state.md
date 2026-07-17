@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`PHASE_14_IN_PROGRESS`
+文档状态：`AWAITING_PHASE_15_GATE`
 
 最后更新：2026-07-18
 
@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 10：冻结数据集与离线人机协同评估（`3dc7f40` 已推送） |
-| 当前任务 | Task 11：真实模型 smoke 预检与严格结论 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | Task 11 RED/GREEN、预检信任门、Scripted rehearsal、未知 usage 结算和 external skip 已完成；全量验证通过，准备提交 |
+| 最近完成任务 | Phase 14 Task 12：三场景 Demo、Acceptance 与 Phase 15 Gate 留痕 |
+| 当前任务 | Phase 15 Just-in-Time Gate |
+| 当前任务状态 | `AWAITING_PHASE_15_GATE` |
+| 当前子步骤 | Task 12 Demo、报告、专项/全量验证已完成；真实模型证据不足，Phase 14 结论为 `INCONCLUSIVE` |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 11
+Phase / Task: Phase 14 / Task 12
 状态: VERIFY
-目标: 在正式预检通过前阻止真实模型发送，并形成 ScriptedModel 演练与严格结论事实
+目标: 生成无外部依赖的播前/播中/播后 Demo、Acceptance 和 Phase 15 Gate 留痕
 禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
-当前 HEAD: 3f34bbb
-本 Task 文件: src/decision_support/formal_evaluation.py、tests/unit/test_phase14_formal_evaluation.py、tests/external/test_phase14_real_smoke.py、Phase 13 Manifest 重建
+当前 HEAD: 6a79359
+本 Task 文件: scripts/run_phase14_human_support_demo.py、Phase 14 Acceptance 报告及 Demo 测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 11 专项 `7 passed`；Task 10/11/Manifest 回归 `27 passed`；完整 unit `1317 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；external smoke `1 skipped`；compileall/diff 通过
-错误与尝试次数: RED 缺少 formal_evaluation；GREEN 修复 usage 价格期望和伪造 PreflightResult 发送门；未运行真实模型
-设计偏差与决策编号: Task 11 沿用 D-113、D-119、D-120；Scripted rehearsal 明确为 `INCONCLUSIVE`，external smoke 默认 skip，只有内部预检工厂产物可打开真实发送门
-下一条精确操作: 只暂存 Task 11 代码、测试、Phase 13 Manifest 和 worklog，执行 staged diff 检查，提交 `feat: evaluate human decision support formally` 并推送
+最近命令与结果: Task 12 专项 `3 passed`；Task 10/11/Manifest 回归 `19 passed`；Demo CLI `exit 0`；src 与 Task 12 定向编译、`git diff --check` 通过；完整 unit `1320 passed, 4 warnings`；integration `150 passed, 3 deselected, 5 warnings`；external smoke `1 skipped`
+错误与尝试次数: 首轮 CLI 发现直接执行时仓库根路径未加入导入路径，已补入口引导并串行复验；未运行真实模型
+设计偏差与决策编号: Task 12 沿用 D-113、D-119、D-120；Demo 显式使用 `DECISION_SUPPORT`，生产默认保持 `DETERMINISTIC_ONLY`；正式结论因真实模型未运行保持 `INCONCLUSIVE`
+下一条精确操作: 暂存 Task 12 目标文件，复核 staged diff/编码边界，提交 `docs: accept phase 14 human decision support` 并推送；随后停止在 Phase 15 Gate
 模型费用累计: 0.042344 元
 ```
 
