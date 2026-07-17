@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS specialist_model_budget_ledgers (
 
 CREATE TABLE IF NOT EXISTS specialist_model_budget_candidates (
     scope_id TEXT NOT NULL REFERENCES specialist_model_budget_ledgers(scope_id) ON DELETE RESTRICT,
-    candidate_id TEXT NOT NULL CHECK (candidate_id IN ('LIVE_OPS', 'PLANNER', 'REVIEW_MEMORY')),
+    candidate_id TEXT NOT NULL CHECK (candidate_id IN ('LIVE_OPS', 'PLANNER', 'REVIEW_MEMORY', 'PHASE14_COPILOT')),
     initial_limit_cny NUMERIC(12, 6) NOT NULL CHECK (initial_limit_cny >= 0 AND initial_limit_cny <> 'NaN'::numeric),
     state TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (state IN ('ACTIVE', 'RELEASED')),
     version BIGINT NOT NULL DEFAULT 1 CHECK (version >= 1),
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS specialist_model_budget_reservations (
     reservation_id UUID PRIMARY KEY,
     scope_id TEXT NOT NULL REFERENCES specialist_model_budget_ledgers(scope_id) ON DELETE RESTRICT,
     request_id TEXT NOT NULL,
-    candidate_id TEXT NOT NULL CHECK (candidate_id IN ('LIVE_OPS', 'PLANNER', 'REVIEW_MEMORY')),
+    candidate_id TEXT NOT NULL CHECK (candidate_id IN ('LIVE_OPS', 'PLANNER', 'REVIEW_MEMORY', 'PHASE14_COPILOT')),
     reserved_amount_cny NUMERIC(12, 6) NOT NULL CHECK (reserved_amount_cny > 0 AND reserved_amount_cny <> 'NaN'::numeric),
     settled_amount_cny NUMERIC(12, 6),
     usage_known BOOLEAN,
@@ -133,6 +133,15 @@ BEGIN
             CHECK (settled_amount_cny <> 'NaN'::numeric);
     END IF;
 END $$;
+
+-- D-122：升级 Phase 13 已创建但仍使用旧总账本的 scope；只匹配冻结旧值，
+-- 不覆盖已经被运营或验收显式调整过的其他预算策略。
+UPDATE specialist_model_budget_ledgers
+SET total_limit_cny = 4.00,
+    phase14_reserved_cny = 1.00
+WHERE total_limit_cny = 3.00
+  AND phase13_limit_cny = 2.40
+  AND phase14_reserved_cny = 0.60;
 
 CREATE INDEX IF NOT EXISTS specialist_model_budget_reservations_scope_state_idx
     ON specialist_model_budget_reservations (scope_id, state, candidate_id);
@@ -425,3 +434,21 @@ DROP TRIGGER IF EXISTS specialist_retention_decision_immutable ON specialist_ret
 CREATE TRIGGER specialist_retention_decision_immutable
 BEFORE UPDATE ON specialist_retention_decisions
 FOR EACH ROW EXECUTE FUNCTION reject_specialist_immutable_fact_update();
+
+-- D-122：保留 Phase 13 三候选的历史身份，同时为 Phase 14 Copilot 增加独立预算身份。
+-- CREATE TABLE IF NOT EXISTS 不会升级旧 CHECK，因此显式重建两个候选约束；Phase 15
+-- 的 0.60 元只保留在总账本中，当前不存在对应候选，不能被请求借用。
+DO $$
+BEGIN
+    ALTER TABLE specialist_model_budget_candidates
+        DROP CONSTRAINT IF EXISTS specialist_model_budget_candidates_candidate_id_check;
+    ALTER TABLE specialist_model_budget_candidates
+        ADD CONSTRAINT specialist_model_budget_candidates_candidate_id_check
+        CHECK (candidate_id IN ('LIVE_OPS', 'PLANNER', 'REVIEW_MEMORY', 'PHASE14_COPILOT'));
+
+    ALTER TABLE specialist_model_budget_reservations
+        DROP CONSTRAINT IF EXISTS specialist_model_budget_reservations_candidate_id_check;
+    ALTER TABLE specialist_model_budget_reservations
+        ADD CONSTRAINT specialist_model_budget_reservations_candidate_id_check
+        CHECK (candidate_id IN ('LIVE_OPS', 'PLANNER', 'REVIEW_MEMORY', 'PHASE14_COPILOT'));
+END $$;

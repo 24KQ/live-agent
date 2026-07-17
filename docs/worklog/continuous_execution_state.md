@@ -11,17 +11,17 @@
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
 | 最近完成任务 | Phase 14 Task 3：确定性 EvidenceBundle 与只读 Resolver（`d3a53a8` 已推送） |
 | 当前任务 | Task 4：播中 Copilot 与结构化方案 |
-| 当前任务状态 | `PENDING` |
-| 当前子步骤 | Task 3 已提交并推送；Task 4 尚未开始，等待 RED |
+| 当前任务状态 | `VERIFY` |
+| 当前子步骤 | GREEN、预算跨后端隔离和安全审查整改已完成；全量 unit/integration 与静态门禁已通过，待提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
-| 真实模型累计费用 | 0.042344 元 |
+| 真实模型累计费用 | 0.042344 元；本 Task 新增 0 元 |
 
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
-- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-121 和 Phase 15 Discussion Baseline。
+- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-122 和 Phase 15 Discussion Baseline。
 - 当前授权：Phase 14 Task 1-12 按技术门禁连续实施；Acceptance 后停止在 Phase 15 Gate。
 - 仍禁止：Task 11 全部预检通过前运行真实模型、修改用户脏文件、自动进入 Phase 15。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
@@ -31,22 +31,40 @@
 
 ```text
 Phase / Task: Phase 14 / Task 4
-状态: PENDING
+状态: VERIFY
 目标: 基于受治理 EvidenceBundle 生成 1-3 个结构化 LiveDecisionProposal，严格复用受限 Specialist Runtime
 禁止事项: 不实现 OperatorDecision/经营写入；不允许写 Skill、Agent 互调、自由工具探索或同次 Legacy fallback；不运行真实模型；不修改用户脏文件
-当前 HEAD: d3a53a8
-本 Task 文件: decision_support/live_ops_copilot.py、proposal.py、Task 4 单元测试及必要工作日志
+当前 HEAD: 94c8d2b
+本 Task 文件: decision_support/live_ops_copilot.py、proposal.py、specialist_runtime/budget.py、runner.py、Phase 13 预算迁移/Manifest、Task 4 测试及必要工作日志
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 3 聚合 `79 passed`；相关 Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`、integration `145 passed, 3 deselected, 5 warnings`；compileall 与两次 Manifest 生成哈希一致；`d3a53a8` 已推送
-错误与尝试次数: 首轮缺模块 RED；审查后修复墙钟进入持久化、组件 envelope 未摘要、父事实可伪造、外层快照重载、自由摘要注入、receipt 伪造/重绑定和调用面过宽；一次全量 integration 的 Git 子进程异常单独重跑后通过
-设计偏差与决策编号: 按 D-114、D-117 实施；receipt 进程信任边界按 D-121 明确，未扩大为插件或跨进程授权
-下一条精确操作: 读取 Task 4 设计和现有 Specialist Runtime 模式，先编写 Copilot/Proposal 的 RED 测试
+最近命令与结果: Task 4 专项/预算聚合 `28 passed`；完整 unit `1260 passed, 4 warnings`；完整 integration `146 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 均通过；Phase 13 v2/v3 Manifest 由正式生成器重建并绑定新增源码
+错误与尝试次数: RED 新增 9 个失败，分别覆盖 Profile digest、完整证据闭合、不可提案/过期、备品和风险码；修复后专项 `15 passed`；全量首次因 Phase 13 Manifest 源码闭包滞后出现 2 个失败，重跑正式生成器后 unit 全绿；预算审查发现 PostgreSQL 曾把 Phase 14 暴露额计入 Phase 13，已补隔离与 SETTLED 回归
+设计偏差与决策编号: 按 D-113、D-116、D-117、D-119、D-122 实施；Phase 13 Manifest 必须随源码闭包重建，未改变 case/label 内容；Phase 14 Copilot 仍只读建议，不创建 SkillCall、PlanCommand 或经营写入
+下一条精确操作: 严格检查 Task 4 目标文件编码和暂存边界，提交 `feat: add live decision support copilot` 并推送 origin/main
 模型费用累计: 0.042344 元
 ```
 
 当前 sub-agent：
 
 ```text
+Sub-agent ID / 角色: Task 4 Specialist Runtime API 只读分析（已登记任务）
+派发时间: 2026-07-18
+只读或写入文件边界: 只读 specialist_runtime/model_port.py、runner.py、profiles.py、registry.py 与相关单元测试
+预期交付物与测试: 报告 AgentTask/AgentResult/预算/deadline/Skill 调用边界，禁止修改文件
+首次回报: 已完成
+最近可验证进展: 确认 AgentTask/AgentResult、Profile digest、预算、deadline、Skill Port 和取消边界；发现 Profile 完整摘要与共享 Runner 集成测试缺口
+状态: COMPLETED
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: Task 4 LiveOps/Profile 模式只读分析（已登记任务）
+派发时间: 2026-07-18
+只读或写入文件边界: 只读 specialist_runtime/live_ops.py、scripted_model.py、phase13 LiveOps 测试与 Phase 14 Design/Plan
+预期交付物与测试: 报告可复用的 Profile/Adapter/Schema 约束和 Task 4 测试缺口，禁止修改文件
+首次回报: 已完成
+最近可验证进展: 对照 Phase 13 LiveOps/Profile 模式确认固定输出、EvidenceRef、只读 Skill 和 ScriptedModel 组合；发现备品快照、风险白名单、过期与 DEGRADED 门禁缺口
+状态: COMPLETED
+接管原因（如适用）: 无
+
 Sub-agent ID / 角色: 019f7032-c12e-7072-845d-f4bc8247e0a9 / Task 3 最终规格审查
 派发时间: 2026-07-17
 只读或写入文件边界: 只读 Phase 14 Design/Plan、D-114/D-117、evidence.py 与测试

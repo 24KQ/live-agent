@@ -16,17 +16,19 @@ import psycopg
 from psycopg.rows import dict_row
 
 
-TOTAL_LIMIT_CNY = Decimal("3.00")
+TOTAL_LIMIT_CNY = Decimal("4.00")
 PHASE13_LIMIT_CNY = Decimal("2.40")
-PHASE14_RESERVED_CNY = Decimal("0.60")
+PHASE14_RESERVED_CNY = Decimal("1.00")
+PHASE15_RELEASE_RESERVED_CNY = Decimal("0.60")
 
 
 class BudgetCandidate(StrEnum):
-    """Phase 13 三个独立候选的预算身份。"""
+    """Phase 13 候选与 Phase 14 Copilot 的独立预算身份。"""
 
     LIVE_OPS = "LIVE_OPS"
     PLANNER = "PLANNER"
     REVIEW_MEMORY = "REVIEW_MEMORY"
+    PHASE14_COPILOT = "PHASE14_COPILOT"
 
 
 CANDIDATE_LIMITS: Mapping[BudgetCandidate, Decimal] = MappingProxyType(
@@ -34,7 +36,12 @@ CANDIDATE_LIMITS: Mapping[BudgetCandidate, Decimal] = MappingProxyType(
         BudgetCandidate.LIVE_OPS: Decimal("0.60"),
         BudgetCandidate.PLANNER: Decimal("1.00"),
         BudgetCandidate.REVIEW_MEMORY: Decimal("0.80"),
+        BudgetCandidate.PHASE14_COPILOT: Decimal("1.00"),
     }
+)
+
+_PHASE13_CANDIDATES = frozenset(
+    {BudgetCandidate.LIVE_OPS, BudgetCandidate.PLANNER, BudgetCandidate.REVIEW_MEMORY}
 )
 
 
@@ -201,7 +208,8 @@ class InMemoryModelBudgetStore:
 
     def snapshot(self) -> BudgetSnapshot:
         with self._lock:
-            reserved, committed = self._totals()
+            reserved, committed = self._totals(candidates=_PHASE13_CANDIDATES)
+            phase14_exposure = self._candidate_exposure(BudgetCandidate.PHASE14_COPILOT)
             return BudgetSnapshot(
                 scope_id=self._scope_id,
                 total_limit_cny=TOTAL_LIMIT_CNY,
@@ -210,7 +218,7 @@ class InMemoryModelBudgetStore:
                 candidate_limits=CANDIDATE_LIMITS,
                 phase13_reserved_cny=reserved,
                 phase13_committed_cny=committed,
-                phase14_available_cny=PHASE14_RESERVED_CNY,
+                phase14_available_cny=max(PHASE14_RESERVED_CNY - phase14_exposure, Decimal("0")),
             )
 
     def list_pending_reservations(self) -> tuple[BudgetReservation, ...]:
@@ -238,13 +246,37 @@ class InMemoryModelBudgetStore:
         except KeyError as error:
             raise BudgetInvariantError("unknown reservation") from error
 
-    def _totals(self) -> tuple[Decimal, Decimal]:
+    def _candidate_exposure(self, candidate: BudgetCandidate) -> Decimal:
+        return sum(
+            (
+                record.reserved_amount_cny
+                if record.state is ReservationState.RESERVED
+                else record.settled_amount_cny or Decimal("0")
+            )
+            for record in self._records.values()
+            if record.candidate is candidate and record.state is not ReservationState.RELEASED
+        )
+
+    def _totals(
+        self,
+        *,
+        candidates: frozenset[BudgetCandidate] | None = None,
+    ) -> tuple[Decimal, Decimal]:
+        selected = candidates or frozenset(BudgetCandidate)
         reserved = sum(
-            (r.reserved_amount_cny for r in self._records.values() if r.state is ReservationState.RESERVED),
+            (
+                r.reserved_amount_cny
+                for r in self._records.values()
+                if r.state is ReservationState.RESERVED and r.candidate in selected
+            ),
             Decimal("0"),
         )
         committed = sum(
-            (r.settled_amount_cny or Decimal("0") for r in self._records.values() if r.state is ReservationState.SETTLED),
+            (
+                r.settled_amount_cny or Decimal("0")
+                for r in self._records.values()
+                if r.state is ReservationState.SETTLED and r.candidate in selected
+            ),
             Decimal("0"),
         )
         return reserved, committed
@@ -252,18 +284,16 @@ class InMemoryModelBudgetStore:
     def _assert_capacity(self, candidate: BudgetCandidate, amount: Decimal) -> None:
         if candidate in self._released_candidates:
             raise BudgetInvariantError("candidate allowance is released")
-        reserved, committed = self._totals()
+        candidate_total = self._candidate_exposure(candidate)
+        if candidate is BudgetCandidate.PHASE14_COPILOT:
+            # Phase 14 只允许消费自己的 1.00 元额度，不加入 Phase 13 共享池，
+            # 也不能借用尚未实施的 Phase 15 保留额。
+            if candidate_total + amount > PHASE14_RESERVED_CNY:
+                raise BudgetLimitExceeded("phase 14 budget exceeded")
+            return
+        reserved, committed = self._totals(candidates=_PHASE13_CANDIDATES)
         if reserved + committed + amount > PHASE13_LIMIT_CNY:
             raise BudgetLimitExceeded("phase budget exceeded")
-        candidate_total = sum(
-            (
-                r.reserved_amount_cny
-                if r.state is ReservationState.RESERVED
-                else r.settled_amount_cny or Decimal("0")
-            )
-            for r in self._records.values()
-            if r.candidate is candidate and r.state is not ReservationState.RELEASED
-        )
         extra_needed = max(candidate_total + amount - CANDIDATE_LIMITS[candidate], Decimal("0"))
         shared_available = sum(
             (
@@ -275,6 +305,7 @@ class InMemoryModelBudgetStore:
                 )
             )
             for item in self._released_candidates
+            if item in _PHASE13_CANDIDATES
         )
         existing_extra = sum(
             max(
@@ -290,7 +321,7 @@ class InMemoryModelBudgetStore:
                 - CANDIDATE_LIMITS[item],
                 Decimal("0"),
             )
-            for item in BudgetCandidate
+            for item in _PHASE13_CANDIDATES
             if item not in self._released_candidates
         )
         current_extra = max(candidate_total - CANDIDATE_LIMITS[candidate], Decimal("0"))
@@ -408,8 +439,17 @@ class PostgresModelBudgetStore:
                 cursor.execute(
                     """
                     SELECT
-                        COALESCE(sum(reserved_amount_cny) FILTER (WHERE state='RESERVED'), 0) AS reserved,
-                        COALESCE(sum(settled_amount_cny) FILTER (WHERE state='SETTLED'), 0) AS committed
+                        COALESCE(sum(reserved_amount_cny) FILTER (
+                            WHERE state='RESERVED' AND candidate_id IN ('LIVE_OPS','PLANNER','REVIEW_MEMORY')
+                        ), 0) AS phase13_reserved,
+                        COALESCE(sum(settled_amount_cny) FILTER (
+                            WHERE state='SETTLED' AND candidate_id IN ('LIVE_OPS','PLANNER','REVIEW_MEMORY')
+                        ), 0) AS phase13_committed,
+                        COALESCE(sum(reserved_amount_cny) FILTER (
+                            WHERE state='RESERVED' AND candidate_id='PHASE14_COPILOT'
+                        ), 0) + COALESCE(sum(settled_amount_cny) FILTER (
+                            WHERE state='SETTLED' AND candidate_id='PHASE14_COPILOT'
+                        ), 0) AS phase14_exposure
                     FROM specialist_model_budget_reservations WHERE scope_id=%s;
                     """,
                     (self._scope_id,),
@@ -428,9 +468,12 @@ class PostgresModelBudgetStore:
             phase13_limit_cny=Decimal(ledger["phase13_limit_cny"]),
             phase14_reserved_cny=Decimal(ledger["phase14_reserved_cny"]),
             candidate_limits=MappingProxyType(limits),
-            phase13_reserved_cny=Decimal(row["reserved"]),
-            phase13_committed_cny=Decimal(row["committed"]),
-            phase14_available_cny=Decimal(ledger["phase14_reserved_cny"]),
+            phase13_reserved_cny=Decimal(row["phase13_reserved"]),
+            phase13_committed_cny=Decimal(row["phase13_committed"]),
+            phase14_available_cny=max(
+                Decimal(ledger["phase14_reserved_cny"]) - Decimal(row["phase14_exposure"]),
+                Decimal("0"),
+            ),
         )
 
     def list_pending_reservations(self) -> tuple[BudgetReservation, ...]:
@@ -517,18 +560,29 @@ class PostgresModelBudgetStore:
             (self._scope_id,),
         )
         exposures = {BudgetCandidate(row["candidate_id"]): Decimal(row["exposure"]) for row in cursor.fetchall()}
-        total_exposure = sum(exposures.values(), Decimal("0"))
         candidate_total = exposures.get(candidate, Decimal("0"))
+        if candidate is BudgetCandidate.PHASE14_COPILOT:
+            # Phase 14 Copilot 的额度必须和 Phase 13 评估池完全隔离；总账本中的
+            # Phase 15 保留金额没有对应候选，不能被任何当前请求借用。
+            if candidate_total + amount > Decimal(policy["phase14_reserved_cny"]):
+                raise BudgetLimitExceeded("phase 14 budget exceeded")
+            return
         effective_phase13 = min(
             Decimal(policy["phase13_limit_cny"]),
             Decimal(policy["total_limit_cny"]) - Decimal(policy["phase14_reserved_cny"]),
         )
-        if total_exposure + amount > effective_phase13:
+        phase13_exposure = sum(
+            (exposures.get(item, Decimal("0")) for item in _PHASE13_CANDIDATES),
+            Decimal("0"),
+        )
+        if phase13_exposure + amount > effective_phase13:
             raise BudgetLimitExceeded("phase budget exceeded")
         own_limit = Decimal(candidate_policy["initial_limit_cny"])
         extra_needed = max(candidate_total + amount - own_limit, Decimal("0"))
         shared_available = Decimal("0")
         for released_candidate, released_policy in candidate_rows.items():
+            if released_candidate not in _PHASE13_CANDIDATES:
+                continue
             if released_policy["state"] != "RELEASED":
                 continue
             # 已释放候选若曾借用共享池，超出自身额度的已结算费用是负贡献；
@@ -540,7 +594,7 @@ class PostgresModelBudgetStore:
         existing_extra = sum(
             max(exposures.get(item, Decimal("0")) - Decimal(row["initial_limit_cny"]), Decimal("0"))
             for item, row in candidate_rows.items()
-            if row["state"] == "ACTIVE"
+            if item in _PHASE13_CANDIDATES and row["state"] == "ACTIVE"
         )
         current_extra = max(candidate_total - own_limit, Decimal("0"))
         if existing_extra + (extra_needed - current_extra) > shared_available:

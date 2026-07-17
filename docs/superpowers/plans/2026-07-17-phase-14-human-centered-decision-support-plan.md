@@ -43,11 +43,11 @@
 
 ## Task 4：播中 Copilot 与结构化方案
 
-**Files:** 新建 `src/decision_support/live_ops_copilot.py`、`src/decision_support/proposal.py`、`tests/unit/test_phase14_live_ops_copilot.py`。
+**Files:** 新建 `src/decision_support/live_ops_copilot.py`、`src/decision_support/proposal.py`；扩展 `src/specialist_runtime/budget.py`、`runner.py`、预算迁移和相关单元/集成测试；新增 `tests/unit/test_phase14_live_ops_copilot.py`。
 
 1. RED：覆盖 Profile 精确身份、两次模型/三次只读 Skill/4000 token/五秒限制，一至三个 option、风险与证据闭合，及写 Skill、Agent 互调和自由动作拒绝。
 2. GREEN：复用 `BoundedSpecialistRunner` 和 `AgentModelPort`，只生成 `LiveDecisionProposal`；模型失败返回显式 `DEGRADED` 事实摘要。
-3. VERIFY：ScriptedModel、预算、取消、Schema、EvidenceRef 与现有 Specialist Runtime 回归；提交 `feat: add live decision support copilot`。
+3. VERIFY：ScriptedModel、独立 Phase 14 预算身份、取消、Schema、EvidenceRef 与现有 Specialist Runtime 回归；提交 `feat: add live decision support copilot`。
 
 ## Task 5：人工决定与受控执行编译
 

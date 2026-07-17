@@ -21,12 +21,13 @@ def test_budget_limits_and_phase14_reserve_are_frozen() -> None:
 
     snapshot = InMemoryModelBudgetStore().snapshot()
 
-    assert snapshot.total_limit_cny == Decimal("3.00")
+    assert snapshot.total_limit_cny == Decimal("4.00")
     assert snapshot.phase13_limit_cny == Decimal("2.40")
-    assert snapshot.phase14_reserved_cny == Decimal("0.60")
+    assert snapshot.phase14_reserved_cny == Decimal("1.00")
     assert snapshot.candidate_limits[BudgetCandidate.LIVE_OPS] == Decimal("0.60")
     assert snapshot.candidate_limits[BudgetCandidate.PLANNER] == Decimal("1.00")
     assert snapshot.candidate_limits[BudgetCandidate.REVIEW_MEMORY] == Decimal("0.80")
+    assert snapshot.candidate_limits[BudgetCandidate.PHASE14_COPILOT] == Decimal("1.00")
 
 
 def test_reserve_settle_release_and_unknown_usage_are_conservative() -> None:
@@ -68,7 +69,7 @@ def test_idempotent_replay_and_conflicting_request_are_distinguished() -> None:
 
 
 def test_candidate_and_phase_limits_cannot_consume_phase14_reserve() -> None:
-    """候选额度及 2.40 元阶段硬门不能借用 Phase 14 的 0.60 元。"""
+    """候选额度及 2.40 元阶段硬门不能借用 Phase 14 的 1.00 元。"""
 
     store = InMemoryModelBudgetStore()
     store.reserve("live", BudgetCandidate.LIVE_OPS, Decimal("0.60"))
@@ -77,7 +78,21 @@ def test_candidate_and_phase_limits_cannot_consume_phase14_reserve() -> None:
 
     with pytest.raises(BudgetLimitExceeded, match="candidate|phase"):
         store.reserve("extra", BudgetCandidate.LIVE_OPS, Decimal("0.01"))
+    assert store.snapshot().phase14_available_cny == Decimal("1.00")
+
+
+def test_phase14_settled_exposure_remains_isolated_and_consumes_its_own_reserve() -> None:
+    """Phase 14 Copilot 的已知费用扣除自身额度，但不侵占 Phase 13 共享池。"""
+
+    store = InMemoryModelBudgetStore()
+    store.reserve("copilot-settled", BudgetCandidate.PHASE14_COPILOT, Decimal("0.40"))
+    store.settle("copilot-settled", Decimal("0.40"))
+
     assert store.snapshot().phase14_available_cny == Decimal("0.60")
+    store.reserve("phase13-independent", BudgetCandidate.LIVE_OPS, Decimal("0.60"))
+
+    with pytest.raises(BudgetLimitExceeded, match="phase 14"):
+        store.reserve("copilot-over", BudgetCandidate.PHASE14_COPILOT, Decimal("0.61"))
 
 
 def test_concurrent_reservations_only_one_crosses_candidate_boundary() -> None:

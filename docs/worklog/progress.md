@@ -618,3 +618,12 @@
 - 最终整改：receipt 由受控 Assembler 闭包登记并绑定原始 Bundle 身份；新增 `EvidenceBundleAssemblyService`，调用面只接受 `EvidenceAssemblyRequest`；D-121 明确无插件/热加载下的进程信任边界。
 - 最终验证：Task 3 聚合 `79 passed`；Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`；完整 integration `145 passed, 3 deselected, 5 warnings`；`compileall`、`git diff --check` 前置检查和 Manifest 两次生成哈希均通过；真实模型新增费用 0。
 - Task 3 已以 `d3a53a8 feat: assemble governed live evidence` 独立提交并推送至 `origin/main`；用户已有脏文件未纳入。连续游标切换到 Phase 14 Task 4，尚未开始编码。
+
+# 2026-07-18 Phase 14 Task 4
+
+- 新增 `live_ops_decision_support@1.0.0` Copilot Profile，固定两次模型、三次只读 Skill、4000 tokens、五秒 deadline 和结构化 `LiveDecisionProposal`；Agent 只生成供运营比较的建议，不创建 SkillCall、PlanCommand 或经营写入。
+- Proposal 领域模型固定 `READY | DEGRADED`、1-3 个封闭 option、完整 EvidenceRef 闭合、备品策略、时机和风险码白名单；模型失败、过期/不可提案证据、Schema 或身份不一致均返回确定性 `DEGRADED` 摘要。
+- Copilot 启动时重跑完整 Profile 校验并核对 `profile_digest`；实际执行通过共享 `BoundedSpecialistRunner + ScriptedAgentModel`，写 Skill 请求在 Runner 白名单处拒绝，无网络调用。
+- D-122 新增独立 `PHASE14_COPILOT` 预算身份；Phase 13 保持 2.40 元、Phase 14 为 1.00 元、Phase 15 0.60 元保留，总规划账本为 4.00 元。内存/PostgreSQL 预算隔离、settled exposure 和旧 scope 迁移均已覆盖。
+- Phase 13 v2/v3 Manifest 已由正式生成器重建，以包含新增源码闭包；case/label 内容未变化。真实模型新增费用为 0。
+- 当前最终验证：Task 4/预算专项 `28 passed`，完整 unit `1260 passed, 4 warnings`，完整 integration `146 passed, 3 deselected, 5 warnings`；compileall、迁移 dry-run、`git diff --check` 通过，待提交推送。

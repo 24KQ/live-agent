@@ -61,7 +61,21 @@ def test_postgres_concurrent_reserve_serializes_at_candidate_boundary(budget_sto
         results = list(pool.map(reserve, ("a", "b")))
 
     assert sorted(results) == [False, True]
+    assert store.snapshot().phase14_available_cny == Decimal("1.00")
+
+
+def test_postgres_phase14_settled_exposure_isolated_from_phase13_pool(budget_store) -> None:
+    """PostgreSQL 账本重放后仍按阶段隔离已结算的 Copilot 费用。"""
+
+    settings, scope_id, store = budget_store
+    store.reserve("copilot-settled", BudgetCandidate.PHASE14_COPILOT, Decimal("0.40"))
+    store.settle("copilot-settled", Decimal("0.40"))
+
     assert store.snapshot().phase14_available_cny == Decimal("0.60")
+    store.reserve("phase13-independent", BudgetCandidate.LIVE_OPS, Decimal("0.60"))
+
+    with pytest.raises(BudgetLimitExceeded, match="phase 14"):
+        store.reserve("copilot-over", BudgetCandidate.PHASE14_COPILOT, Decimal("0.61"))
 
 
 def test_postgres_unsettled_reservation_survives_store_restart(budget_store) -> None:

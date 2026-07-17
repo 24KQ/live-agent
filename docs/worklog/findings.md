@@ -429,6 +429,15 @@
 - receipt 只能在正常受控调用面代表 Assembler 产物；Task 3 通过 `EvidenceBundleAssemblyService` 隐藏 receipt/Store，WeakKeyDictionary 绑定签发时的 Bundle 身份，并用 D-121 明确任意同进程代码执行属于服务进程失陷而非插件安全边界。
 - Task 3 最终证据为专项 `79 passed`、完整 unit `1244 passed`、integration `145 passed, 3 deselected`；Phase 13 Manifest 在源码闭包变化后连续两次生成哈希稳定。
 
+## 2026-07-18 Phase 14 Task 4 发现
+
+- Copilot 的 Profile 身份不能只核对 ID、版本和 task kind；启动时必须重跑完整 Profile 校验并比较 `profile_digest`，否则绕过 Pydantic validator 的对象可能改变预算、Skill 或 Schema。
+- `LiveDecisionProposal` 的每个 option 必须引用 Bundle 的完整有序 EvidenceRef 闭包；子集引用会让模型遗漏关键库存、计划或节奏事实。
+- `proposal_eligible=false` 或 Bundle `valid_until` 已过期时，Copilot 必须在构造 AgentTask/调用 Runner 前返回 `DEGRADED`；模型失败和证据不可用不能用成功方案冒充。
+- 备品 ID 必须与冻结库存快照中当前可用的备品精确匹配；风险码使用固定白名单并同时进入领域模型和 Runner JSON Schema。
+- Phase 14 Copilot 使用独立 `PHASE14_COPILOT` 预算；内存与 PostgreSQL 都必须把其 reservation/settled exposure 与 Phase 13 共享池分离，且 snapshot 可用余额要扣除已结算费用。
+- 新增 Phase 14 源码后，Phase 13 v2/v3 Manifest 的完整源码闭包必须由正式生成器重建；不能手工排除新模块，否则字节稳定和源码集合验收会失败。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

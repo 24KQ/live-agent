@@ -194,6 +194,14 @@ _CANDIDATES: Mapping[SpecialistTaskKind, BudgetCandidate] = MappingProxyType(
 )
 
 
+def budget_candidate_for_task(task: AgentTask) -> BudgetCandidate:
+    """按精确 Profile 身份解析预算，避免同 task kind 的跨阶段额度串用。"""
+
+    if task.profile_id == "live_ops_decision_support" and task.profile_version == "1.0.0":
+        return BudgetCandidate.PHASE14_COPILOT
+    return _CANDIDATES[task.task_kind]
+
+
 @dataclass
 class _RunAudit:
     """Runner 内部累计的调用与费用事实，失败结果同样必须带出。"""
@@ -316,7 +324,7 @@ class BoundedSpecialistRunner:
                 )
             try:
                 claim = self._budget_store.reserve(
-                    request.request_id, _CANDIDATES[task.task_kind], per_call_reservation
+                    request.request_id, budget_candidate_for_task(task), per_call_reservation
                 )
                 # 执行 ID 应保证本次请求唯一；若仍命中旧记录，宁可拒绝也不能再次发送
                 # 一个账本无法区分的新外部付费请求。

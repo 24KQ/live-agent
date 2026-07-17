@@ -1345,3 +1345,14 @@
 - **未选理由**：wrapper 类型没有签发证明；继续隐藏同进程对象无法防御反射，也会增加不可审计的伪安全复杂度。
 - **影响**：Task 3 以受控门面作为正式应用接口，内部 receipt 继续防止普通调用路径绕过汇聚。未来若引入不可信插件、用户脚本或第三方 Agent，必须先设计独立进程、认证 RPC、最小权限凭证和可验证签名，不得复用本进程内 receipt。
 - **重新评估条件**：新增插件、热加载、第三方可执行代码或跨进程 Evidence 生产者时，先替换为可验证的跨进程授权协议并重新审查 Threat Model。
+
+## D-122：Phase 14 Copilot 使用独立模型预算身份
+
+- **状态**：`ACCEPTED`
+- **背景**：D-119 将 Phase 13 历史上限固定为 2.40 元、Phase 14 人机协同 smoke 固定为 1.00 元并保留 Phase 15 的 0.60 元，但既有 Runner 仅按 `LIVE_OPS_ADVICE` 映射到 Phase 13 `LIVE_OPS` 候选。
+- **候选方案**：继续复用 Phase 13 `LIVE_OPS`；在调用方进程内单独计数；新增版本化 `PHASE14_COPILOT` 预算身份并让账本/Runner 按精确 Profile 路由。
+- **最终选择**：新增 `PHASE14_COPILOT` 候选，初始额度 1.00 元；总规划账本更新为 4.00 元，Phase 13 仍受 2.40 元硬门，未实施的 Phase 15 0.60 元保留不向任何当前候选开放。`live_ops_decision_support@1.0.0` 只能路由到新候选，旧 Phase 13 Profile 继续使用 `LIVE_OPS`。
+- **选择理由**：预算身份必须与生产权限/Profile 身份一致；持久 Ledger、FOR UPDATE 和启动冻结路由才能阻止新 Copilot 借用历史候选额度或跨阶段预算。
+- **未选理由**：进程内计数无法覆盖并发/重启；复用旧候选会让 Phase 13 评估费用与 Phase 14 smoke 费用不可审计地区分。
+- **影响**：Task 4 扩展预算枚举、Runner 精确 Profile 映射、PostgreSQL 候选约束和迁移；真实模型仍须等 Task 11 全部预检，Phase 15 保留额不在本阶段可用。
+- **重新评估条件**：Phase 15 Gate 重新设计统一预算账本时，必须保留历史 Phase 13/14 reservation 的不可变身份和对账记录。
