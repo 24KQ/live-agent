@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 9：播后反馈与人工确认记忆晋升（`dbd5768` 已推送） |
-| 当前任务 | Task 10：复合事故数据集与离线人机协同评估 |
-| 当前任务状态 | `VERIFY` |
-| 当前子步骤 | Task 10 审查发现已整改；专项、受影响回归、完整 unit/integration、Manifest、编码和 diff 门禁均通过，准备提交 |
+| 最近完成任务 | Phase 14 Task 10：冻结数据集与离线人机协同评估（`3dc7f40` 已推送） |
+| 当前任务 | Task 11：真实模型 smoke 预检与严格结论 |
+| 当前任务状态 | `RED` |
+| 当前子步骤 | Task 10 已提交并推送；Task 11 尚未修改业务代码，准备建立 endpoint/价格/usage/哈希/预算预检的预期失败测试 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -31,16 +31,16 @@
 
 ```text
 Phase / Task: Phase 14 / Task 10
-状态: VERIFY
-目标: 建立固定复合事故数据集、离线规则回归、人机配对评估和人工对照证据，不运行真实模型
+状态: RED
+目标: 在正式预检通过前阻止真实模型发送，并形成 ScriptedModel 演练与严格结论事实
 禁止事项: 不把离线评估当生产 A/B；不在预检前调用真实模型；不把模型输出直接转为经营写操作；不修改用户脏文件
-当前 HEAD: 357a2ab
-本 Task 文件: src/decision_support/evaluation.py、evaluation/phase14_human_support、tests/unit/test_phase14_human_support_evaluation.py、Phase 13 Manifest 重建
+当前 HEAD: 3dc7f40
+本 Task 文件: Task 11 formal evaluation/preflight 模块与测试，尚未开始编码
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 10 专项 `9 passed`；数据/Phase 13 回归 `20 passed`；完整 unit `1310 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；Phase 13 Manifest 由官方生成器重建；10 个目标文件严格编码、compileall 和 `git diff --check` 通过
-错误与尝试次数: RED 缺少 evaluation 模块；GREEN 修复 FrozenDict 序列化、Phase 13 源码闭包、Manifest 过期、工作负担记录和稳定随机种子；质量审查整改覆盖三类事故维度、Dataset/Manifest 重验、schema/generator digest、同 case 配对、精确门槛、逐条严重违规计数和嵌套脱敏；未运行真实模型
-设计偏差与决策编号: Task 10 沿用 D-113、D-119、D-120；离线人工对照严格标记为 usability evidence，不冒充生产 A/B；新增字段和校验均在 Task 10 既定数据/评估范围内，无需新增决策
-下一条精确操作: 只暂存 Task 10 代码、测试、冻结数据、Phase 13 Manifest 和 worklog，执行 staged diff 检查，提交 `test: add human decision support evaluation` 并推送
+最近命令与结果: Task 10 专项 `9 passed`；数据/Phase 13 回归 `20 passed`；完整 unit `1310 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`；提交/推送 `3dc7f40`
+错误与尝试次数: Task 10 质量审查的 5 个 Important 已整改并验证；Task 11 尚未开始编码或调用真实模型
+设计偏差与决策编号: Task 11 沿用 D-113、D-119、D-120；真实模型在预检完成前严格禁止，外部证据不足只能形成 `INCONCLUSIVE`
+下一条精确操作: 读取 Task 11 Design/Plan，先写预检 RED 测试并确认缺失 endpoint/价格/usage/哈希/预算时 fail-closed
 模型费用累计: 0.042344 元
 ```
 

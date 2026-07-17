@@ -523,3 +523,8 @@
 
 - Task 10 专项 `9 passed`；数据/Phase 13 回归 `20 passed`；完整 unit `1310 passed, 4 warnings`；完整 integration `150 passed, 3 deselected, 5 warnings`。
 - Phase 13 v2/v3 Manifest 已由官方生成器按新增源码闭包重建；Task 10 目标文件严格 UTF-8、无 BOM/replacement/mixed newline/trailing whitespace，compileall 和 `git diff --check` 通过；真实模型费用未增加。
+
+## 2026-07-18 Phase 14 Task 10 提交与 Task 11 RED
+
+- Task 10 已以 `3dc7f40 test: add human decision support evaluation` 独立提交并推送，远端与本地 HEAD 一致；用户脏文件未纳入。
+- Task 11 开始前真实模型累计费用保持 `0.042344` 元；预检前禁止发送真实请求，先固定缺少 endpoint、公开价格、usage、Prompt/Schema/数据集/代码哈希或预算时的 fail-closed 证据。

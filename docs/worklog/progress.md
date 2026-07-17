@@ -694,3 +694,8 @@
 - 新增 `src/decision_support/evaluation.py` 和 `evaluation/phase14_human_support/`，固定四组复合事故、16 个脱敏 case、ScriptedModel 基线、3-5 名运营员的 24-40 次随机交叉记录和规则优先严格 AND 指标。
 - 审查整改补齐过期证据、CAS/版本冲突、未知副作用、Manifest/case 身份绑定、完整 schema/generator digest、同 case 配对、精确门槛和工作负担字段；不接入真实模型或经营写路径。
 - Task 10 专项 `9 passed`，受影响数据回归 `20 passed`，完整 unit `1310 passed, 4 warnings`，完整 integration `150 passed, 3 deselected, 5 warnings`；当前只剩文档留痕、暂存、提交和推送。
+
+# 2026-07-18 Phase 14 Task 10 已提交，Task 11 RED
+
+- Task 10 已以 `3dc7f40 test: add human decision support evaluation` 提交并推送，`origin/main=3dc7f40`。
+- 连续游标切换到 Task 11 RED：先实现真实模型正式预检、ScriptedModel 全量演练和 `PASS | INCONCLUSIVE | FAIL` 严格结论；预检通过前不访问外部模型。
