@@ -16,9 +16,9 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from src.config.settings import get_settings
+from src.decision_support.evidence import AssembledEvidenceBundle
 from src.decision_support.models import (
     DecisionKind,
-    EvidenceBundle,
     ExecutionCommand,
     Incident,
     LiveSessionWorkspace,
@@ -31,6 +31,7 @@ from src.decision_support.store import (
     WorkspaceConflictError,
     WorkspaceLeaseError,
 )
+from tests.phase14_evidence_factory import build_evidence_bundle
 
 
 NOW = datetime(2026, 7, 17, 9, 0, tzinfo=timezone.utc)
@@ -120,15 +121,14 @@ def _evidence(
     suffix: str,
     *,
     idempotency_key: str | None = None,
-) -> EvidenceBundle:
-    return EvidenceBundle(
-        evidence_bundle_id=f"evidence-{suffix}",
+) -> AssembledEvidenceBundle:
+    """生成完整六角色快照，避免集成测试绕过严格 EvidenceBundle 重载。"""
+
+    return build_evidence_bundle(
         live_session_id=session_id,
         incident_id=incident_id,
+        suffix=suffix,
         idempotency_key=idempotency_key or f"evidence-idem-{suffix}",
-        evidence_ref_ids=(f"event-{suffix}", f"plan-{suffix}"),
-        snapshot={"inventory_version": 2, "conflict": True},
-        input_fingerprint="b" * 64,
         created_at=NOW,
     )
 
@@ -196,6 +196,52 @@ def _store() -> PostgresDecisionSupportStore:
     return store
 
 
+def _append_live_evidence(
+    store: PostgresDecisionSupportStore,
+    incident: Incident,
+    evidence: AssembledEvidenceBundle,
+) -> LiveSessionWorkspace:
+    """用正式 lease/状态机进入 LIVE 后追加受治理播中证据。"""
+
+    store.append_incident(
+        incident,
+        expected_workspace_version=store.get_workspace(
+            incident.live_session_id
+        ).version,
+    )
+    live_workspace = _enter_live(store, incident.live_session_id)
+    return store.append_evidence_bundle(
+        evidence,
+        expected_workspace_version=live_workspace.version,
+    )
+
+
+def _enter_live(
+    store: PostgresDecisionSupportStore, live_session_id: str
+) -> LiveSessionWorkspace:
+    """把已有 PREPARE Workspace 经受控 lease 推进到 LIVE。"""
+
+    current = store.get_workspace(live_session_id)
+    transition_lease = store.acquire_operator_lock(
+        live_session_id,
+        "phase14-live-transition",
+        10,
+    )
+    live_workspace = store.advance_view(
+        live_session_id,
+        target_view=WorkspaceView.LIVE,
+        expected_version=current.version,
+        operator_id="phase14-live-transition",
+        fencing_token=transition_lease.fencing_token,
+    )
+    store.release_operator_lock(
+        live_session_id,
+        operator_id="phase14-live-transition",
+        fencing_token=transition_lease.fencing_token,
+    )
+    return live_workspace
+
+
 def _expire_operator_lock(live_session_id: str) -> None:
     """测试夹具只在数据库侧推进租约，生产 API 始终使用数据库时钟。"""
 
@@ -241,14 +287,15 @@ def test_postgres_rejects_boolean_versions_and_fencing_tokens() -> None:
     proposal = _proposal(
         session_id, incident.incident_id, evidence.evidence_bundle_id, suffix
     )
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     store.acquire_operator_lock(session_id, "operator-001", 30)
     with pytest.raises(ValueError, match="fencing_token"):
         store.append_operator_decision(
             _decision(session_id, proposal.proposal_id, suffix),
-            expected_workspace_version=4,
+            expected_workspace_version=proposal_workspace.version,
             operator_id="operator-001",
             fencing_token=True,
         )
@@ -368,33 +415,108 @@ def test_postgres_persists_complete_fact_chain_and_restarts() -> None:
     decision = _decision(session_id, proposal.proposal_id, suffix)
     command = _command(session_id, decision.decision_id, suffix)
 
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     lease = store.acquire_operator_lock(session_id, "operator-001", 30)
     store.append_operator_decision(
         decision,
-        expected_workspace_version=4,
+        expected_workspace_version=proposal_workspace.version,
         operator_id="operator-001",
         fencing_token=lease.fencing_token,
     )
     final_workspace = store.append_execution_command(
         command,
-        expected_workspace_version=5,
+        expected_workspace_version=proposal_workspace.version + 1,
         operator_id="operator-001",
         fencing_token=lease.fencing_token,
     )
 
     restarted = _store()
-    assert final_workspace.version == 6
-    assert restarted.get_evidence_bundle(evidence.evidence_bundle_id) == evidence
+    assert final_workspace.version == proposal_workspace.version + 2
+    assert restarted.get_evidence_bundle(evidence.evidence_bundle_id) == evidence.bundle
     assert restarted.get_proposal(proposal.proposal_id) == proposal
     assert restarted.get_operator_decision(decision.decision_id) == decision
     assert restarted.get_execution_command(command.command_id) == command
-    assert restarted.list_evidence_bundles(session_id) == (evidence,)
+    assert restarted.list_evidence_bundles(session_id) == (evidence.bundle,)
     assert restarted.list_proposals(session_id) == (proposal,)
     assert restarted.list_operator_decisions(session_id) == (decision,)
     assert restarted.list_execution_commands(session_id) == (command,)
+
+
+def test_postgres_rejects_bundle_when_authoritative_incident_fact_differs() -> None:
+    """数据库 Store 也必须校验 Incident 业务摘要，不能只依赖外键 ID。"""
+
+    session_id, run_key = _identity()
+    suffix = uuid4().hex
+    store = _store()
+    store.create_workspace(_workspace(session_id, run_key))
+    mismatched_incident = Incident(
+            incident_id=f"incident-{suffix}",
+            live_session_id=session_id,
+            idempotency_key=f"incident-idem-{suffix}",
+            incident_type="SOLD_OUT_COMPOSITE",
+            source_ref_ids=(f"event-{suffix}",),
+            snapshot={"product_id": "p999", "expected_version": 99},
+            created_at=NOW,
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="incident binding"):
+        _append_live_evidence(
+            store,
+            mismatched_incident,
+            _evidence(session_id, f"incident-{suffix}", suffix),
+        )
+
+
+def test_postgres_rejects_receipt_not_issued_by_governed_assembler() -> None:
+    """PostgreSQL 写入口也不能把伪造的精确 wrapper 类型当成授权 receipt。"""
+
+    session_id, run_key = _identity()
+    suffix = uuid4().hex
+    store = _store()
+    incident = _incident(session_id, suffix)
+    store.create_workspace(_workspace(session_id, run_key))
+    store.append_incident(incident, expected_workspace_version=1)
+    live_workspace = _enter_live(store, session_id)
+    # 模拟同进程调用方规避公开构造器后伪造对象内存布局；数据库 Store 必须
+    # 在访问父事实和开启事实写入前拒绝未登记的 receipt。
+    forged = object.__new__(AssembledEvidenceBundle)
+    object.__setattr__(forged, "_bundle", _evidence(session_id, incident.incident_id, suffix).bundle)
+
+    with pytest.raises(WorkspaceConflictError, match="governed assembly"):
+        store.append_evidence_bundle(
+            forged,
+            expected_workspace_version=live_workspace.version,
+        )
+
+
+def test_postgres_rejects_issued_receipt_after_bundle_rebinding() -> None:
+    """数据库 Store 必须拒绝合法 receipt 被底层反射重绑定后的写入。"""
+
+    session_id, run_key = _identity()
+    suffix = uuid4().hex
+    store = _store()
+    incident = _incident(session_id, suffix)
+    store.create_workspace(_workspace(session_id, run_key))
+    store.append_incident(incident, expected_workspace_version=1)
+    live_workspace = _enter_live(store, session_id)
+    issued = _evidence(session_id, incident.incident_id, suffix)
+    replacement = _evidence(
+        session_id,
+        incident.incident_id,
+        f"{suffix}-replacement",
+    ).bundle
+    # 签发登记绑定的是原始不可变 Bundle；替换 wrapper 私有字段不能改变
+    # PostgreSQL 事务真正看到的受治理事实，也不能获得另一张写入授权。
+    object.__setattr__(issued, "_bundle", replacement)
+
+    with pytest.raises(WorkspaceConflictError, match="governed assembly"):
+        store.append_evidence_bundle(
+            issued,
+            expected_workspace_version=live_workspace.version,
+        )
 
 
 def test_postgres_rejects_cross_scope_and_workspace_wide_idempotency_conflict() -> None:
@@ -416,11 +538,13 @@ def test_postgres_rejects_cross_scope_and_workspace_wide_idempotency_conflict() 
         ),
         expected_workspace_version=1,
     )
+    _enter_live(store, session_a)
+    _enter_live(store, session_b)
 
     with pytest.raises(WorkspaceConflictError, match="scope"):
         store.append_evidence_bundle(
             _evidence(session_b, incident.incident_id, suffix),
-            expected_workspace_version=2,
+            expected_workspace_version=3,
         )
     with pytest.raises(WorkspaceConflictError, match="idempotency"):
         store.append_evidence_bundle(
@@ -430,11 +554,11 @@ def test_postgres_rejects_cross_scope_and_workspace_wide_idempotency_conflict() 
                 f"{suffix}-idem",
                 idempotency_key=incident.idempotency_key,
             ),
-            expected_workspace_version=2,
+            expected_workspace_version=3,
         )
 
-    assert store.get_workspace(session_a).version == 2
-    assert store.get_workspace(session_b).version == 2
+    assert store.get_workspace(session_a).version == 3
+    assert store.get_workspace(session_b).version == 3
 
 
 def test_postgres_constraints_reject_cross_scope_and_fact_mutation() -> None:
@@ -560,9 +684,8 @@ def test_postgres_constraints_reject_operator_decision_without_live_lease() -> N
         session_id, incident.incident_id, evidence.evidence_bundle_id, suffix
     )
     decision = _decision(session_id, proposal.proposal_id, suffix)
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    store.append_proposal(proposal, expected_workspace_version=evidence_workspace.version)
 
     with pytest.raises(psycopg.errors.RaiseException, match="operator lease"):
         with psycopg.connect(**_database_kwargs()) as conn:
@@ -604,10 +727,11 @@ def test_postgres_constraints_reject_decision_for_superseded_proposal() -> None:
         proposal_version=2,
     )
     stale_decision = _decision(session_id, first.proposal_id, suffix)
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(first, expected_workspace_version=3)
-    store.append_proposal(second, expected_workspace_version=4)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    first_workspace = store.append_proposal(
+        first, expected_workspace_version=evidence_workspace.version
+    )
+    store.append_proposal(second, expected_workspace_version=first_workspace.version)
     lease = store.acquire_operator_lock(session_id, "operator-001", 30)
 
     with pytest.raises(psycopg.errors.RaiseException, match="latest proposal"):
@@ -644,13 +768,14 @@ def test_postgres_constraints_bind_command_to_decision_fencing_epoch() -> None:
     )
     decision = _decision(session_id, proposal.proposal_id, suffix)
     command = _command(session_id, decision.decision_id, suffix)
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     first = store.acquire_operator_lock(session_id, "operator-001", 10)
     store.append_operator_decision(
         decision,
-        expected_workspace_version=4,
+        expected_workspace_version=proposal_workspace.version,
         operator_id="operator-001",
         fencing_token=first.fencing_token,
     )
@@ -691,9 +816,10 @@ def test_postgres_decision_and_command_fail_closed_on_version_and_fencing() -> N
         evidence.evidence_bundle_id,
         suffix,
     )
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     first = store.acquire_operator_lock(session_id, "operator-001", 10)
 
     with pytest.raises(WorkspaceConflictError, match="proposal version"):
@@ -704,7 +830,7 @@ def test_postgres_decision_and_command_fail_closed_on_version_and_fencing() -> N
                 suffix,
                 expected_proposal_version=2,
             ),
-            expected_workspace_version=4,
+            expected_workspace_version=proposal_workspace.version,
             operator_id="operator-001",
             fencing_token=first.fencing_token,
         )
@@ -714,7 +840,7 @@ def test_postgres_decision_and_command_fail_closed_on_version_and_fencing() -> N
     with pytest.raises(WorkspaceLeaseError, match="fencing"):
         store.append_operator_decision(
             _decision(session_id, proposal.proposal_id, f"{suffix}-old"),
-            expected_workspace_version=4,
+            expected_workspace_version=proposal_workspace.version,
             operator_id="operator-001",
             fencing_token=first.fencing_token,
         )
@@ -740,16 +866,19 @@ def test_postgres_rejects_superseded_proposal_lineage_version() -> None:
         f"{suffix}-v2",
         proposal_version=2,
     )
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(first, expected_workspace_version=3)
-    store.append_proposal(second, expected_workspace_version=4)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    first_workspace = store.append_proposal(
+        first, expected_workspace_version=evidence_workspace.version
+    )
+    second_workspace = store.append_proposal(
+        second, expected_workspace_version=first_workspace.version
+    )
     lease = store.acquire_operator_lock(session_id, "operator-001", 30)
 
     with pytest.raises(WorkspaceConflictError, match="latest proposal"):
         store.append_operator_decision(
             _decision(session_id, first.proposal_id, suffix),
-            expected_workspace_version=5,
+            expected_workspace_version=second_workspace.version,
             operator_id="operator-001",
             fencing_token=lease.fencing_token,
         )
@@ -770,9 +899,10 @@ def test_postgres_concurrent_operator_decisions_have_one_cas_winner() -> None:
         evidence.evidence_bundle_id,
         suffix,
     )
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     lease = store.acquire_operator_lock(session_id, "operator-001", 30)
     decisions = [
         _decision(session_id, proposal.proposal_id, f"{suffix}-{index}")
@@ -784,7 +914,7 @@ def test_postgres_concurrent_operator_decisions_have_one_cas_winner() -> None:
         try:
             return local.append_operator_decision(
                 decision,
-                expected_workspace_version=4,
+                expected_workspace_version=proposal_workspace.version,
                 operator_id="operator-001",
                 fencing_token=lease.fencing_token,
             )
@@ -796,7 +926,7 @@ def test_postgres_concurrent_operator_decisions_have_one_cas_winner() -> None:
 
     assert sum(isinstance(item, LiveSessionWorkspace) for item in results) == 1
     assert sum(isinstance(item, WorkspaceConflictError) for item in results) == 1
-    assert store.get_workspace(session_id).version == 5
+    assert store.get_workspace(session_id).version == proposal_workspace.version + 1
 
 
 def test_postgres_proposal_accepts_only_one_operator_decision() -> None:
@@ -811,13 +941,14 @@ def test_postgres_proposal_accepts_only_one_operator_decision() -> None:
     proposal = _proposal(
         session_id, incident.incident_id, evidence.evidence_bundle_id, suffix
     )
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     lease = store.acquire_operator_lock(session_id, "operator-001", 30)
     store.append_operator_decision(
         _decision(session_id, proposal.proposal_id, suffix),
-        expected_workspace_version=4,
+        expected_workspace_version=proposal_workspace.version,
         operator_id="operator-001",
         fencing_token=lease.fencing_token,
     )
@@ -825,7 +956,7 @@ def test_postgres_proposal_accepts_only_one_operator_decision() -> None:
     with pytest.raises(WorkspaceConflictError, match="already has a decision"):
         store.append_operator_decision(
             _decision(session_id, proposal.proposal_id, f"{suffix}-second"),
-            expected_workspace_version=5,
+            expected_workspace_version=proposal_workspace.version + 1,
             operator_id="operator-001",
             fencing_token=lease.fencing_token,
         )
@@ -844,9 +975,10 @@ def test_postgres_lock_wait_cannot_extend_expired_operator_lease() -> None:
         session_id, incident.incident_id, evidence.evidence_bundle_id, suffix
     )
     decision = _decision(session_id, proposal.proposal_id, suffix)
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     lease = store.acquire_operator_lock(session_id, "operator-001", 3)
     application_name = f"phase14-lock-wait-{suffix}"
     waiter_kwargs = {
@@ -866,7 +998,7 @@ def test_postgres_lock_wait_cannot_extend_expired_operator_lease() -> None:
             future = pool.submit(
                 waiter_store.append_operator_decision,
                 decision,
-                expected_workspace_version=4,
+                expected_workspace_version=proposal_workspace.version,
                 operator_id="operator-001",
                 fencing_token=lease.fencing_token,
             )
@@ -939,19 +1071,20 @@ def test_postgres_decision_and_command_replay_survive_lease_handover() -> None:
     )
     decision = _decision(session_id, proposal.proposal_id, suffix)
     command = _command(session_id, decision.decision_id, suffix)
-    store.append_incident(incident, expected_workspace_version=1)
-    store.append_evidence_bundle(evidence, expected_workspace_version=2)
-    store.append_proposal(proposal, expected_workspace_version=3)
+    evidence_workspace = _append_live_evidence(store, incident, evidence)
+    proposal_workspace = store.append_proposal(
+        proposal, expected_workspace_version=evidence_workspace.version
+    )
     first = store.acquire_operator_lock(session_id, "operator-001", 10)
     store.append_operator_decision(
         decision,
-        expected_workspace_version=4,
+        expected_workspace_version=proposal_workspace.version,
         operator_id="operator-001",
         fencing_token=first.fencing_token,
     )
     store.append_execution_command(
         command,
-        expected_workspace_version=5,
+        expected_workspace_version=proposal_workspace.version + 1,
         operator_id="operator-001",
         fencing_token=first.fencing_token,
     )
@@ -972,8 +1105,8 @@ def test_postgres_decision_and_command_replay_survive_lease_handover() -> None:
     )
 
     assert second.fencing_token == first.fencing_token + 1
-    assert replayed_decision.version == 6
-    assert replayed_command.version == 6
+    assert replayed_decision.version == 7
+    assert replayed_command.version == 7
     assert store.list_operator_decisions(session_id) == (decision,)
     assert store.list_execution_commands(session_id) == (command,)
 

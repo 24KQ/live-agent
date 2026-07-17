@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 from pathlib import Path
+from uuid import uuid4
 
 from src.specialist_evaluation.models import (
     EvaluationCandidate,
@@ -65,7 +66,9 @@ def test_retrieve_anchor_memory_reads_scoped_active_rows_from_postgres(monkeypat
     store = MemoryStore(settings)
     anchor_id = "anchor-demo-001"
     room_id = "room-demo-001"
-    prefix = "phase13-task8-postgres"
+    # MemoryStore 的 memory_key 是跨测试库持久化的 upsert 键。使用每次测试唯一的
+    # 前缀，避免历史探针残留的 suppressed 状态改变本用例的 active 读取断言。
+    prefix = f"phase13-task8-postgres-{uuid4().hex}"
     active_id = store.write_memory(
         AnchorMemoryEntry(
             memory_key=f"{prefix}-active",

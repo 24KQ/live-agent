@@ -607,3 +607,13 @@
 - PostgreSQL 集成测试改用独立随机 schema，覆盖重启、并发 CAS、锁等待过期、迁移重复执行和中断后 fencing；正常结束后整体回收。
 - 最终专项 `41 passed`；完整 unit `1209 passed, 4 warnings`；完整 integration `142 passed, 3 deselected, 5 warnings`；规格与质量/安全复审无 Critical/Important。
 - Phase 13 manifests 已按最终源码闭包重生成；本 Task 未调用真实模型，累计费用保持 `0.042344` 元。
+
+# 2026-07-17 Phase 14 Task 3
+
+- 新增六角色受治理 EvidenceBundle：可信售罄事件、库存、根/紧急计划、弹幕聚合和主播节奏经固定只读 Resolver 聚合；控制节点不注入 Store、SQL 或写 Skill。
+- `EvidenceAssemblyRequest` 只接收稳定 `live_session_id`、`incident_id` 与六个 EvidenceRef；启动冻结的 Context Resolver 加载并复核权威父事实，Bundle Snapshot 同时绑定 Incident 业务摘要。
+- 内存与 PostgreSQL Store 均在追加事务内核对 Workspace scope 和 Incident 业务摘要，公开 Store 入口不能绕过 Assembler 用同 ID 的伪造父事实落库。
+- 复审整改包含确定性重放时间、完整 envelope digest、外层 Snapshot 重载校验、固定弹幕主题模板与测试夹具真实六角色事实；Phase 13 Manifest 连续生成哈希稳定。
+- 当前验证：Task 3 聚合 `71 passed`；相关回归 unit `176 passed`、integration `17 passed`；完整 unit `1238 passed, 4 warnings`、integration `143 passed, 3 deselected, 5 warnings`。真实模型新增费用为 0。
+- 最终整改：receipt 由受控 Assembler 闭包登记并绑定原始 Bundle 身份；新增 `EvidenceBundleAssemblyService`，调用面只接受 `EvidenceAssemblyRequest`；D-121 明确无插件/热加载下的进程信任边界。
+- 最终验证：Task 3 聚合 `79 passed`；Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`；完整 integration `145 passed, 3 deselected, 5 warnings`；`compileall`、`git diff --check` 前置检查和 Manifest 两次生成哈希均通过；真实模型新增费用 0。

@@ -1334,3 +1334,14 @@
 - **未选理由**：合并阶段过大；先实施旧门禁会遗漏人机协同输入。
 - **影响**：D-092、D-093 中属于旧 Phase 14 的 ToolRegistry 删除、默认路由和最终操作面任务顺延为 Phase 15；旧 Phase 14 文档标记迁移但保留历史内容。
 - **重新评估条件**：Phase 14 被拒绝或 INCONCLUSIVE 时，Phase 15 Gate 必须先决定是否继续保留 Decision Support 路由再制定发布计划。
+
+## D-121：证据汇聚的受控服务边界与进程内信任模型
+
+- **状态**：`ACCEPTED`
+- **背景**：EvidenceBundle 需要拒绝伪造父事实和裸快照。Python 的对象私有字段、闭包和模块下划线不能隔离任意同进程代码执行；若把它们描述为插件级安全边界，会制造虚假的授权保证。
+- **候选方案**：把任意 wrapper 类型当作写入授权；在同一 Python 进程中继续叠加私有 capability；通过受控服务隐藏 receipt/Store，并把任意进程内代码执行视为服务失陷。
+- **最终选择**：外部与任务调用方只调用 `EvidenceBundleAssemblyService.assemble_and_append(EvidenceAssemblyRequest, expected_workspace_version)`。服务内部用启动冻结的白名单 Resolver 汇聚证据并立即交给持久化端口；receipt 校验与 Store 不进入调用方 API。无插件、无热加载前提下，任意同进程反射、monkeypatch 或内存篡改被定义为服务进程失陷，不作为 Python capability 的可防御攻击面。
+- **选择理由**：严格 Request、权威父事实读取、Store 原子 scope/Incident/LIVE/CAS 校验能阻断网络与任务调用层的伪造输入；对任意代码执行承诺隔离需要独立进程或外部密钥，超出本期既定运行时范围。
+- **未选理由**：wrapper 类型没有签发证明；继续隐藏同进程对象无法防御反射，也会增加不可审计的伪安全复杂度。
+- **影响**：Task 3 以受控门面作为正式应用接口，内部 receipt 继续防止普通调用路径绕过汇聚。未来若引入不可信插件、用户脚本或第三方 Agent，必须先设计独立进程、认证 RPC、最小权限凭证和可验证签名，不得复用本进程内 receipt。
+- **重新评估条件**：新增插件、热加载、第三方可执行代码或跨进程 Evidence 生产者时，先替换为可验证的跨进程授权协议并重新审查 Threat Model。

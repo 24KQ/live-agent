@@ -2,17 +2,17 @@
 
 文档状态：`PHASE_14_IN_PROGRESS`
 
-最后更新：2026-07-17
+最后更新：2026-07-18
 
 ## 1. 当前游标
 
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Task 1：旧路径安全审计与默认关闭路由（`0a68e1d` 已推送） |
-| 当前任务 | Task 2：Workspace 与不可变事实 Store |
-| 当前任务状态 | `VERIFY_COMPLETE_AWAITING_COMMIT` |
-| 当前子步骤 | Task 2 专项 `41 passed`、完整 unit/integration 全绿、双重审查通过；待提交推送 |
+| 最近完成任务 | Phase 14 Task 2：Workspace 与不可变事实 Store（`42991ec` 已推送） |
+| 当前任务 | Task 3：确定性证据聚合与只读取证 |
+| 当前任务状态 | `VERIFY` |
+| 当前子步骤 | Task 3 聚合 `79 passed`；完整 unit `1244 passed`、integration `145 passed, 3 deselected`；双重复审无阻断 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -21,32 +21,86 @@
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
-- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-120 和 Phase 15 Discussion Baseline。
+- 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-121 和 Phase 15 Discussion Baseline。
 - 当前授权：Phase 14 Task 1-12 按技术门禁连续实施；Acceptance 后停止在 Phase 15 Gate。
 - 仍禁止：Task 11 全部预检通过前运行真实模型、修改用户脏文件、自动进入 Phase 15。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
-- 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、自动进入 Phase 14 或 Phase 15。
+- 当前禁止：跳过 RED、提交已知失败代码、修改或提交用户脏文件、自动进入 Phase 15。
 
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 2
-状态: VERIFY_COMPLETE_AWAITING_COMMIT
-目标: 实现 PREPARE/LIVE/REVIEW 统一 Workspace、五类 append-only 事实和内存/PostgreSQL 等价 Store
-禁止事项: 不提前实现 Evidence Resolver/Copilot/OperatorDecision 编译；不覆盖事实；不运行真实模型；不修改用户脏文件
-当前 HEAD: 0a68e1d
-本 Task 文件: decision_support/models.py、store.py、Phase 14 SQL、Workspace Store 单元/集成测试、四份 worklog
+Phase / Task: Phase 14 / Task 3
+状态: VERIFY
+目标: 聚合可信事件、商品/计划、弹幕与节奏证据，形成深冻结 EvidenceBundle 和白名单只读 Resolver
+禁止事项: 不实现 Copilot/Proposal；不开放任意 Store 查询或写 Skill；不运行真实模型；不修改用户脏文件
+当前 HEAD: 42991ec
+本 Task 文件: decision_support/evidence.py、models/store、Task 3 单元/集成测试、Phase 13 manifests、四份 worklog
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 2 专项 `41 passed`；完整 unit `1209 passed, 4 warnings`；integration `142 passed, 3 deselected, 5 warnings`；DDL 连续执行两次、compileall 与 git diff 检查通过
-错误与尝试次数: 2 轮预期 RED；三轮审查整改补齐数据库墙钟、幂等双向账本、Proposal 单决定/最新 lineage、跨系统 scope、NUL、复合外键、append-only、lease/fencing 与事务原子性
-设计偏差与决策编号: 按 D-114、D-117 实施；尚无偏差
-下一条精确操作: 严格编码与暂存边界检查后提交并推送 `feat: persist decision support workspace`
+最近命令与结果: Task 3 聚合 `79 passed`；相关 Phase 13 数据/Planner 回归 `23 passed`；完整 unit `1244 passed, 4 warnings`、integration `145 passed, 3 deselected, 5 warnings`；compileall 与两次 Manifest 生成哈希一致
+错误与尝试次数: 首轮缺模块 RED；审查后修复墙钟进入持久化、组件 envelope 未摘要、父事实可伪造、外层快照重载、自由摘要注入、receipt 伪造/重绑定和调用面过宽；一次全量 integration 的 Git 子进程异常单独重跑后通过
+设计偏差与决策编号: 按 D-114、D-117 实施；receipt 进程信任边界按 D-121 明确，未扩大为插件或跨进程授权
+下一条精确操作: 执行严格 UTF-8/LF/尾随空白、git diff --check 与目标暂存边界检查；通过后提交并推送 Task 3
 模型费用累计: 0.042344 元
 ```
 
 当前 sub-agent：
 
 ```text
+Sub-agent ID / 角色: 019f7032-c12e-7072-845d-f4bc8247e0a9 / Task 3 最终规格审查
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Phase 14 Design/Plan、D-114/D-117、evidence.py 与测试
+预期交付物与测试: 核对六类证据、scope、版本、时间、冲突、对账降级和 Task 3 范围
+首次回报: 已完成
+最近可验证进展: 初审发现可信时钟、冻结和 Manifest 三项缺口；整改后复审无 Critical/Important
+状态: COMPLETED
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f7032-d565-7392-8090-293f18589b7e / Task 3 代码质量与安全审查
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 evidence.py、Task 3 测试与相关冻结模型
+预期交付物与测试: 检查摘要、时间重绑定、model_construct、Resolver 权限、确定性与测试缺口
+首次回报: 已完成
+最近可验证进展: 复审发现 envelope、父事实绑定、外层重载和自由摘要四项 Important；均已新增 RED/GREEN 证据
+状态: COMPLETED
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f706c-61e1-71f3-8b2d-80e8b72838de / Task 3 最终规格复审
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Task 3 Design/Plan、D-114/D-117、当前代码和测试
+预期交付物与测试: 核对六角色证据、窄只读父事实 Resolver、Store 父绑定和 Task 3 范围
+首次回报: 已成功派发，等待可验证结论
+最近可验证进展: 最终结论无 Critical/Important；复核验证 `79 passed`
+状态: COMPLETED（无 Critical/Important）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f706c-765a-7111-afc7-31edbdf347da / Task 3 最终质量与安全复审
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Task 3 Python、测试、Store 事务和冻结 Manifest
+预期交付物与测试: 核对循环导入、不可变性、摘要/时间、SQL 作用域、夹具旁路和测试隔离
+首次回报: 已成功派发，等待可验证结论
+最近可验证进展: D-121 威胁模型复核无 Critical/Important；复核验证 `79 passed`
+状态: COMPLETED（无 Critical/Important）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f7020-1ff4-7a61-8a4c-38c740da92d9 / Task 3 EvidenceRef 与 Resolver 模式分析
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 specialist_runtime 证据协议、Registry、Runner 与测试
+预期交付物与测试: 提炼严格 EvidenceRef、白名单解析、摘要/作用域/时间校验的可复用模式
+首次回报: 已成功派发，等待可验证结论
+最近可验证进展: 正在核对现有证据协议和安全边界
+状态: COMPLETED（建议场景专用六角色 Registry、完整 scope 与本地摘要重算）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f7020-33ea-78d3-9d60-efee73b2ef66 / Task 3 EventStore 与 PlanStore 公开读取分析
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Phase 12B 事件、计划、商品、弹幕和节奏模型及公开 API
+预期交付物与测试: 给出复合售罄 EvidenceBundle 的最小输入类型与只读 Port 边界
+首次回报: 已成功派发，等待可验证结论
+最近可验证进展: 正在检查事实来源、版本、provenance 和公开查询能力
+状态: COMPLETED（确认五个窄只读 Port，禁止注入完整 EventStore/PlanStore）
+接管原因（如适用）: 无
+
 Sub-agent ID / 角色: 019f6ffb-0d67-7830-aab9-2a118eacf37d / Task 2 最终规格复审
 派发时间: 2026-07-17
 只读或写入文件边界: 只读 Task 2 Design/Plan、D-114/D-117、models/store/SQL/tests

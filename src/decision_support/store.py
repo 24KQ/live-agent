@@ -11,6 +11,12 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from src.config.settings import Settings
+from src.decision_support.evidence import (
+    AssembledEvidenceBundle,
+    EvidenceBundleSnapshot,
+    IncidentEvidenceBinding,
+    _require_governed_evidence_receipt,
+)
 from src.decision_support.models import (
     POSTGRES_BIGINT_MAX,
     EvidenceBundle,
@@ -48,6 +54,22 @@ FactT = TypeVar(
     OperatorDecision,
     ExecutionCommand,
 )
+
+
+def _require_evidence_parent_binding(
+    *,
+    evidence: EvidenceBundle,
+    incident: Incident,
+    workspace_scope: dict[str, str],
+) -> None:
+    """核对 Bundle 内的父事实绑定，防止调用方绕过 Assembler 直接追加。"""
+
+    snapshot = EvidenceBundleSnapshot.model_validate(evidence.snapshot)
+    for field, actual in workspace_scope.items():
+        if getattr(snapshot.scope, field) != actual:
+            raise WorkspaceConflictError("evidence workspace binding is invalid")
+    if snapshot.incident_binding != IncidentEvidenceBinding.from_incident(incident):
+        raise WorkspaceConflictError("evidence incident binding is invalid")
 
 
 class InMemoryDecisionSupportStore:
@@ -228,17 +250,39 @@ class InMemoryDecisionSupportStore:
             )
 
     def append_evidence_bundle(
-        self, fact: EvidenceBundle, *, expected_workspace_version: int
+        self, fact: AssembledEvidenceBundle, *, expected_workspace_version: int
     ) -> LiveSessionWorkspace:
         self._require_control_integer(expected_workspace_version, "expected_version")
         with self._lock:
-            validated = EvidenceBundle.model_validate(fact.model_dump(mode="json"))
+            try:
+                issued_bundle = _require_governed_evidence_receipt(fact)
+            except TypeError as exc:
+                raise WorkspaceConflictError(
+                    "evidence requires governed assembly receipt"
+                ) from exc
+            validated = EvidenceBundle.model_validate(issued_bundle.model_dump(mode="json"))
             replay = self._replay_workspace("evidence_bundle", validated)
             if replay is not None:
                 return replay
             incident = self._incidents.get(validated.incident_id)
             if incident is None or incident.live_session_id != validated.live_session_id:
                 raise WorkspaceConflictError("evidence incident scope is invalid")
+            workspace = self._workspaces.get(validated.live_session_id)
+            if workspace is None:
+                raise WorkspaceConflictError("evidence workspace scope is invalid")
+            if workspace.view is not WorkspaceView.LIVE:
+                raise WorkspaceConflictError("evidence requires Workspace LIVE view")
+            _require_evidence_parent_binding(
+                evidence=validated,
+                incident=incident,
+                workspace_scope={
+                    "live_session_id": workspace.live_session_id,
+                    "room_id": workspace.room_id,
+                    "trace_id": workspace.trace_id,
+                    "anchor_id": workspace.anchor_id,
+                    "root_plan_run_id": workspace.root_plan_run_id,
+                },
+            )
             return self._append(
                 "evidence_bundle",
                 validated,
@@ -660,22 +704,46 @@ class PostgresDecisionSupportStore:
 
     def append_evidence_bundle(
         self,
-        fact: EvidenceBundle,
+        fact: AssembledEvidenceBundle,
         *,
         expected_workspace_version: int,
     ) -> LiveSessionWorkspace:
         """在根行锁内验证事故作用域并追加证据快照。"""
 
-        validated = EvidenceBundle.model_validate(fact.model_dump(mode="json"))
+        try:
+            issued_bundle = _require_governed_evidence_receipt(fact)
+        except TypeError as exc:
+            raise WorkspaceConflictError(
+                "evidence requires governed assembly receipt"
+            ) from exc
+        validated = EvidenceBundle.model_validate(issued_bundle.model_dump(mode="json"))
 
         def validate_parent(cur: Any) -> None:
             cur.execute(
-                "SELECT live_session_id FROM phase14_incidents WHERE incident_id=%s",
+                """SELECT i.live_session_id,i.payload,w.current_view,w.room_id,
+                          w.trace_id,w.anchor_id,w.root_plan_run_id
+                   FROM phase14_incidents i
+                   JOIN phase14_live_session_workspaces w
+                     ON w.live_session_id=i.live_session_id
+                   WHERE i.incident_id=%s""",
                 (validated.incident_id,),
             )
             row = cur.fetchone()
             if row is None or row["live_session_id"] != validated.live_session_id:
                 raise WorkspaceConflictError("evidence incident scope is invalid")
+            if row["current_view"] != WorkspaceView.LIVE.value:
+                raise WorkspaceConflictError("evidence requires Workspace LIVE view")
+            _require_evidence_parent_binding(
+                evidence=validated,
+                incident=Incident.model_validate(row["payload"]),
+                workspace_scope={
+                    "live_session_id": row["live_session_id"],
+                    "room_id": row["room_id"],
+                    "trace_id": row["trace_id"],
+                    "anchor_id": row["anchor_id"],
+                    "root_plan_run_id": row["root_plan_run_id"],
+                },
+            )
 
         return self._append_fact(
             fact_kind="evidence_bundle",

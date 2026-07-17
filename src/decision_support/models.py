@@ -16,7 +16,12 @@ from pydantic import (
     model_validator,
 )
 
-from src.specialist_runtime.models import StrictFrozenModel, _freeze_json, _plain_json
+from src.specialist_runtime.models import (
+    StrictFrozenModel,
+    _freeze_json,
+    _plain_json,
+    canonical_json_sha256,
+)
 
 
 POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
@@ -130,6 +135,30 @@ class EvidenceBundle(_SnapshotFact):
     incident_id: str = Field(..., min_length=1)
     evidence_ref_ids: tuple[str, ...] = Field(..., min_length=1)
     input_fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _fingerprint_matches_snapshot(self) -> "EvidenceBundle":
+        """持久化重载时执行完整内层校验，拒绝摘要重算后的伪造快照。"""
+
+        plain_snapshot = _plain_json(self.snapshot)
+        if self.input_fingerprint != canonical_json_sha256(plain_snapshot):
+            raise ValueError("input_fingerprint does not match evidence snapshot")
+        # evidence.py 依赖本模块的父事实模型，因此在实例校验时延迟导入，
+        # 既避免模块循环，又确保内存/PostgreSQL Store 的统一重载入口不会
+        # 绕过 scope、TTL、组件顺序和 bundle_digest 校验。
+        from src.decision_support.evidence import EvidenceBundleSnapshot
+
+        validated = EvidenceBundleSnapshot.model_validate(plain_snapshot)
+        if validated.scope.live_session_id != self.live_session_id:
+            raise ValueError("snapshot scope does not match live_session_id")
+        if validated.scope.incident_id != self.incident_id:
+            raise ValueError("snapshot scope does not match incident_id")
+        expected_refs = tuple(
+            component.reference.evidence_id for component in validated.components
+        )
+        if expected_refs != self.evidence_ref_ids:
+            raise ValueError("snapshot components do not match evidence_ref_ids")
+        return self
 
 
 class Proposal(_SnapshotFact):

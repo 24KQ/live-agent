@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
-
+from src.decision_support.evidence import AssembledEvidenceBundle
 from src.decision_support.models import (
     DecisionKind,
     EvidenceBundle,
@@ -23,6 +23,7 @@ from src.decision_support.store import (
     WorkspaceConflictError,
     WorkspaceLeaseError,
 )
+from tests.phase14_evidence_factory import build_evidence_bundle
 
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
@@ -53,7 +54,7 @@ def _incident(**updates) -> Incident:
         "live_session_id": "live-session-p001-sold-out-v1",
         "idempotency_key": "incident-idem-001",
         "incident_type": "SOLD_OUT_COMPOSITE",
-        "source_ref_ids": ("event-sold-out-001",),
+        "source_ref_ids": ("event-001",),
         "snapshot": {"product_id": "p001", "expected_version": 2},
         "created_at": NOW,
     }
@@ -61,19 +62,23 @@ def _incident(**updates) -> Incident:
     return Incident(**values)
 
 
-def _evidence(**updates) -> EvidenceBundle:
-    values = {
-        "evidence_bundle_id": "evidence-bundle-001",
-        "live_session_id": "live-session-p001-sold-out-v1",
-        "incident_id": "incident-sold-out-001",
-        "idempotency_key": "evidence-idem-001",
-        "evidence_ref_ids": ("event-sold-out-001", "plan-root-001"),
-        "snapshot": {"inventory_version": 2, "danmaku_noise": "HIGH"},
-        "input_fingerprint": "a" * 64,
-        "created_at": NOW,
-    }
-    values.update(updates)
-    return EvidenceBundle(**values)
+def _evidence(**updates) -> AssembledEvidenceBundle:
+    """使用完整六角色事实，确保 Store 重载也经过 Task 3 的严格校验。"""
+
+    fact = build_evidence_bundle(
+        live_session_id="live-session-p001-sold-out-v1",
+        incident_id=updates.pop("incident_id", "incident-sold-out-001"),
+        suffix="001",
+        idempotency_key=updates.pop("idempotency_key", "evidence-idem-001"),
+        evidence_bundle_id=updates.pop("evidence_bundle_id", "evidence-bundle-001"),
+        room_id="room-phase14",
+        trace_id="trace-phase14",
+        root_plan_run_id="plan-root-phase14",
+        created_at=NOW,
+    )
+    if updates:
+        raise AssertionError(f"unsupported assembled evidence overrides: {updates}")
+    return fact
 
 
 def _proposal(**updates) -> Proposal:
@@ -125,13 +130,33 @@ def _command(**updates) -> ExecutionCommand:
     return ExecutionCommand(**values)
 
 
+def _create_live_workspace(store: InMemoryDecisionSupportStore) -> LiveSessionWorkspace:
+    """按正式状态机进入 LIVE，避免测试在 PREPARE 阶段伪造播中证据。"""
+
+    workspace = store.create_workspace(_workspace())
+    lease = store.acquire_operator_lock(
+        workspace.live_session_id,
+        "operator-001",
+        1,
+        now=NOW,
+    )
+    return store.advance_view(
+        workspace.live_session_id,
+        target_view=WorkspaceView.LIVE,
+        expected_version=workspace.version,
+        operator_id="operator-001",
+        fencing_token=lease.fencing_token,
+        now=NOW,
+    )
+
+
 def _seed_proposal(store: InMemoryDecisionSupportStore) -> int:
     """按外键顺序写入系统事实，返回 Proposal 后的 Workspace 版本。"""
 
-    store.create_workspace(_workspace())
-    store.append_incident(_incident(), expected_workspace_version=1)
-    store.append_evidence_bundle(_evidence(), expected_workspace_version=2)
-    return store.append_proposal(_proposal(), expected_workspace_version=3).version
+    _create_live_workspace(store)
+    store.append_incident(_incident(), expected_workspace_version=2)
+    store.append_evidence_bundle(_evidence(), expected_workspace_version=3)
+    return store.append_proposal(_proposal(), expected_workspace_version=4).version
 
 
 def test_models_are_strict_and_deeply_immutable() -> None:
@@ -280,31 +305,104 @@ def test_workspace_views_advance_in_order_under_version_and_fencing() -> None:
 
 def test_append_only_chain_enforces_scope_foreign_keys_and_versions() -> None:
     store = InMemoryDecisionSupportStore()
-    store.create_workspace(_workspace())
+    _create_live_workspace(store)
 
     incident_workspace = store.append_incident(
-        _incident(), expected_workspace_version=1
+        _incident(), expected_workspace_version=2
     )
     evidence_workspace = store.append_evidence_bundle(
-        _evidence(), expected_workspace_version=2
+        _evidence(), expected_workspace_version=3
     )
     proposal_workspace = store.append_proposal(
-        _proposal(), expected_workspace_version=3
+        _proposal(), expected_workspace_version=4
     )
 
     assert [
         incident_workspace.version,
         evidence_workspace.version,
         proposal_workspace.version,
-    ] == [2, 3, 4]
+    ] == [3, 4, 5]
     assert store.get_incident("incident-sold-out-001") == _incident()
-    assert store.get_evidence_bundle("evidence-bundle-001") == _evidence()
+    assert store.get_evidence_bundle("evidence-bundle-001") == _evidence().bundle
     assert store.get_proposal("proposal-001") == _proposal()
     with pytest.raises(WorkspaceConflictError, match="incident"):
         store.append_evidence_bundle(
             _evidence(incident_id="incident-missing", idempotency_key="evidence-missing"),
-            expected_workspace_version=4,
+            expected_workspace_version=5,
         )
+
+
+def test_store_rejects_bundle_when_authoritative_incident_fact_differs() -> None:
+    """公开 Store 入口也必须拒绝绕过 Assembler 的伪造父事实绑定。"""
+
+    store = InMemoryDecisionSupportStore()
+    _create_live_workspace(store)
+    store.append_incident(
+        _incident(snapshot={"product_id": "p999", "expected_version": 99}),
+        expected_workspace_version=2,
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="incident binding"):
+        store.append_evidence_bundle(_evidence(), expected_workspace_version=3)
+
+
+def test_store_rejects_raw_bundle_without_governed_assembly_receipt() -> None:
+    """可重算 SHA-256 不是写入授权，Store 只能接受受治理 Assembler 的产物。"""
+
+    store = InMemoryDecisionSupportStore()
+    store.create_workspace(_workspace())
+    store.append_incident(_incident(), expected_workspace_version=1)
+
+    with pytest.raises(WorkspaceConflictError, match="governed assembly"):
+        store.append_evidence_bundle(_evidence().bundle, expected_workspace_version=2)
+
+
+def test_store_rejects_receipt_not_issued_by_governed_assembler() -> None:
+    """精确 Python 类型不足以代表写入授权，伪造 wrapper 也必须被拒绝。"""
+
+    store = InMemoryDecisionSupportStore()
+    _create_live_workspace(store)
+    store.append_incident(_incident(), expected_workspace_version=2)
+    # 外部调用方可以用底层 Python 原语伪造对象布局；Store 必须只信任
+    # Assembler 实际签发并登记的 receipt，不能把 type() 检查当作能力边界。
+    forged = object.__new__(AssembledEvidenceBundle)
+    object.__setattr__(forged, "_bundle", _evidence().bundle)
+
+    with pytest.raises(WorkspaceConflictError, match="governed assembly"):
+        store.append_evidence_bundle(forged, expected_workspace_version=3)
+
+
+def test_store_rejects_issued_receipt_after_bundle_rebinding() -> None:
+    """已签发 receipt 的私有字段被重绑定后，Store 必须 fail-closed。"""
+
+    store = InMemoryDecisionSupportStore()
+    _create_live_workspace(store)
+    store.append_incident(_incident(), expected_workspace_version=2)
+    issued = _evidence()
+    replacement = EvidenceBundle.model_validate(
+        {
+            **issued.bundle.model_dump(mode="json"),
+            "evidence_bundle_id": "evidence-bundle-rebound",
+            "idempotency_key": "evidence-idem-rebound",
+        }
+    )
+    # 即使攻击者复用合法 receipt，也不能把签发时通过权威读取的原始 Bundle
+    # 换成另一个结构合法的事实，再借用该 receipt 获得写入授权。
+    object.__setattr__(issued, "_bundle", replacement)
+
+    with pytest.raises(WorkspaceConflictError, match="governed assembly"):
+        store.append_evidence_bundle(issued, expected_workspace_version=3)
+
+
+def test_store_rejects_governed_receipt_after_workspace_leaves_live_view() -> None:
+    """Assembler 的 LIVE 快照不能授权向已处于 PREPARE/REVIEW 的会话追加事实。"""
+
+    store = InMemoryDecisionSupportStore()
+    store.create_workspace(_workspace())
+    store.append_incident(_incident(), expected_workspace_version=1)
+
+    with pytest.raises(WorkspaceConflictError, match="Workspace LIVE"):
+        store.append_evidence_bundle(_evidence(), expected_workspace_version=2)
 
 
 def test_idempotent_fact_replay_reuses_original_without_advancing_version() -> None:
@@ -394,28 +492,28 @@ def test_operator_lock_renew_release_and_fact_listing_are_stable() -> None:
 
 def test_decision_and_command_require_current_operator_lease() -> None:
     store = InMemoryDecisionSupportStore()
-    assert _seed_proposal(store) == 4
+    assert _seed_proposal(store) == 5
     lease = store.acquire_operator_lock(
         "live-session-p001-sold-out-v1", "operator-001", 30, now=NOW
     )
 
     decision_workspace = store.append_operator_decision(
         _decision(),
-        expected_workspace_version=4,
+        expected_workspace_version=5,
         operator_id="operator-001",
         fencing_token=lease.fencing_token,
         now=NOW,
     )
     command_workspace = store.append_execution_command(
         _command(),
-        expected_workspace_version=5,
+        expected_workspace_version=6,
         operator_id="operator-001",
         fencing_token=lease.fencing_token,
         now=NOW,
     )
 
-    assert decision_workspace.version == 5
-    assert command_workspace.version == 6
+    assert decision_workspace.version == 6
+    assert command_workspace.version == 7
     assert store.get_operator_decision("decision-001") == _decision()
     assert store.get_execution_command("command-001") == _command()
     with pytest.raises(WorkspaceLeaseError, match="expired"):
@@ -438,7 +536,7 @@ def test_command_requires_same_fencing_epoch_as_parent_decision() -> None:
     )
     store.append_operator_decision(
         _decision(),
-        expected_workspace_version=4,
+        expected_workspace_version=5,
         operator_id="operator-001",
         fencing_token=first.fencing_token,
         now=NOW,
@@ -453,7 +551,7 @@ def test_command_requires_same_fencing_epoch_as_parent_decision() -> None:
     with pytest.raises(WorkspaceLeaseError, match="decision fencing"):
         store.append_execution_command(
             _command(),
-            expected_workspace_version=5,
+            expected_workspace_version=6,
             operator_id="operator-001",
             fencing_token=second.fencing_token,
             now=NOW + timedelta(seconds=10),
@@ -472,14 +570,14 @@ def test_decision_and_command_replay_survives_lease_handover() -> None:
     command = _command()
     store.append_operator_decision(
         decision,
-        expected_workspace_version=4,
+        expected_workspace_version=5,
         operator_id="operator-001",
         fencing_token=first.fencing_token,
         now=NOW,
     )
     store.append_execution_command(
         command,
-        expected_workspace_version=5,
+        expected_workspace_version=6,
         operator_id="operator-001",
         fencing_token=first.fencing_token,
         now=NOW,
@@ -507,8 +605,8 @@ def test_decision_and_command_replay_survives_lease_handover() -> None:
     )
 
     assert second.fencing_token == first.fencing_token + 1
-    assert replayed_decision.version == 6
-    assert replayed_command.version == 6
+    assert replayed_decision.version == 7
+    assert replayed_command.version == 7
     assert store.list_operator_decisions(first.live_session_id) == (decision,)
     assert store.list_execution_commands(first.live_session_id) == (command,)
 
@@ -523,7 +621,7 @@ def test_decision_rejects_stale_proposal_version_and_cross_scope_operator() -> N
     with pytest.raises(WorkspaceConflictError, match="proposal version"):
         store.append_operator_decision(
             _decision(expected_proposal_version=2),
-            expected_workspace_version=4,
+            expected_workspace_version=5,
             operator_id="operator-001",
             fencing_token=lease.fencing_token,
             now=NOW,
@@ -541,7 +639,7 @@ def test_decision_rejects_superseded_proposal_lineage_version() -> None:
             idempotency_key="proposal-idem-002",
             proposal_version=2,
         ),
-        expected_workspace_version=4,
+        expected_workspace_version=5,
     )
     replayed_first = store.append_proposal(
         _proposal(), expected_workspace_version=999
@@ -550,11 +648,11 @@ def test_decision_rejects_superseded_proposal_lineage_version() -> None:
         "live-session-p001-sold-out-v1", "operator-001", 30, now=NOW
     )
 
-    assert replayed_first.version == 5
+    assert replayed_first.version == 6
     with pytest.raises(WorkspaceConflictError, match="latest proposal"):
         store.append_operator_decision(
             _decision(proposal_id="proposal-001", expected_proposal_version=1),
-            expected_workspace_version=5,
+            expected_workspace_version=6,
             operator_id="operator-001",
             fencing_token=lease.fencing_token,
             now=NOW,
@@ -562,7 +660,7 @@ def test_decision_rejects_superseded_proposal_lineage_version() -> None:
     with pytest.raises(WorkspaceLeaseError, match="operator"):
         store.append_operator_decision(
             _decision(operator_id="operator-002", idempotency_key="decision-idem-002"),
-            expected_workspace_version=4,
+            expected_workspace_version=5,
             operator_id="operator-002",
             fencing_token=lease.fencing_token,
             now=NOW,
@@ -579,7 +677,7 @@ def test_proposal_accepts_only_one_operator_decision() -> None:
     )
     store.append_operator_decision(
         _decision(),
-        expected_workspace_version=4,
+        expected_workspace_version=5,
         operator_id="operator-001",
         fencing_token=lease.fencing_token,
         now=NOW,
@@ -592,7 +690,7 @@ def test_proposal_accepts_only_one_operator_decision() -> None:
                 idempotency_key="decision-idem-002",
                 decision_kind=DecisionKind.REJECT,
             ),
-            expected_workspace_version=5,
+            expected_workspace_version=6,
             operator_id="operator-001",
             fencing_token=lease.fencing_token,
             now=NOW,

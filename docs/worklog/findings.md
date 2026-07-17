@@ -419,6 +419,16 @@
 - Decision 与首次 ExecutionCommand 必须属于同一 operator/fencing epoch；重新取得 lease 不能为旧决定补造命令。
 - append-only PostgreSQL 测试应使用独立 schema 并整体回收，随机 ID 只能避免冲突，不能避免测试数据永久污染。
 
+## 2026-07-17 Phase 14 Task 3 发现
+
+- 可信墙钟只能判断证据是否新鲜；写入 Bundle 的时间必须由已摘要绑定的证据 envelope 派生，否则同一引用在 TTL 内重放会产生不同事实。
+- `EvidenceRef.digest` 需要绑定角色、完整 scope、版本、来源时间和 payload；只摘要 payload 会让同一引用被替换为另一份接收时间或作用域事实。
+- Assembler 的窄只读 Context Resolver 防止正常调用伪造 Workspace/Incident；公开 Store 入口仍必须在事务中比对持久化 Incident 业务摘要和 Workspace scope，避免直接构造 Bundle 绕过 Assembler。
+- 弹幕聚合摘要不能依赖控制词黑名单。固定主题码映射到确定性模板，才能阻止自由文本或换行注入进入后续 Copilot 上下文。
+- PostgreSQL 测试使用持久化 memory_key 时必须每次生成唯一前缀；历史 upsert 不重置 status 会让重跑读取旧 suppressed 行，造成与业务无关的非确定性。
+- receipt 只能在正常受控调用面代表 Assembler 产物；Task 3 通过 `EvidenceBundleAssemblyService` 隐藏 receipt/Store，WeakKeyDictionary 绑定签发时的 Bundle 身份，并用 D-121 明确任意同进程代码执行属于服务进程失陷而非插件安全边界。
+- Task 3 最终证据为专项 `79 passed`、完整 unit `1244 passed`、integration `145 passed, 3 deselected`；Phase 13 Manifest 在源码闭包变化后连续两次生成哈希稳定。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。
