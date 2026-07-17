@@ -598,3 +598,12 @@
 - 多轮独立审查补齐三项执行边界：真实旧 checkpoint 已排队 `execute_tool` 时仍按冻结路由阻断、授权型 Skill 最终节点二次校验、执行器 `TypeError` 不再触发第二次调用。
 - Dashboard 的无 interrupt 会话改为单事务原子终态创建，不经过 `pending_human`；API 文档同步退役旧审批授权语义。
 - 最终验证为 unit `1191 passed, 4 warnings`、integration `119 passed, 3 deselected, 5 warnings`；专项复审无 Critical/Important/Minor，真实模型费用仍为 `0.042344` 元累计值且本 Task 新增费用为 0。
+
+# 2026-07-17 Phase 14 Task 2
+
+- 新增 `LiveSessionWorkspace` 三视图及 Incident、EvidenceBundle、Proposal、OperatorDecision、ExecutionCommand 五类深冻结事实，内存与 PostgreSQL Store 使用一致的 CAS、幂等、父作用域和单向状态机。
+- PostgreSQL 使用根行锁、数据库墙钟、operator lease 与单调 fencing；事实、幂等账本和 Workspace 版本位于同一事务，故障注入证明三者共同回滚。
+- 数据库层新增复合 scope 外键、payload 同构、双向幂等账本、append-only、Proposal 单决定/最新版本、Decision/Command lease 与父 fencing 约束；绕过 Store 同样 fail-closed。
+- PostgreSQL 集成测试改用独立随机 schema，覆盖重启、并发 CAS、锁等待过期、迁移重复执行和中断后 fencing；正常结束后整体回收。
+- 最终专项 `41 passed`；完整 unit `1209 passed, 4 warnings`；完整 integration `142 passed, 3 deselected, 5 warnings`；规格与质量/安全复审无 Critical/Important。
+- Phase 13 manifests 已按最终源码闭包重生成；本 Task 未调用真实模型，累计费用保持 `0.042344` 元。

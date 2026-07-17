@@ -410,6 +410,15 @@
 - 无 interrupt 的禁用、降级或完成会话必须通过单事务终态 INSERT 创建，不能先写 `pending_human` 再更新，否则故障窗口会留下虚假审批事实。
 - `phase13-v2/v3` 是生成器持续校验的源码闭包数据基线，并非正式去留结论行；新增生产源码后必须由生成器更新，手工排除会使字节稳定和完整源码集合测试失败。
 
+## 2026-07-17 Phase 14 Task 2 发现
+
+- Workspace 根行锁必须在取得锁后读取 `clock_timestamp()`；事务起始时间会忽略锁等待，错误放过等待期间已经过期的 lease。
+- 同一 Workspace 的五类事实共享幂等命名空间，不同 Workspace 相互隔离；幂等重放必须先于版本和 lease 业务门禁，但控制字段类型仍在重放前严格校验。
+- 关系列与 JSONB 审计 payload 是同一事实的两种表示，数据库触发器必须校验身份、父关系、时间和账本双向一致，不能只依赖 Store。
+- 同一 Proposal 只能形成一个 OperatorDecision；数据库和 Store 都必须验证预期版本与 lineage 最新性，防止原始 SQL 固化陈旧决定。
+- Decision 与首次 ExecutionCommand 必须属于同一 operator/fencing epoch；重新取得 lease 不能为旧决定补造命令。
+- append-only PostgreSQL 测试应使用独立 schema 并整体回收，随机 ID 只能避免冲突，不能避免测试数据永久污染。
+
 # 2026-07-11 Phase 7A 发现
 
 - 生产级 Agent 项目不能只证明“能跑”，还要能回放、评分和复核，否则很难解释 Agent 决策是否可靠。

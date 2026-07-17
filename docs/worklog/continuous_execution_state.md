@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 14 Human-Centered Decision Support |
-| 最近完成任务 | Phase 14 Stage A：Design/Plan 持久化 |
-| 当前任务 | Task 1：旧 Planner/Harness 权限审计与路由骨架 |
-| 当前任务状态 | `COMMIT` |
-| 当前子步骤 | Task 1 全量验证、复审和严格编码检查完成；准备独立提交并推送 |
+| 最近完成任务 | Phase 14 Task 1：旧路径安全审计与默认关闭路由（`0a68e1d` 已推送） |
+| 当前任务 | Task 2：Workspace 与不可变事实 Store |
+| 当前任务状态 | `VERIFY_COMPLETE_AWAITING_COMMIT` |
+| 当前子步骤 | Task 2 专项 `41 passed`、完整 unit/integration 全绿、双重审查通过；待提交推送 |
 | 当前分支 | `main` |
 | 当前业务基线 | `7025d88 docs: define human centered phase 14` |
 | 远端状态 | `origin/main` 已包含阶段 A 文档与状态留痕；恢复时以 `git log -1 --oneline --decorate` 校验当前 HEAD |
@@ -30,23 +30,77 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 14 / Task 1
-状态: COMMIT
-目标: 审计旧 Planner/Harness 权限边界，新增启动冻结且默认关闭的 Decision Support 路由
-禁止事项: 无可信 OperatorDecision 不得产生经营恢复写入；不得同次 fallback Legacy；不运行真实模型；不修改用户脏文件
-当前 HEAD: 4445608
-本 Task 文件: decision_support 路由、Settings、Harness Graph/Planner/API/Dashboard/Session Store、Phase 13 数据基线 Manifest、Task 1 测试、四份 worklog
+Phase / Task: Phase 14 / Task 2
+状态: VERIFY_COMPLETE_AWAITING_COMMIT
+目标: 实现 PREPARE/LIVE/REVIEW 统一 Workspace、五类 append-only 事实和内存/PostgreSQL 等价 Store
+禁止事项: 不提前实现 Evidence Resolver/Copilot/OperatorDecision 编译；不覆盖事实；不运行真实模型；不修改用户脏文件
+当前 HEAD: 0a68e1d
+本 Task 文件: decision_support/models.py、store.py、Phase 14 SQL、Workspace Store 单元/集成测试、四份 worklog
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: 最终 unit `1191 passed, 4 warnings`；integration `119 passed, 3 deselected, 5 warnings`；真实 checkpoint/权限/路由专项 `28 passed`；compileall 与 diff 检查通过
-错误与尝试次数: 审查发现并修复伪造 decision、非原子终态、默认 Planner fallback、TypeError 二次调用和旧 checkpoint 绕过；一次历史 20ms deadline 用例在并行负载下抖动，隔离与无审查负载全量复跑均通过
-设计偏差与决策编号: 按 D-113、D-116、D-117、D-120 实施；尚无偏差
-下一条精确操作: 只暂存 Task 1 的 25 个目标文件，提交并推送 `feat: gate decision support authority`
+最近命令与结果: Task 2 专项 `41 passed`；完整 unit `1209 passed, 4 warnings`；integration `142 passed, 3 deselected, 5 warnings`；DDL 连续执行两次、compileall 与 git diff 检查通过
+错误与尝试次数: 2 轮预期 RED；三轮审查整改补齐数据库墙钟、幂等双向账本、Proposal 单决定/最新 lineage、跨系统 scope、NUL、复合外键、append-only、lease/fencing 与事务原子性
+设计偏差与决策编号: 按 D-114、D-117 实施；尚无偏差
+下一条精确操作: 严格编码与暂存边界检查后提交并推送 `feat: persist decision support workspace`
 模型费用累计: 0.042344 元
 ```
 
 当前 sub-agent：
 
 ```text
+Sub-agent ID / 角色: 019f6ffb-0d67-7830-aab9-2a118eacf37d / Task 2 最终规格复审
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Task 2 Design/Plan、D-114/D-117、models/store/SQL/tests
+预期交付物与测试: 核对三视图、五事实、CAS、幂等、lease/fencing、作用域、版本与事务原子性
+首次回报: 已成功派发，等待可验证结论
+最近可验证进展: 正在核对审查整改后的完整 Task 2 差异
+状态: COMPLETED（最终规格复审无 Critical/Important）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f6ffb-2246-7440-acda-9ccdcbbbe143 / Task 2 最终代码质量与安全复审
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Task 2 Python/SQL/tests
+预期交付物与测试: 核对 SQL 注入、事务、锁序、迁移幂等、模型严格性、测试隔离与中文注释
+首次回报: 已成功派发，等待可验证结论
+最近可验证进展: 正在检查最终生产实现和 29 条专项证据
+状态: COMPLETED（最终质量/安全复审无 Critical/Important，批准 Task 2）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f6fe6-02a3-7830-9d42-6d027a5a9892 / Task 2 最终规格复审
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Task 2 Design/Plan、D-114/D-117、models/store/SQL/tests
+预期交付物与测试: 检查五事实、三视图、append-only、作用域、版本、幂等、lease/fencing 与范围边界
+首次回报: 已成功派发，等待首次可验证结论
+最近可验证进展: 正在只读核对规格与 Task 2 diff
+状态: COMPLETED（发现数据库时钟、幂等重放、Proposal lineage 与 scope 缺口，已由主模型修复）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f6fe6-1712-7682-a078-c676e0334894 / Task 2 代码质量与安全复审
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Task 2 Python/SQL/tests 与当前 diff
+预期交付物与测试: 检查并发锁序、事务原子性、SQL 约束、错误归一化、内存/PostgreSQL 等价与缺失测试
+首次回报: 已成功派发，等待首次可验证结论
+最近可验证进展: 正在只读检查事务、锁序、SQL 与测试
+状态: COMPLETED（发现约束、NUL、事务与可读性缺口，已由主模型修复）
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f6fc9-a615-7341-8fc7-01dadec85a91 / Task 2 Store 与迁移模式分析
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 PlanStore、Evaluation Store、Candidate Store、既有 SQL 与测试
+预期交付物与测试: 推荐可复用的 append-only、幂等、lease/fencing、事务与 PostgreSQL 测试模式；不修改文件
+首次回报: 建议根投影加五类事实表、根行锁、幂等优先、版本 CAS 和 lease/fencing
+最近可验证进展: 结论已由主模型核对并用于首轮 GREEN；未修改文件
+状态: COMPLETED
+接管原因（如适用）: 无
+
+Sub-agent ID / 角色: 019f6fc9-ba60-73c0-8542-5e095c906ce6 / Task 2 规格与状态机分析
+派发时间: 2026-07-17
+只读或写入文件边界: 只读 Phase 14 Design/Plan、D-113 至 D-120 和相关领域模型
+预期交付物与测试: 给出五类事实、Workspace 三视图、版本/幂等/操作员锁/fencing 的最小冻结 API 与测试矩阵；不修改文件
+首次回报: 固定六个模型、单向三视图、append/get/list 与 PostgreSQL 等价测试矩阵
+最近可验证进展: 结论已由主模型核对；Task 3-6 行为保持在范围外；未修改文件
+状态: COMPLETED
+接管原因（如适用）: 无
+
 Sub-agent ID / 角色: 019f6fac-8994-7c12-b723-51b9309c1f9b / Task 1 规格审查
 派发时间: 2026-07-17
 只读或写入文件边界: 只读 Phase 14 Design/Plan、D-113/D-116/D-117/D-120 与当前 diff
