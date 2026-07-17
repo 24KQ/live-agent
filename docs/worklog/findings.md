@@ -451,6 +451,9 @@
 
 - Task 7 只新增受操作员认证保护的 Workspace/Proposal/OperatorDecision API 和 `decision_support_workspace_update` WebSocket 更新；旧 `agent_harness_update` 协议必须保持兼容。
 - API 不直接执行 Skill/Adapter/平台写入；Proposal 创建和决定提交必须复用 Workspace Store、Operator lease、Proposal 版本、幂等和 Task 5 Compiler。
+- Task 7 GREEN 新增 `DecisionSupportService` 和三类受 Operator 鉴权的 Workspace/Proposal/Decision API；APPROVE/MODIFY 仍需 Task 6 Recovery Flow，未装配时返回 503，REJECT 可安全追加事实。
+- WebSocket 使用 `decision_support_workspace_update`、按 session 单调 sequence 和 scope 定向广播；旧 `agent_harness_update` 与无 scope 的历史全局广播保持兼容。
+- Task 7 验证为专项 `7 passed`、旧 API/WebSocket/Harness `14 passed`、完整 unit `1282 passed, 4 warnings`、integration `149 passed, 3 deselected, 5 warnings`，真实模型费用未增加。
 
 ## 2026-07-18 Phase 14 Task 4 发现
 

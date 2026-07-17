@@ -34,6 +34,14 @@ from src.gateway.harness_session_store import PostgresHarnessSessionStore
 from src.core.agent_evaluation import AgentRuleEvaluator
 from src.core.agent_replay import AgentReplayService
 from src.gateway.websocket_manager import WebSocketManager
+from src.gateway.decision_support_service import (
+    DecisionSupportDecisionRequest,
+    DecisionSupportProposalRequest,
+    DecisionSupportService,
+    DecisionSupportServiceUnavailable,
+    create_default_decision_support_service,
+)
+from src.decision_support.store import WorkspaceConflictError, WorkspaceNotFoundError
 from src.skills.product_catalog import ProductCatalogRepository
 from src.plan_engine.preemption import PreemptionEvidenceRef
 
@@ -43,6 +51,10 @@ websocket_manager = WebSocketManager()
 _harness_dashboard_service = None
 _agent_evaluation_service = None
 _agent_evaluation_worker = None
+_decision_support_service = None
+DECISION_SUPPORT_EVENT_TYPE = "decision_support_workspace_update"
+HARNESS_EVENT_TYPE = "agent_harness_update"
+_decision_support_sequences: dict[str, int] = {}
 
 
 class HarnessStartRequest(BaseModel):
@@ -168,7 +180,29 @@ def get_agent_evaluation_worker():
 async def _broadcast_harness_status(payload: dict) -> None:
     """向副屏推送最新 Harness Agent 状态。"""
 
-    await websocket_manager.broadcast({"type": "agent_harness_update", "payload": payload})
+    await websocket_manager.broadcast({"type": HARNESS_EVENT_TYPE, "payload": payload})
+
+
+async def _broadcast_decision_support_status(
+    *,
+    live_session_id: str,
+    payload: dict,
+) -> None:
+    """按 Workspace session 生成单调 sequence，和旧 Harness 事件分离。"""
+
+    sequence = _decision_support_sequences.get(live_session_id, 0) + 1
+    _decision_support_sequences[live_session_id] = sequence
+    await websocket_manager.broadcast(
+        {
+            "type": DECISION_SUPPORT_EVENT_TYPE,
+            "payload": {
+                "live_session_id": live_session_id,
+                "sequence": sequence,
+                "data": payload,
+            },
+        },
+        scope=live_session_id,
+    )
 
 
 async def _broadcast_evaluation_status(payload: dict) -> None:
@@ -177,9 +211,124 @@ async def _broadcast_evaluation_status(payload: dict) -> None:
     await websocket_manager.broadcast({"type": "agent_evaluation_update", "payload": payload})
 
 
+def set_decision_support_service(service) -> None:
+    """替换 Phase 14 决策支持门面，供内存 API 测试与无库 Demo 使用。"""
+
+    global _decision_support_service
+    _decision_support_service = service
+
+
+def get_decision_support_service() -> DecisionSupportService:
+    """懒加载默认 PostgreSQL 门面；批准执行依赖未装配时由服务显式拒绝。"""
+
+    global _decision_support_service
+    if _decision_support_service is None:
+        _decision_support_service = create_default_decision_support_service(settings)
+    return _decision_support_service
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "LiveAgent"}
+
+
+@app.get("/api/decision-support/workspaces/{live_session_id}")
+async def get_decision_support_workspace(live_session_id: str, http_request: Request):
+    """读取三场景 Workspace 及其 append-only 决策历史。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    try:
+        return get_decision_support_service().get_workspace_payload(live_session_id)
+    except WorkspaceNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "workspace not found"})
+    except WorkspaceConflictError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+
+
+@app.post("/api/decision-support/workspaces/{live_session_id}/proposals")
+async def create_decision_support_proposal(
+    live_session_id: str,
+    http_request: Request,
+    request: DecisionSupportProposalRequest,
+):
+    """追加受治理 Proposal；不会由 HTTP 请求直接创建 Skill 或平台命令。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    if request.proposal.live_session_id != live_session_id:
+        return JSONResponse(status_code=409, content={"error": "proposal workspace mismatch"})
+    request_idempotency_key = extract_idempotency_key(dict(http_request.headers))
+    if request_idempotency_key is not None:
+        request = request.model_copy(
+            update={"request_idempotency_key": request_idempotency_key}
+        )
+    try:
+        return await _decision_support_write_response(
+            live_session_id=live_session_id,
+            payload=get_decision_support_service().create_proposal(
+                request,
+                operator_id=identity.operator_id,
+            ),
+        )
+    except WorkspaceNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "workspace not found"})
+    except WorkspaceConflictError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+
+
+@app.post("/api/decision-support/workspaces/{live_session_id}/decisions")
+async def submit_decision_support_decision(
+    live_session_id: str,
+    http_request: Request,
+    request: DecisionSupportDecisionRequest,
+):
+    """提交运营决定；认证身份必须和 draft.operator_id 完全一致。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    if request.draft.operator_id != identity.operator_id:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "decision operator does not match authenticated operator"},
+        )
+    request_idempotency_key = extract_idempotency_key(dict(http_request.headers))
+    if (
+        request_idempotency_key is not None
+        and request_idempotency_key != request.draft.idempotency_key
+    ):
+        return JSONResponse(status_code=409, content={"error": "decision idempotency key mismatch"})
+    try:
+        return await _decision_support_write_response(
+            live_session_id=live_session_id,
+            payload=get_decision_support_service().submit_decision(
+                live_session_id=live_session_id,
+                request=request,
+                operator_id=identity.operator_id,
+            ),
+        )
+    except WorkspaceNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "workspace or proposal not found"})
+    except WorkspaceConflictError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    except DecisionSupportServiceUnavailable as exc:
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+
+
+async def _decision_support_write_response(
+    *,
+    live_session_id: str,
+    payload: dict,
+):
+    """写入后只广播结构化 Workspace 更新，HTTP 返回原始门面结果。"""
+
+    await _broadcast_decision_support_status(
+        live_session_id=live_session_id,
+        payload=payload,
+    )
+    return payload
 
 
 @app.get("/evaluation")
@@ -631,6 +780,35 @@ async def get_llm_review(room_id: str):
         }
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.websocket("/ws/decision-support")
+async def decision_support_websocket(websocket: WebSocket):
+    """受 Operator 鉴权保护的 Phase 14 Workspace 更新订阅。"""
+
+    try:
+        identity = authenticate_request(dict(websocket.headers))
+        authorize_action(identity, OperatorRole.OPERATOR)
+    except OperatorAuthError:
+        await websocket.close(code=4401)
+        return
+    except OperatorPermissionError:
+        await websocket.close(code=4403)
+        return
+
+    live_session_id = websocket.query_params.get("live_session_id")
+    if not live_session_id:
+        await websocket.close(code=4400)
+        return
+    await websocket.accept()
+    websocket_manager.connect(websocket, scope=live_session_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(websocket)
+    except Exception:
+        websocket_manager.disconnect(websocket)
 
 
 @app.websocket("/ws")

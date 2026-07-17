@@ -651,3 +651,5 @@
 # 2026-07-18 Phase 14 Task 7
 
 - Task 7 开始前保持真实模型费用 `0.042344` 元；不新增模型调用，先测试 API 鉴权、幂等、Proposal 版本和 WebSocket 事件顺序。
+- Task 7 已完成 GREEN 和复审：新增 API Service 门面、Operator 鉴权、Proposal/Decision 幂等键校验、REJECT 只读事实路径、approved 未装配时 fail-closed，以及按 live_session scope 的 WebSocket 广播。
+- 最终验证：Task 7 专项 `7 passed`，旧 API/WebSocket/Harness `14 passed`，完整 unit `1282 passed, 4 warnings`，完整 integration `149 passed, 3 deselected, 5 warnings`；Manifest、compileall、迁移 dry-run、diff 和编码检查通过，待独立提交推送。
