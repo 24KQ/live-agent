@@ -1592,3 +1592,22 @@
   不是本阶段完成定义。
 - **重新评估条件**：本地 Demo 与 Acceptance 完成后，由用户授权重新审阅 Phase 17 的审计
   范围、对外叙事和远程部署优先级。
+
+## D-141：冻结评估生成器摘要按 UTF-8 LF 规范字节计算
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 14 Manifest 将 `evaluation.py` 的 LF blob 摘要冻结为生成器身份，但
+  Windows 工作树把同一 Git 内容检出为 CRLF，原始 `read_bytes()` 会产生不同摘要并使
+  Scripted rehearsal 错误报告 `DATASET_MANIFEST_MISMATCH`。
+- **候选方案**：要求开发者手工设置 Git 换行配置；为每个平台重写 Manifest；在生成器内
+  忽略源码换行；由仓库属性强制 Python 工作树以 LF 检出。
+- **最终选择**：`.gitattributes` 为全部 `*.py` 声明 `eol=lf`，并保留生成器对原始源码字节
+  的严格哈希；冻结 Manifest、case、label 和历史结论保持字节不变。
+- **选择理由**：源码摘要仍能检测真实代码修改，同时版本控制在所有工作树提供相同 LF
+  字节，避免把操作系统投影误判为代码变更。
+- **未选理由**：手工 Git 配置不可审计且会再次漂移；重写历史 Manifest 会错误改动已接受
+  的 Phase 14 事实；生成器忽略换行会让代码改动后的摘要语义不够直接。
+- **影响**：Phase 16 Task 2 同时修复根 pytest 收集和跨平台生成器身份；正式评估仍会对
+  Prompt、Schema、数据和代码内容 fail-closed。
+- **重新评估条件**：未来源码摘要改为 Git blob object 或签名 artifact 时，新增决策说明
+  新身份算法并保留旧 Manifest 的验证兼容性。

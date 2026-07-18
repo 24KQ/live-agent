@@ -18,7 +18,25 @@ Phase / Task: Phase 16 / Task 1 - Approved Design and Implementation Plan persis
 Sub-agent: 未派发；本 Task 为串行事实源持久化。
 ```
 
-文档状态：`PHASE_16_TASK_1_DOCUMENTATION_IN_PROGRESS`
+## 2026-07-18 Phase 16 Task 2 GREEN / VERIFY
+
+```text
+Phase / Task: Phase 16 / Task 2 - Stabilize root pytest collection
+状态: COMMIT
+目标: 消除 unit/integration 同名模块导致的根 pytest import mismatch，不改变测试或业务行为。
+禁止事项: 不修改测试正文、业务代码、Pytest 运行语义或数据库配置；不复制或提交本机 .env。
+当前 HEAD: 69e92be77a99440f0168f8333be6fdfde20f230c
+本 Task 文件: 三个 tests/integration/test_phase14_* 文件名，以及当前 Task 的 worklog 留痕。
+用户脏文件: 主工作区的既有 7 个用户文件保持不接触、不暂存。
+最近命令与结果: RED 根 collect 为 1509/1513 + 3 import mismatch；重命名后 collect 为 1537/1541、0 errors。加载主工作区 .env 到测试进程后，三组 unit/PostgreSQL 分别为 14、9、9 passed；完整 unit 为 1382 passed、4 warnings；完整 integration 为 155 passed、3 deselected、5 warnings，受控日志包装已捕获退出码 0。
+错误与尝试次数: 第一次专项与最终完整 unit 均仅因 worktree 缺失未跟踪 .env 而使用默认 change_me 认证失败；未改代码，第二次仅向测试进程加载已有凭据后 unit/integration 通过。`.env` 未复制、未写入 worktree、未加入 Git。
+设计偏差与决策编号: 发现 Windows CRLF 使 Phase 14 冻结生成器摘要漂移；新增 D-141，通过 .gitattributes 强制 Python LF 检出且不重写历史 Manifest。
+下一条精确操作: 重跑静态编码/差异门禁，核对暂存边界后提交并推送 Task 2。
+模型费用累计: Phase 16 0.000000 CNY；未访问外部模型。
+Sub-agent: `019f749a-05d0-7631-8e3d-addac444eba1` 已完成只读规格与质量审查；确认 `.gitattributes` 语义正确、三个测试均为 R100 纯重命名且根 collect 无错误。审查发现两项 Important 文档状态过早/冲突：本 Task 计划和全局状态已在本次提交前改正；未发现 Critical 或剩余代码、测试行为问题。
+```
+
+文档状态：`PHASE_16_TASK_2_READY_TO_COMMIT`
 
 最后更新：2026-07-18
 
@@ -28,9 +46,9 @@ Sub-agent: 未派发；本 Task 为串行事实源持久化。
 |---|---|
 | 当前阶段 | Phase 16 Controlled Multi-Agent Escalation |
 | 最近完成任务 | Phase 15 Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance |
-| 当前任务 | Task 1：Design/Plan、决策和状态持久化 |
-| 当前任务状态 | `VERIFY` / `PHASE_16_TASK_1_DOCUMENTATION_IN_PROGRESS` |
-| 当前子步骤 | Phase 16 文档已写入隔离分支，正在完成一致性、编码和差异验证；随后独立提交推送 |
+| 当前任务 | Task 2：根 pytest 收集冲突修复 |
+| 当前任务状态 | `REVIEW` / `PHASE_16_TASK_2_READY_TO_COMMIT` |
+| 当前子步骤 | 三个集成测试文件已唯一命名；根 collect `1537/1541`，unit `1382 passed`，integration `155 passed, 3 deselected` |
 | 当前分支 | `codex/phase16-controlled-multi-agent` |
 | 当前业务基线 | Phase 15 Task 12 Acceptance（`c01a5da`）；历史结论保持 `INCONCLUSIVE` |
 | 远端状态 | 分支基于 `origin/main=ee0de7c`；主工作区用户脏文件保持 unstaged，恢复时必须读取命令输出 |

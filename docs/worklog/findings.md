@@ -12,8 +12,18 @@
   直接改写。Phase 16 将使用独立 48 例 Manifest。
 - 根 `python -m pytest -q` 当前会因三处 unit/integration 同名 `test_phase14_*` 模块产生
   import mismatch；文件重命名是行为无关的 Task 2 前置修复。
+- Task 2 验证确认根因是 tests 下无 `__init__.py` 时 pytest 使用顶级 basename 缓存模块。
+  三个 PostgreSQL 测试改为唯一 `*_postgres.py` 后，根 collect 从 3 errors 恢复为 0 errors。
+  隔离 worktree 不复制用户未跟踪 `.env`；需要真实 PostgreSQL 的测试只在子进程临时读取
+  主工作区已有凭据，不写入 worktree 或 Git。
 - 默认路由继续 `DETERMINISTIC_ONLY`。本阶段技术通过或 smoke 证据不足都不能自动开启
   决策支持，更不能开启经营恢复自动执行。
+- Windows 工作树的 CRLF 会改变 `Path.read_bytes()` 生成器摘要，而冻结 Manifest 记录 Git
+  LF 内容摘要。D-141 通过 `.gitattributes` 强制 Python 源以 LF 检出，保留原始源码摘要的
+  严格代码变更语义并避免平台投影伪造 Manifest 漂移。
+- Task 2 全量证据：root collect `1537/1541`（3 external deselected、0 errors）；unit
+  `1382 passed, 4 warnings`；integration `155 passed, 3 deselected, 5 warnings`。Kafka/
+  FastAPI 的既有 deprecation warnings 未由本 Task 引入。
 
 ## 2026-07-11 文档编码治理发现
 

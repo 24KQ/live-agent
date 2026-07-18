@@ -9,6 +9,20 @@
   1.00 CNY smoke 上限、默认关闭路由、48 例独立数据集和单人本地 Demo。
 - 当前：Task 1 GREEN，待文档验证、独立提交和推送。下一任务为 Task 2 测试收集冲突 RED。
 
+## 2026-07-18 Phase 16 Task 2 GREEN
+
+- Task 1 已以 `69e92be docs: freeze phase 16 controlled multi-agent design` 提交并推送到
+  `origin/codex/phase16-controlled-multi-agent`。
+- Task 2 RED 重现三处 import mismatch；仅将三个 integration 文件重命名为
+  `*_postgres.py`，根 pytest 收集恢复为 1537 个测试、4 个 external deselected、0 errors。
+- 同名 unit/PostgreSQL 专项在临时加载本机 `.env` 后为 `14 + 9 + 9 passed`；当前进入完整
+  unit/integration 与提交前审查。
+- 完整 unit 发现 Phase 14 冻结 Manifest 在 Windows CRLF 工作树下错误漂移；根因已由
+  `raw != LF-normalized == manifest` 摘要证据确认，新增 D-141 后通过 Git 属性在 Task 2
+  内修复，不改变生成器或历史 Manifest。
+- 修复后 root collect 无 import mismatch，完整 unit `1382 passed, 4 warnings`，完整
+  integration `155 passed, 3 deselected, 5 warnings`；当前 Task 2 进入提交前编码与差异收口。
+
 ## 2026-07-15 Phase 13 Just-in-Time Design/Plan 审核
 
 - 基于 Phase 12B Acceptance 重新审核 Phase 13，采用共享评估内核与 LiveOps、Planner、ReviewMemory 三个纵向候选切片。

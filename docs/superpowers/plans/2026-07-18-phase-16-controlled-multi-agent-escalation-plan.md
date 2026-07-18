@@ -37,7 +37,9 @@ consistency, UTF-8/LF, and `git diff --check`; commit
 RED: capture root pytest's three Phase 14 unit/integration module collisions.
 GREEN: rename only integration `test_phase14_memory_confirmation.py`,
 `test_phase14_operator_decision.py`, and `test_phase14_sold_out_flow.py` to
-unique `*_postgres.py` names, preserving behavior. Commit
+unique `*_postgres.py` names, preserving behavior. Also enforce LF checkout for
+Python sources through `.gitattributes`, so existing raw generator digests are
+independent of Windows CRLF projection without weakening source identity. Commit
 `test: stabilize phase 14 postgres collection`.
 
 ### Task 3: Add Runtime and Domain Contracts

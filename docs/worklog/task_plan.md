@@ -3,7 +3,7 @@
 ## 2026-07-18 Phase 16 Controlled Multi-Agent Escalation
 
 - [x] Task 1：持久化已批准的 Design、Implementation Plan、D-134 至 D-140、路线图、总控和恢复入口；等待本 Task 验证、提交与推送。
-- [ ] Task 2：修复根 pytest 的三处 Phase 14 PostgreSQL 测试模块同名收集冲突。
+- [ ] Task 2：修复根 pytest 的三处 Phase 14 PostgreSQL 测试模块同名收集冲突，并以 `.gitattributes` 固定 Python LF 检出消除冻结生成器伪漂移；根 collect、专项、完整 unit/integration 和最终审查已通过，待提交推送。
 - [ ] Task 3：新增 `CONFLICT_ANALYSIS`、`LIVE_DECISION_PLANNING`、冻结 Profile 和不可变领域协议。
 - [ ] Task 4：实现 escalation、analysis、outcome 的内存/PostgreSQL append-only Store。
 - [ ] Task 5：实现三选二选择器、运营 lease 显式升级和 Analyst Coordinator 段。
