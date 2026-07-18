@@ -20,8 +20,6 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-import sys
-from pathlib import Path
 if str(Path(__file__).resolve().parents[1]) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.config.settings import get_settings
@@ -116,6 +114,30 @@ MIGRATIONS: list[MigrationStep] = [
         sql_file="init_phase13_specialist_evaluations.sql",
         required=True,
         description="Phase 13 Specialist 评估、预算与模型调用事实",
+    ),
+    MigrationStep(
+        phase="phase13_memory",
+        sql_file="init_phase13_memory_candidates.sql",
+        required=True,
+        description="Phase 13 播后记忆候选与受控晋升事实",
+    ),
+    MigrationStep(
+        phase="phase14_decision_support",
+        sql_file="init_phase14_decision_support.sql",
+        required=True,
+        description="Phase 14 人机协同 Workspace、Proposal 与 OperatorDecision 事实",
+    ),
+    MigrationStep(
+        phase="phase14_memory_feedback",
+        sql_file="init_phase14_memory_feedback.sql",
+        required=True,
+        description="Phase 14 记忆资格与人工确认事实",
+    ),
+    MigrationStep(
+        phase="phase15",
+        sql_file="init_phase15_release_gates.sql",
+        required=True,
+        description="Phase 15 Golden Release 与双轨结论基础事实",
     ),
 ]
 

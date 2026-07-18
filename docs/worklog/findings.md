@@ -557,3 +557,27 @@
 - Phase 15 真实模型预算固定为 0.60 元，最多十个 `deepseek-v4-flash` smoke；endpoint、价格、usage、Prompt、Schema、数据和代码摘要任一缺失时禁止发送。
 - Technical PASS 需要 line 90%/branch 85%、规则优先门禁、迁移和敏感扫描，以及精确 commit 上真实 GitHub Actions PR/Release run evidence；缺失外部证据不得伪造通过。
 - 当前状态已改为 `PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`。Stage A 只持久化文档，Stage B Task 1-12 必须等待用户单独授权，Phase 15 Acceptance 后停止。
+
+## 2026-07-18 Phase 15 Task 1 RED
+
+- 用户已授权 Phase 15 Stage B；Task 1 范围固定为迁移清单、统一入口、敏感扫描和 Phase 15 迁移/入口契约测试。
+- 主模型负责生产代码、迁移整合、最终验证、提交和推送；迁移只读 explorer 已完成并关闭，确认 17 步依赖顺序和最小 Phase 15 DDL；入口/扫描 explorer 派发受线程配额限制未启动，主模型已复核实际差异并接管。
+- 真实模型、真人采集和 GitHub Actions 仍未运行；用户既有脏文件不纳入本 Task。
+
+## 2026-07-18 Phase 15 Task 1 GREEN
+
+- 新增 Phase 13 Memory、Phase 14 Decision Support/Memory Feedback 和 Phase 15 Release 的必需迁移注册；Phase 15 基础 ReleaseRun 表只保存最小事实，后续 Store 在 Task 4 扩展。
+- 统一入口新增 Phase 13/14/15 Demo；Phase 15 当前 Demo 明确输出 `BLOCKED`，不伪造技术发布或 Copilot 晋升。
+- 敏感扫描器修复语法错误，`--tracked` 只扫描 Git 跟踪文件并默认严格；已知测试夹具、示例占位符和正则规则文本不作为生产敏感载荷。
+- 专项与历史契约回归 `24 passed`；真实模型、数据库实际迁移、真人采集和托管 CI 尚未运行。
+
+## 2026-07-18 Phase 15 Task 1 REVIEW/VERIFY
+
+- 规格复核确认迁移依赖、入口命令、Phase 15 `BLOCKED` 占位语义和 tracked 扫描边界符合 Task 1；未发现 Critical/Important 阻断。
+- 代码质量复核移除专项测试未使用导入；没有扩大 Release Store、Golden Runner、预算或真实模型范围。
+- 最终证据：unit `1324 passed, 4 warnings`；integration `150 passed, 3 deselected, 5 warnings`；专项/历史迁移与 Demo `24 passed`；迁移 dry-run 17 步、入口 help、Phase 13/15 Demo、tracked sensitive scan、compileall 和 `git diff --check` 通过。
+
+## 2026-07-18 Phase 15 Task 1 READY TO PUSH
+
+- Task 1 目标文件严格编码检查 `15` 个文件通过，`git diff --check` 通过，用户已有脏文件未纳入。
+- 当前提交范围仅包含迁移注册/DDL、统一入口、扫描器、README、开发依赖、Task 1 测试和阶段留痕；Phase 15 Golden/Store/真实模型仍未实现。

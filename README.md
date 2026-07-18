@@ -78,6 +78,16 @@ open http://localhost:8100
 | 播后复盘 | 打开 Web 页面 | 采纳率、准确率、归因分析 |
 | Agent 评估 | 打开 /evaluation 页面 | 回放时间线、维度评分、Verdict |
 
+Phase 13-15 的无外部依赖阶段演示：
+
+```bash
+python scripts/run_all.py phase13-demo
+python scripts/run_all.py phase14-demo
+python scripts/run_all.py phase15-demo
+```
+
+其中 Phase 15 在 Golden Runner 和托管 CI 完成前只输出 `BLOCKED`，不会调用真实模型。
+
 ## 核心功能
 
 | 阶段 | 能力 | 技术实现 |

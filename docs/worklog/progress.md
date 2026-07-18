@@ -726,3 +726,27 @@
 - 更新路线图、总控计划、task_plan、findings、progress 和 continuous state，使阶段状态、预算、路由和下一步一致。
 - 本轮不修改业务代码、数据库、CI、真人采集器或真实模型；不运行测试；仅在目标文档验证通过后提交 `docs: define phase 15 release gates` 并推送。
 - 当前状态：`PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`；Stage B Task 1-12 等待用户单独授权，Phase 15 完成后停止，不自动进入新 Phase。
+
+# 2026-07-18 Phase 15 Task 1 RED
+
+- 用户已授权 Phase 15 Stage B，连续游标切换到 Task 1：发布入口、迁移清单与仓库事实。
+- 已同步实时状态、总控计划、路线图、task_plan、findings、progress 和恢复入口；Task 1 尚未修改业务代码。
+- 下一步建立迁移/入口/敏感扫描的预期失败测试，再按最小 GREEN 对齐已有事实；真实模型仍禁止调用。
+
+# 2026-07-18 Phase 15 Task 1 GREEN
+
+- Task 1 预期失败测试已确认四项缺口，最小实现后专项与相关历史迁移/Demo 回归为 `24 passed`。
+- 迁移 dry-run 现在包含 17 步，Phase 13 Memory、Phase 14 两组事实和 Phase 15 基础 ReleaseRun 均存在；统一入口 help、Phase 13/15 Demo、tracked 敏感扫描和 compileall 通过。
+- 当前进入规格/质量审查；审查通过后再运行完整 unit/integration、严格编码检查、暂存边界检查并提交推送。
+
+# 2026-07-18 Phase 15 Task 1 VERIFY
+
+- 规格审查和代码质量审查无 Critical/Important 阻断；修复 README 表格插入位置和专项测试未使用导入。
+- 完整 unit `1324 passed, 4 warnings`，integration `150 passed, 3 deselected, 5 warnings`；实际 PostgreSQL/Kafka 回归沿用现有套件，Task 1 未运行真实模型。
+- 当前只剩目标文件严格编码、`git diff --check`、暂存边界、独立提交和推送；通过后切换 Task 2 RED。
+
+# 2026-07-18 Phase 15 Task 1 READY TO PUSH
+
+- Task 1 已完成 RED/GREEN/REVIEW/VERIFY：迁移从 13 步扩展到 17 步，统一入口新增三阶段 Demo，tracked 敏感扫描可编译并严格运行。
+- 完整 unit `1324 passed`、integration `150 passed, 3 deselected`；目标文件编码、compileall 和 `git diff --check` 通过。
+- 下一步只暂存 Task 1 文件，提交 `build: align phase 15 release entrypoints` 并推送，然后开始 Task 2 RED。

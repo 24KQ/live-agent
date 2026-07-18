@@ -13,8 +13,8 @@
 
 ## 恢复规则
 
-- 当前 Stage A 文档状态为 `PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION` 时，不修改业务代码、不运行真实模型、不开始 Task 1。
-- 只有实时状态明确记录用户已授权 Stage B，才按 Phase 15 Plan 的 Task 1-12 继续。
+- Stage A 已完成；实时状态明确记录用户已授权 Stage B 时，按 Phase 15 Plan 的 Task 1-12 继续。
+- 当前游标为 Task 1 RED；恢复时先读取 Task 1 文件范围和当前测试证据，不跳过 RED。
 - Phase 15 使用双轨结论：技术 Release 可以 PASS，Copilot 仍可能为 `KEEP_DISABLED` 或 `BLOCKED`。
 - 真实模型预算上限为 0.60 元；没有真实 usage 时按预留额结算并禁止 Promotion。
 - 没有 3-5 名真实参与者的 24-40 条记录时，不生成真人 Promotion 证据。

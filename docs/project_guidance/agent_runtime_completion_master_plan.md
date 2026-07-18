@@ -1,10 +1,10 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
+文档状态：`PHASE_15_TASK_1_PUSHED`
 
 最后更新：2026-07-18
 
-当前授权边界：Phase 11A-13 已完成并有 Acceptance；Phase 14 Human-Centered Decision Support Task 1-12 已完成，Acceptance 结论为 `INCONCLUSIVE`；Phase 15 Stage A Design/Plan 已完成持久化，当前等待用户单独授权 Stage B。Stage A 不修改业务代码、数据库、CI 或真实模型。
+当前授权边界：Phase 11A-13 已完成并有 Acceptance；Phase 14 Human-Centered Decision Support Task 1-12 已完成，Acceptance 结论为 `INCONCLUSIVE`；Phase 15 Stage A 已完成持久化，用户已授权 Stage B，当前 Task 1 已完成验证并准备推送。
 
 ## 1. 文档职责
 
@@ -52,16 +52,15 @@ Phase 13 Acceptance
 -> Phase 14 Task 1-12
 -> Phase 14 Acceptance
 -> Phase 15 Stage A Design/Plan 持久化
--> PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION
--> 用户单独授权 Stage B
+-> Phase 15 Stage B 用户授权
 -> Phase 15 Task 1-12
 -> Phase 15 Acceptance / Final Acceptance
 -> STOP
 ```
 
-Phase 14 Design/Plan 已读取 Phase 12B/13 Acceptance、预算、风险和现有 Harness 基线。用户已授权 Phase 14 Task 1-12 连续实施；Task 12 Demo 与 Acceptance 已完成，因真实模型证据不足结论为 `INCONCLUSIVE`。Phase 15 Stage A 已完成文档持久化，只有实时状态明确记录用户授权 Stage B 后才可开始 Task 1。
+Phase 14 Design/Plan 已读取 Phase 12B/13 Acceptance、预算、风险和现有 Harness 基线；Phase 14 Acceptance 因真实模型证据不足为 `INCONCLUSIVE`。Phase 15 Stage A 已完成文档持久化，用户现已授权 Stage B，当前进入 Task 1 RED。
 
-Stage A 完成不等于业务实施授权；没有 Stage B 授权，不得修改 `src/`、数据库、CI、前端、真人采集器或真实模型入口。
+Task 1-12 继续受冻结预算、真实证据、无 fallback 和用户脏文件边界约束；Task 6 预检前不得运行真实模型，Phase 15 Acceptance 后停止。
 以下情况必须暂停：
 
 - 严重安全门禁失败且无法在当前设计内修复。
@@ -179,7 +178,7 @@ Phase 13 采用共享评估内核后按 LiveOpsAgent、PlannerAgent、ReviewMemo
 - 活跃 Golden Dataset 固定为 48 例，拆分 `12 development / 24 validation / 12 holdout`；Phase 13 的 240 例只做历史 Manifest 完整性检查。
 - Stage B Task 1-12 依次交付迁移与入口、Golden、规则 Runner、双轨 Store、真人 study、最多十例真实 smoke、Acceptance、三级 CI、ToolRegistry 退役、两次默认路由 Release 和 Final Acceptance。
 - 真实模型预算固定 0.60 元；真人证据固定为 3-5 名真实参与者、24-40 条记录；任一强制外部证据不足时保持 `BLOCKED`，不得伪造。
-- 当前状态为 `PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`。用户单独授权 Stage B 后才可修改业务代码、数据库、CI、前端或调用真实模型。
+- 当前状态为 `PHASE_15_TASK_1_PUSHED`。用户已授权 Stage B，但只可按 Task 1-12 的依赖顺序实施；真实模型仍须等待 Task 6 预检。
 - Phase 15 Acceptance 完成后停止，不自动进入新 Phase。
 
 ## 10. ToolRegistry 与审批兼容收口
