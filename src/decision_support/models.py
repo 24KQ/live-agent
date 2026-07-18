@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from src.specialist_runtime.models import (
+    EvidenceRef,
     StrictFrozenModel,
     _freeze_json,
     _plain_json,
@@ -68,6 +69,284 @@ class DecisionKind(StrEnum):
     APPROVE = "APPROVE"
     MODIFY = "MODIFY"
     REJECT = "REJECT"
+
+
+class ConflictAnalysisCode(StrEnum):
+    """高冲突选择器和 Analyst 共用的封闭事实代码。"""
+
+    MULTIPLE_VALID_BACKUPS = "MULTIPLE_VALID_BACKUPS"
+    AVAILABILITY_NOISE_HIGH = "AVAILABILITY_NOISE_HIGH"
+    RHYTHM_PAUSE_REQUIRED = "RHYTHM_PAUSE_REQUIRED"
+
+
+class ConflictConstraintCode(StrEnum):
+    """Analyst 可以报告但不能自行解除的确定性约束。"""
+
+    OPERATOR_CONFIRMATION_REQUIRED = "OPERATOR_CONFIRMATION_REQUIRED"
+    BACKUP_AVAILABILITY_UNCERTAIN = "BACKUP_AVAILABILITY_UNCERTAIN"
+    HOST_RHYTHM_PAUSE_REQUIRED = "HOST_RHYTHM_PAUSE_REQUIRED"
+
+
+class ConflictRiskCode(StrEnum):
+    """双 Agent 中间事实允许引用的闭合风险代码。"""
+
+    BACKUP_PRODUCT_REQUIRES_CONFIRMATION = "BACKUP_PRODUCT_REQUIRES_CONFIRMATION"
+    DANMAKU_HIGH_NOISE = "DANMAKU_HIGH_NOISE"
+    HUMAN_CONFIRMATION_REQUIRED = "HUMAN_CONFIRMATION_REQUIRED"
+    INVENTORY_CONFLICT_REQUIRES_REVIEW = "INVENTORY_CONFLICT_REQUIRES_REVIEW"
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
+    RHYTHM_PAUSE_REQUIRED = "RHYTHM_PAUSE_REQUIRED"
+    SIDE_EFFECT_UNKNOWN = "SIDE_EFFECT_UNKNOWN"
+    STALE_EVIDENCE = "STALE_EVIDENCE"
+
+
+class EscalationMode(StrEnum):
+    """升级只能来自重放规则或持有当前租约的运营显式请求。"""
+
+    AUTOMATIC = "AUTOMATIC"
+    OPERATOR_REQUESTED = "OPERATOR_REQUESTED"
+
+
+class MultiAgentOutcomeStatus(StrEnum):
+    """双 Agent 链路只产出完整可审阅结果或可解释降级事实。"""
+
+    READY = "READY"
+    DEGRADED = "DEGRADED"
+
+
+class MultiAgentFailureCode(StrEnum):
+    """失败阶段的稳定代码，禁止把异常栈或模型自由文本写入审计。"""
+
+    ANALYST_MODEL_ERROR = "ANALYST_MODEL_ERROR"
+    ANALYST_INVALID_OUTPUT = "ANALYST_INVALID_OUTPUT"
+    ANALYST_BUDGET_EXCEEDED = "ANALYST_BUDGET_EXCEEDED"
+    PLANNER_MODEL_ERROR = "PLANNER_MODEL_ERROR"
+    PLANNER_INVALID_OUTPUT = "PLANNER_INVALID_OUTPUT"
+    PLANNER_BUDGET_EXCEEDED = "PLANNER_BUDGET_EXCEEDED"
+    VALIDATOR_REJECTED = "VALIDATOR_REJECTED"
+    COORDINATOR_TIMEOUT = "COORDINATOR_TIMEOUT"
+
+
+def _require_safe_display_text(value: str, *, field_name: str) -> str:
+    """拒绝控制字符与首尾空白，避免事实摘要被伪装为下游协议内容。"""
+
+    import unicodedata
+
+    if value != value.strip() or any(
+        unicodedata.category(character).startswith("C") for character in value
+    ):
+        raise ValueError(f"{field_name} contains unsafe control characters")
+    return value
+
+
+class _DatedMultiAgentFact(DecisionSupportFrozenModel):
+    """双 Agent append-only 事实共享 UTC 时间、摘要和严格 JSON 语义。"""
+
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def _require_created_at_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+
+class EscalationRecord(_DatedMultiAgentFact):
+    """一次高冲突升级的不可变起点，不包含 Agent 输出或业务写权限。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    escalation_id: str = Field(..., min_length=1)
+    live_session_id: str = Field(..., min_length=1)
+    incident_id: str = Field(..., min_length=1)
+    evidence_bundle_id: str = Field(..., min_length=1)
+    evidence_bundle_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    idempotency_key: str = Field(..., min_length=1)
+    mode: EscalationMode
+    trigger_codes: tuple[ConflictAnalysisCode, ...] = Field(default=(), max_length=3)
+    operator_id: str | None = Field(default=None, min_length=1)
+    escalation_digest: str = ""
+
+    @field_validator("trigger_codes")
+    @classmethod
+    def _validate_trigger_codes(
+        cls, value: tuple[ConflictAnalysisCode, ...]
+    ) -> tuple[ConflictAnalysisCode, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("trigger_codes must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_mode_and_digest(self) -> "EscalationRecord":
+        if self.mode is EscalationMode.AUTOMATIC:
+            if self.operator_id is not None:
+                raise ValueError("AUTOMATIC escalation cannot carry operator_id")
+            if len(self.trigger_codes) < 2:
+                raise ValueError("AUTOMATIC escalation requires two trigger_codes")
+        elif not self.operator_id:
+            raise ValueError("OPERATOR_REQUESTED escalation requires operator_id")
+        payload = self.model_dump(mode="json", exclude={"escalation_digest"})
+        calculated = canonical_json_sha256(payload)
+        if self.escalation_digest and self.escalation_digest != calculated:
+            raise ValueError("escalation_digest does not match escalation facts")
+        object.__setattr__(self, "escalation_digest", calculated)
+        return self
+
+
+class ConflictAnalysis(_DatedMultiAgentFact):
+    """Analyst 的不可变中间事实，只能表达证据支持的冲突而不能提出经营动作。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    analysis_id: str = Field(..., min_length=1)
+    escalation_id: str = Field(..., min_length=1)
+    live_session_id: str = Field(..., min_length=1)
+    incident_id: str = Field(..., min_length=1)
+    evidence_bundle_id: str = Field(..., min_length=1)
+    evidence_bundle_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    analyst_profile_id: str = Field(..., min_length=1)
+    analyst_profile_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    analyst_profile_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    finding_codes: tuple[ConflictAnalysisCode, ...] = Field(..., min_length=1, max_length=3)
+    constraint_codes: tuple[ConflictConstraintCode, ...] = Field(default=(), max_length=3)
+    risk_codes: tuple[ConflictRiskCode, ...] = Field(default=(), max_length=8)
+    explanation: str = Field(..., min_length=1, max_length=500)
+    evidence_refs: tuple[EvidenceRef, ...] = Field(..., min_length=1, max_length=12)
+    analysis_digest: str = ""
+
+    @field_validator("finding_codes", "constraint_codes", "risk_codes")
+    @classmethod
+    def _require_unique_codes(cls, value: tuple[StrEnum, ...]) -> tuple[StrEnum, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("analysis codes must be unique")
+        return value
+
+    @field_validator("explanation")
+    @classmethod
+    def _validate_explanation(cls, value: str) -> str:
+        return _require_safe_display_text(value, field_name="explanation")
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def _require_unique_evidence_refs(
+        cls, value: tuple[EvidenceRef, ...]
+    ) -> tuple[EvidenceRef, ...]:
+        if len({reference.evidence_id for reference in value}) != len(value):
+            raise ValueError("analysis evidence_refs must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_analysis_identity_and_digest(self) -> "ConflictAnalysis":
+        # 延迟导入避免 Profile 工厂加载本领域模型时形成循环；运行时仍强制比较完整身份。
+        from src.decision_support.multi_agent import build_evidence_analyst_profile
+
+        expected_profile = build_evidence_analyst_profile()
+        if (
+            self.analyst_profile_id != expected_profile.profile_id
+            or self.analyst_profile_version != expected_profile.profile_version
+            or self.analyst_profile_digest != expected_profile.profile_digest
+        ):
+            raise ValueError("ConflictAnalysis requires exact evidence_analyst profile")
+        payload = self.model_dump(mode="json", exclude={"analysis_digest"})
+        calculated = canonical_json_sha256(payload)
+        if self.analysis_digest and self.analysis_digest != calculated:
+            raise ValueError("analysis_digest does not match analysis facts")
+        object.__setattr__(self, "analysis_digest", calculated)
+        return self
+
+
+class MultiAgentOutcome(_DatedMultiAgentFact):
+    """协调器每次链路只记录一个终态，失败时保留可展示的确定性事实摘要。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    outcome_id: str = Field(..., min_length=1)
+    escalation_id: str = Field(..., min_length=1)
+    escalation_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    evidence_bundle_id: str = Field(..., min_length=1)
+    evidence_bundle_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    status: MultiAgentOutcomeStatus
+    analysis_id: str | None = Field(default=None, min_length=1)
+    analysis_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    proposal_id: str | None = Field(default=None, min_length=1)
+    proposal_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    failure_code: MultiAgentFailureCode | None = None
+    fact_summary: str = Field(..., min_length=1, max_length=1000)
+    outcome_digest: str = ""
+
+    @field_validator("fact_summary")
+    @classmethod
+    def _validate_fact_summary(cls, value: str) -> str:
+        return _require_safe_display_text(value, field_name="fact_summary")
+
+    @model_validator(mode="after")
+    def _validate_outcome_shape_and_digest(self) -> "MultiAgentOutcome":
+        analysis_complete = bool(self.analysis_id) == bool(self.analysis_digest)
+        if not analysis_complete:
+            raise ValueError("analysis_id and analysis_digest must appear together")
+        if self.status is MultiAgentOutcomeStatus.READY:
+            if not self.analysis_id or not self.proposal_id or not self.proposal_digest:
+                raise ValueError("READY outcome requires analysis and proposal lineage")
+            if self.failure_code is not None:
+                raise ValueError("READY outcome cannot carry failure_code")
+        else:
+            if self.proposal_id is not None or self.proposal_digest is not None:
+                raise ValueError("DEGRADED outcome cannot carry proposal lineage")
+            if self.failure_code is None:
+                raise ValueError("DEGRADED outcome requires failure_code")
+        payload = self.model_dump(mode="json", exclude={"outcome_digest"})
+        calculated = canonical_json_sha256(payload)
+        if self.outcome_digest and self.outcome_digest != calculated:
+            raise ValueError("outcome_digest does not match outcome facts")
+        object.__setattr__(self, "outcome_digest", calculated)
+        return self
+
+
+class MultiAgentProposalLineage(DecisionSupportFrozenModel):
+    """Planner 方案绑定上游升级、分析、Bundle 与精确 Profile，禁止跨事实拼接。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    escalation_id: str = Field(..., min_length=1)
+    escalation_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    analysis_id: str = Field(..., min_length=1)
+    analysis_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    evidence_bundle_id: str = Field(..., min_length=1)
+    evidence_bundle_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    evidence_refs: tuple[EvidenceRef, ...] = Field(..., min_length=1, max_length=12)
+    planner_profile_id: str = Field(..., min_length=1)
+    planner_profile_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    planner_profile_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    lineage_digest: str = ""
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def _require_unique_lineage_evidence_refs(
+        cls, value: tuple[EvidenceRef, ...]
+    ) -> tuple[EvidenceRef, ...]:
+        if len({reference.evidence_id for reference in value}) != len(value):
+            raise ValueError("lineage evidence_refs must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_planner_profile_and_digest(self) -> "MultiAgentProposalLineage":
+        # 延迟导入避免 Profile 工厂加载本领域模型时形成循环；运行时仍比较完整冻结身份。
+        from src.decision_support.multi_agent import build_decision_planner_profile
+
+        expected_profile = build_decision_planner_profile()
+        if (
+            self.planner_profile_id != expected_profile.profile_id
+            or self.planner_profile_version != expected_profile.profile_version
+            or self.planner_profile_digest != expected_profile.profile_digest
+        ):
+            raise ValueError("lineage requires exact decision_planner profile")
+        payload = self.model_dump(mode="json", exclude={"lineage_digest"})
+        calculated = canonical_json_sha256(payload)
+        if self.lineage_digest and self.lineage_digest != calculated:
+            raise ValueError("lineage_digest does not match lineage facts")
+        object.__setattr__(self, "lineage_digest", calculated)
+        return self
 
 
 class LiveSessionWorkspace(DecisionSupportFrozenModel):

@@ -11,6 +11,7 @@ import unicodedata
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from src.decision_support.models import MultiAgentProposalLineage
 from src.specialist_runtime.models import EvidenceRef, StrictFrozenModel
 
 
@@ -19,6 +20,13 @@ class ProposalStatus(StrEnum):
 
     READY = "READY"
     DEGRADED = "DEGRADED"
+
+
+class ProposalOrigin(StrEnum):
+    """区分兼容单 Copilot 与必须携带上游事实的受控双 Agent 方案。"""
+
+    SINGLE_COPILOT = "SINGLE_COPILOT"
+    MULTI_AGENT = "MULTI_AGENT"
 
 
 class ProductStrategy(StrEnum):
@@ -116,11 +124,14 @@ class LiveDecisionProposal(StrictFrozenModel):
     incident_id: str = Field(..., min_length=1)
     trace_id: str = Field(..., min_length=1)
     evidence_bundle_id: str = Field(..., min_length=1)
+    evidence_bundle_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    proposal_origin: ProposalOrigin = ProposalOrigin.SINGLE_COPILOT
     status: ProposalStatus
     options: tuple[DecisionOption, ...] = Field(default=(), max_length=3)
     evidence_refs: tuple[EvidenceRef, ...] = Field(..., min_length=1, max_length=12)
     fact_summary: str | None = Field(default=None, max_length=1000)
     degraded_reason: str | None = Field(default=None, min_length=1, max_length=80)
+    multi_agent_lineage: MultiAgentProposalLineage | None = None
 
     @field_validator("fact_summary")
     @classmethod
@@ -146,4 +157,25 @@ class LiveDecisionProposal(StrictFrozenModel):
                 raise ValueError("DEGRADED proposal requires reason and fact_summary")
         if len(set(self.evidence_refs)) != len(self.evidence_refs):
             raise ValueError("proposal evidence_refs must be unique")
+        if self.proposal_origin is ProposalOrigin.MULTI_AGENT:
+            # 多 Agent 方案不能借用其他 Bundle 的分析结果；其余父事实由后续 Store 以
+            # escalation/analysis append-only 记录验证，避免把查询权限交给模型输出。
+            if self.status is not ProposalStatus.READY or self.multi_agent_lineage is None:
+                raise ValueError("multi-agent lineage requires READY proposal")
+            if self.evidence_bundle_digest is None:
+                raise ValueError("multi-agent proposal requires evidence_bundle_digest")
+            if (
+                self.multi_agent_lineage.evidence_bundle_id
+                != self.evidence_bundle_id
+            ):
+                raise ValueError("proposal lineage evidence_bundle_id does not match proposal")
+            if (
+                self.multi_agent_lineage.evidence_bundle_digest
+                != self.evidence_bundle_digest
+            ):
+                raise ValueError("proposal lineage evidence_bundle_digest does not match proposal")
+            if self.multi_agent_lineage.evidence_refs != self.evidence_refs:
+                raise ValueError("proposal lineage evidence_refs do not match proposal")
+        elif self.multi_agent_lineage is not None:
+            raise ValueError("single-copilot proposal cannot carry multi-agent lineage")
         return self

@@ -23,6 +23,31 @@
 - 修复后 root collect 无 import mismatch，完整 unit `1382 passed, 4 warnings`，完整
   integration `155 passed, 3 deselected, 5 warnings`；当前 Task 2 进入提交前编码与差异收口。
 
+## 2026-07-18 Phase 16 Task 2 PUSHED / Task 3 RED
+
+- Task 2 已以 `6ea5a57 test: stabilize phase 14 postgres collection` 提交并推送到
+  `origin/codex/phase16-controlled-multi-agent`。隔离工作树从主工作区既有 `.env` 仅向测试
+  进程注入 PostgreSQL 凭据；该文件从未复制、写入或提交。
+- 连续游标进入 Task 3。该任务只建立零权限、不可变、闭合代码的双 Agent/领域协议；先写
+  RED 测试，不创建 Store、Coordinator、API 或任何执行/模型调用路径。
+
+## 2026-07-18 Phase 16 Task 3 VERIFY
+
+- 新增 `CONFLICT_ANALYSIS`、`LIVE_DECISION_PLANNING`、精确零 Skill Profile、升级/分析/
+  Outcome 事实与 multi-Agent Proposal lineage；没有新增选择器、Store、Coordinator、HTTP、
+  WebSocket、真实模型调用或经营写路径。
+- D-142 将 Phase 13 历史 baseline 的静态源码身份与当前正式评估的 Git HEAD 源码身份分离；
+  D-143 使旧预算路径对 Phase 16 task kind 受控拒绝，避免 KeyError 或借用历史额度。
+- 审查整改补齐实际 Profile digest、Bundle digest/EvidenceRef lineage、FINAL AgentAction 信封、
+  Planner Schema 的备品/展示安全约束，以及真实 ScriptedRunner 无网络路径。
+- 干净数据库验证顺带修复了既有 Phase 7B SQL 双重转义、播后 Trace 隐式前置数据与真实
+  Embedding 集成测试遗漏 `external` 标记的问题；这些修复不扩大 Phase 16 业务接口或权限。
+- 最终证据：Task 3 专项聚合 `16 passed`；从空库执行 17 步官方迁移全部 PASS；完整 unit
+  `1395 passed, 4 warnings`；integration `151 passed, 7 deselected, 5 warnings`；compileall 与
+  根 collect `1546/1554`、8 个 external deselected 均通过。官方 seed 已确认至少 3 次 HTTP
+  请求为 401 认证拒绝，未获得响应或 usage；最终复核已为 unit/integration 注入离线 Embedding，
+  后续默认回归不再访问该外部路径。当前仅待编码/差异检查、独立提交与推送。
+
 ## 2026-07-15 Phase 13 Just-in-Time Design/Plan 审核
 
 - 基于 Phase 12B Acceptance 重新审核 Phase 13，采用共享评估内核与 LiveOps、Planner、ReviewMemory 三个纵向候选切片。

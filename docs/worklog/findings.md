@@ -24,6 +24,23 @@
 - Task 2 全量证据：root collect `1537/1541`（3 external deselected、0 errors）；unit
   `1382 passed, 4 warnings`；integration `155 passed, 3 deselected, 5 warnings`。Kafka/
   FastAPI 的既有 deprecation warnings 未由本 Task 引入。
+- Task 2 已以 `6ea5a57` 推送。Task 3 的公共协议必须保持单向：Analysis 只能承接
+  EvidenceBundle，Planner 只能承接已验证的 Analysis，任何 Outcome 仍只可流向既有
+  OperatorDecision/Compiler 边界，不能形成 Agent 互调或经营写路径。
+- Task 3 双重复审的四项 Important 已确认为有效：两个 Profile digest 必须等于精确工厂
+  identity；多 Agent Proposal 必须以 origin、Bundle digest 和全量 EvidenceRef 闭合 lineage；
+  旧预算映射必须 fail-closed 而非抛 KeyError；Phase 13 历史源码闭包不能吸收新阶段模块。
+- Task 3 的最终质量复审继续暴露两项易漏边界，均已回归覆盖：Profile Prompt 必须声明
+  `AgentAction FINAL` 信封而非直接结果 JSON；Planner JSON Schema 必须在模型输出边界拒绝
+  备品条件冲突、非法 option ID、首尾空白和 ASCII 控制字符。完整 Unicode category C 仍由
+  领域 Pydantic 作为最终 fail-closed 门禁。
+- 干净 PostgreSQL 验证揭示既有 `init_phase7b_production_hardening.sql` 把独立 SQL 与
+  dollar-quoted PL/pgSQL 正文都错误地双写了字符串字面量；现已由 3 条 SQL 回归测试覆盖，
+  官方 17 步迁移可从空库完整执行。
+- 既有播后同步 unit/integration 测试依赖开发库中残留的固定 Trace；现改为由测试创建最小
+  脱敏货盘与真实不可变 Trace，并在播后集成测试中显式禁用外部 Embedding。
+- `test_semantic_retrieval_flow.py` 会真实调用 Embedding API，先前遗漏 `external` 标记；
+  现在默认回归正确排除它，受控凭证环境仍可显式用 `-m external` 执行。
 
 ## 2026-07-11 文档编码治理发现
 

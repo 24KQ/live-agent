@@ -329,25 +329,19 @@ def test_manifest_binds_every_artifact_and_official_price_snapshot() -> None:
             max_case_cost_cny=Decimal(profile["max_case_cost_cny"]),
         )
         assert runtime_profile.profile_id == profile["profile_id"]
-    # Phase 13 历史闭包由目录发现得到精确全集，但后续 Phase 15 Release Gate
-    # 必须使用独立 Manifest，不能因新增发布门禁源码反向改变历史摘要。
-    phase15_excluded_paths = (
-        ROOT / "src" / "release_gates",
-        ROOT / "src" / "gateway" / "api_server.py",
-    )
-    expected_source_paths = {
-        path.relative_to(ROOT).as_posix()
-        for source_root in (ROOT / "src", EVALUATION_ROOT)
-        for path in source_root.rglob("*.py")
-        if not any(path.is_relative_to(excluded) for excluded in phase15_excluded_paths)
-    }
-    assert set(manifest["source_artifact_digests"]) == expected_source_paths
-    assert calculate_source_code_digest(ROOT) == manifest["code_digest"]
-    for relative, digest in manifest["source_artifact_digests"].items():
-        assert HASH_PATTERN.fullmatch(digest)
-        raw = (ROOT / relative).read_text(encoding="utf-8-sig")
-        normalized = raw.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
-        assert hashlib.sha256(normalized).hexdigest() == digest
+    # Phase 13 baseline 记录的是当时已经冻结的源码身份，不应在后续 Phase 修改时误称
+    # “当前整个源码树”仍属于这份历史数据。当前代码身份只由 FORMAL_EVALUATION 重算。
+    source_digests = manifest["source_artifact_digests"]
+    assert source_digests
+    assert "src/decision_support/multi_agent.py" not in source_digests
+    assert all(HASH_PATTERN.fullmatch(digest) for digest in source_digests.values())
+    expected_code_digest = hashlib.sha256(
+        (
+            json.dumps(source_digests, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n"
+        ).encode("utf-8")
+    ).hexdigest()
+    assert manifest["code_digest"] == expected_code_digest
 
 
 def test_holdout_case_loader_never_returns_evaluator_labels() -> None:

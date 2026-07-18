@@ -1611,3 +1611,43 @@
   Prompt、Schema、数据和代码内容 fail-closed。
 - **重新评估条件**：未来源码摘要改为 Git blob object 或签名 artifact 时，新增决策说明
   新身份算法并保留旧 Manifest 的验证兼容性。
+
+## D-142：历史 Phase 13 数据集复用冻结源码身份，正式 Manifest 重算当前源码身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 13 v2/v3 Manifest 是已验收的历史数据集基线，其旧生成器把可变的整个
+  `src` 目录发现结果写入数据集字节；任何后续阶段的正常代码演进都会在不改动 case、label、
+  Prompt 或 Schema 时伪造历史 `code_digest` 漂移。
+- **候选方案**：重写历史 Manifest；为每个后续文件不断追加排除项；历史数据集复用自身已经
+  冻结的源码身份映射，正式运行再按当前 Git HEAD 重算源码身份。
+- **最终选择**：Phase 13 v2/v3 数据集生成与静态测试复用已提交 Manifest 的
+  `source_artifact_digests` 与 `code_digest`，只验证其内部摘要和 case/label/Prompt/Schema
+  字节稳定；`FORMAL_EVALUATION` 继续由 `calculate_source_code_digest`、Git HEAD 与干净
+  当前源码闭包重新签发身份。Phase 16 Manifest 在 Task 9 独立绑定全部 Phase 16 代码。
+- **选择理由**：历史基线能够在未来阶段重复生成而不伪造漂移；新的正式评估仍对当前完整
+  代码、commit 和路径集合 fail-closed，不会借用历史摘要。
+- **未选理由**：重写历史事实会损害 Acceptance 可追溯性；按文件追加排除项不可扩展且容易
+  漏掉修改后的旧文件；让历史基线校验当前树会把无关未来开发误报为数据污染。
+- **影响**：Phase 13 历史 baseline 不再声称验证当前源码；任何当前真实模型或正式评估必须
+  使用派生 `FORMAL_EVALUATION` Manifest。后续阶段不得修改历史数据集字节。
+- **重新评估条件**：评估身份迁移为按 Git commit 的路径级签名清单时，可用签名 artifact
+  取代冻结映射，但迁移必须兼容验证现有历史 Manifest。
+
+## D-143：Phase 16 在专用账本就绪前拒绝通用 Phase 13/14 模型预算路径
+
+- **状态**：`ACCEPTED`
+- **背景**：共享 `BoundedSpecialistRunner` 原先只映射 Phase 13 候选和 Phase 14 Copilot；
+  新增 Phase 16 task kind 若直接索引映射会抛出 `KeyError`，若复用旧候选又会混用冻结预算池。
+- **候选方案**：复用 Phase 14 Copilot 预算；提前扩大旧账本为 Phase 16 正式账本；在专用
+  Phase 16 账本和 smoke 预检完成前明确拒绝。
+- **最终选择**：Task 3 令旧 Runner 对 `CONFLICT_ANALYSIS` 与 `LIVE_DECISION_PLANNING`
+  返回受控预算拒绝；Task 10 新建 `PHASE16_MULTI_AGENT_SMOKE` 独立账本后，才允许真实
+  模型预留和发送。Scripted rehearsal 的专用装配也必须显式提供 Phase 16 预算端口。
+- **选择理由**：避免未授权真实调用借用历史额度，同时把当前缺口从未捕获异常降为可审计、
+  fail-closed 的结果。
+- **未选理由**：复用旧预算会破坏阶段隔离；提前修改正式账本/DDL 超出 Task 3；保留
+  `KeyError` 会把安全边界退化为进程异常。
+- **影响**：Task 5/6 接入 Runner 时必须使用专用 Scripted budget 装配；Task 10 前所有
+  通用预算路径都不得发送真实模型。
+- **重新评估条件**：Phase 16 专用账本完成并通过 PostgreSQL、预算上限与 unknown usage
+  验收后，由新决策或 Task 10 留痕开放对应 Profile 的预检路径。

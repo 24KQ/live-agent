@@ -197,6 +197,13 @@ _CANDIDATES: Mapping[SpecialistTaskKind, BudgetCandidate] = MappingProxyType(
 def budget_candidate_for_task(task: AgentTask) -> BudgetCandidate:
     """按精确 Profile 身份解析预算，避免同 task kind 的跨阶段额度串用。"""
 
+    if task.task_kind in {
+        SpecialistTaskKind.CONFLICT_ANALYSIS,
+        SpecialistTaskKind.LIVE_DECISION_PLANNING,
+    }:
+        # Phase 16 不能借用 Phase 13 候选或 Phase 14 Copilot 预算；Task 10 的专用账本
+        # 完成前，让共享 Runner 返回可审计的预算拒绝而不是抛出未捕获 KeyError。
+        raise BudgetInvariantError("Phase 16 task requires dedicated Phase 16 budget")
     if task.profile_id == "live_ops_decision_support" and task.profile_version == "1.0.0":
         return BudgetCandidate.PHASE14_COPILOT
     return _CANDIDATES[task.task_kind]

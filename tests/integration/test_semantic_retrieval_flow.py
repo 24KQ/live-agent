@@ -1,4 +1,4 @@
-﻿"""Phase 3C 语义检索集成测试。
+"""Phase 3C 语义检索集成测试。
 
 验证真实 pgvector 余弦距离查询和混合加权融合链路。
 依赖本地 PostgreSQL + pgvector + seed 数据。
@@ -15,7 +15,7 @@ from src.skills.embedding_service import EmbeddingService
 from src.memory.memory_store import MemoryStore
 from src.memory.models import MemoryLayer
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.external]
 
 
 @pytest.fixture(scope="module")
