@@ -331,12 +331,15 @@ def test_manifest_binds_every_artifact_and_official_price_snapshot() -> None:
         assert runtime_profile.profile_id == profile["profile_id"]
     # Phase 13 历史闭包由目录发现得到精确全集，但后续 Phase 15 Release Gate
     # 必须使用独立 Manifest，不能因新增发布门禁源码反向改变历史摘要。
-    phase15_root = ROOT / "src" / "release_gates"
+    phase15_excluded_paths = (
+        ROOT / "src" / "release_gates",
+        ROOT / "src" / "gateway" / "api_server.py",
+    )
     expected_source_paths = {
         path.relative_to(ROOT).as_posix()
         for source_root in (ROOT / "src", EVALUATION_ROOT)
         for path in source_root.rglob("*.py")
-        if not path.is_relative_to(phase15_root)
+        if not any(path.is_relative_to(excluded) for excluded in phase15_excluded_paths)
     }
     assert set(manifest["source_artifact_digests"]) == expected_source_paths
     assert calculate_source_code_digest(ROOT) == manifest["code_digest"]

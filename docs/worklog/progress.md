@@ -807,3 +807,26 @@
 - 全量 unit `1341 passed, 4 warnings`；全量 integration `152 passed, 3 deselected, 5 warnings`；真实模型/真人采集/外部服务费用保持 `0`。
 - 预算从共享账本调整为 Phase 15 自有模块和表，避免改变 Phase 13 历史 Manifest code digest；Phase 13 数据稳定性回归恢复通过。
 - 阶段状态改为 `PHASE_15_TASK_4_READY_TO_PUSH`；下一步严格编码/敏感扫描、差异检查、暂存、提交和推送。
+
+# 2026-07-18 Phase 15 Task 4 COMMIT/PUSH
+
+- Task 4 已提交并推送：`fefd926 feat: persist dual release decisions`，`origin/main=fefd926`。
+- 共享 Phase 13 预算与历史 Manifest 保持不变；Phase 15 使用自有预算模块、DDL、Release Store 和双轨状态机。
+
+# 2026-07-18 Phase 15 Task 5 RED
+
+- 连续游标切换到 Task 5：真人交叉对照采集器。
+- RED 先固定 3-5 名真实参与者、每人 8 次、四组等价场景和 Promotion digest 隔离，禁止伪造真人证据。
+
+# 2026-07-18 Phase 15 Task 5 GREEN/REVIEW
+
+- 内存 Store 红灯修复后专项 `5 passed`；PostgreSQL 真实 session/assignment/response 重启恢复、digest、study 隔离和 Manifest 漂移测试 `2 passed`；Phase 15 Store/预算聚合 `9 passed`。
+- 修复 PostgreSQL `Path` 初始化缺口、身份 fallback、study 范围过滤、冻结 Manifest/artifact 校验和 participant limit advisory lock；DDL 幂等补齐 assignment/session 联合唯一键与 response 联合外键。
+- 当前只剩完整 unit/integration、严格编码/敏感扫描、迁移 dry-run、最终复审、提交和推送；真实模型费用 `0`。
+
+# 2026-07-18 Phase 15 Task 5 VERIFY
+
+- Task 5 API `2 passed`、PostgreSQL study `2 passed`；完整 unit `1348 passed, 4 warnings`，integration `154 passed, 3 deselected, 5 warnings`，退出码均为 0。
+- 修复 Phase 13 动态源码闭包对 Task 5 gateway 集成面的污染，v2/v3 Manifest 重建后字节稳定；case、label、prompt、Schema、价格和历史结论未改变。
+- 迁移 dry-run、compileall、目标编码扫描、敏感扫描和 `git diff --check` 通过。全仓编码扫描的既有 4 errors/51 warnings 单独报告，不阻断本 Task。
+- 状态切换为 `PHASE_15_TASK_5_READY_TO_PUSH`；下一步只暂存 Task 5 文件，提交并推送，之后进入 Task 6 RED，真实模型继续禁止直到预检完成。

@@ -641,3 +641,26 @@
 - Phase 15 预算调整为独立 `src/release_gates/budget.py` 与独立 PostgreSQL 表，固定 0.60 元；未修改 Phase 13/14 共享预算模块，保证历史 code digest 不被后续阶段污染。
 - 内存专项 `4 passed`、PostgreSQL Release Store `1 passed`、独立预算 PostgreSQL `1 passed`、既有预算/Runner 聚合 `85 passed`；全量 unit `1341 passed, 4 warnings`，integration `152 passed, 3 deselected, 5 warnings`。
 - 复审修复 PostgreSQL 决策快照重启读取错误；未发现 Critical/Important 阻断，真实模型未调用。
+
+## 2026-07-18 Phase 15 Task 4 COMMIT/PUSH
+
+- Task 4 已以 `fefd926 feat: persist dual release decisions` 提交并推送，`origin/main=fefd926`。
+- Phase 15 预算独立模块/DDL、Release Store、双轨结论和 Task 4 测试已提交；共享 Phase 13 预算与历史 Manifest 未纳入。
+
+## 2026-07-18 Phase 15 Task 5 RED
+
+- Task 5 进入 RED，目标是服务端控制的真人交叉对照采集器；没有真实参与者时只产生 `BLOCKED`，不生成 Promotion 证据。
+- 下一步覆盖 3-5 人、每人 8 次、四组场景、平衡 assignment、封闭动作、服务端耗时、PII/自由文本拒绝、重复提交幂等和真实 smoke digest 绑定。
+
+## 2026-07-18 Phase 15 Task 5 GREEN/REVIEW
+
+- 内存与 PostgreSQL 真人 Study Store 已转绿；专项 unit `5 passed`、真实 PostgreSQL study `2 passed`，Phase 15 Store/预算聚合 `9 passed`，compileall 通过。
+- 规格审查修复：PostgreSQL 初始化缺失 `Path` 导入；assignment/response 恢复必须通过 session join 返回权威 participant digest；跨 study 读取、同 study Manifest/artifact 漂移均 fail-closed；participant limit 按 study advisory lock 串行化；响应增加 session/assignment 联合外键。
+- 明确并发 `next_trial` 语义为未响应前的同一 trial 幂等重放，不伪造一次性领取或客户端 lease；真实模型、真人数据和 Promotion 证据仍未产生。
+
+## 2026-07-18 Phase 15 Task 5 VERIFY
+
+- 完整 unit `1348 passed, 4 warnings`；完整 integration `154 passed, 3 deselected, 5 warnings`；Task 5 API `2 passed`、PostgreSQL `2 passed`，真实模型/真人费用为 `0`。
+- 迁移 dry-run、compileall、目标文件严格 UTF-8/LF/BOM/replacement/trailing whitespace、敏感扫描和 `git diff --check` 均通过；全仓编码扫描的既有 4 errors/51 warnings 未计入目标文件结果。
+- Phase 13 源码闭包明确排除 Phase 15 `release_gates` 与 `gateway/api_server.py` 集成面，重新生成 v2/v3 Manifest 仅修正闭包摘要，不改变 case、label、prompt、Schema、价格或历史评估结论。
+- 最终只读规格审查未在等待窗口返回，已由主模型按 Design/Plan、实际 diff 和完整测试接管；没有剩余 Critical/Important 阻断。

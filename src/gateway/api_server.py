@@ -44,6 +44,7 @@ from src.gateway.decision_support_service import (
 from src.decision_support.store import WorkspaceConflictError, WorkspaceNotFoundError
 from src.skills.product_catalog import ProductCatalogRepository
 from src.plan_engine.preemption import PreemptionEvidenceRef
+from src.release_gates.human_study import HumanStudyStore, StudyResponse
 
 app = FastAPI(title="LiveAgent Dashboard", version="0.4.0")
 settings = get_settings()
@@ -52,6 +53,7 @@ _harness_dashboard_service = None
 _agent_evaluation_service = None
 _agent_evaluation_worker = None
 _decision_support_service = None
+_phase15_human_study_store: HumanStudyStore | None = None
 DECISION_SUPPORT_EVENT_TYPE = "decision_support_workspace_update"
 HARNESS_EVENT_TYPE = "agent_harness_update"
 _decision_support_sequences: dict[str, int] = {}
@@ -103,6 +105,20 @@ class EvaluationReviewRequest(BaseModel):
     operator_id: str = Field(..., min_length=1)
     conclusion: str = Field(..., min_length=1)
     reason: str = Field(..., min_length=1)
+
+
+class Phase15StudySessionRequest(BaseModel):
+    """创建真人 study session 的请求；participant_code 只在服务端做哈希。"""
+
+    model_config = {"extra": "forbid"}
+
+    participant_code: str = Field(..., min_length=8, max_length=64)
+
+
+class Phase15StudyResponseRequest(StudyResponse):
+    """真人试验响应；复用严格封闭响应 Schema 并绑定 assignment。"""
+
+    assignment_id: str = Field(..., min_length=1)
 
 
 def set_harness_dashboard_service(service) -> None:
@@ -227,9 +243,86 @@ def get_decision_support_service() -> DecisionSupportService:
     return _decision_support_service
 
 
+def set_phase15_human_study_store(store: HumanStudyStore | None) -> None:
+    """注入受控 study Store，供本地演示和单元测试使用。"""
+
+    global _phase15_human_study_store
+    _phase15_human_study_store = store
+
+
+def get_phase15_human_study_store() -> HumanStudyStore:
+    """获取已显式装配的 study Store，未装配时保持 BLOCKED。"""
+
+    if _phase15_human_study_store is None:
+        raise RuntimeError("phase 15 human study store is not configured")
+    return _phase15_human_study_store
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "LiveAgent"}
+
+
+@app.post("/api/phase15/study/sessions")
+async def create_phase15_study_session(http_request: Request, request: Phase15StudySessionRequest):
+    """创建真人 study session；未配置 Store 时不伪造可用采集器。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    try:
+        return get_phase15_human_study_store().create_session(request.participant_code).model_dump(mode="json")
+    except RuntimeError as exc:
+        return JSONResponse(status_code=503, content={"status": "BLOCKED", "error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+
+
+@app.get("/api/phase15/study/sessions/{session_id}/next")
+async def next_phase15_study_trial(session_id: str, http_request: Request):
+    """领取下一个服务端计时的 trial，不返回 evaluator label。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    try:
+        assignment = get_phase15_human_study_store().next_trial(session_id)
+        return {"assignment": None if assignment is None else assignment.model_dump(mode="json")}
+    except RuntimeError as exc:
+        return JSONResponse(status_code=503, content={"status": "BLOCKED", "error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"error": str(exc)})
+
+
+@app.post("/api/phase15/study/sessions/{session_id}/responses")
+async def record_phase15_study_response(
+    session_id: str,
+    http_request: Request,
+    request: Phase15StudyResponseRequest,
+):
+    """追加封闭真人响应；服务端补充耗时，客户端字段不能覆盖。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    try:
+        response = StudyResponse.model_validate(request.model_dump(mode="json", exclude={"assignment_id"}))
+        return get_phase15_human_study_store().record_response(
+            session_id, request.assignment_id, response
+        ).model_dump(mode="json")
+    except RuntimeError as exc:
+        return JSONResponse(status_code=503, content={"status": "BLOCKED", "error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+
+
+@app.get("/api/phase15/study/evidence")
+async def get_phase15_study_evidence(http_request: Request):
+    """读取真人证据状态；只有 READY 才可供后续 Promotion Task 使用。"""
+
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.REVIEWER)
+    try:
+        return get_phase15_human_study_store().promotion_evidence().model_dump(mode="json")
+    except RuntimeError as exc:
+        return JSONResponse(status_code=503, content={"status": "BLOCKED", "error": str(exc)})
 
 
 @app.get("/api/decision-support/workspaces/{live_session_id}")

@@ -77,3 +77,65 @@ CREATE INDEX IF NOT EXISTS phase15_release_runs_mode_status_idx
 
 CREATE INDEX IF NOT EXISTS phase15_release_case_results_run_idx
     ON phase15_release_case_results (release_run_id, created_at, case_id);
+
+-- Task 5：真人交叉对照的 session、assignment 和响应事实。
+CREATE TABLE IF NOT EXISTS phase15_human_study_sessions (
+    session_id TEXT PRIMARY KEY,
+    study_id TEXT NOT NULL,
+    participant_digest TEXT NOT NULL CHECK (participant_digest ~ '^[0-9a-f]{64}$'),
+    dataset_manifest_digest TEXT NOT NULL CHECK (dataset_manifest_digest ~ '^[0-9a-f]{64}$'),
+    promotion_artifact_digest TEXT CHECK (promotion_artifact_digest IS NULL OR promotion_artifact_digest ~ '^[0-9a-f]{64}$'),
+    status TEXT NOT NULL CHECK (status IN ('OPEN', 'COMPLETED')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (study_id, participant_digest)
+);
+
+CREATE TABLE IF NOT EXISTS phase15_human_study_assignments (
+    assignment_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES phase15_human_study_sessions(session_id) ON DELETE RESTRICT,
+    scenario_group TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    condition TEXT NOT NULL CHECK (condition IN ('BASELINE', 'DECISION_SUPPORT')),
+    sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 8),
+    started_at TIMESTAMPTZ,
+    UNIQUE (session_id, sequence),
+    UNIQUE (session_id, scenario_group, condition)
+);
+
+CREATE TABLE IF NOT EXISTS phase15_human_study_responses (
+    assignment_id TEXT PRIMARY KEY REFERENCES phase15_human_study_assignments(assignment_id) ON DELETE RESTRICT,
+    session_id TEXT NOT NULL REFERENCES phase15_human_study_sessions(session_id) ON DELETE RESTRICT,
+    action TEXT NOT NULL CHECK (action IN ('WAIT_OPERATOR', 'WAIT_RECONCILIATION', 'IGNORE_NOISE', 'WAIT_TIMING')),
+    conflict_detected BOOLEAN NOT NULL,
+    workload_score INTEGER NOT NULL CHECK (workload_score BETWEEN 1 AND 7),
+    server_latency_ms NUMERIC(12, 3) NOT NULL CHECK (server_latency_ms >= 0 AND server_latency_ms <> 'NaN'::numeric),
+    promotion_artifact_digest TEXT CHECK (promotion_artifact_digest IS NULL OR promotion_artifact_digest ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Task 5 安全补强：响应的 session 与 assignment 必须是同一行程的联合身份。
+-- 仅有两个独立外键时，数据库仍可能接受“合法 assignment + 另一 session”的错配，
+-- 因此为旧表也幂等补齐联合唯一键和联合外键。
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'phase15_human_study_assignments_session_assignment_key'
+    ) THEN
+        ALTER TABLE phase15_human_study_assignments
+            ADD CONSTRAINT phase15_human_study_assignments_session_assignment_key
+            UNIQUE (session_id, assignment_id);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'phase15_human_study_responses_session_assignment_fk'
+    ) THEN
+        ALTER TABLE phase15_human_study_responses
+            ADD CONSTRAINT phase15_human_study_responses_session_assignment_fk
+            FOREIGN KEY (session_id, assignment_id)
+            REFERENCES phase15_human_study_assignments (session_id, assignment_id)
+            ON DELETE RESTRICT;
+    END IF;
+END $$;

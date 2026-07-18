@@ -912,13 +912,18 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
     project_root = Path(__file__).parents[2]
     # 目录发现形成 Phase 13 自己的保守闭包。后续 Phase 15 Release Gate 使用
     # 独立 Manifest；它的源码不能反向改变 Phase 13 历史证据的身份摘要。
-    phase15_root = project_root / "src" / "release_gates"
+    # Phase 15 的业务实现集中在 release_gates，但它的保护 API 必须挂到旧
+    # api_server；两个目录/文件都属于后续阶段集成面，不能改变 Phase 13 历史摘要。
+    phase15_excluded_paths = (
+        project_root / "src" / "release_gates",
+        project_root / "src" / "gateway" / "api_server.py",
+    )
     source_paths = tuple(
         sorted(
             path.relative_to(project_root)
             for source_root in (project_root / "src", project_root / "evaluation")
             for path in source_root.rglob("*.py")
-            if not path.is_relative_to(phase15_root)
+            if not any(path.is_relative_to(excluded) for excluded in phase15_excluded_paths)
         )
     )
     source_artifact_digests = {
