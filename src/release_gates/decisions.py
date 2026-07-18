@@ -15,6 +15,7 @@ from pydantic import ConfigDict, Field, field_serializer, field_validator, model
 
 from src.release_gates.models import EvaluationCaseStatus
 from src.specialist_runtime.models import (
+    EvidenceRef,
     StrictFrozenModel,
     _freeze_json,
     _plain_json,
@@ -119,6 +120,7 @@ class ReleaseCaseResult(StrictFrozenModel):
     summary: str = Field(..., min_length=1, max_length=500)
     artifact_digest: str = ""
     output: Any | None = None
+    evidence_refs: tuple[EvidenceRef, ...] = ()
 
     @field_validator("output", mode="after")
     @classmethod
@@ -135,6 +137,16 @@ class ReleaseCaseResult(StrictFrozenModel):
     @field_serializer("output", when_used="json")
     def _serialize_output(self, value: Any) -> Any:
         return None if value is None else _plain_json(value)
+
+    @field_validator("evidence_refs", mode="after")
+    @classmethod
+    def _unique_evidence_refs(cls, value: tuple[EvidenceRef, ...]) -> tuple[EvidenceRef, ...]:
+        """保留 Runner 已验证的证据引用，并拒绝同一 case 的重复身份。"""
+
+        ids = tuple(reference.evidence_id for reference in value)
+        if len(ids) != len(set(ids)):
+            raise ValueError("release case evidence references must be unique")
+        return value
 
     @model_validator(mode="after")
     def _bind_artifact_digest(self) -> "ReleaseCaseResult":
@@ -161,6 +173,7 @@ class TechnicalReleaseDecision(StrictFrozenModel):
     failed_case_count: int = Field(..., ge=0, strict=True)
     blocked_case_count: int = Field(..., ge=0, strict=True)
     severe_violation_count: int = Field(..., ge=0, strict=True)
+    blocking_gate_count: int = Field(default=0, ge=0, strict=True)
     case_results_digest: str = Field(..., pattern=HASH_PATTERN)
     reason_codes: tuple[str, ...] = ()
 
@@ -175,7 +188,12 @@ class TechnicalReleaseDecision(StrictFrozenModel):
         if self.status is TechnicalReleaseStatus.PASS:
             if self.completed_case_count != self.expected_case_count or self.failed_case_count or self.blocked_case_count or self.severe_violation_count:
                 raise ValueError("technical PASS requires every case to pass without severe violations")
-        if self.status is TechnicalReleaseStatus.BLOCKED and self.completed_case_count == self.expected_case_count and not self.blocked_case_count:
+        if (
+            self.status is TechnicalReleaseStatus.BLOCKED
+            and self.completed_case_count == self.expected_case_count
+            and not self.blocked_case_count
+            and not self.blocking_gate_count
+        ):
             raise ValueError("complete non-blocked cases cannot produce technical BLOCKED")
         return self
 

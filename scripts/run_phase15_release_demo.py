@@ -1,32 +1,30 @@
-"""Phase 15 Task 1 的本地门禁入口骨架。
+"""Phase 15 本地 Golden Release 门禁演示。
 
-Task 8/12 会把完整 Golden Runner 和 Acceptance 报告接入这个稳定入口；在此之前
-只输出明确的 BLOCKED 事实，绝不把尚未实现的 Release 误报为 PASS，也不触发模型、
-数据库或 GitHub Actions。
+Demo 只调用统一 ``run_release_gate`` 内核，使用临时 artifact 目录避免污染仓库；
+它展示 48 个冻结 case 的技术结果和缺少真实模型/真人证据时的禁用结论。
 """
 
 from __future__ import annotations
 
-import json
+from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    # 直接执行脚本时补入项目根，确保能够加载 src 和 scripts 包。
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.run_release_gate import main as release_main
 
 
 def main() -> int:
-    """输出当前阶段的诚实占位结果，保持入口可发现且默认 fail-closed。"""
+    """使用统一本地 Release CLI 展示确定性技术 PASS 和 Copilot BLOCKED。"""
 
-    print(
-        json.dumps(
-            {
-                "phase": "15",
-                "technical_release": "BLOCKED",
-                "promotion": "BLOCKED",
-                "reason": "phase15_release_kernel_pending_tasks",
-                "external_calls": False,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
+    with TemporaryDirectory(prefix="phase15-demo-") as directory:
+        return release_main(
+            ["--mode", "pr", "--subject", "all", "--output-dir", directory]
         )
-    )
-    return 0
 
 
 if __name__ == "__main__":

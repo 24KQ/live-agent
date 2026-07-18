@@ -857,3 +857,15 @@
 
 - 完整 unit `1361 passed, 4 warnings`、integration `155 passed, 3 deselected, 5 warnings`，退出码均为 0。
 - 状态切换为 `PHASE_15_TASK_7_READY_TO_PUSH`；下一步只暂存 Task 7 文件，提交并推送，之后进入 Task 8 RED。
+
+# 2026-07-18 Phase 15 Task 8 RED
+
+- 从 `984b3ff` 继续。Task 8 先补统一 Release CLI、覆盖率检查和 GitHub Actions evidence 读取的红灯契约。
+- 目标是稳定区分 `PASS`、`FAIL`、`BLOCKED` 和非法输入；PR/Nightly 默认不调用真实模型，Release 缺少外部证据时保持 fail-closed。
+- 用户已有脏文档和临时脚本保持 unstaged，不纳入本 Task。
+
+# 2026-07-18 Phase 15 Task 8 GREEN / REVIEW
+
+- 统一 CLI、覆盖率门禁、Actions evidence 读取和 Demo 已完成；初轮专项 `13 passed`。
+- 独立只读审查发现 Release 强制证据、36/48 split、冻结身份和 EvidenceRef 的 Important/Critical 缺口，已逐项修复并复跑相关聚合 `20 passed`。
+- 当前报告事实：PR 48 -> 36 个非 holdout，技术 PASS、Promotion BLOCKED；Release 缺数据库/覆盖率/Actions 时技术 BLOCKED、最终 NOT_RELEASED；真实模型/网络调用仍为 0。

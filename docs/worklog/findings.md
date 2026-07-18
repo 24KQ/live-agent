@@ -694,3 +694,15 @@
 - 完整 unit `1361 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；退出码均为 0。
 - Task 7 报告 JSON/Markdown 稳定摘要、Technical/Promotion/Final 一致性和严格 AND 门全部通过；未访问真实模型或 endpoint。
 - 目标编译、编码、敏感信息和 diff 门禁待最后一轮执行，用户已有脏文件继续排除。
+
+## 2026-07-18 Phase 15 Task 8 RED
+
+- Task 7 已由 `984b3ff` 推送。现有 `scripts/run_phase15_release_demo.py` 仍是只输出占位 `BLOCKED` 的 Task 1 骨架，缺少统一 mode、Manifest/Subject 校验、Release Store 编排、覆盖率门禁和 GitHub Actions evidence 入口。
+- Task 8 固定复用 `SubjectManifest`、`BoundedSubjectRunner`、`ReleaseStore`、`report.py` 和 Phase 15 Dataset；不重新实现技术/晋升状态机。
+- 本地演练的确定性观察只作为技术 Release 证据；没有真实模型、真人或外部 Actions 事实时不得把 Promotion 写成 `PROMOTE`。
+
+## 2026-07-18 Phase 15 Task 8 REVIEW 整改
+
+- 只读审查发现 Release 默认路径未自动要求 PostgreSQL、覆盖率和 GitHub Actions 证据，且 PR/Nightly 错误包含 holdout；另发现 Manifest/Dataset 身份绑定、EvidenceRef 保留和证据敏感回显缺口。
+- 已修复：Release 强制三类外部门禁并把 gate facts 纳入 artifact；PR/Nightly 固定 36 个非 holdout，Release 固定 48 个；Subject Manifest/Dataset 绑定冻结摘要；ReleaseCaseResult 保留 EvidenceRef；Actions 读取器严格验证身份/摘要并只输出白名单；预算/覆盖率拒绝 NaN/非有限数。
+- 审查没有放宽任何安全、预算或 Promotion 门槛；真实模型、GitHub API 和生产数据库仍未调用。

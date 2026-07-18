@@ -1,10 +1,10 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_15_TASK_7_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_8_READY_TO_PUSH`
 
 最后更新：2026-07-18
 
-当前授权边界：Phase 11A-13 已完成并有 Acceptance；Phase 14 Human-Centered Decision Support Task 1-12 已完成，Acceptance 结论为 `INCONCLUSIVE`；Phase 15 Stage A 已完成持久化，用户已授权 Stage B，Task 1-6 已推送，Task 7 已完成验证，准备提交推送。
+当前授权边界：Phase 11A-13 已完成并有 Acceptance；Phase 14 Human-Centered Decision Support Task 1-12 已完成，Acceptance 结论为 `INCONCLUSIVE`；Phase 15 Stage A 已完成持久化，用户已授权 Stage B，Task 1-7 已推送，Task 8 已完成验证，准备提交推送。
 
 ## 1. 文档职责
 
@@ -178,7 +178,7 @@ Phase 13 采用共享评估内核后按 LiveOpsAgent、PlannerAgent、ReviewMemo
 - 活跃 Golden Dataset 固定为 48 例，拆分 `12 development / 24 validation / 12 holdout`；Phase 13 的 240 例只做历史 Manifest 完整性检查。
 - Stage B Task 1-12 依次交付迁移与入口、Golden、规则 Runner、双轨 Store、真人 study、最多十例真实 smoke、Acceptance、三级 CI、ToolRegistry 退役、两次默认路由 Release 和 Final Acceptance。
 - 真实模型预算固定 0.60 元；真人证据固定为 3-5 名真实参与者、24-40 条记录；任一强制外部证据不足时保持 `BLOCKED`，不得伪造。
-- 当前状态为 `PHASE_15_TASK_7_READY_TO_PUSH`。用户已授权 Stage B，但只可按 Task 1-12 的依赖顺序实施；真实模型仍须等待受保护环境和最终预检。
+- 当前状态为 `PHASE_15_TASK_8_READY_TO_PUSH`。用户已授权 Stage B，但只可按 Task 1-12 的依赖顺序实施；真实模型仍须等待受保护环境和最终预检。
 - Phase 15 Acceptance 完成后停止，不自动进入新 Phase。
 
 ## 10. ToolRegistry 与审批兼容收口

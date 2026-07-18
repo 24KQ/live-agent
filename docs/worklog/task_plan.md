@@ -185,14 +185,20 @@
   - [x] Task 4：Release Store、双轨决策与 Phase 15 预算（`fefd926` 已推送）。
   - [x] Task 5：真人交叉对照采集器（`d181cd1` 已推送）。
   - [x] Task 6：真实 Copilot Smoke 与 Promotion 证据（`4965116` 已推送）。
-  - [x] Task 7：PromotionDecision 与双轨 Acceptance 报告（待提交推送）。
-  - [ ] Task 6：真实 Copilot Smoke 与 Promotion 证据。
-  - [ ] Task 7：PromotionDecision 与双轨 Acceptance。
-  - [ ] Task 8：统一 Release CLI 与报告。
+  - [x] Task 7：PromotionDecision 与双轨 Acceptance 报告（`984b3ff` 已推送）。
+  - [x] Task 6：真实 Copilot Smoke 与 Promotion 证据。
+  - [x] Task 7：PromotionDecision 与双轨 Acceptance。
+  - [ ] Task 8：统一 Release CLI 与报告（已验证，待提交推送）。
   - [ ] Task 9：GitHub Actions 三层门禁。
   - [ ] Task 10：ToolRegistry Facade 退役。
   - [ ] Task 11：显式 Release、默认路由与第二次 Release。
   - [ ] Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance；完成后停止。
+
+## 2026-07-18 Phase 15 Task 8
+
+- [ ] Task 8：统一 Release CLI、覆盖率门禁和 GitHub Actions 证据读取入口（已验证，待提交推送）。
+- RED：非法 mode、Manifest/Subject 不匹配、数据库缺失、覆盖率不足和外部证据缺失必须有稳定非零退出码或明确 `BLOCKED`。
+- 约束：复用 `src/release_gates`，PR/Nightly 不调用真实模型；不修改用户已有脏文件。
 
 # 2026-07-11 Phase 7A 任务
 
