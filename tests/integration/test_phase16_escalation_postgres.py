@@ -40,6 +40,11 @@ from src.decision_support.store import (
     WorkspaceConflictError,
     WorkspaceLeaseError,
 )
+from src.gateway.decision_support_service import (
+    DecisionSupportService,
+    MultiAgentEscalationRequest,
+    canonical_multi_agent_escalation_idempotency_key,
+)
 from src.specialist_runtime.models import (
     AgentResult,
     AgentResultStatus,
@@ -1880,3 +1885,73 @@ def test_postgres_dispatch_claim_and_live_review_transition_are_linearized() -> 
             escalation_id=escalation.escalation_id,
             task_digest="e" * 64,
         )
+
+
+def test_postgres_service_runs_governed_manual_escalation_and_projects_facts() -> None:
+    """Service 必须以真实 Store 的 Bundle/lease/CAS 装配双 Agent，并返回完整事实投影。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    workspace, _incident, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    analyst = _PostgresScriptedAnalyst()
+    planner = _PostgresScriptedPlanner()
+    service = DecisionSupportService(
+        store=store,
+        multi_agent_coordinator=HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            planner_runner=planner,
+        ),
+    )
+    request_key = canonical_multi_agent_escalation_idempotency_key(
+        bundle.evidence_bundle_id
+    )
+
+    result = asyncio.run(
+        service.request_multi_agent_escalation(
+            live_session_id=workspace.live_session_id,
+            request=MultiAgentEscalationRequest(
+                evidence_bundle_id=bundle.evidence_bundle_id,
+                expected_workspace_version=after_bundle.version,
+            ),
+            operator_id="phase16-service-operator",
+            request_idempotency_key=request_key,
+        )
+    )
+
+    assert result["accepted"] is True
+    assert result["request_idempotency_key"] == request_key
+    assert result["escalation_id"] is not None
+    assert result["analysis_id"] is not None
+    assert result["proposal_id"] is not None
+    assert result["outcome_id"] is not None
+    assert "workspace" not in result
+    projection = service.get_workspace_payload(workspace.live_session_id)
+    assert projection["escalations"][0]["mode"] == EscalationMode.OPERATOR_REQUESTED.value
+    assert projection["multi_agent_outcomes"][0]["status"] == MultiAgentOutcomeStatus.READY.value
+    assert len(projection["escalations"]) == 1
+    assert len(projection["conflict_analyses"]) == 1
+    assert len(projection["proposals"]) == 1
+    assert len(projection["multi_agent_outcomes"]) == 1
+    assert len(analyst.calls) == 1
+    assert len(planner.calls) == 1
+
+    # 模拟 HTTP 已提交但响应丢失：客户端只能重放同一规范 key 和首次见到的 CAS。Service
+    # 必须以已持久化 Escalation 的当前版本恢复，不重发两个 Runner 或创建第二条事实。
+    replay = asyncio.run(
+        service.request_multi_agent_escalation(
+            live_session_id=workspace.live_session_id,
+            request=MultiAgentEscalationRequest(
+                evidence_bundle_id=bundle.evidence_bundle_id,
+                expected_workspace_version=after_bundle.version,
+            ),
+            operator_id="phase16-service-operator",
+            request_idempotency_key=request_key,
+        )
+    )
+
+    assert replay["accepted"] is True
+    assert replay["escalation_id"] == result["escalation_id"]
+    assert replay["outcome_id"] == result["outcome_id"]
+    assert len(analyst.calls) == 1
+    assert len(planner.calls) == 1

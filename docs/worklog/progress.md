@@ -1107,3 +1107,52 @@
   `0.000000 CNY`。
 - 当前只待重新执行目标文件严格编码检查、`git diff --check` 和独立提交 `feat: validate multi-agent live proposals`；
   推送并核验远端 SHA 前不开始 Task 7。
+
+# 2026-07-18 Phase 16 Task 6 PUSHED / Task 7 RED
+
+- Task 6 已以 `d42eab9 feat: validate multi-agent live proposals` 推送到
+  `origin/codex/phase16-controlled-multi-agent`，本地与远端 SHA 一致；用户已有脏文件未纳入。
+- Task 7 只开始受治理 escalation API/WebSocket 的 RED。请求不能携带 Profile、scope、trigger 或授权
+  自证，服务端必须从 append-only Store 重建；运营仍是经营恢复唯一授权方。
+
+# 2026-07-18 Phase 16 Task 7 GREEN / REVIEW
+
+- 新增规范幂等的人工升级端点与 Service；默认未装配 Coordinator 时 `503`，认证关闭时也在任何
+  兼容管理员路径前 `503`。服务端重载 Bundle、校验 LIVE/CAS、获取 lease/fencing，才调用显式注入的
+  Coordinator；没有模型或经营执行直连。
+- Workspace/WS 统一广播完整 append-only 投影，包含 escalations、conflict_analyses、
+  multi_agent_outcomes、proposals 与既有事实。D-153/D-154 记录公开请求与认证关闭门禁。
+- 当前 API/Service 聚合 `21 passed`、隔离 PostgreSQL Service/Coordinator 集成 `1 passed`；进入
+  规格与质量/安全双重复审，真实模型费用仍为 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 7 D-155 REVIEW REMEDIATION
+
+- 双重复审发现同规范 key 的响应丢失重试会被首次写入后的旧 CAS 错误阻断，且完整 Workspace 根
+  payload 会破坏既有副屏 `data.workspace` 消费。D-155 固定同 Bundle 人工事实的恢复例外和兼容封装。
+- 新增 PostgreSQL response-loss RED/GREEN：重试使用当前 Store 版本恢复同一 READY Outcome，Analyst/
+  Planner 调用数保持各 1。WebSocket RED/GREEN 恢复 `data.workspace`，其中仍是完整权威投影。
+- 当前 API/Phase 14 回归 `21 passed`、PostgreSQL Service 集成 `1 passed`；进入整改后的双重复审，真实模型费用 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 7 D-156 REVIEW REMEDIATION
+
+- 最终质量复审发现自动 escalation 可在 Service 预读后、Coordinator 调用前写入，旧 Coordinator 会把
+  它作为 manual replay 返回。D-156 将最终 Store 观察收紧为只有 `OPERATOR_REQUESTED` 才能恢复。
+- 新 RED/GREEN 覆盖自动/人工竞争；Task 7 API、Phase 14 API 与 Coordinator 聚合 `22 passed`。
+- 完整 integration 的唯一 Kafka 失败是测试跨分区顺序假设，四条断言顺序的消息现使用同一 partition key；
+  生产 EventStore、消费者和 Kafka 配置未修改，单项通过。下一步最终双重复审与全量重跑。
+
+# 2026-07-18 Phase 16 Task 7 D-157 REVIEW REMEDIATION
+
+- 最终规格复审发现认证关闭的畸形 JSON 会被 FastAPI 类型化参数抢先返回 `422`，以及 HTTP 返回完整
+  Workspace。D-157 改为安全门禁后手动 Schema 校验，HTTP 只返回稳定事实 ID；完整投影仅保留给
+  WebSocket `data.workspace`。
+- API/WebSocket 聚合 `31 passed`、PostgreSQL Service 集成 `1 passed`；进入最终双重复审、全量 unit/
+  integration 和提交前门禁。真实模型费用仍为 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 7 D-158 REVIEW REMEDIATION / VERIFY
+
+- 质量/安全复审发现自动入口会为 pending manual escalation 继续模型协调，绕过当前人工 lease。D-158
+  收紧为自动路径只读恢复或返回 pending；只有 `run_operator_requested` 在当前 lease/fencing 下可推进。
+- RED/GREEN 定向 `3 passed`；完整 unit `1457 passed, 4 warnings`，完整 integration `182 passed, 7 deselected,
+  5 warnings`。compileall、迁移 dry-run、D-001 至 D-158 审计、目标文件严格 UTF-8 和 `git diff --check`
+  均通过。独立整改复审 PASS，下一步提交推送；真实模型费用保持 `0.000000 CNY`。

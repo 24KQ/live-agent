@@ -7,8 +7,8 @@
 - [x] Task 3：新增 `CONFLICT_ANALYSIS`、`LIVE_DECISION_PLANNING`、冻结 Profile 和不可变领域协议。Profile/lineage/预算/历史闭包/Prompt/展示安全整改、历史迁移/测试基线整改、双重复审、空库迁移和完整 unit/integration 均已通过，`ad0e185` 已独立提交并推送。
 - [x] Task 4：实现 escalation、analysis、outcome 的内存/PostgreSQL append-only Store。四轮审查整改和最终验证均已完成，`1ea229a` 已独立提交推送；D-145 固定数据库 CAS、LIVE 线性化复核与 Task 6 前 READY fail-closed。
 - [x] Task 5：实现三选二选择器、运营 lease 显式升级和 Analyst Coordinator 段。D-146/D-147 整改、专项 unit `25 passed`、PostgreSQL `20 passed`、完整 unit `1420 passed`、integration `172 passed` 均已通过，`b584808` 已独立提交并推送。
-- [ ] Task 6：实现 Planner 段、整份 Validator 拒绝和受控 Proposal lineage。D-148 至 D-152、专项 `83 passed`、PostgreSQL `29 passed`、完整 unit `1440 passed`、integration `181 passed, 7 deselected` 与双重复审均已通过；当前仅待独立提交推送，不改变 OperatorDecision/Compiler 或经营执行。
-- [ ] Task 7：接入 operator-authenticated HTTP、WebSocket 和 Workspace 投影。
+- [x] Task 6：实现 Planner 段、整份 Validator 拒绝和受控 Proposal lineage。D-148 至 D-152、专项 `83 passed`、PostgreSQL `29 passed`、完整 unit `1440 passed`、integration `181 passed, 7 deselected` 与双重复审均已通过，`d42eab9` 已独立提交推送；不改变 OperatorDecision/Compiler 或经营执行。
+- [ ] Task 7：接入 operator-authenticated HTTP、WebSocket 和 Workspace 投影。D-153 至 D-158 的窄请求、认证、Bundle/lease 装配、重试、投影与人工/自动所有权门禁已 GREEN；完整 unit/integration 已通过，当前等待独立提交推送。
 - [ ] Task 8：扩展本地三视图工作台的高冲突事故展示与交互。
 - [ ] Task 9：生成独立冻结 48 例数据集及 ScriptedModel 配对评估。
 - [ ] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本。

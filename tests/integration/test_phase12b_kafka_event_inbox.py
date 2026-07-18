@@ -127,11 +127,15 @@ def test_real_kafka_duplicate_conflict_and_following_event_advance_offset() -> N
     store = PostgresEventStore(settings)
     event_id = f"phase12b-kafka-event-{suffix}"
     following_id = f"phase12b-kafka-following-{suffix}"
+    ordered_partition_key = f"phase12b-kafka-order-{suffix}".encode("ascii")
 
     producer = _producer(settings)
     try:
         metadata = [
-            producer.send(topic, _encoded(payload)).get(timeout=10)
+            # Kafka 只保证同一 partition 内的 offset 顺序。该用例断言 duplicate、
+            # conflict 与 following event 的完整消费序列，因此四条测试消息必须使用
+            # 同一 key 固定到同一 partition，不能把跨分区 poll 顺序误当成业务语义。
+            producer.send(topic, _encoded(payload), key=ordered_partition_key).get(timeout=10)
             for payload in (
                 _payload(event_id),
                 _payload(event_id),

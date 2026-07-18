@@ -841,3 +841,25 @@
 - D-148 至 D-151 将双 Agent 的总预算、单次 Planner dispatch、LIVE/REVIEW 恢复和迟到事实全部收束到同一不可重置的五秒窗口；Planner 只读取精确 EvidenceBundle 与已验证 ConflictAnalysis。
 - D-152 关闭了两条经营恢复旁路：通用 Proposal 写入/API 拒绝 `MULTI_AGENT`，Coordinator 是唯一写入入口；多 Agent `APPROVE/MODIFY` 必须精确绑定同一 Proposal、Analysis、Escalation 摘要的 `READY` Outcome。全局 deadline 耗尽也稳定归类为 `COORDINATOR_TIMEOUT`。
 - 最终证据：Task 6 聚合 `83 passed`、真实 PostgreSQL Task 6 套件 `29 passed`、direct-SQL coordinator-context 拒绝 `1 passed`、完整 unit `1440 passed, 4 warnings`、完整 integration `181 passed, 7 deselected, 5 warnings`。规格审查和质量/安全整改复审均为 PASS，真实模型费用 `0.000000 CNY`。
+
+## 2026-07-18 Phase 16 Task 7 GREEN / REVIEW
+
+- D-153 将人工升级 HTTP 收窄为 Bundle ID、Workspace CAS 和规范 header 幂等键；服务端重新加载权威 Bundle，并装配 operator lease/fencing，客户端不能传 Profile、trigger、scope、Bundle snapshot 或 fencing。
+- 首轮只读审查发现认证关闭时的默认管理员 Critical；D-154 令新端点在该配置下 `503` fail-closed，不复用旧本地兼容路径。审查还发现 lease 错误要映射 `409`、WebSocket 必须广播完整 Store 投影；均已补 RED/GREEN。
+- 当前专项 API/Service 与 Phase 14 回归 `21 passed`；隔离 PostgreSQL 上的 Service -> Coordinator -> READY -> Workspace projection 为 `1 passed`，真实模型费用 `0.000000 CNY`。
+
+## 2026-07-18 Phase 16 Task 7 D-155/D-156 整改
+
+- D-155 修复规范 key 的 response-loss replay：同 Bundle 既有人工 escalation 使用当前 Store 版本恢复，仍要求当前 lease，两个 Runner 不会第二次执行；WebSocket 保持 `data.workspace` 而其中内容为完整权威投影。
+- D-156 修复 Service 预读和 Coordinator 最终观察之间的自动升级竞态。`run_operator_requested` 只可恢复既有 `OPERATOR_REQUESTED` 事实；最终看到自动 escalation 时抛出冲突，零额外 Runner 调用。
+- 全量 integration 首次仅有 Kafka 用例失败，根因是 Producer 未指定 key，跨分区 poll 没有总序。测试夹具已固定四条序列消息的 partition key，不改生产 Kafka/EventStore 语义；单项回归通过。
+
+## 2026-07-18 Phase 16 Task 7 D-157 整改
+
+- FastAPI 类型化 body 会在端点内的认证配置门禁前返回 `422`。D-157 改为原始 Request 在 D-154/认证之后手动验证，认证关闭的有效与畸形 JSON 都返回 `503`，认证启用后的无效 JSON 保持脱敏 `422`。
+- Service HTTP 结果只返回 `accepted`、规范 key 与可选事实 ID；完整 Workspace/Agent 事实只在写后读取并按 `data.workspace` 广播。API/WebSocket 聚合 `31 passed`、PostgreSQL Service 集成 `1 passed`。
+
+## 2026-07-18 Phase 16 Task 7 D-158 整改与最终验证
+
+- 质量/安全复审发现自动调用会推进已有 pending `OPERATOR_REQUESTED` escalation。人工升级的单信号资格不能被自动三选二入口在失去当前 lease 后续跑；D-158 令自动入口只读恢复或返回 pending 身份。
+- 新 RED/GREEN 证明自动观察不会产生 Runner 调用、Analysis 或 Outcome。完整验证在隔离 PostgreSQL 上为 unit `1457 passed, 4 warnings`、integration `182 passed, 7 deselected, 5 warnings`；真实模型费用保持 `0.000000 CNY`。独立整改复审为 PASS。

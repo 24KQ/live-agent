@@ -540,6 +540,17 @@ class HighConflictEscalationCoordinator:
             return HighConflictCoordinationResult(selected=False)
         existing = self._find_escalation(validated)
         if existing is not None:
+            if existing.mode is EscalationMode.OPERATOR_REQUESTED:
+                # 自动触发器没有人工租约，也不知道首次人工授权是否仍然有效。人工路径可用
+                # 单项信号，而自动路径要求三选二；若此处继续进入 _coordinate，会让自动轮询
+                # 在租约过期后替人工请求发送 Analyst/Planner。故自动入口对人工事实只读取
+                # 已落库的 Analysis/Proposal/Outcome；pending 时返回事实身份，不写 claim、
+                # 不追加终态、更不触发任何 Runner。后续推进仍必须由持有当前 lease 的人工
+                # 请求路径完成，确保模型预算和经营建议始终能追溯到有效操作员授权。
+                return self._recover_existing(existing) or HighConflictCoordinationResult(
+                    selected=True,
+                    escalation=existing,
+                )
             # 已持久化的事实优先于新请求时的 freshness/LIVE 投影：这里仅恢复
             # 已知结果或处理已有 dispatch claim，绝不因为当前状态改变重新路由模型。
             return await self._coordinate(
@@ -587,6 +598,11 @@ class HighConflictEscalationCoordinator:
             return HighConflictCoordinationResult(selected=False)
         existing = self._find_escalation(validated)
         if existing is not None:
+            # D-156：Service 的预读与本次最终 Store 观察之间可能已有自动升级提交。
+            # 人工请求绝不能把自动事实偷换为自己的 replay；必须在任何恢复、终态写入
+            # 或 Runner 调用之前拒绝，只有同模式的既有人工事实才可按 D-155 恢复。
+            if existing.mode is not EscalationMode.OPERATOR_REQUESTED:
+                raise WorkspaceConflictError("bundle already has automatic escalation")
             return await self._coordinate(
                 bundle=validated,
                 expected_workspace_version=expected_workspace_version,

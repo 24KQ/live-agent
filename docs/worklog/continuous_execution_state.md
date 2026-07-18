@@ -116,22 +116,39 @@ Phase / Task: Phase 16 / Task 5 - Select and Analyze High Conflict
 Sub-agent: 规格 explorer `019f754b-dec4-7541-b647-0b322e14b243`、测试/并发 explorer `019f754b-f34e-7280-a908-c6e116f5d122`、质量/安全复审 `019f759f-33d4-7d40-bb8b-1a3b78a22158` 与最终规格复审 `019f759e-fd28-7e42-9beb-1e89f4b91d74` 均已完成并关闭；后续独立复审报告的 Important 已逐项由主模型复查、补 RED/GREEN 并重跑验证。所有 sub-agent 只读，未修改、暂存、提交或推送文件；当前无运行中 sub-agent。
 ```
 
-## 2026-07-18 Phase 16 Task 6 VERIFY / READY_TO_COMMIT
+## 2026-07-18 Phase 16 Task 6 PUSHED
 
 ```text
 Phase / Task: Phase 16 / Task 6 - Plan and Validate Whole Proposals
-状态: VERIFY / READY_TO_COMMIT
+状态: PUSHED
 目标: 在同一 Bundle/Analysis 父链上执行一次受限 DecisionPlannerAgent，持久化完整 Proposal，整份验证后才追加 READY Outcome。
 禁止事项: 不修改 OperatorDecision/Compiler 权限，不实现 HTTP/WebSocket/前端，不自动提交经营恢复，不调用真实模型或复用 Phase 13/14 预算账本。
-当前 HEAD: b584808
+当前 HEAD: d42eab9
 本 Task 文件: src/decision_support/multi_agent.py、src/decision_support/proposal.py、src/decision_support/store.py、Task 6 unit/PostgreSQL 测试、DDL 与本 Task worklog。
 用户脏文件: 主工作区既有用户文件保持不接触、不暂存。
 最近命令与结果: D-151/D-152 的 RED/GREEN、D-147/D-150 正向回归和 Task 6 unit/Store/API 聚合为 `83 passed`；Task 6 PostgreSQL 套件为 `29 passed`，direct-SQL coordinator-context 拒绝为 `1 passed`。以隔离 `POSTGRES_PORT=5434` 运行的完整 unit 为 `1440 passed, 4 warnings`，完整 integration 为 `181 passed, 7 deselected, 5 warnings`。`compileall`、迁移 dry-run 与 `git diff --check` 均通过；目标文件严格 UTF-8/LF/BOM/replacement/trailing-whitespace 检查已含 commands/service 复跑通过。
 错误与尝试次数: 初轮完整 unit 暴露普通 Phase 14 Proposal 被错误按多 Agent Schema 强制重载；已用显式 `MULTI_AGENT` marker 分流且复跑历史 Store 测试。D-149/D-150 后最终规格复审又发现 Analyst 返回/验证预算、过期 Planner claim 竞态、REVIEW 非超时代码和 Planner 控制面输入四项 Important；D-151 已补最小代码与 RED/GREEN。DDL 首次把 failure_code 误读为顶层列，造成合法超时闭合被拒；已改为 `payload.failure_code` 并用直接 SQL trigger RED/GREEN 验证。未调用真实模型。
 设计偏差与决策编号: D-148 至 D-151 保持有效；D-152 将多 Agent Proposal 写入收束到 Coordinator 专用入口，并要求 `APPROVE/MODIFY` 绑定精确 READY Outcome，同时修正 Planner 全局预算超时分类。OperatorDecision 权限、默认路由和真实模型禁令均不变。
-下一条精确操作: 复跑最终目标文件编码检查与差异核验，只暂存 Task 6 目标文件，提交 `feat: validate multi-agent live proposals` 并推送；远端 SHA 一致后才切换到 Task 7 RED。
+下一条精确操作: 已以 `d42eab9 feat: validate multi-agent live proposals` 推送，`origin/codex/phase16-controlled-multi-agent` 与本地 HEAD 一致；切换到 Task 7 RED。
 模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
 Sub-agent: 初审 `019f75d1-1c20-7b40-8b92-4bd1eadc3560` 与整改规格复审 `019f75e9-e35b-75b1-9c23-5b9167384440` 已完成并关闭，D-149/D-150 Important 均已补 RED/GREEN。最终规格复审 `019f75f8-26ed-7750-9ad8-7302eae010d0` 发现两项 Important，D-150 已整改。新最终规格复审 `019f7607-d575-70b2-b771-5adaac3aa51c` 对 D-147 至 D-151 PASS。独立质量/安全审查 `019f7620-5181-7ae0-8f11-b526f1f5dabf` 发现 D-152 的 Proposal/READY Outcome 旁路和 Planner timeout 误分类两项 Important；主模型已补 RED/GREEN，整改复审 PASS 且该线程已关闭。当前无运行中的 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 7 RED
+
+```text
+Phase / Task: Phase 16 / Task 7 - Governed API and WebSocket Projection
+状态: VERIFY / READY_TO_COMMIT
+目标: 提供只接受已认证操作员、当前 lease、精确 Bundle ID、Workspace CAS 与 idempotency 的窄 escalation API，并投影稳定的 Workspace/WebSocket 事实。
+禁止事项: 不提供客户端传入的 Profile、trigger code、scope 或授权；不新增自动批准、经营恢复、模型调用、自由 Agent 交互或前端实现。
+当前 HEAD: d42eab9
+本 Task 预期文件: src/gateway/api_server.py、src/gateway/decision_support_service.py、Task 7 unit/integration API/WebSocket 测试与本 Task worklog；按实际 RED 再收窄。
+最近命令与结果: D-153 至 D-157 的 RED/GREEN 已完成。质量复审新增 D-158 RED：自动入口会继续 pending 的 `OPERATOR_REQUESTED` escalation，并在无当前人工 lease 下发送 Analyst；现已改为只读事实恢复或 pending 投影，定向回归 `3 passed`。完整 unit 使用隔离 PostgreSQL 为 `1457 passed, 4 warnings`；完整 integration 为 `182 passed, 7 deselected, 5 warnings`；compileall、迁移 dry-run、D-001 至 D-158 审计和严格目标文件编码检查通过。未调用真实模型。
+错误与尝试次数: 七项预期 RED 均已修复；未配置隔离 PostgreSQL 的完整 unit 首次得到 `12 failed, 1 error`，根因是历史默认 `5432/change_me` 凭据，注入专用 `5434` 容器凭据后全绿。Kafka 跨分区顺序夹具已固定同一 key，不改生产语义。
+设计偏差与决策编号: D-153 至 D-157 保持窄 HTTP、认证、重试、WebSocket 和自动/人工竞态边界。D-158 新增自动入口不得代替人工 lease 推进 pending manual escalation 的所有权门禁；独立整改复审 PASS。其余遵守 D-134 至 D-152。
+下一条精确操作: 只暂存 Task 7 目标文件、独立提交并推送，再进入 Task 8 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 规格审查 `019f7675-f8f5-79b0-baef-c6f8ca523d70` 已 PASS 并关闭；质量/安全审查 `019f7676-3385-72b1-b287-71da0c8a7e27` 发现 D-158 Important，主模型已补独立 RED/GREEN 并关闭该审查。整改复审 `019f7682-94d6-7a61-a780-822f61d31243` 已 PASS 并关闭；所有 Task 7 sub-agent 只读、未修改、暂存、提交或推送，当前无运行中 sub-agent。
 ```
 
 ## 2. 当前授权边界

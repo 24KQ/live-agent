@@ -1399,6 +1399,95 @@ def test_manual_escalation_requires_current_lease_and_reconstructs_one_server_si
     assert len(runner.calls) == 1
 
 
+def test_automatic_entry_never_dispatches_pending_manual_escalation() -> None:
+    """自动入口只能观察人工升级事实，不能在没有当前人工租约时继续其模型阶段。
+
+    人工路径允许一项真实冲突信号，而自动路径要求三选二。若自动入口在发现既有
+    ``OPERATOR_REQUESTED`` 事实后继续协调，会把后续 Analyst 发送从操作员租约中
+    脱离，既扩大模型调用也破坏人工授权边界。因此它只能返回持久化的 pending 事实。
+    """
+
+    store, workspace, lease, bundle = _seed_bundle(
+        suffix="manual-automatic-ownership",
+        include_availability_noise=False,
+        pause_required=True,
+    )
+    manual = EscalationRecord(
+        escalation_id=f"phase16-escalation:operator_requested:{bundle.evidence_bundle_id}",
+        live_session_id=bundle.live_session_id,
+        incident_id=bundle.incident_id,
+        evidence_bundle_id=bundle.evidence_bundle_id,
+        evidence_bundle_digest=EvidenceBundleSnapshot.model_validate(
+            bundle.snapshot
+        ).bundle_digest,
+        idempotency_key=f"phase16-escalation:operator_requested:{bundle.evidence_bundle_id}",
+        mode=EscalationMode.OPERATOR_REQUESTED,
+        trigger_codes=(ConflictAnalysisCode.RHYTHM_PAUSE_REQUIRED,),
+        operator_id=lease.operator_id,
+        created_at=_now(),
+    )
+    after_manual = store.append_escalation(
+        manual,
+        expected_workspace_version=workspace.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+    )
+    runner = _ScriptedAnalystRunner()
+
+    observed = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=runner,
+            clock=_now,
+        ).run_automatic(
+            bundle,
+            expected_workspace_version=after_manual.version,
+        )
+    )
+
+    assert observed.selected is True
+    assert observed.escalation == manual
+    assert observed.analysis is None
+    assert observed.proposal is None
+    assert observed.outcome is None
+    assert runner.calls == []
+    assert store.list_conflict_analyses(bundle.live_session_id) == ()
+    assert store.list_multi_agent_outcomes(bundle.live_session_id) == ()
+
+
+def test_manual_escalation_rejects_existing_automatic_escalation() -> None:
+    """Coordinator 最终观察到自动事实时，人工入口不得把它伪装为 manual replay。"""
+
+    store, workspace, lease, bundle = _seed_bundle(suffix="automatic-manual-race")
+    runner = _ScriptedAnalystRunner()
+    coordinator = HighConflictEscalationCoordinator(
+        store=store,
+        analyst_runner=runner,
+        clock=_now,
+    )
+    automatic = asyncio.run(
+        coordinator.run_automatic(
+            bundle,
+            expected_workspace_version=workspace.version,
+        )
+    )
+
+    assert automatic.escalation is not None
+    assert automatic.escalation.mode is EscalationMode.AUTOMATIC
+    with pytest.raises(WorkspaceConflictError, match="automatic escalation"):
+        asyncio.run(
+            coordinator.run_operator_requested(
+                bundle,
+                expected_workspace_version=store.get_workspace(
+                    bundle.live_session_id
+                ).version,
+                operator_id=lease.operator_id,
+                fencing_token=lease.fencing_token,
+            )
+        )
+    assert len(runner.calls) == 1
+
+
 def test_analyst_failure_persists_exactly_one_degraded_outcome_and_retries_without_model() -> None:
     """任一 Analyst 失败只写一条不含 Proposal 的降级终态，重试不得再次调用模型。"""
 

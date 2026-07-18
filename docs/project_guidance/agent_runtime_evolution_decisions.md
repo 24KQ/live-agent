@@ -1891,3 +1891,144 @@
 - **重新评估条件**：若未来采用签名的独立 Planner receipt 和数据库受限写角色，可将协调器 context
   升级为跨进程证明；在此之前不得让通用 Proposal 创建、缺失/不匹配 Outcome 的批准，或错误分类的
   全局超时生成经营命令。
+
+## D-153：人工升级 HTTP 只接受规范 Bundle 请求，服务端持有租约与协调器身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 需要把高冲突人工升级投影到受认证 HTTP/WebSocket 边界。若 HTTP 接受
+  Profile、触发码、作用域、fencing token、自由 idempotency 或完整 Bundle 快照，调用方可以改变
+  双 Agent 路由身份、覆盖 Store 父事实，或将过期的操作员状态伪装为当前授权。
+- **候选方案**：复用通用 Proposal 创建 API；接受完整 Bundle 与客户端 fencing token；允许任意
+  HTTP idempotency key；或提供只含 Bundle ID/Workspace CAS 的独立端点，由服务端重建父事实、租约
+  与规范幂等身份。
+- **最终选择**：`POST /api/decision-support/workspaces/{live_session_id}/multi-agent-escalations`
+  的 JSON 体只接受 `evidence_bundle_id` 与 `expected_workspace_version`。必填
+  `X-Idempotency-Key` 必须等于服务端可重算的
+  `phase16-escalation:operator_requested:<evidence_bundle_id>`；Service 只从 Store 重载 Bundle 和
+  Workspace，并通过 Store 获取或续用认证操作员的当前 lease/fencing token 后调用启动冻结的
+  Coordinator。HTTP 不接收 Profile、trigger、scope、authorization、Bundle snapshot 或 fencing。
+  广播只投影 append-only Workspace、Escalation、Analysis、Proposal 与 Outcome 事实，仍不触发
+  OperatorDecision 或经营恢复。
+- **选择理由**：将外部输入降到最小可验证集合，既保留 HTTP 重试的稳定身份，也防止客户端把
+  业务事实或并发控制面带入模型协调链。Store 在真正 append 时再次执行 CAS/lease/父事实校验，
+  因此读取与写入之间的竞争保持 fail-closed。
+- **未选理由**：通用 Proposal API 受 D-152 限制且不能证明 Coordinator 已执行；完整 Bundle 和
+  客户端 fencing 会扩大伪造面；任意 key 无法与唯一 Bundle 升级事实绑定；单纯在 HTTP 层验证
+  不能替代 Store 的事务级约束。
+- **影响**：Task 7 新增严格请求 Schema、Coordinator 注入、服务端 Bundle/lease 装配和稳定
+  WebSocket 投影。默认 `DETERMINISTIC_ONLY`、自动保护、Agent 无直接经营写权限、OperatorDecision
+  唯一恢复授权、五秒总预算和真实模型禁令均不改变。
+- **重新评估条件**：若未来引入签名的浏览器会话、独立 lease 服务或跨进程协调器 RPC，可在新版本
+  协议中替换 HTTP 身份证明；在此之前不得接收自由 Profile、父事实、fencing 或绕过规范幂等键。
+
+## D-154：高冲突人工升级在认证关闭时拒绝，不继承本地默认管理员兼容行为
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 初审发现旧 `authenticate_request` 在 `OPERATOR_AUTH_ENABLED=false` 时会为无头
+  请求返回默认 `ADMIN`，便于旧本地演示但不满足 Phase 16 “已认证操作员才能请求双 Agent 升级”的
+  硬边界。若新写入口沿用该兼容行为，任意访问者都可能取得 Workspace lease 并增加模型协调负担。
+- **候选方案**：继承旧默认管理员；只在前端隐藏按钮；要求全局启用认证后再使用端点；或让新端点
+  在认证配置关闭时于调用 Service 前明确 fail-closed。
+- **最终选择**：高冲突升级 HTTP 端点在认证配置关闭时返回稳定 `503` 配置拒绝，不调用认证兼容
+  分支、Service、Store、Coordinator 或模型。已有历史 API 不在本 Task 反向收紧；本地演示应显式
+  配置操作员 token，或通过内存 Service 注入进行无网络测试。
+- **选择理由**：新入口从第一版就保持“认证是授权前置条件”，不会把历史演示便利误用为 Agent
+  经营控制权限；`503` 准确表达服务端未满足安全装配，而非把未认证请求误标为凭据错误。
+- **未选理由**：前端隐藏不构成服务器安全；全局改动会扩大 Phase 16 范围并破坏旧测试；继承默认
+  管理员直接违反冻结设计。
+- **影响**：Task 7 新增认证关闭 RED/GREEN、稳定 fail-closed 响应与工作日志。全局角色授权仍是
+  本地单运营演示边界；远程多运营的会话级授权、签名 session 和访问审计需要后续独立设计，不能
+  被当前全局 `OperatorRole` 误称为生产级多租户隔离。
+- **重新评估条件**：后续实现远程部署或多运营协作时，必须先设计会话级授权与签名 session；在此
+  之前不得因为本地演示方便而开启本端点的匿名默认管理员路径。
+
+## D-155：规范人工升级重试恢复既有事实，WebSocket 保持 `data.workspace` 兼容投影
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 双重复审发现首次人工升级成功后 Workspace 版本会递增，响应丢失时携带原始 CAS
+  的同 key 重试会在 Service 过早返回冲突，无法进入 Coordinator 的既有 Escalation 恢复路径。审查还
+  发现把完整 Workspace 直接放进广播 `data` 会破坏前端既有的 `data.workspace` 读取契约。
+- **候选方案**：对所有陈旧 CAS 直接拒绝；每次重试都重发 Coordinator；给 HTTP 加临时内存缓存；或仅在
+  Store 已存在同一 Bundle 的规范人工 Escalation 时，以当前权威版本恢复，并把完整投影保留在既有
+  `data.workspace` 包装内。
+- **最终选择**：Service 先验证 Bundle scope 并读取当前 Workspace；若已存在该 Bundle 的
+  `OPERATOR_REQUESTED` Escalation，同一规范 key 的重试使用当前权威版本进入 Coordinator 恢复，仍需
+  认证操作员持有当前 lease，且不得产生第二次 Runner 调用。不存在既有事实时继续严格要求原始 CAS。
+  WebSocket envelope 维持 `type -> payload -> {live_session_id, sequence, data: {workspace}}`，其中
+  `workspace` 是包含 Phase 16 事实的完整服务端投影；HTTP 响应继续返回窄操作结果。
+- **选择理由**：响应丢失是常见网络故障而非新业务请求；复用已持久化唯一事实可实现 at-most-once
+  模型语义，不需内存缓存。保留既有包裹避免破坏副屏消费者，同时让其读取唯一权威事实快照。
+- **未选理由**：直接拒绝使安全重试无意义；重发 Coordinator 可能重复模型成本；内存缓存不能跨进程
+  或重启；更换 WebSocket 根形状会造成静默 UI 失效。
+- **影响**：Task 7 新增 response-loss retry 与前端 envelope RED/GREEN。重试只放宽既有同 Bundle
+  事实的版本前置条件，不放宽认证、lease、Bundle scope、Profile、模型预算、OperatorDecision 或经营
+  恢复授权。
+- **重新评估条件**：若未来允许同一 Bundle 的新版本升级，必须引入显式版本化 Bundle 与新的幂等资源
+  身份；在此之前不得用不同 CAS/请求内容创建第二条人工 Escalation，或改变 `data.workspace` 协议。
+
+## D-156：Coordinator 在最终观察到自动升级时拒绝人工路径，封闭 D-155 的读写竞态
+
+- **状态**：`ACCEPTED`
+- **背景**：D-155 的 Service 先读同 Bundle escalation 再获取 lease，自动升级可在两者之间提交。
+  旧 `run_operator_requested` 随后看到新自动事实时会无条件进入其恢复路径，把人工请求错误接受为
+  自动 replay，并绕过原始 manual CAS 拒绝。
+- **候选方案**：把 Service 预读与 lease/升级做成新的大事务；在 Service 重新查询后赌没有竞争；或让
+  Coordinator 作为最终事实观察者明确拒绝任何非 `OPERATOR_REQUESTED` 的既有 escalation。
+- **最终选择**：`run_operator_requested` 在重载权威 Bundle 后若发现既有 escalation 的 mode 不是
+  `OPERATOR_REQUESTED`，立即返回 `WorkspaceConflictError`，不恢复、分析、写 Outcome 或调用 Runner。
+  Service 的早期检查仅优化常见路径，不能替代该最终 fail-closed 门禁。
+- **选择理由**：Coordinator 已在实际模型发送前读取 Store，因此可覆盖 Service 读写窗口，无需扩大为
+  跨层长事务或改变既有自动升级原子性。拒绝优于把人类请求语义偷换为自动路线。
+- **未选理由**：大事务会跨模型协调且扩大锁范围；Service 重读仍无法替代 Coordinator 最终观察；
+  接受自动 replay 会让 API 的 CAS/审计语义与用户动作不一致。
+- **影响**：Task 7 新增 automatic-vs-manual race RED/GREEN。D-155 的 manual response-loss 恢复仍
+  仅适用于同 Bundle 已有 manual escalation；认证、lease、模型 at-most-once 和经营恢复权限不变。
+- **重新评估条件**：未来若需要运营显式接管一个自动升级，必须定义新的受审计 Command/OperatorDecision
+  协议；在此之前不得把新 manual 请求转换成自动事实的隐式恢复。
+
+## D-157：认证配置门禁先于高冲突请求 JSON 校验，HTTP 结果只返回窄操作身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 最终规格复审发现 FastAPI 对类型化 body 的自动校验发生在端点内 D-154 配置门禁前，
+  因而认证关闭时畸形请求返回 `422` 而非稳定 `503`。复审还发现 Service 把完整 Workspace 与
+  escalation/analysis/proposal/outcome 正文原样返回 HTTP，违反 D-155 将完整事实限制在 WebSocket
+  `data.workspace` 的边界。
+- **候选方案**：接受校验顺序差异；通过全局异常处理改写 `422`；保留类型化 body 并在端点后检查；或让
+  新端点在配置/认证门禁后手动解析 JSON，并把 HTTP 返回收窄为稳定状态与事实 ID。
+- **最终选择**：高冲突端点只注入原始 `Request`；先执行 D-154 的认证配置拒绝、再认证/授权、最后使用
+  `MultiAgentEscalationRequest.model_validate` 校验 JSON，任何 JSON 形状在认证关闭时均为 `503`。认证
+  启用后格式错误仍为脱敏 `422`。Service HTTP 结果只包含 `accepted`、规范 key 和可选
+  escalation/analysis/proposal/outcome ID；完整 append-only Workspace 仅由写后 WebSocket 读取并发送到
+  既有 `data.workspace`。
+- **选择理由**：安全装配缺失应稳定优先于调用方负载细节，避免匿名扫描通过 JSON 错误探测端点行为。
+  窄返回降低事实正文在 HTTP 中的暴露与兼容负担，WebSocket 保持统一权威投影。
+- **未选理由**：全局改写 `422` 会影响旧 API；端点后检查无法改变 FastAPI 先校验的顺序；保留完整
+  HTTP 事实会和 D-155 的单一 Workspace 投影边界冲突。
+- **影响**：Task 7 新增认证关闭畸形 JSON RED/GREEN、窄 HTTP response RED/GREEN；不改变 Operator
+  认证本身、Store、Coordinator、模型预算、WebSocket envelope 或经营恢复权限。
+- **重新评估条件**：未来若需要客户端同步完整事实，必须设计版本化只读 snapshot endpoint 与 session
+  级授权；在此之前不得从高冲突写入响应泄漏完整 Workspace 或将认证关闭降级为 `422`。
+
+## D-158：自动入口只能观察人工升级事实，不得代替人工租约推进模型阶段
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 质量/安全复审发现 `run_automatic` 看到既有 `OPERATOR_REQUESTED` escalation 时，
+  会沿用自动调用上下文进入协调器。人工升级只要求至少一项真实冲突，而自动升级要求三选二；因此
+  自动轮询可能在操作员 lease 已失效后，为人工事实发送 Analyst 或 Planner，扩大模型预算并丢失有效
+  人工授权的可追溯性。
+- **候选方案**：允许自动入口继续既有人工升级；每次协调都从 escalation 中复用历史 operator 身份；
+  自动入口重新验证当前 lease 后继续；或自动入口只读恢复人工事实，任何 pending 推进仍由人工入口
+  持有当前 lease 发起。
+- **最终选择**：`run_automatic` 在最终 Store 观察到 `OPERATOR_REQUESTED` escalation 时，只读取已有
+  Analysis、Proposal 或 Outcome；若仍 pending，只返回该 escalation 身份，不创建 dispatch claim、不写
+  Outcome、不调用 Analyst/Planner。只有 `run_operator_requested` 可以在当前 lease/fencing 条件下推进
+  人工事实；自动 escalation 的既有恢复语义保持不变。
+- **选择理由**：将模型调用的责任与其授权来源保持一致，避免“自动事件”意外取得人工单信号升级的
+  续跑权限。只读恢复仍支持 WebSocket/UI 观察和网络重试，同时不会引入跨模型长事务或新的锁持有时间。
+- **未选理由**：复用历史 operator 身份不能证明 lease 仍有效；自动入口临时续租会把后台事件伪装成
+  人工操作；允许自动继续会违反 D-153/D-155 的当前 lease 边界；跨层大事务会把外部模型等待纳入锁范围。
+- **影响**：Task 7 新增 pending manual escalation 被自动入口观察的 RED/GREEN。自动路径不会消耗该
+  人工升级的模型预算，也不能追加其分析、方案或终态；D-156 的反向 automatic-to-manual 拒绝与 D-155
+  的同 key 人工恢复继续有效。
+- **重新评估条件**：若未来需要系统代表运营续跑人工请求，必须先设计独立的、可审计的 delegation
+  Command、显式时限和独立预算身份；在此之前不得从历史 escalation 隐式推导或延长人工 lease。

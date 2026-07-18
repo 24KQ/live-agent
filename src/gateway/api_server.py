@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -39,9 +39,15 @@ from src.gateway.decision_support_service import (
     DecisionSupportProposalRequest,
     DecisionSupportService,
     DecisionSupportServiceUnavailable,
+    MultiAgentEscalationRequest,
+    canonical_multi_agent_escalation_idempotency_key,
     create_default_decision_support_service,
 )
-from src.decision_support.store import WorkspaceConflictError, WorkspaceNotFoundError
+from src.decision_support.store import (
+    WorkspaceConflictError,
+    WorkspaceLeaseError,
+    WorkspaceNotFoundError,
+)
 from src.skills.product_catalog import ProductCatalogRepository
 from src.plan_engine.preemption import PreemptionEvidenceRef
 from src.release_gates.human_study import HumanStudyStore, StudyResponse
@@ -339,6 +345,62 @@ async def get_decision_support_workspace(live_session_id: str, http_request: Req
         return JSONResponse(status_code=409, content={"error": str(exc)})
 
 
+@app.post("/api/decision-support/workspaces/{live_session_id}/multi-agent-escalations")
+async def request_multi_agent_escalation(
+    live_session_id: str,
+    http_request: Request,
+):
+    """请求人工发起的高冲突升级，HTTP 永远不接触模型、Store 或经营执行。"""
+
+    # D-154：旧 API 为本地兼容会在关闭认证时返回默认管理员；高冲突升级会取得
+    # lease 并进入受限模型协调，因此必须在任何身份兼容分支和 Service 调用之前拒绝。
+    if not get_settings().operator_auth_enabled:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "operator authentication is required for multi-agent escalation"},
+        )
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    try:
+        # D-157：只在安全装配和认证通过后才读取/解析请求体。这样认证关闭时不论
+        # JSON 是否缺字段、额外字段或语法错误都稳定返回 503，而不是暴露 Schema。
+        request = MultiAgentEscalationRequest.model_validate(await http_request.json())
+    except (TypeError, ValueError, ValidationError):
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid multi-agent escalation request"},
+        )
+    request_idempotency_key = extract_idempotency_key(dict(http_request.headers))
+    expected_key = canonical_multi_agent_escalation_idempotency_key(
+        request.evidence_bundle_id
+    )
+    # D-153：客户端必须显式携带、但不能自由选择幂等身份。由 Bundle 推导的固定键既
+    # 允许网络重试，也不能把同一 Bundle 分叉成多条人工升级或改变 Coordinator 的父链。
+    if request_idempotency_key != expected_key:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "multi-agent escalation idempotency key mismatch"},
+        )
+    try:
+        return await _decision_support_write_response(
+            live_session_id=live_session_id,
+            payload=await get_decision_support_service().request_multi_agent_escalation(
+                live_session_id=live_session_id,
+                request=request,
+                operator_id=identity.operator_id,
+                request_idempotency_key=request_idempotency_key,
+            ),
+        )
+    except WorkspaceNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "workspace or bundle not found"})
+    except WorkspaceConflictError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    except WorkspaceLeaseError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    except DecisionSupportServiceUnavailable as exc:
+        return JSONResponse(status_code=503, content={"error": str(exc)})
+
+
 @app.post("/api/decision-support/workspaces/{live_session_id}/proposals")
 async def create_decision_support_proposal(
     live_session_id: str,
@@ -415,11 +477,19 @@ async def _decision_support_write_response(
     live_session_id: str,
     payload: dict,
 ):
-    """写入后只广播结构化 Workspace 更新，HTTP 返回原始门面结果。"""
+    """写入后只广播权威 Workspace 事实，HTTP 仍返回该操作的窄结果。"""
 
+    # Phase 16 的订阅端不能从一次 HTTP/Coordinator 返回推断持久化状态。广播在写入
+    # 成功后重新读取完整 append-only Workspace 投影，保证 Proposal、Outcome 与后续 UI
+    # 只消费同一种服务端事实；HTTP 响应保持旧接口的窄操作结果以避免兼容性漂移。
+    workspace_payload = get_decision_support_service().get_workspace_payload(
+        live_session_id
+    )
     await _broadcast_decision_support_status(
         live_session_id=live_session_id,
-        payload=payload,
+        # D-155：保留副屏既有的 data.workspace 合同；只替换其中内容为完整权威
+        # 投影，避免 Proposal/Decision 等历史消费者因根字段变化而静默停止刷新。
+        payload={"workspace": workspace_payload},
     )
     return payload
 

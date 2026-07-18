@@ -51,12 +51,12 @@ Phase 16 已获实施授权。它不重写上述历史结论，而是在 proposa
 售罄 Bundle 上引入受控双 Agent：EvidenceAnalystAgent 只解释冲突，DecisionPlannerAgent
 只生成结构化方案，确定性 Validator 与运营继续拥有安全和经营恢复权限。
 
-Phase 16 Task 1 至 5 已独立提交推送；Task 5 的受控选择、单次 Analyst dispatch、人工
-升级和 fail-closed 审计闭合由 `b584808` 固化。Task 6 已完成 Planner、完整 Proposal 持久化、
-整份确定性 Validator、Planner Analysis-bound 单次 claim、入口级总预算、READY Outcome、
-LIVE/REVIEW 受限恢复与 PostgreSQL 同构验证；D-148 至 D-152 的规格及质量/安全审查均已
-闭合，当前仅待独立提交和推送。Task 7 才可扩展受治理的 API/WebSocket 投影，仍不得扩展
-OperatorDecision 权限、命令或自动经营恢复。
+Phase 16 Task 1 至 6 已独立提交推送；Task 5 的受控选择、单次 Analyst dispatch、人工
+升级和 fail-closed 审计闭合由 `b584808` 固化，Task 6 的受限 Planner、整份 Proposal 验证、
+Analysis-bound 单次 claim、入口级总预算、READY Outcome 与 D-152 经营恢复双重门禁由
+`d42eab9` 固化。Task 7 的窄端点、服务端 Bundle/lease 装配、完整 Workspace/WebSocket 投影与
+D-153 至 D-158 的双向人工/自动所有权门禁已经完成 RED/GREEN；完整回归和迁移门禁通过，当前等待
+独立提交与推送。仍不得扩展 OperatorDecision 权限、命令或自动经营恢复。
 
 ## 4. 阶段依赖与自动门禁
 
