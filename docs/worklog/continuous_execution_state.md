@@ -14,8 +14,8 @@
 | 当前任务状态 | `COMPLETE` / `PHASE_15_COMPLETE_INCONCLUSIVE` |
 | 当前子步骤 | 三场景闭环、两次本地 Release、双轨结论和两份 Acceptance 已生成；外部证据保持 BLOCKED/INCONCLUSIVE，不自动进入下一阶段 |
 | 当前分支 | `main` |
-| 当前业务基线 | Phase 15 Task 12 Acceptance（`c01a5da`） |
-| 远端状态 | `origin/main=c01a5da`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
+| 当前业务基线 | Phase 15 Task 12 Acceptance（代码 `c01a5da`，最终状态 `38413bc`） |
+| 远端状态 | `origin/main=38413bc`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
 | 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
 
 ## 2. 当前授权边界
@@ -34,7 +34,7 @@ Phase / Task: Phase 15 / Task 12
 状态: COMPLETE
 目标: Demo、Phase 15 Acceptance 与 Final Acceptance
 禁止事项: 不调用真实模型；不伪造真人/托管 CI 证据；不修改用户脏文件；不把临时兼容脚本纳入提交
-当前 HEAD: `c01a5da` 已提交并推送；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
+当前 HEAD: `38413bc` 已提交并推送；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
 本 Task 文件: scripts/run_all.py、README.md、Phase 15 Acceptance/Final Acceptance、Task 12 测试和阶段留痕
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
 最近命令与结果: Task 12 专项 `3 passed`、聚合 `33 passed`；完整 unit `1382 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；迁移 dry-run、正式源码 compileall、PR/Nightly 本地门禁和严格差异/编码检查通过；Release 正确 BLOCKED；真实模型未调用
