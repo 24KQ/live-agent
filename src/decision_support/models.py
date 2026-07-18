@@ -200,6 +200,9 @@ class ConflictAnalysis(_DatedMultiAgentFact):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     analysis_id: str = Field(..., min_length=1)
+    # Store 必须把模型结果写入现有 Workspace idempotency ledger；独立键避免把可变
+    # analysis_id 当作重试身份，并让同键异载荷在内存/PostgreSQL 中一致 fail-closed。
+    idempotency_key: str = Field(..., min_length=1)
     escalation_id: str = Field(..., min_length=1)
     live_session_id: str = Field(..., min_length=1)
     incident_id: str = Field(..., min_length=1)
@@ -262,7 +265,12 @@ class MultiAgentOutcome(_DatedMultiAgentFact):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     outcome_id: str = Field(..., min_length=1)
+    # Outcome 同样是 append-only 终态，网络响应丢失后必须能以稳定键重放而不重复推进版本。
+    idempotency_key: str = Field(..., min_length=1)
     escalation_id: str = Field(..., min_length=1)
+    # 显式作用域让 Store 可使用 Workspace 外键与统一 ledger，不能仅由 escalation_id 隐式推断。
+    live_session_id: str = Field(..., min_length=1)
+    incident_id: str = Field(..., min_length=1)
     escalation_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     evidence_bundle_id: str = Field(..., min_length=1)
     evidence_bundle_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")

@@ -41,6 +41,14 @@
   脱敏货盘与真实不可变 Trace，并在播后集成测试中显式禁用外部 Embedding。
 - `test_semantic_retrieval_flow.py` 会真实调用 Embedding API，先前遗漏 `external` 标记；
   现在默认回归正确排除它，受控凭证环境仍可显式用 `-m external` 执行。
+- Task 3 已以 `ad0e185` 推送。Task 4 的唯一持久化权威仍是 Decision Support Store：模型、
+  Coordinator 和 HTTP 将在后续 Task 读取其不可变事实，不能自行构造 escalation/analysis/outcome。
+- Task 4 审查确认：三类 Phase 16 事实必须由数据库 CAS trigger 推进 Workspace 版本，不能仅靠
+  append-only ledger；自动升级从 Bundle 重建完整三选二信号，人工升级不携带触发码；Task 6 前
+  `READY` Outcome 必须 fail-closed，防止未持久化的 Proposal digest 被误当作已验证父事实。
+- Task 4 最终复审还确认：CAS trigger 必须在持有根行锁后再次检查 `LIVE`，否则 payload 校验与
+  版本推进之间存在生命周期竞态；数据库直写的 `DEGRADED` Outcome 必须和领域模型一样带封闭
+  failure code、非空事实摘要且没有 Proposal lineage，避免 append-only 审计链写入不可重载行。
 
 ## 2026-07-11 文档编码治理发现
 

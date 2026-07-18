@@ -45,20 +45,20 @@ Sub-agent: `019f749a-05d0-7631-8e3d-addac444eba1` 已完成只读规格与质量
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 16 Controlled Multi-Agent Escalation |
-| 最近完成任务 | Phase 15 Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance |
-| 当前任务 | Task 3：运行时和领域冻结协议 |
-| 当前任务状态 | `VERIFY` / `PHASE_16_TASK_3_READY_TO_COMMIT` |
-| 当前子步骤 | 双 Agent 冻结协议与历史测试基线已复审；空 PostgreSQL 数据库的 17 个迁移、完整 unit/integration 已完成，等待编码、暂存边界与独立提交 |
+| 最近完成任务 | Phase 16 Task 3：运行时和领域冻结协议（`ad0e185` 已推送） |
+| 当前任务 | Task 4：升级、分析与 Outcome 的 append-only Store |
+| 当前任务状态 | `COMMIT` / `PHASE_16_TASK_4_ESCALATION_STORE_READY_TO_COMMIT` |
+| 当前子步骤 | 完整回归、DDL 重放、编码和四轮审查整改均完成；正在核对暂存边界并准备独立提交 |
 | 当前分支 | `codex/phase16-controlled-multi-agent` |
 | 当前业务基线 | Phase 15 Task 12 Acceptance（`c01a5da`）；历史结论保持 `INCONCLUSIVE` |
-| 远端状态 | 分支基于 `origin/main=ee0de7c`；主工作区用户脏文件保持 unstaged，恢复时必须读取命令输出 |
+| 远端状态 | `origin/codex/phase16-controlled-multi-agent=ad0e185`；主工作区用户脏文件保持 unstaged，恢复时必须读取命令输出 |
 | 真实模型累计费用 | 历史累计 0.042344 元；Phase 16 新增 0.000000 元 |
 
 ## 2026-07-18 Phase 16 Task 3 RED
 
 ```text
 Phase / Task: Phase 16 / Task 3 - Add Runtime and Domain Contracts
-状态: VERIFY
+状态: PUSHED
 目标: 定义 CONFLICT_ANALYSIS、LIVE_DECISION_PLANNING、精确冻结 Profile、EscalationRecord、ConflictAnalysis、MultiAgentOutcome 与 Proposal lineage。
 禁止事项: 不调用真实模型；不接 Store、Coordinator、HTTP、WebSocket 或执行命令；不得给 Agent 增加 Skill、Store 或写权限。
 当前 HEAD: 6ea5a57b947d1f627f9da223ceec7db279b59613
@@ -67,10 +67,36 @@ Phase / Task: Phase 16 / Task 3 - Add Runtime and Domain Contracts
 最近命令与结果: RED 因缺少 ConflictAnalysis 收集失败；最终专项聚合为 16 passed（含真实 BoundedSpecialistRunner + ScriptedAgentModel 的 FINAL 信封、Phase 7B 迁移与播后 Trace 基线），从空库执行 17 个官方迁移均 PASS，完整 unit 为 1395 passed、4 warnings，完整 integration 为 151 passed、7 deselected、5 warnings，compileall 与根 collect 1546/1554、8 deselected 均通过。
 错误与尝试次数: 首轮 GREEN 有 1 条测试同时缺少 analysis/proposal 两段 lineage，已缩小变量后转绿；首次完整 unit 为 2 failed（均为 Phase 13 历史 Manifest 闭包），根因已由重放与目录发现定位，未改写历史资产；临时数据库还暴露既有 Phase 7B SQL 的双重字面量转义、播后测试的隐式 Trace 依赖、真实 Embedding 集成测试遗漏 external 标记，均已单独 RED/GREEN 并重新全量验证。官方 seed 已确认至少 3 次 Embedding HTTP 请求在 401 认证前失败；其余此前捕获的测试输出没有成功响应、usage 或可计费模型输出。最终复核已为 unit/integration 均注入离线 Embedding，后续默认测试不再调用该路径。额外审查派发因线程配额拒绝，主模型按同一清单接管复核。
 设计偏差与决策编号: D-142 固定 Phase 13 历史闭包排除 Task 3 新模块并由 Phase 16 Manifest 自行绑定；D-143 固定通用旧预算路径对 Phase 16 fail-closed，直至 Task 10 专用账本完成。其余仍遵守 D-134 至 D-140。
-下一条精确操作: 暂存 Task 3 目标文件，运行严格编码/差异检查和最终暂存内容审查后提交推送。
+下一条精确操作: 已以 `ad0e185 feat: add controlled multi-agent contracts` 提交并推送；切换到 Task 4 RED。
 模型费用累计: Phase 16 0.000000 CNY；已确认的外部尝试均为 401 拒绝，未获得模型响应或 usage；Task 10 预检前禁止真实模型。
 Sub-agent: `019f74b2-5897-7183-8e37-26fdb77e796f` 与 `019f74b2-8f66-7ed2-9c3a-7ca1e76261df` 初审已完成且发现均已补 RED/GREEN；`019f74bf-52b1-77d2-9f38-0702adb9b02a` 最终规格复审 PASS；`019f74bf-a224-7a71-8854-35b66f3eb921` 最终质量复审的 Prompt/Schema Important 已补 RED/GREEN；`019f74ca-223d-7ad3-a534-09bb9ba0129c` 整改复审的展示安全 Important 已补 RED/GREEN。额外只读复审因线程配额拒绝而未启动，主模型完成正则、Pydantic、Runner、单 Copilot 和完整回归复核。全部已派发 Agent 均为 COMPLETED_REPORT_CONSUMED / STOPPED，无运行中 Agent。
 Sub-agent dispatch: STOPPED / Task 3 最终只读规格与安全审查因当前线程并发额度已满而未启动；原定文件边界为 Task 3 的 18 个暂存目标文件，禁止修改；预期交付物为 Critical/Important 发现及与冻结 Task 3 规范、零 Skill 权限、无真实模型、迁移可重复性的一致性结论。没有运行中或遗留 sub-agent，主模型已接管同一清单的最终复核。
+```
+
+## 2026-07-18 Phase 16 Task 4 RED
+
+```text
+Phase / Task: Phase 16 / Task 4 - Persist Escalation Facts
+状态: COMMIT
+目标: 在内存与 PostgreSQL Decision Support Store 中追加 EscalationRecord、ConflictAnalysis、MultiAgentOutcome，并保证父事实、CAS、fencing、唯一升级、幂等重放与重启恢复。
+禁止事项: 不实现升级选择器、Coordinator、Planner、HTTP、WebSocket、SkillCall、PlanCommand 或真实模型调用；不得修改既有 Workspace/Incident 事实。
+当前 HEAD: ad0e185a4cdcf312fb853195649027f05a6cc8b2
+本 Task 文件: docker/init_phase14_decision_support.sql、src/decision_support/store.py、Task 4 unit/PostgreSQL 测试及本 Task worklog。
+用户脏文件: 主工作区既有 7 个用户文件保持不接触、不暂存。
+最近命令与结果: Task 4 单元 `7 passed`；隔离 PostgreSQL `9 passed`，覆盖重启重放、同 Bundle 并发 CAS、lease fencing、三类 deferred ledger、partial evidence refs、ineligible/expired Bundle、D-135 有序触发码、数据库 CAS、降级终态形状和 READY fail-closed。完整 unit `1402 passed, 4 warnings`；完整 integration `160 passed, 7 deselected, 5 warnings`。PostgreSQL DDL 双重初始化和目标 compileall 通过。测试进程临时使用专用 `liveagent-phase16-test-postgres` 的 5434 端口，未修改仓库配置或用户已有 5432 数据库。
+错误与尝试次数: 首次 PostgreSQL 测试因默认 5432 属于用户已有不同凭据实例而无法认证；定位专用 5434 测试容器后转为预期 API/表缺失 RED。首轮 GREEN 的重启测试暴露 DDL 先重建父索引、后解除 Phase 16 外键依赖的顺序错误，已以先 drop 子约束整改。四轮独立审查又发现 D-135 eligibility/freshness/顺序、READY/DEGRADED 形状、直接 SQL CAS 与 LIVE 线性化窗口；均已补 RED/GREEN 并重新全量验证。
+设计偏差与决策编号: D-144 补齐中间事实幂等键；D-145 固定数据库 CAS、LIVE 线性化复核和 Task 6 前 READY Outcome fail-closed。其余遵守 D-134 至 D-143，不扩大 Profile、预算或路由。
+下一条精确操作: 运行最终 UTF-8/LF、文档扫描、决策编号和 `git diff --check`；仅暂存 Task 4 目标文件，提交 `feat: persist multi-agent escalation facts` 并推送。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 初审 `019f7511-a162-7c82-8b73-8054987bf119`（规格）与 `019f7511-b56f-7552-813e-56db44928aed`（质量/安全）、整改复审 `019f7524-3869-7703-997f-40b984eee830`/`019f7524-4dc8-7143-b070-69b614057e2f`，以及最终确认 `019f7535-71ef-7280-8954-f94277214c5f`/`019f753e-6638-7ab0-99fe-f067773876a5` 均已完成并关闭。全部 Critical 为 0；每个 Important 均有 RED/GREEN 与全量重跑证据。无运行中 sub-agent。
+
+Sub-agent dispatch:
+`019f7511-a162-7c82-8b73-8054987bf119` / Task 4 规格审查 / 只读 Store、DDL、Task 4 tests、D-144 / 已完成；发现 READY Proposal digest 与 ledger-backed 旁路 Important，已由 D-145、READY fail-closed、数据库 LIVE/全证据/CAS 验证整改。
+`019f7511-b56f-7552-813e-56db44928aed` / Task 4 质量与安全审查 / 只读 Store、DDL、Task 4 tests / 已完成；发现 D-135 触发码重建、DB 旁路与 READY lineage Important，已由 Bundle 重建、触发器和 D-145 整改。两条线程均未修改、暂存、提交或推送文件。
+`019f7524-3869-7703-997f-40b984eee830` / Task 4 整改规格复审 / 已完成并关闭；发现 eligibility 与有序触发码 Important，已补 Bundle eligibility/顺序 RED/GREEN。
+`019f7524-4dc8-7143-b070-69b614057e2f` / Task 4 整改质量复审 / 已完成并关闭；发现 freshness 与 lease 错误协议 Important，已补 valid_until 双端门禁和 lease 异常归一化。
+`019f7535-71ef-7280-8954-f94277214c5f` / Task 4 最终确认 / 已完成并关闭；发现 DEGRADED 形状旁路 Important，已增加 DDL 形状校验与 PostgreSQL RED/GREEN。
+`019f753e-6638-7ab0-99fe-f067773876a5` / Task 4 最终确认 / 已完成并关闭；发现 LIVE 检查与 CAS 锁之间的线性化窗口 Important，已在 CAS trigger 锁内重检 `current_view='LIVE'` 并重跑专项、DDL 与完整回归。所有 sub-agent 为只读，未修改、暂存、提交或推送文件。
 ```
 
 ## 2. 当前授权边界

@@ -87,6 +87,7 @@ def _analysis() -> ConflictAnalysis:
     profile = build_evidence_analyst_profile()
     return ConflictAnalysis(
         analysis_id="analysis-001",
+        idempotency_key="analysis-idem-001",
         escalation_id="escalation-001",
         live_session_id="live-session-001",
         incident_id="incident-001",
@@ -343,7 +344,10 @@ def test_escalation_and_outcome_are_append_only_closed_facts() -> None:
 
     outcome = MultiAgentOutcome(
         outcome_id="outcome-001",
+        idempotency_key="outcome-idem-001",
         escalation_id=record.escalation_id,
+        live_session_id=record.live_session_id,
+        incident_id=record.incident_id,
         escalation_digest=record.escalation_digest,
         evidence_bundle_id=record.evidence_bundle_id,
         evidence_bundle_digest=record.evidence_bundle_digest,

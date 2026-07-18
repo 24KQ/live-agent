@@ -1651,3 +1651,47 @@
   通用预算路径都不得发送真实模型。
 - **重新评估条件**：Phase 16 专用账本完成并通过 PostgreSQL、预算上限与 unknown usage
   验收后，由新决策或 Task 10 留痕开放对应 Profile 的预检路径。
+
+## D-144：Phase 16 中间分析与终态使用独立 Workspace 幂等键
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 4 要求 `ConflictAnalysis` 与 `MultiAgentOutcome` 在内存和 PostgreSQL
+  Store 中与既有 Workspace 事实一样支持响应丢失后的幂等重放。但 Task 3 冻结领域模型只
+  定义了稳定事实 ID，未提供接入现有 `(live_session_id, idempotency_key)` 账本的写入身份。
+- **候选方案**：把 `analysis_id`/`outcome_id` 隐式当作幂等键；只在 Store 内部拼接键；为两个
+  事实显式增加 `idempotency_key` 并纳入不可变 digest。
+- **最终选择**：`ConflictAnalysis` 与 `MultiAgentOutcome` 都新增必填、不可变的
+  `idempotency_key`；Outcome 同时显式携带 `live_session_id`、`incident_id`，使其能被
+  Workspace 外键、作用域校验和统一账本直接约束。Store 继续使用统一 Workspace ledger：同键同
+  payload 重放原 Workspace 版本，同键异 payload、跨 fact kind 或跨会话一律 fail-closed。
+- **选择理由**：调用方可重试而不重复推进 Workspace 版本；内存与 PostgreSQL 共享同一
+  公开事实形状，重启恢复不依赖进程内推导规则。
+- **未选理由**：把业务 ID 兼作传输重试身份会令重发与身份冲突无法区分；内部拼接键会隐藏
+  协议并阻止 PostgreSQL 账本完整校验。
+- **影响**：Task 4 DDL、Store 和测试必须为两个新事实写入现有 idempotency ledger；Task 5+
+  Coordinator 必须在产生中间/终态事实时提供固定重试键。
+- **重新评估条件**：未来若改用独立 Command Ledger 或 broker 全局投递 ID，需新增兼容迁移，
+  不得修改历史事实的 digest 或重放语义。
+
+## D-145：Phase 16 事实由数据库 CAS 推进，READY Outcome 等待 Task 6 Proposal 父事实
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 4 审查发现，仅靠 append-only 事实和 idempotency ledger 无法阻止同一事务
+  用陈旧 Workspace 版本直写事实；同时当前 Phase 14 `Proposal` 关系模型尚未持久化
+  `LiveDecisionProposal` 的完整摘要，`READY` Outcome 的 `proposal_digest` 无法被验证。
+- **候选方案**：继续由应用在 INSERT 后推进版本并信任表级 ledger；让 Task 4 猜测或重算尚未
+  持久化的 Proposal digest；为三类新事实增加内部 CAS 列并在数据库推进版本，且在 Task 6
+  引入完整 Proposal 事实前拒绝 READY。
+- **最终选择**：`phase16_escalations`、`phase16_conflict_analyses` 与
+  `phase16_multi_agent_outcomes` 均持久化 `expected_workspace_version`；其 BEFORE INSERT
+  trigger 锁定根 Workspace、比较版本并原子推进一次，ledger 缺失时整个事务回滚。Store 对这三类
+  事实读取触发器结果而不再次加版本。Task 4 仅接受 `DEGRADED` Outcome；Task 6 必须先持久化并
+  校验完整 `LiveDecisionProposal`、摘要、Bundle 和 Analysis lineage，才可开放 `READY`。
+- **选择理由**：数据库和内存 Store 对 CAS 语义一致；响应丢失仍可通过 ledger 重放；不会把
+  调用方自报的 Proposal 摘要升级成不可变审计事实。
+- **未选理由**：应用层独占版本推进允许直写事实与版本脱钩；伪造或猜测摘要会破坏父链；提前
+  实现 Task 6 的 Proposal 存储会跨越已冻结任务边界。
+- **影响**：Task 4 DDL 重放需先解除依赖外键再重建候选索引；Task 5 只产生可解释的
+  `DEGRADED` 终态；Task 6 扩展 Outcome 写入前必须补齐 READY 的 Store/DDL/重启回归。
+- **重新评估条件**：若未来数据库接入独立受限写角色或安全定义 RPC，可将同进程直写威胁模型
+  从 D-121 的服务进程可信边界收紧；不得弱化现有 CAS、ledger 或父摘要校验。

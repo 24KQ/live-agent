@@ -48,6 +48,25 @@
   请求为 401 认证拒绝，未获得响应或 usage；最终复核已为 unit/integration 注入离线 Embedding，
   后续默认回归不再访问该外部路径。当前仅待编码/差异检查、独立提交与推送。
 
+## 2026-07-18 Phase 16 Task 3 PUSHED / Task 4 RED
+
+- Task 3 已以 `ad0e185 feat: add controlled multi-agent contracts` 提交并推送到
+  `origin/codex/phase16-controlled-multi-agent`；远端与本地 HEAD 一致。
+- 连续游标进入 Task 4。该任务只为既有冻结领域模型建立内存/PostgreSQL append-only 事实链；
+  RED 必须先覆盖父事实、Workspace CAS、fencing、唯一升级、幂等重放和重启恢复。
+
+## 2026-07-18 Phase 16 Task 4 REVIEW / VERIFY
+
+- 内存与 PostgreSQL Store 已追加 escalation、analysis 与 outcome 事实；专项单元 `5 passed`、
+  隔离 PostgreSQL `6 passed`。完整 unit JUnit `1398` tests、完整 integration JUnit `155` tests，
+  failures/errors 均为 0；真实模型新增费用为 0。
+- 两份只读审查均无 Critical。D-135 的三选二信号现在只由 Bundle 重建；人工请求拒绝触发码；
+  关系事实的数据库 trigger 校验 LIVE、全证据引用和 CAS。D-145 令 READY Outcome 在 Task 6
+  Proposal 持久化前 fail-closed。
+- 后续整改将 `proposal_eligible`、`valid_until`、自动触发码顺序、CAS 锁内 LIVE 复核与
+  `DEGRADED` 终态形状全部下沉到内存/PostgreSQL 双实现。最终 unit `1402 passed, 4 warnings`，
+  integration `160 passed, 7 deselected, 5 warnings`；真实模型新增费用仍为 0。
+
 ## 2026-07-15 Phase 13 Just-in-Time Design/Plan 审核
 
 - 基于 Phase 12B Acceptance 重新审核 Phase 13，采用共享评估内核与 LiveOps、Planner、ReviewMemory 三个纵向候选切片。

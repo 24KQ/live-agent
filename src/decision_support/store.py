@@ -13,16 +13,24 @@ from psycopg.types.json import Jsonb
 from src.config.settings import Settings
 from src.decision_support.evidence import (
     AssembledEvidenceBundle,
+    DanmakuNoiseLevel,
     EvidenceBundleSnapshot,
+    EvidenceRole,
     IncidentEvidenceBinding,
+    RhythmSignalKind,
     _require_governed_evidence_receipt,
 )
 from src.decision_support.models import (
     POSTGRES_BIGINT_MAX,
+    ConflictAnalysis,
+    ConflictAnalysisCode,
+    EscalationMode,
+    EscalationRecord,
     EvidenceBundle,
     ExecutionCommand,
     Incident,
     LiveSessionWorkspace,
+    MultiAgentOutcome,
     OperatorDecision,
     OperatorLease,
     Proposal,
@@ -50,6 +58,9 @@ FactT = TypeVar(
     "FactT",
     Incident,
     EvidenceBundle,
+    EscalationRecord,
+    ConflictAnalysis,
+    MultiAgentOutcome,
     Proposal,
     OperatorDecision,
     ExecutionCommand,
@@ -72,6 +83,64 @@ def _require_evidence_parent_binding(
         raise WorkspaceConflictError("evidence incident binding is invalid")
 
 
+def _bundle_digest(evidence: EvidenceBundle) -> str:
+    """从已校验的 Bundle 快照重建摘要，禁止相信调用方重复提供的摘要。"""
+
+    return EvidenceBundleSnapshot.model_validate(evidence.snapshot).bundle_digest
+
+
+def _automatic_escalation_codes(
+    evidence: EvidenceBundle,
+) -> tuple[ConflictAnalysisCode, ...]:
+    """从冻结六角色 Bundle 重建三选二信号，绝不接受调用方自报的冲突代码。"""
+
+    snapshot = EvidenceBundleSnapshot.model_validate(evidence.snapshot)
+    components = {component.role: component for component in snapshot.components}
+    inventory = components[EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT].payload
+    danmaku = components[EvidenceRole.DANMAKU_AGGREGATE].payload
+    rhythm = components[EvidenceRole.RHYTHM_SIGNAL].payload
+    codes: list[ConflictAnalysisCode] = []
+    # 只有两个以上仍 active 且库存为正的备品才算“多备品”，不能把已售罄或禁用
+    # 商品误计为可恢复候选，避免模型链路因脏快照无意义升级。
+    if sum(
+        product.is_active and product.inventory > 0
+        for product in inventory.backup_products
+    ) >= 2:
+        codes.append(ConflictAnalysisCode.MULTIPLE_VALID_BACKUPS)
+    # 高噪声必须同时围绕主商品或备品可用性；单纯的高频闲聊不构成经营冲突。
+    if (
+        danmaku.noise_level is DanmakuNoiseLevel.HIGH
+        and any(
+            topic.category in {"PRODUCT_AVAILABILITY", "BACKUP_AVAILABILITY"}
+            for topic in danmaku.topics
+        )
+    ):
+        codes.append(ConflictAnalysisCode.AVAILABILITY_NOISE_HIGH)
+    if rhythm.signal_kind is RhythmSignalKind.PAUSE_REQUIRED:
+        codes.append(ConflictAnalysisCode.RHYTHM_PAUSE_REQUIRED)
+    return tuple(codes)
+
+
+def _require_escalation_trigger_policy(
+    *, fact: EscalationRecord, evidence: EvidenceBundle, now: datetime | None = None
+) -> None:
+    """闭合 D-135：自动升级精确记录 Bundle 三选二信号，人工升级不携带规则断言。"""
+
+    snapshot = EvidenceBundleSnapshot.model_validate(evidence.snapshot)
+    instant = now or datetime.now(timezone.utc)
+    if instant >= snapshot.valid_until:
+        raise WorkspaceConflictError("escalation requires fresh evidence bundle")
+    if not snapshot.proposal_eligible:
+        raise WorkspaceConflictError("escalation requires proposal eligible bundle")
+    if fact.mode is EscalationMode.OPERATOR_REQUESTED:
+        if fact.trigger_codes:
+            raise WorkspaceConflictError("operator escalation cannot carry trigger codes")
+        return
+    expected_codes = _automatic_escalation_codes(evidence)
+    if len(expected_codes) < 2 or fact.trigger_codes != expected_codes:
+        raise WorkspaceConflictError("automatic escalation trigger codes are invalid")
+
+
 class InMemoryDecisionSupportStore:
     """测试与无数据库 Demo 使用的线程安全 append-only 事实仓储。
 
@@ -85,6 +154,9 @@ class InMemoryDecisionSupportStore:
         self._workspace_by_run_key: dict[str, str] = {}
         self._incidents: dict[str, Incident] = {}
         self._evidence_bundles: dict[str, EvidenceBundle] = {}
+        self._escalations: dict[str, EscalationRecord] = {}
+        self._analyses: dict[str, ConflictAnalysis] = {}
+        self._outcomes: dict[str, MultiAgentOutcome] = {}
         self._proposals: dict[str, Proposal] = {}
         self._decisions: dict[str, OperatorDecision] = {}
         self._decision_fencing: dict[str, tuple[str, int]] = {}
@@ -344,6 +416,148 @@ class InMemoryDecisionSupportStore:
                 expected_workspace_version,
             )
 
+    def append_escalation(
+        self,
+        fact: EscalationRecord,
+        *,
+        expected_workspace_version: int,
+        operator_id: str | None = None,
+        fencing_token: int | None = None,
+        now: datetime | None = None,
+    ) -> LiveSessionWorkspace:
+        """追加单一 Bundle 的升级事实，运营请求必须绑定当前 lease epoch。"""
+
+        self._require_control_integer(expected_workspace_version, "expected_version")
+        with self._lock:
+            validated = EscalationRecord.model_validate(fact.model_dump(mode="json"))
+            replay = self._replay_workspace("escalation", validated)
+            if replay is not None:
+                return replay
+            evidence = self._evidence_bundles.get(validated.evidence_bundle_id)
+            if (
+                evidence is None
+                or evidence.live_session_id != validated.live_session_id
+                or evidence.incident_id != validated.incident_id
+                or _bundle_digest(evidence) != validated.evidence_bundle_digest
+            ):
+                raise WorkspaceConflictError("escalation bundle parent is invalid")
+            _require_escalation_trigger_policy(
+                fact=validated,
+                evidence=evidence,
+                now=self._normalize_now(now),
+            )
+            workspace = self.get_workspace(validated.live_session_id)
+            if workspace.view is not WorkspaceView.LIVE:
+                raise WorkspaceConflictError("escalation requires Workspace LIVE view")
+            if validated.mode is EscalationMode.OPERATOR_REQUESTED:
+                if operator_id != validated.operator_id or fencing_token is None:
+                    raise WorkspaceLeaseError("operator escalation requires current lease")
+                self._require_lease(
+                    validated.live_session_id,
+                    operator_id,
+                    fencing_token,
+                    self._normalize_now(now),
+                )
+            elif operator_id is not None or fencing_token is not None:
+                raise WorkspaceLeaseError("automatic escalation cannot carry operator lease")
+            if any(
+                item.live_session_id == validated.live_session_id
+                and item.evidence_bundle_id == validated.evidence_bundle_id
+                for item in self._escalations.values()
+            ):
+                raise WorkspaceConflictError("bundle already has an escalation")
+            return self._append(
+                "escalation",
+                validated,
+                validated.escalation_id,
+                self._escalations,
+                expected_workspace_version,
+            )
+
+    def append_conflict_analysis(
+        self, fact: ConflictAnalysis, *, expected_workspace_version: int
+    ) -> LiveSessionWorkspace:
+        """追加精确 Analyst Profile 的中间事实，不允许跨升级或跨 Bundle 拼接。"""
+
+        self._require_control_integer(expected_workspace_version, "expected_version")
+        with self._lock:
+            validated = ConflictAnalysis.model_validate(fact.model_dump(mode="json"))
+            replay = self._replay_workspace("conflict_analysis", validated)
+            if replay is not None:
+                return replay
+            escalation = self._escalations.get(validated.escalation_id)
+            evidence = self._evidence_bundles.get(validated.evidence_bundle_id)
+            if (
+                escalation is None
+                or evidence is None
+                or escalation.live_session_id != validated.live_session_id
+                or escalation.incident_id != validated.incident_id
+                or escalation.evidence_bundle_id != validated.evidence_bundle_id
+                or escalation.evidence_bundle_digest != validated.evidence_bundle_digest
+                or _bundle_digest(evidence) != validated.evidence_bundle_digest
+            ):
+                raise WorkspaceConflictError("analysis escalation parent is invalid")
+            expected_refs = tuple(
+                component.reference
+                for component in EvidenceBundleSnapshot.model_validate(evidence.snapshot).components
+            )
+            if validated.evidence_refs != expected_refs:
+                raise WorkspaceConflictError("analysis evidence refs do not match bundle")
+            if any(item.escalation_id == validated.escalation_id for item in self._analyses.values()):
+                raise WorkspaceConflictError("escalation already has an analysis")
+            return self._append(
+                "conflict_analysis",
+                validated,
+                validated.analysis_id,
+                self._analyses,
+                expected_workspace_version,
+            )
+
+    def append_multi_agent_outcome(
+        self, fact: MultiAgentOutcome, *, expected_workspace_version: int
+    ) -> LiveSessionWorkspace:
+        """追加每次升级唯一的完整或降级终态，并只读取既有父事实。"""
+
+        self._require_control_integer(expected_workspace_version, "expected_version")
+        with self._lock:
+            validated = MultiAgentOutcome.model_validate(fact.model_dump(mode="json"))
+            replay = self._replay_workspace("multi_agent_outcome", validated)
+            if replay is not None:
+                return replay
+            # Task 4 尚未持久化 LiveDecisionProposal 的完整摘要；接受 READY 会让
+            # proposal_digest 退化为调用方自报。Task 6 先补齐该父事实再开放此终态。
+            if validated.status.value == "READY":
+                raise WorkspaceConflictError(
+                    "Task 6 proposal persistence is required for READY outcome"
+                )
+            escalation = self._escalations.get(validated.escalation_id)
+            if (
+                escalation is None
+                or escalation.live_session_id != validated.live_session_id
+                or escalation.incident_id != validated.incident_id
+                or escalation.escalation_digest != validated.escalation_digest
+                or escalation.evidence_bundle_id != validated.evidence_bundle_id
+                or escalation.evidence_bundle_digest != validated.evidence_bundle_digest
+            ):
+                raise WorkspaceConflictError("outcome escalation parent is invalid")
+            if validated.analysis_id is not None:
+                analysis = self._analyses.get(validated.analysis_id)
+                if (
+                    analysis is None
+                    or analysis.escalation_id != validated.escalation_id
+                    or analysis.analysis_digest != validated.analysis_digest
+                ):
+                    raise WorkspaceConflictError("outcome analysis parent is invalid")
+            if any(item.escalation_id == validated.escalation_id for item in self._outcomes.values()):
+                raise WorkspaceConflictError("escalation already has an outcome")
+            return self._append(
+                "multi_agent_outcome",
+                validated,
+                validated.outcome_id,
+                self._outcomes,
+                expected_workspace_version,
+            )
+
     def append_operator_decision(
         self,
         fact: OperatorDecision,
@@ -444,6 +658,21 @@ class InMemoryDecisionSupportStore:
     def get_evidence_bundle(self, fact_id: str) -> EvidenceBundle:
         return self._get_fact(self._evidence_bundles, fact_id, "evidence bundle")
 
+    def get_escalation(self, fact_id: str) -> EscalationRecord:
+        """按稳定身份读取不可变升级事实。"""
+
+        return self._get_fact(self._escalations, fact_id, "escalation")
+
+    def get_conflict_analysis(self, fact_id: str) -> ConflictAnalysis:
+        """按稳定身份读取不可变 Analyst 中间事实。"""
+
+        return self._get_fact(self._analyses, fact_id, "conflict analysis")
+
+    def get_multi_agent_outcome(self, fact_id: str) -> MultiAgentOutcome:
+        """按稳定身份读取不可变双 Agent 终态。"""
+
+        return self._get_fact(self._outcomes, fact_id, "multi-agent outcome")
+
     def get_proposal(self, fact_id: str) -> Proposal:
         return self._get_fact(self._proposals, fact_id, "proposal")
 
@@ -460,6 +689,25 @@ class InMemoryDecisionSupportStore:
         self, live_session_id: str
     ) -> tuple[EvidenceBundle, ...]:
         return self._list_facts(self._evidence_bundles, live_session_id)
+
+    def list_escalations(self, live_session_id: str) -> tuple[EscalationRecord, ...]:
+        """按创建时间与稳定 ID 返回同一直播的全部升级事实。"""
+
+        return self._list_facts(self._escalations, live_session_id)
+
+    def list_conflict_analyses(
+        self, live_session_id: str
+    ) -> tuple[ConflictAnalysis, ...]:
+        """按创建时间与稳定 ID 返回同一直播的 Analyst 中间事实。"""
+
+        return self._list_facts(self._analyses, live_session_id)
+
+    def list_multi_agent_outcomes(
+        self, live_session_id: str
+    ) -> tuple[MultiAgentOutcome, ...]:
+        """按创建时间与稳定 ID 返回同一直播的双 Agent 终态。"""
+
+        return self._list_facts(self._outcomes, live_session_id)
 
     def list_proposals(self, live_session_id: str) -> tuple[Proposal, ...]:
         return self._list_facts(self._proposals, live_session_id)
@@ -597,6 +845,9 @@ class InMemoryDecisionSupportStore:
         for field in (
             "incident_id",
             "evidence_bundle_id",
+            "escalation_id",
+            "analysis_id",
+            "outcome_id",
             "proposal_id",
             "decision_id",
             "command_id",
@@ -789,6 +1040,234 @@ class PostgresDecisionSupportStore:
             validate_parent=validate_parent,
         )
 
+    def append_escalation(
+        self,
+        fact: EscalationRecord,
+        *,
+        expected_workspace_version: int,
+        operator_id: str | None = None,
+        fencing_token: int | None = None,
+    ) -> LiveSessionWorkspace:
+        """持久化单 Bundle 升级，并仅为人工请求消费当前 Workspace lease。"""
+
+        validated = EscalationRecord.model_validate(fact.model_dump(mode="json"))
+        if validated.mode is EscalationMode.OPERATOR_REQUESTED:
+            if operator_id != validated.operator_id or fencing_token is None:
+                raise WorkspaceLeaseError("operator escalation requires current lease")
+            lease: tuple[str, int] | None = (operator_id, fencing_token)
+        else:
+            if operator_id is not None or fencing_token is not None:
+                raise WorkspaceLeaseError("automatic escalation cannot carry operator lease")
+            lease = None
+
+        def validate_parent(cur: Any) -> None:
+            # 根行已由 _append_fact 锁定；这里仍显式读取 Bundle 与 Workspace，确保
+            # 自动升级不会把 PREPARE/REVIEW 或摘要被替换的证据送往 Agent 链路。
+            cur.execute(
+                """SELECT evidence.live_session_id,evidence.incident_id,evidence.payload,
+                          workspace.current_view
+                   FROM phase14_evidence_bundles evidence
+                   JOIN phase14_live_session_workspaces workspace
+                     ON workspace.live_session_id=evidence.live_session_id
+                   WHERE evidence.evidence_bundle_id=%s""",
+                (validated.evidence_bundle_id,),
+            )
+            row = cur.fetchone()
+            if (
+                row is None
+                or row["live_session_id"] != validated.live_session_id
+                or row["incident_id"] != validated.incident_id
+                or row["current_view"] != WorkspaceView.LIVE.value
+                or _bundle_digest(EvidenceBundle.model_validate(dict(row["payload"])))
+                != validated.evidence_bundle_digest
+            ):
+                raise WorkspaceConflictError("escalation bundle parent is invalid")
+            _require_escalation_trigger_policy(
+                fact=validated,
+                evidence=EvidenceBundle.model_validate(dict(row["payload"])),
+            )
+            cur.execute(
+                """SELECT 1 FROM phase16_escalations
+                   WHERE live_session_id=%s AND evidence_bundle_id=%s""",
+                (validated.live_session_id, validated.evidence_bundle_id),
+            )
+            if cur.fetchone() is not None:
+                raise WorkspaceConflictError("bundle already has an escalation")
+
+        return self._append_fact(
+            fact_kind="escalation",
+            fact_id=validated.escalation_id,
+            fact=validated,
+            table="phase16_escalations",
+            id_column="escalation_id",
+            extra_columns={
+                "incident_id": validated.incident_id,
+                "evidence_bundle_id": validated.evidence_bundle_id,
+                "evidence_bundle_digest": validated.evidence_bundle_digest,
+                "mode": validated.mode.value,
+                "operator_id": validated.operator_id,
+                "fencing_token": fencing_token,
+                "expected_workspace_version": expected_workspace_version,
+            },
+            expected_workspace_version=expected_workspace_version,
+            validate_parent=validate_parent,
+            lease=lease,
+            workspace_version_advanced_by_trigger=True,
+        )
+
+    def append_conflict_analysis(
+        self, fact: ConflictAnalysis, *, expected_workspace_version: int
+    ) -> LiveSessionWorkspace:
+        """持久化精确 Analyst 事实，并禁止跨升级、跨 Bundle 的证据拼接。"""
+
+        validated = ConflictAnalysis.model_validate(fact.model_dump(mode="json"))
+
+        def validate_parent(cur: Any) -> None:
+            cur.execute(
+                """SELECT escalation.live_session_id,escalation.incident_id,
+                          escalation.evidence_bundle_id,escalation.evidence_bundle_digest,
+                          evidence.payload
+                   FROM phase16_escalations escalation
+                   JOIN phase14_evidence_bundles evidence
+                     ON evidence.live_session_id=escalation.live_session_id
+                    AND evidence.evidence_bundle_id=escalation.evidence_bundle_id
+                   WHERE escalation.escalation_id=%s""",
+                (validated.escalation_id,),
+            )
+            row = cur.fetchone()
+            if (
+                row is None
+                or row["live_session_id"] != validated.live_session_id
+                or row["incident_id"] != validated.incident_id
+                or row["evidence_bundle_id"] != validated.evidence_bundle_id
+                or row["evidence_bundle_digest"] != validated.evidence_bundle_digest
+                or _bundle_digest(EvidenceBundle.model_validate(dict(row["payload"])))
+                != validated.evidence_bundle_digest
+            ):
+                raise WorkspaceConflictError("analysis escalation parent is invalid")
+            snapshot = EvidenceBundleSnapshot.model_validate(
+                dict(row["payload"])["snapshot"]
+            )
+            expected_refs = tuple(component.reference for component in snapshot.components)
+            if validated.evidence_refs != expected_refs:
+                raise WorkspaceConflictError("analysis evidence refs do not match bundle")
+            cur.execute(
+                """SELECT 1 FROM phase16_conflict_analyses
+                   WHERE live_session_id=%s AND escalation_id=%s""",
+                (validated.live_session_id, validated.escalation_id),
+            )
+            if cur.fetchone() is not None:
+                raise WorkspaceConflictError("escalation already has an analysis")
+
+        return self._append_fact(
+            fact_kind="conflict_analysis",
+            fact_id=validated.analysis_id,
+            fact=validated,
+            table="phase16_conflict_analyses",
+            id_column="analysis_id",
+            extra_columns={
+                "incident_id": validated.incident_id,
+                "evidence_bundle_id": validated.evidence_bundle_id,
+                "evidence_bundle_digest": validated.evidence_bundle_digest,
+                "escalation_id": validated.escalation_id,
+                "analyst_profile_id": validated.analyst_profile_id,
+                "analyst_profile_version": validated.analyst_profile_version,
+                "analyst_profile_digest": validated.analyst_profile_digest,
+                "expected_workspace_version": expected_workspace_version,
+            },
+            expected_workspace_version=expected_workspace_version,
+            validate_parent=validate_parent,
+            workspace_version_advanced_by_trigger=True,
+        )
+
+    def append_multi_agent_outcome(
+        self, fact: MultiAgentOutcome, *, expected_workspace_version: int
+    ) -> LiveSessionWorkspace:
+        """持久化每次升级唯一的 READY 或 DEGRADED 终态，且不创建隐式恢复动作。"""
+
+        validated = MultiAgentOutcome.model_validate(fact.model_dump(mode="json"))
+        # READY Outcome 的 proposal_digest 必须在 Task 6 与其完整 Proposal 事实共同
+        # 校验；在那之前本 Store 明确 fail-closed，不留下可被以后误当成已验证的终态。
+        if validated.status.value == "READY":
+            raise WorkspaceConflictError(
+                "Task 6 proposal persistence is required for READY outcome"
+            )
+
+        def validate_parent(cur: Any) -> None:
+            cur.execute(
+                """SELECT live_session_id,incident_id,evidence_bundle_id,
+                          evidence_bundle_digest,payload
+                   FROM phase16_escalations WHERE escalation_id=%s""",
+                (validated.escalation_id,),
+            )
+            escalation = cur.fetchone()
+            if (
+                escalation is None
+                or escalation["live_session_id"] != validated.live_session_id
+                or escalation["incident_id"] != validated.incident_id
+                or escalation["evidence_bundle_id"] != validated.evidence_bundle_id
+                or escalation["evidence_bundle_digest"] != validated.evidence_bundle_digest
+                or dict(escalation["payload"])["escalation_digest"]
+                != validated.escalation_digest
+            ):
+                raise WorkspaceConflictError("outcome escalation parent is invalid")
+            if validated.analysis_id is not None:
+                cur.execute(
+                    """SELECT live_session_id,incident_id,evidence_bundle_id,escalation_id,payload
+                       FROM phase16_conflict_analyses WHERE analysis_id=%s""",
+                    (validated.analysis_id,),
+                )
+                analysis = cur.fetchone()
+                if (
+                    analysis is None
+                    or analysis["live_session_id"] != validated.live_session_id
+                    or analysis["incident_id"] != validated.incident_id
+                    or analysis["evidence_bundle_id"] != validated.evidence_bundle_id
+                    or analysis["escalation_id"] != validated.escalation_id
+                    or dict(analysis["payload"])["analysis_digest"]
+                    != validated.analysis_digest
+                ):
+                    raise WorkspaceConflictError("outcome analysis parent is invalid")
+            if validated.proposal_id is not None:
+                cur.execute(
+                    """SELECT 1 FROM phase14_proposals
+                       WHERE live_session_id=%s AND proposal_id=%s""",
+                    (validated.live_session_id, validated.proposal_id),
+                )
+                if cur.fetchone() is None:
+                    raise WorkspaceConflictError("outcome proposal parent is invalid")
+            cur.execute(
+                """SELECT 1 FROM phase16_multi_agent_outcomes
+                   WHERE live_session_id=%s AND escalation_id=%s""",
+                (validated.live_session_id, validated.escalation_id),
+            )
+            if cur.fetchone() is not None:
+                raise WorkspaceConflictError("escalation already has an outcome")
+
+        return self._append_fact(
+            fact_kind="multi_agent_outcome",
+            fact_id=validated.outcome_id,
+            fact=validated,
+            table="phase16_multi_agent_outcomes",
+            id_column="outcome_id",
+            extra_columns={
+                "incident_id": validated.incident_id,
+                "evidence_bundle_id": validated.evidence_bundle_id,
+                "evidence_bundle_digest": validated.evidence_bundle_digest,
+                "escalation_id": validated.escalation_id,
+                "escalation_digest": validated.escalation_digest,
+                "analysis_id": validated.analysis_id,
+                "analysis_digest": validated.analysis_digest,
+                "proposal_id": validated.proposal_id,
+                "proposal_digest": validated.proposal_digest,
+                "status": validated.status.value,
+                "expected_workspace_version": expected_workspace_version,
+            },
+            expected_workspace_version=expected_workspace_version,
+            validate_parent=validate_parent,
+            workspace_version_advanced_by_trigger=True,
+        )
+
     def append_proposal(
         self,
         fact: Proposal,
@@ -948,6 +1427,35 @@ class PostgresDecisionSupportStore:
             "evidence bundle",
         )
 
+    def get_escalation(self, fact_id: str) -> EscalationRecord:
+        """按稳定升级身份读取 PostgreSQL append-only 事实。"""
+
+        return self._get_payload_fact(
+            "phase16_escalations", "escalation_id", fact_id, EscalationRecord, "escalation"
+        )
+
+    def get_conflict_analysis(self, fact_id: str) -> ConflictAnalysis:
+        """按稳定分析身份读取 Analyst 的受治理中间事实。"""
+
+        return self._get_payload_fact(
+            "phase16_conflict_analyses",
+            "analysis_id",
+            fact_id,
+            ConflictAnalysis,
+            "conflict analysis",
+        )
+
+    def get_multi_agent_outcome(self, fact_id: str) -> MultiAgentOutcome:
+        """按稳定终态身份读取 READY 或 DEGRADED 的可审计结果。"""
+
+        return self._get_payload_fact(
+            "phase16_multi_agent_outcomes",
+            "outcome_id",
+            fact_id,
+            MultiAgentOutcome,
+            "multi-agent outcome",
+        )
+
     def get_proposal(self, fact_id: str) -> Proposal:
         return self._get_payload_fact(
             "phase14_proposals", "proposal_id", fact_id, Proposal, "proposal"
@@ -984,6 +1492,37 @@ class PostgresDecisionSupportStore:
             "evidence_bundle_id",
             live_session_id,
             EvidenceBundle,
+        )
+
+    def list_escalations(self, live_session_id: str) -> tuple[EscalationRecord, ...]:
+        """按确定性创建时间返回当前直播的全部升级审计事实。"""
+
+        return self._list_payload_facts(
+            "phase16_escalations", "escalation_id", live_session_id, EscalationRecord
+        )
+
+    def list_conflict_analyses(
+        self, live_session_id: str
+    ) -> tuple[ConflictAnalysis, ...]:
+        """按确定性顺序返回当前直播的 Analyst 中间事实。"""
+
+        return self._list_payload_facts(
+            "phase16_conflict_analyses",
+            "analysis_id",
+            live_session_id,
+            ConflictAnalysis,
+        )
+
+    def list_multi_agent_outcomes(
+        self, live_session_id: str
+    ) -> tuple[MultiAgentOutcome, ...]:
+        """按确定性顺序返回当前直播已形成的每次升级终态。"""
+
+        return self._list_payload_facts(
+            "phase16_multi_agent_outcomes",
+            "outcome_id",
+            live_session_id,
+            MultiAgentOutcome,
         )
 
     def list_proposals(self, live_session_id: str) -> tuple[Proposal, ...]:
@@ -1168,6 +1707,7 @@ class PostgresDecisionSupportStore:
         expected_workspace_version: int,
         validate_parent: Callable[[Any], None] | None = None,
         lease: tuple[str, int] | None = None,
+        workspace_version_advanced_by_trigger: bool = False,
     ) -> LiveSessionWorkspace:
         """在单个根行锁事务中完成门禁、幂等、INSERT 与版本推进。"""
 
@@ -1243,16 +1783,33 @@ class PostgresDecisionSupportStore:
                             Jsonb(payload),
                         ),
                     )
-                    cur.execute(
-                        """UPDATE phase14_live_session_workspaces
-                           SET version=version+1,updated_at=NOW()
-                           WHERE live_session_id=%s RETURNING *""",
-                        (fact.live_session_id,),
-                    )
+                    if workspace_version_advanced_by_trigger:
+                        # Phase 16 的数据库触发器在事实 INSERT 中已锁定并推进根版本；
+                        # 这里只读取同一事务里的结果，绝不能再加一次版本。
+                        cur.execute(
+                            """SELECT * FROM phase14_live_session_workspaces
+                               WHERE live_session_id=%s""",
+                            (fact.live_session_id,),
+                        )
+                    else:
+                        cur.execute(
+                            """UPDATE phase14_live_session_workspaces
+                               SET version=version+1,updated_at=NOW()
+                               WHERE live_session_id=%s RETURNING *""",
+                            (fact.live_session_id,),
+                        )
                     updated = cur.fetchone()
                 conn.commit()
         except (psycopg.errors.UniqueViolation, psycopg.errors.ForeignKeyViolation) as exc:
             raise WorkspaceConflictError("workspace fact constraint conflict") from exc
+        except psycopg.errors.RaiseException as exc:
+            # 人工升级先在应用层检查 lease，随后数据库触发器仍会以事务墙钟复查。
+            # 两次检查之间刚好到期时必须保持公开错误协议，而非把 PostgreSQL 异常泄漏给 HTTP。
+            if "operator lease is invalid or expired" in str(exc):
+                raise WorkspaceLeaseError("operator lease expired") from exc
+            # 其他触发器异常可能是既有的事务故障注入或调用方可观察的数据库
+            # 完整性错误；保留原始异常类型，避免意外改变 Phase 14 的回滚契约。
+            raise
         return self._workspace_from_row(updated)
 
     def _connection(self):
