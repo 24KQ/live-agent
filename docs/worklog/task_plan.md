@@ -184,7 +184,8 @@
   - [x] Task 3：统一 Subject Runner 与规则门禁（`9f9d835` 已推送）。
   - [x] Task 4：Release Store、双轨决策与 Phase 15 预算（`fefd926` 已推送）。
   - [x] Task 5：真人交叉对照采集器（`d181cd1` 已推送）。
-  - [x] Task 6：真实 Copilot Smoke 与 Promotion 证据（待提交推送）。
+  - [x] Task 6：真实 Copilot Smoke 与 Promotion 证据（`4965116` 已推送）。
+  - [x] Task 7：PromotionDecision 与双轨 Acceptance 报告（待提交推送）。
   - [ ] Task 6：真实 Copilot Smoke 与 Promotion 证据。
   - [ ] Task 7：PromotionDecision 与双轨 Acceptance。
   - [ ] Task 8：统一 Release CLI 与报告。

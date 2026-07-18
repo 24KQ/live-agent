@@ -847,3 +847,13 @@
 - Task 6 专项 unit `8 passed`、PostgreSQL `1 passed`；完整 unit `1356 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`。
 - unknown usage 严格返回 `BLOCKED`；超 reservation usage 封顶并阻断；真实模型与网络 endpoint 费用保持 `0`。
 - 状态切换为 `PHASE_15_TASK_6_READY_TO_PUSH`；下一步只暂存 Task 6 文件，提交并推送，之后进入 Task 7 RED。
+
+# 2026-07-18 Phase 15 Task 7 GREEN
+
+- Task 7 RED 确认缺少 `src.release_gates.report`；实现严格 PromotionDecision、FinalReleaseDecision 和稳定 JSON/Markdown 后专项 `5 passed`。
+- 与 Task 5/6/Store 相关聚合 `22 passed`，真实模型/网络 endpoint 未访问；下一步进行完整回归和提交前门禁。
+
+# 2026-07-18 Phase 15 Task 7 VERIFY
+
+- 完整 unit `1361 passed, 4 warnings`、integration `155 passed, 3 deselected, 5 warnings`，退出码均为 0。
+- 状态切换为 `PHASE_15_TASK_7_READY_TO_PUSH`；下一步只暂存 Task 7 文件，提交并推送，之后进入 Task 8 RED。

@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`PHASE_15_TASK_6_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_7_READY_TO_PUSH`
 
 最后更新：2026-07-18
 
@@ -9,20 +9,20 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 15 Golden Release Gates Stage B |
-| 最近完成任务 | Task 5：真人交叉对照采集器（`d181cd1` 已推送） |
-| 当前任务 | Task 6：真实 Copilot Smoke 与 Promotion 证据 |
-| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_6_READY_TO_PUSH` |
-| 当前子步骤 | 预检、单次 Model Port、usage 保守结算、fallback/Schema/严重违规、重复请求和 PostgreSQL 预算阻断已完成验证 |
+| 最近完成任务 | Task 6：真实 Copilot Smoke 与 Promotion 证据（`4965116` 已推送） |
+| 当前任务 | Task 7：PromotionDecision 与双轨 Acceptance 报告 |
+| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_7_READY_TO_PUSH` |
+| 当前子步骤 | 缺证据 BLOCKED、完整但质量失败 KEEP_DISABLED、严格 AND PROMOTE、技术优先 Final 和稳定 JSON/Markdown 已完成验证 |
 | 当前分支 | `main` |
 | 当前业务基线 | Phase 14 Task 12 Acceptance；Stage A 文档提交以 `git log -1 --oneline --decorate` 解析 |
-| 远端状态 | `origin/main=d181cd1`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
+| 远端状态 | `origin/main=4965116`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
 | 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
 
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
 - 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-122；Phase 15 Design/Plan、D-123 至 D-132 和恢复协议。
-- 当前授权：Phase 15 Stage B Task 1-12 连续实施；当前仅执行 Task 6。
+- 当前授权：Phase 15 Stage B Task 1-12 连续实施；当前仅执行 Task 7。
 - 仍禁止：Task 6 预检前运行真实模型；伪造真人或 GitHub Actions 证据；修改用户脏文件；跳过 RED/REVIEW/VERIFY。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
 - 当前禁止：提交红灯/半成品/已知失败代码、修改或提交用户脏文件、自动进入下一 Phase。
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 15 / Task 6
+Phase / Task: Phase 15 / Task 7
 状态: READY_TO_PUSH
-目标: 实现真实 Copilot Smoke 的严格预检、单次调用和 Promotion 证据
+目标: 实现 PromotionDecision、双轨 Final 和稳定 Release 报告
 禁止事项: 不调用真实模型；不伪造真人/托管 CI 证据；不修改用户脏文件；不把临时兼容脚本纳入提交
-当前 HEAD: `d181cd1` 是最新远端提交；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
-本 Task 文件: src/release_gates/copilot_smoke.py、Task 6 测试和必要预算/模型入口
+当前 HEAD: `4965116` 是最新远端提交；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
+本 Task 文件: src/release_gates/report.py、Task 7 测试和阶段留痕
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 6 unit `8 passed`；Task 6 PostgreSQL `1 passed`；Phase 15 相关聚合 unit `18 passed`/integration `5 passed`；完整 unit `1356 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；compileall 通过；真实模型未调用
-错误与尝试次数: Task 6 首轮修复 reason code、全量重放状态、success=false 和预算测试 usage 语义；用户既有脏文件保持原状
-设计偏差与决策编号: 沿用 D-123 至 D-132；真实模型必须等 Task 6 预检通过，unknown usage 按完整预留额结算并阻断 Promotion
-下一条精确操作: 运行最终编码/敏感/diff/迁移检查；只暂存 Task 6 目标文件，提交 `feat: evaluate phase 15 copilot smoke` 并推送
+最近命令与结果: Task 7 专项 `5 passed`；Task 7/Phase15 相关聚合 `22 passed`；完整 unit `1361 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；compileall 通过；真实模型未调用
+错误与尝试次数: Task 6 已完成；Task 7 尚未发现实现阻断，用户既有脏文件保持原状
+设计偏差与决策编号: 沿用 D-123 至 D-132；Technical PASS 与 Promotion 独立，技术失败优先 NOT_RELEASED
+下一条精确操作: 运行最终编码/敏感/diff/迁移检查；只暂存 Task 7 目标文件，提交 `feat: decide decision support promotion` 并推送
 模型费用累计: 0.042344 元
 ```
 

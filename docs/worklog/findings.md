@@ -682,3 +682,15 @@
 - Task 6 专项 unit `8 passed`，PostgreSQL `1 passed`；完整 unit `1356 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`，退出码均为 0。
 - compileall、Phase 15 迁移 dry-run、目标文件严格 UTF-8/LF/BOM/replacement/trailing whitespace、敏感扫描和 `git diff --check` 已通过；未访问真实模型或 endpoint。
 - 只读审查线程未在等待窗口返回，已停止并由主模型按 Design/Plan、实际 diff 和完整回归接管；无剩余 Critical/Important 阻断。
+
+## 2026-07-18 Phase 15 Task 7 GREEN
+
+- `report.py` 将 Model smoke/Human Study evidence 编译为严格 `BLOCKED | KEEP_DISABLED | PROMOTE`；不接受调用方手工传入互相矛盾的最终状态。
+- Technical `FAIL/BLOCKED` 始终优先生成 `NOT_RELEASED`；Technical `PASS` 下只有 Promotion `PROMOTE` 才生成 enabled，其余为 disabled。
+- Task 7 专项 `5 passed`，与 Smoke/Store/Human 相关聚合 `22 passed`；真实模型费用仍为 `0`。
+
+## 2026-07-18 Phase 15 Task 7 VERIFY
+
+- 完整 unit `1361 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；退出码均为 0。
+- Task 7 报告 JSON/Markdown 稳定摘要、Technical/Promotion/Final 一致性和严格 AND 门全部通过；未访问真实模型或 endpoint。
+- 目标编译、编码、敏感信息和 diff 门禁待最后一轮执行，用户已有脏文件继续排除。
