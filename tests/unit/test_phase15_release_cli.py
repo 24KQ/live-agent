@@ -35,6 +35,37 @@ def test_release_cli_pr_is_deterministic_and_does_not_call_external_model(tmp_pa
     assert "PASS" in capsys.readouterr().out
 
 
+def test_release_cli_can_emit_explicit_new_runtime_profile(tmp_path: Path) -> None:
+    """第一次 Release 的显式新路径必须进入报告，不能依赖默认 Legacy。"""
+
+    output_dir = tmp_path / "explicit"
+    assert release_main(
+        ["--mode", "pr", "--route-profile", "EXPLICIT_RELEASE", "--output-dir", str(output_dir)]
+    ) == 0
+    report = json.loads((output_dir / "release-report.json").read_text(encoding="utf-8"))
+    assert report["route_profile"]["mode"] == "EXPLICIT_RELEASE"
+    assert report["route_profile"]["skill_policy"]["batch1"] == "SKILL_RUNTIME"
+    assert report["route_profile"]["plan_policy"]["route"] == "PLAN_ENGINE"
+    assert report["route_profile"]["decision_support_policy"]["route"] == "DETERMINISTIC_ONLY"
+
+
+def test_release_cli_blocks_verified_defaults_without_technical_pass(tmp_path: Path) -> None:
+    """技术门禁未 PASS 时不能把 Verified Defaults 写入报告。"""
+
+    output_dir = tmp_path / "verified"
+    assert release_main(
+        ["--mode", "release", "--route-profile", "VERIFIED_DEFAULTS", "--output-dir", str(output_dir)]
+    ) == 3
+    report = json.loads((output_dir / "release-report.json").read_text(encoding="utf-8"))
+    assert report["technical"]["status"] == "BLOCKED"
+    assert report["route_profile"] == {
+        "mode": "VERIFIED_DEFAULTS",
+        "reason": "technical release must PASS before default promotion",
+        "reason_code": "TECHNICAL_RELEASE_NOT_PASS",
+        "status": "BLOCKED",
+    }
+
+
 def test_release_cli_rejects_manifest_subject_mismatch(tmp_path: Path, capsys) -> None:
     """调用方不能把一个 Subject 的 Manifest 冒充成另一个 Subject。"""
 

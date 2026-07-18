@@ -34,6 +34,9 @@ class PlanExecutionPolicy(BaseModel):
     @classmethod
     def from_settings(cls, settings: Any) -> "PlanExecutionPolicy":
         """从已校验 Settings 复制路由值，未知值由 Pydantic fail-fast 拒绝。"""
+        release_profile = getattr(settings, "phase15_route_profile", "LEGACY_DEFAULT")
+        if release_profile in {"EXPLICIT_RELEASE", "VERIFIED_DEFAULTS"}:
+            return cls(route=PlanExecutionRoute.PLAN_ENGINE)
         return cls(route=settings.plan_engine_card_execution_route)
 
     @classmethod

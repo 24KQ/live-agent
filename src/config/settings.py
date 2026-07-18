@@ -209,6 +209,25 @@ class Settings(BaseSettings):
         validation_alias="DECISION_SUPPORT_EXECUTION_ROUTE",
     )
 
+    # ── Phase 15 Release 路由 profile ─────────────────────────────────────
+    # 默认 profile 仍为 LEGACY_DEFAULT。只有 Release 产生不可变的显式或已验证
+    # 默认 profile 后，部署配置才可切换到对应值；普通运行时不能凭环境变量在调用中途
+    # 改变已经装配的路由快照。
+    phase15_route_profile: Literal[
+        "LEGACY_DEFAULT", "EXPLICIT_RELEASE", "VERIFIED_DEFAULTS"
+    ] = Field(
+        default="LEGACY_DEFAULT",
+        validation_alias="PHASE15_ROUTE_PROFILE",
+    )
+    # Promotion 结论与技术 Runtime 路由独立保存。只有 PROMOTE 可以让决策支持
+    # 进入生产路由；BLOCKED/KEEP_DISABLED 都必须保持确定性控制面。
+    phase15_decision_support_promotion: Literal[
+        "PROMOTE", "KEEP_DISABLED", "BLOCKED"
+    ] = Field(
+        default="BLOCKED",
+        validation_alias="PHASE15_DECISION_SUPPORT_PROMOTION",
+    )
+
     @property
     def postgres_connection_kwargs(self) -> dict[str, Any]:
         """生成 psycopg.connect 可直接使用的 PostgreSQL 连接参数。

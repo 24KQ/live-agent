@@ -897,3 +897,16 @@
 - 独立审查发现 0 Critical、4 Important；已修复售罄 Runtime 幂等键业务字段泄漏、Legacy 异常回显和 README 退役说明，PolicyView 同进程注入按 D-121 留痕处理。
 - Phase 13 v2/v3 与 Phase 15 Manifest 已按最终源码闭包重建，case/label、价格、Prompt、Schema 和历史评估事实未变化。
 - Task 10 专项 `21 passed`；完整 unit `1372 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；目标 compileall、生产 Facade 扫描和 `git diff --check` 通过；真实模型新增费用 `0`。
+
+# 2026-07-18 Phase 15 Task 11 RED/GREEN
+
+- Task 10 已以 `1f4af05 refactor: retire tool registry facade` 推送，连续游标进入 Task 11。
+- RED 首次因缺少 `src.release_gates.routing` 收集失败；新增 `ReleaseRouteProfile`、`PHASE15_ROUTE_PROFILE`、`PHASE15_DECISION_SUPPORT_PROMOTION` 和三类路由的启动解析。
+- GREEN 固定 `LEGACY_DEFAULT -> EXPLICIT_RELEASE -> VERIFIED_DEFAULTS`：显式 Release 强制 Skill Runtime/PlanEngine，Verified Defaults 需要 Technical PASS，只有 Promotion PROMOTE 开启 Decision Support。
+- D-133 已新增；Task 11 路由专项 `5 passed`，真实模型和外部 Release 证据仍为 0。
+
+# 2026-07-18 Phase 15 Task 11 VERIFY
+
+- Task 11 的显式 Release、Verified Defaults、三路启动冻结和独立 Promotion 门禁已完成；专项 `18 passed`。
+- 完整 unit `1379 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`；正式源码/入口 compileall、生产 import、严格编码和 `git diff --check` 通过。
+- 全仓 compileall 仅被用户已有临时脚本的语法错误阻断；未修改这些脚本。真实模型、GitHub Actions 和外部 Release 证据仍为 0，待提交推送 Task 11。

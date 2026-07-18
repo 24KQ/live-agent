@@ -735,3 +735,15 @@
 - 已修复前三项并补回归；所有声明 `requires_idempotency_key` 的非兼容 Runtime Skill 统一把幂等键放入 `SkillExecutionContext`，Legacy 错误改为固定脱敏摘要，README 改为 Catalog/SkillPolicyView。
 - PolicyView 注入不构成 HTTP/插件信任边界；按 D-121，生产 Runtime 装配的 `AgentToolExecutor` 与 `SkillExecutor` 已校验 Catalog/PolicyView 完整一致，旧 Flow 的 test-only 门禁快照保留用于零副作用回归，不新增生产 bypass。
 - Task 10 专项 `21 passed`；完整 unit `1372 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；真实模型费用新增 `0`。
+
+## 2026-07-18 Phase 15 Task 11 RED/GREEN
+
+- RED：显式 Release/Verified Defaults 路由契约因缺少 `src.release_gates.routing` 收集失败。
+- GREEN：新增三路不可变 `ReleaseRouteProfile`；Settings 默认保持 `LEGACY_DEFAULT`，显式 profile 使用 `SKILL_RUNTIME`/`PLAN_ENGINE`，Verified Defaults 需要 Technical `PASS`，仅 Promotion `PROMOTE` 开启 Decision Support。
+- 新增配置 Schema 与路由状态机已由 D-133 留痕；专项 `5 passed`，未调用真实模型、GitHub Actions 或外部 Release。
+
+## 2026-07-18 Phase 15 Task 11 VERIFY
+
+- Task 11 专项 `18 passed`；完整 unit `1379 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；目标源码/入口 compileall、生产路由 import、`git diff --check` 和 16 个目标文件严格 UTF-8/LF/BOM/replacement/trailing whitespace 检查通过。
+- 全仓 compileall 仍被用户已有 `scripts/patch_run_all.py` 与 `scripts/tmp_gen_story.py` 的历史语法错误阻断；两文件未修改、未暂存、未纳入 Task 11，正式源码编译证据独立通过。
+- 规格与质量审查未发现 Critical/Important；真实模型、GitHub Actions 和外部 Release 仍未调用/伪造，费用保持 `0` 新增。

@@ -1466,3 +1466,14 @@
 - **未选理由**：自动开始会绕过跨阶段 Gate；合并文档和代码提交会降低审计清晰度。
 - **影响**：Stage A 不修改业务代码、数据库、真实模型或 CI；Stage B 继续采用每 Task 的 RED/GREEN/REVIEW/VERIFY/DOCS/COMMIT/PUSH 和受控 sub-agent 监控协议。
 - **重新评估条件**：用户授权范围、预算、外部基础设施或项目定位发生变化时，先更新决策日志和 Design/Plan，再开始受影响 Task。
+
+## D-133：Phase 15 路由 profile 与 Promotion 独立晋升
+
+- **状态**：`ACCEPTED`
+- **背景**：第一次 Release 必须显式验证新 Runtime，技术 PASS 后才允许切换确定性默认；Decision Support 的业务收益证据又独立于技术 Runtime。
+- **候选方案**：一次性修改所有 Settings 默认；只在 CLI 输出路由建议；增加启动冻结的版本化 Release profile，并让三类路由按同一 profile 解析。
+- **最终选择**：新增 `LEGACY_DEFAULT | EXPLICIT_RELEASE | VERIFIED_DEFAULTS` profile。默认保持 Legacy；显式 Release 强制三批 `SKILL_RUNTIME` 和 `PLAN_ENGINE`；Verified Defaults 仅接受 Technical `PASS`。`DECISION_SUPPORT` 只有 `PromotionStatus.PROMOTE` 才能开启，`BLOCKED/KEEP_DISABLED` 始终保持 `DETERMINISTIC_ONLY`。
+- **选择理由**：把两次 Release 的确定性路由晋升与 Copilot 业务证据隔离，并让启动配置形成可审计、不可变的三路快照。
+- **未选理由**：一次性全局切换扩大故障面；只输出建议无法约束实际装配；独立环境变量可能把技术发布误变成 Copilot 开启。
+- **影响**：Settings 增加 profile/promotion 字段；Skill Runtime、PlanEngine 和 Decision Support 的 `from_settings` 统一读取 profile 并 fail-closed。Task 11 的第二次 Release 必须绑定 Verified Defaults，失败时使用新的 revert commit，不在同次调用中 fallback Legacy。
+- **重新评估条件**：引入新的执行类别、持久化发布状态或不同于当前三路的 Promotion 证据时，新增版本化 profile 和状态机决策。

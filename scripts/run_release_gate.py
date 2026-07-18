@@ -25,11 +25,17 @@ import psycopg
 from src.release_gates.dataset import GoldenCase, GoldenSplit, load_phase15_dataset
 from src.release_gates.decisions import (
     DecisionSupportPromotionDecision,
+    PromotionStatus,
     ReleaseCaseResult,
     ReleaseMode,
     ReleaseRun,
     TechnicalReleaseDecision,
     TechnicalReleaseStatus,
+)
+from src.release_gates.routing import (
+    ReleaseRoutePromotionError,
+    build_explicit_release_profile,
+    build_verified_default_profile,
 )
 from src.release_gates.models import SubjectKind, SubjectManifest, SubjectObservation
 from src.release_gates.report import build_release_report, render_release_report_json
@@ -107,6 +113,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow")
     parser.add_argument("--commit-sha")
     parser.add_argument("--artifact-digest")
+    parser.add_argument(
+        "--route-profile",
+        default="LEGACY_DEFAULT",
+        help="启动路由快照：LEGACY_DEFAULT、EXPLICIT_RELEASE 或 VERIFIED_DEFAULTS",
+    )
     return parser
 
 
@@ -402,9 +413,66 @@ def run_release_gate(args: argparse.Namespace) -> dict[str, Any]:
         gate_facts=gate_facts,
         gate_blockers=tuple(sorted(set(gate_blockers))),
     )
+    result["route_profile"] = _route_profile_payload(
+        requested=getattr(args, "route_profile", "LEGACY_DEFAULT"),
+        mode=mode,
+        subject=subject,
+        technical=result["technical"],
+        promotion=result["promotion"],
+    )
     result["budget_cny"] = str(budget)
     result["artifact_digest"] = canonical_json_sha256(result)
     return result
+
+
+def _route_profile_payload(
+    *,
+    requested: str,
+    mode: ReleaseMode,
+    subject: str,
+    technical: dict[str, Any],
+    promotion: dict[str, Any],
+) -> dict[str, Any]:
+    """把本次 Release 选择的启动路由编译为可审计报告事实。"""
+
+    profile_name = str(requested).upper()
+    if profile_name == "LEGACY_DEFAULT":
+        return {
+            "mode": profile_name,
+            "skill_batches": ["LEGACY", "LEGACY", "LEGACY"],
+            "plan_engine": "LEGACY",
+            "decision_support": "DETERMINISTIC_ONLY",
+        }
+    try:
+        promotion_status = PromotionStatus(str(promotion["status"]))
+    except (KeyError, ValueError) as exc:
+        raise ReleaseCliError(
+            "PROMOTION_RESULT_INVALID",
+            "release promotion result is invalid",
+            exit_code=3,
+        ) from exc
+    release_run_id = f"phase15-{mode.value.lower()}-{subject}-route"
+    if profile_name == "EXPLICIT_RELEASE":
+        profile = build_explicit_release_profile(
+            release_run_id=release_run_id,
+            promotion_status=promotion_status,
+        )
+        return profile.model_dump(mode="json")
+    if profile_name == "VERIFIED_DEFAULTS":
+        try:
+            profile = build_verified_default_profile(
+                technical=TechnicalReleaseDecision.model_validate(technical),
+                promotion_status=promotion_status,
+            )
+        except (ReleaseRoutePromotionError, ValueError) as exc:
+            return {
+                "mode": profile_name,
+                "status": "BLOCKED",
+                "reason_code": "TECHNICAL_RELEASE_NOT_PASS",
+                "reason": str(exc),
+            }
+        return profile.model_dump(mode="json")
+    raise ReleaseCliError("INVALID_ROUTE_PROFILE", "unknown release route profile", exit_code=2)
 
 
 def main(argv: list[str] | None = None) -> int:

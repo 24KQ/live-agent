@@ -118,20 +118,26 @@ class RoutePolicy(BaseModel):
         LEGACY，防止高风险改价在迁移前被误打开。
         """
         provided = set(getattr(settings, "model_fields_set", set()))
+        release_profile = getattr(settings, "phase15_route_profile", "LEGACY_DEFAULT")
+        release_default = release_profile in {"EXPLICIT_RELEASE", "VERIFIED_DEFAULTS"}
         batch1 = (
-            settings.skill_route_phase11b_batch1
+            RouteConfig.SKILL_RUNTIME
+            if release_default
+            else settings.skill_route_phase11b_batch1
             if "skill_route_phase11b_batch1" in provided
             else settings.skill_route_prelive_generation
         )
         batch2 = (
-            settings.skill_route_phase11b_batch2
+            RouteConfig.SKILL_RUNTIME
+            if release_default
+            else settings.skill_route_phase11b_batch2
             if "skill_route_phase11b_batch2" in provided
             else settings.skill_route_prelive_setup
         )
         return cls(
             batch1=batch1,
             batch2=batch2,
-            batch3=settings.skill_route_phase11b_batch3,
+            batch3=(RouteConfig.SKILL_RUNTIME if release_default else settings.skill_route_phase11b_batch3),
         )
 
     @classmethod
