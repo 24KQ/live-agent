@@ -921,3 +921,8 @@
 - 三场景业务闭环、两次本地 Release profile、48 例冻结 Manifest 摘要、Promotion BLOCKED 和确定性默认路由均已写入可重复报告。
 - unit `1382 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`；Task 12 专项 `3 passed`、相关聚合 `33 passed`，迁移 dry-run 和正式源码 compileall 通过。
 - 真实模型、真人对照、coverage artifact、PostgreSQL Release 事实和 GitHub Actions evidence 未提供；Release 返回 BLOCKED，Phase 15/Final Acceptance 为 INCONCLUSIVE，阶段停止且不自动进入下一阶段。
+
+# 2026-07-18 Phase 15 Task 12 COMMIT/PUSH 与最终状态
+
+- Task 12 已提交并推送：`c01a5da docs: accept agent runtime release`，远端与本地一致。
+- Phase 15 以 `PHASE_15_COMPLETE_INCONCLUSIVE` 收口；报告、双轨结论和业务闭环证据已保存，不自动进入下一阶段。

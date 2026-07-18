@@ -759,3 +759,8 @@
 - 业务证据：同一 `live-session-p001-sold-out-v1` 穿过 `PREPARE/LIVE/REVIEW`，售罄自动保护 `APPLIED`，人工决定 `MODIFY`，经营恢复命令未提交，记忆晋升与重放均 `APPLIED`。
 - 验证证据：Task 12 专项 `3 passed`、Phase 14/15 聚合 `33 passed`、完整 unit `1382 passed, 4 warnings`、integration `155 passed, 3 deselected, 5 warnings`；迁移 dry-run、正式源码 compileall、PR/Nightly 本地门禁和 `git diff --check` 通过。
 - Release 模式因 coverage、PostgreSQL 和托管 GitHub evidence 缺失明确 `BLOCKED`；未调用真实模型，Phase 15 新增费用 `0`，Acceptance 与 Final Acceptance 诚实记录为 `INCONCLUSIVE`。
+
+## 2026-07-18 Phase 15 Task 12 COMMIT/PUSH 与阶段完成
+
+- Task 12 已以 `c01a5da docs: accept agent runtime release` 提交并推送，远端与本地一致；用户脏文件未纳入。
+- Phase 15/Final Acceptance 已固定为 `INCONCLUSIVE`，Promotion `BLOCKED`，默认 `DETERMINISTIC_ONLY`；状态为 `PHASE_15_COMPLETE_INCONCLUSIVE`，不自动进入新阶段。

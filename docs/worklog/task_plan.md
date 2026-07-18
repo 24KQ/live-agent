@@ -192,7 +192,7 @@
   - [x] Task 9：GitHub Actions 三层门禁（`3a34381` 已推送）。
   - [x] Task 10：ToolRegistry Facade 退役（`1f4af05` 已推送）。
   - [x] Task 11：显式 Release、默认路由与第二次 Release（`efe16c5` 已推送）。
-  - [x] Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance（验证完成，待提交）。
+  - [x] Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance（`c01a5da` 已推送）。
 
 ## 2026-07-18 Phase 15 Task 8
 
