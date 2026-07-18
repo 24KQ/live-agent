@@ -1,5 +1,14 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-18 Phase 16 Started
+
+- 用户已授权连续执行：先完成 Task 1 文档持久化，再在同一授权内执行 Task 2-11。
+- 已建立隔离分支 `codex/phase16-controlled-multi-agent`，基线为
+  `ee0de7c4e333e1b247a587c4be793c771abcb0e4`；主工作区用户脏文件不进入本阶段。
+- 已冻结高冲突三选二规则、双 Agent 责任边界、5 秒/4000 token/0.10 CNY 单 case 预算、
+  1.00 CNY smoke 上限、默认关闭路由、48 例独立数据集和单人本地 Demo。
+- 当前：Task 1 GREEN，待文档验证、独立提交和推送。下一任务为 Task 2 测试收集冲突 RED。
+
 ## 2026-07-15 Phase 13 Just-in-Time Design/Plan 审核
 
 - 基于 Phase 12B Acceptance 重新审核 Phase 13，采用共享评估内核与 LiveOps、Planner、ReviewMemory 三个纵向候选切片。

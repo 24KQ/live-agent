@@ -1,5 +1,20 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-18 Phase 16 Design Baseline
+
+- 项目定位扩展为生命周期感知、人机协同、受控多 Agent 决策 Runtime；这不意味着
+  PREPARE、LIVE、REVIEW 并发运行。Phase 16 只增加 LIVE 高冲突的串行双 Agent。
+- 现有 `EvidenceBundle` 已提供 proposal eligibility、备品集合、弹幕噪声和节奏信号；
+  可用作无需模型的三选二升级规则事实源。
+- 现有 `SpecialistProfile.deadline_seconds` 是整数。Phase 16 保持共享协议，采用两个
+  2 秒 Profile 和一个 5 秒 Coordinator，而不是扩大为小数秒公共契约。
+- Phase 15 的 48 例 Golden 与 `INCONCLUSIVE` Acceptance 是历史事实，不得为 Phase 16
+  直接改写。Phase 16 将使用独立 48 例 Manifest。
+- 根 `python -m pytest -q` 当前会因三处 unit/integration 同名 `test_phase14_*` 模块产生
+  import mismatch；文件重命名是行为无关的 Task 2 前置修复。
+- 默认路由继续 `DETERMINISTIC_ONLY`。本阶段技术通过或 smoke 证据不足都不能自动开启
+  决策支持，更不能开启经营恢复自动执行。
+
 ## 2026-07-11 文档编码治理发现
 
 - 乱码问题需要区分两类：终端显示乱码，以及文件内容已经被写坏。

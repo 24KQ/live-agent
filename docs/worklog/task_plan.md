@@ -1,5 +1,22 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-18 Phase 16 Controlled Multi-Agent Escalation
+
+- [x] Task 1：持久化已批准的 Design、Implementation Plan、D-134 至 D-140、路线图、总控和恢复入口；等待本 Task 验证、提交与推送。
+- [ ] Task 2：修复根 pytest 的三处 Phase 14 PostgreSQL 测试模块同名收集冲突。
+- [ ] Task 3：新增 `CONFLICT_ANALYSIS`、`LIVE_DECISION_PLANNING`、冻结 Profile 和不可变领域协议。
+- [ ] Task 4：实现 escalation、analysis、outcome 的内存/PostgreSQL append-only Store。
+- [ ] Task 5：实现三选二选择器、运营 lease 显式升级和 Analyst Coordinator 段。
+- [ ] Task 6：实现 Planner 段、整份 Validator 拒绝和受控 Proposal lineage。
+- [ ] Task 7：接入 operator-authenticated HTTP、WebSocket 和 Workspace 投影。
+- [ ] Task 8：扩展本地三视图工作台的高冲突事故展示与交互。
+- [ ] Task 9：生成独立冻结 48 例数据集及 ScriptedModel 配对评估。
+- [ ] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本。
+- [ ] Task 11：生成 `live-session-p001-sold-out-v2` Demo、Acceptance，并停止在 Phase 17 Gate。
+
+所有 Task 使用 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> DOCS -> COMMIT -> PUSH；
+Task 10 前不访问真实模型，任何严重安全违规、预算风险或强制基础设施阻塞均停止当前 Task。
+
 ## 目标
 
 把 `docs/worklog/` 从本机临时记录升级为可追踪的项目工作日志，用于记录阶段计划、发现、进度和后续迭代方向。
