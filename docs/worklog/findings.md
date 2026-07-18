@@ -869,3 +869,48 @@
 - D-159 让 Workspace 只投影可升级 Bundle 的六项白名单摘要，工作台不要求运营输入 ID，也不显示六角色原始证据正文。
 - D-160 至 D-163 依次修复浏览器认证头缺口、cookie browser binding、异步旧会话、同浏览器重新认证撤销、lineage 错配和客户端伪 DEGRADED。票据为 60 秒一次性、会话与 HttpOnly/SameSite binding 限定；Token 不进入 URL，票据不授予任何写权限。
 - 工作台展示 escalation route/trigger、Analysis 和 Outcome，`DEGRADED` 只来自服务端稳定失败码与事实摘要，读取/写入失败为不可执行 `UNAVAILABLE`/提交失败；当前 multi-Agent escalation 缺少同 lineage `READY` Outcome 时，运营决定不回退到无关 Proposal。Task 8 聚合 `44 passed, 1 warning`，完整 unit `1473 passed, 4 warnings`、integration `182 passed, 7 deselected, 5 warnings`；最终复审 PASS。
+
+## 2026-07-18 Phase 16 Task 9 RED
+
+- 评估必须运行真实 `HighConflictEscalationCoordinator` 与 `ScriptedAgentModel`，并通过 Store API 重建
+  Workspace、Incident 和 EvidenceBundle；测试专用 factory 不得进入生产/评估运行时。
+- 标签与预期评分只保留在冻结数据资产，绝不写入 `AgentTask.input_snapshot`。Bundle TTL 使用受控 UTC
+  时钟；每例独立 Store，防止短 TTL 与 append-only 幂等事实相互污染。
+- D-143 继续要求共享 Runner 对 Phase 16 fail-closed。Task 9 只能提供独立、显式的 Scripted 预算组合，
+  不得借用 Phase 14 的账本或运行真实 smoke。
+
+## 2026-07-18 Phase 16 Task 9 GREEN / REVIEW
+
+- `ScriptedAgentModel` 的输出会被协议冻结为只读 Mapping；传入 `AgentResult` 前必须经 Pydantic 的
+  JSON 序列化边界恢复普通容器，否则协调器会将结构正确的脚本结果错误归类为 `ANALYST_MODEL_ERROR`。
+- PostgreSQL 的 lease/freshness 使用事务时钟，评估不向其暴露内存 Store 专用 `now` 参数。陈旧 case
+  先装配新鲜 Bundle，再把 Coordinator 时钟推进到 TTL 外，从而验证真实选择器的模型前拒绝而非 Assembler 失败。
+- 评估只记录离线脚本合同成本，`real_model_calls` 固定为 0；该字段不能作为 Task 10 真实 smoke
+  预算账本或任何 Phase 13-15 费用的来源。
+
+## 2026-07-18 Phase 16 Task 9 REVIEW REMEDIATION
+
+- ScriptedModel 的每一次发送先预约对应冻结 Profile 的 case ceiling；即使返回 `request_sent=True`
+  的失败，也保守计入离线合同成本。24 READY 与 6 个发送后 DEGRADED 的合同合计为 `2.72 CNY`，但外部费用仍为 0。
+- 模型 user message 现在携带完整 `task_id`、kind、`input_snapshot` 和 EvidenceRef。Analyst 只接受
+  Bundle/trigger 输入，Planner 只接受 Bundle/validated Analysis；输出模板只能从已验证任务展开。
+- 评估对每例比对 escalation、analysis、proposal、outcome 的 Bundle ID/digest、父链和 outcome digest；
+  PostgreSQL 重放使用同 schema 的新 Store 实例，证明进程重建时不再发送 ScriptedModel。
+
+## 2026-07-18 Phase 16 Task 9 REVIEW REMEDIATION TWO
+
+- Manifest 源码闭包新增 `decision_support/store.py` 与 `proposal.py`；加载和执行前都重算 Generator
+  与闭包摘要，任何同进程嵌套 case 篡改、生成器或执行路径变更都会 fail-closed。
+- 24 条高冲突 case 先执行同一 Bundle 的确定性单 Copilot 基线，再运行双 Agent；基线不调用模型，
+  记录 logical case 与 Bundle ID/digest 并与 READY lineage 对照。
+- 运行时以 case ID 的 SHA-256 派生中性 Workspace/Incident/Evidence/request 身份，模型正文不含
+  case ID、split 或 kind。每次请求使用冻结 `prompt_text`，验证 ModelSuccess identity 与 JSON Schema。
+
+## 2026-07-18 Phase 16 Task 9 REVIEW REMEDIATION THREE
+
+- paired baseline 现在调用既有 `PriorityLiveOpsPolicy`，以同一 Bundle 的库存、备品、弹幕和 EvidenceRef
+  产生零模型调用的确定性建议，再与 controlled READY lineage 对照。
+- ScriptedModel 现在返回冻结 Profile 规定的 `AgentAction FINAL` 信封；评估先验证 action/evidence，再校验
+  `final_output` 的 JSON Schema，最后才构造 Coordinator 消费的 AgentResult。
+- 每例的备品库存与节奏分数进入真实 Evidence payload，使三组 split 的 48 个输入互不重复；闭包加入
+  Specialist `models.py`、`profiles.py`、`live_ops.py`，并在加载与执行前重新验证。

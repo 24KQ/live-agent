@@ -1164,3 +1164,23 @@
 - D-159 至 D-163 依次收口最小 Bundle 摘要、短时票据、HttpOnly binding、generation、重新认证撤销、
   lineage-first Proposal 和 UNAVAILABLE。Token 不进 URL，票据不替代经营写授权，HTTP 错误不伪造成业务 Outcome。
 - Task 8 聚合 `44 passed, 1 warning`，完整 unit `1473 passed, 4 warnings`、完整 integration `182 passed, 7 deselected, 5 warnings`；前端脚本语法和最终复审均通过，真实模型费用未增加，下一步提交推送。
+
+# 2026-07-18 Phase 16 Task 8 PUSHED / Task 9 RED
+
+- Task 8 已以 `502b67c feat: show controlled multi-agent live replay` 独立提交并推送；本地与
+  `origin/codex/phase16-controlled-multi-agent` 一致。
+- Task 9 开始于 RED：冻结资产必须独立于 Phase 13-15 Manifest，48 例严格分为 12 development、24 validation、12 holdout，并让真实 Coordinator 在 ScriptedModel 下重放，不接受静态路径标签替代。
+- 两个只读 sub-agent 分别审查评估契约/预算隔离与数据资产架构；主模型保留全部写入、状态机、验证、提交和推送职责。
+
+# 2026-07-18 Phase 16 Task 9 GREEN / REVIEW
+
+- 独立 `phase16-controlled-multi-agent-v1` 已生成 48 例、12/24/12 split、10 条 smoke metadata；cases、labels、scripts 和 Manifest 均为 UTF-8/LF 的字节稳定资产，Profile digest 和源码闭包同时写入 Manifest。
+- 每例经正式六角色 Assembler、Store API 和 `HighConflictEscalationCoordinator` 重建。`ScriptedAgentModel` 在 24 条高冲突 case 中严格按 Analyst 再 Planner 运行；12 条 normal 零发送，12 条 adversarial 为 6 条模型前拒绝与 6 条唯一 `DEGRADED`。
+- 专项 unit `4 passed`；隔离 PostgreSQL 重放 `1 passed in 57.73s`。共享 Runner 继续按 D-143 拒绝 Phase 16 Task Kind，离线组合没有访问真实模型或历史预算账本。
+
+# 2026-07-18 Phase 16 Task 9 VERIFY / READY_TO_COMMIT
+
+- 三轮审查共发现 12 个 Important，均通过独立 RED/GREEN 整改：sent failure 合同成本、完整 Task 输入、
+  lineage/restart、新 Store PostgreSQL、源码闭包、真实确定性 baseline、AgentAction FINAL、split 输入独立、
+  评估元数据隔离和冻结资产重验。最终精简终审为 PASS，所有只读 sub-agent 已关闭。
+- 最终证据：Task 9 unit `7 passed`、PostgreSQL 新 Store `1 passed in 46.99s`、完整 unit `1480 passed, 4 warnings`、完整 integration `183 passed, 7 deselected, 5 warnings`。真实模型费用仍为 `0.000000 CNY`；下一步只提交并推送 Task 9。

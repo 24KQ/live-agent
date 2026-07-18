@@ -168,6 +168,42 @@ Phase / Task: Phase 16 / Task 8 - Local Operations Workspace
 Sub-agent: `019f768c-26ec-76b3-983e-e92e2b1fb0b7` 的只读实现地图发现浏览器认证 Important；三轮独立规格/安全复审已发现并验证 D-160 至 D-163 整改。最终复审 `019f76ab-72a7-74c2-b967-853c81fb31ca` 为 PASS 并已关闭；所有 Task 8 sub-agent 只读、未修改、暂存、提交或推送，当前无运行中的 sub-agent。
 ```
 
+## 2026-07-18 Phase 16 Task 9 RED
+
+```text
+Phase / Task: Phase 16 / Task 9 - Frozen Pairwise Evaluation
+状态: RED
+目标: 建立独立、字节稳定的 48 例数据集，并经真实 HighConflictEscalationCoordinator 与 ScriptedModel 记录正常、双 Agent 与降级路径的配对评估证据。
+禁止事项: 不调用真实模型；不静态伪造 Coordinator 结果；不把标签写入 AgentTask.input_snapshot；不复用 Phase 14/15 模型预算或覆盖既有 Manifest。
+当前 HEAD: 502b67c238ddb74e4d576cc09143b6f231f53701
+本 Task 文件: decision_support/multi_agent_evaluation.py、Phase 16 evaluation assets/generator、Task 9 unit/PostgreSQL tests、路线图和 worklog。
+用户脏文件: 主工作区既有文档和临时脚本保持在隔离工作树之外；本工作树开始时干净。
+最近命令与结果: Task 8 已推送且 origin/codex/phase16-controlled-multi-agent 与本地 HEAD 都为 502b67c；Task 9 尚无专用数据集或评估运行时，下一步先写可验证的 RED。
+错误与尝试次数: 无；真实模型调用为 0。
+设计偏差与决策编号: 沿用 D-134 至 D-163；如需新增公共评估协议、持久化模型账本或变更安全边界，必须先新增决策并补测试。
+下一条精确操作: 添加 Task 9 失败测试，锁定 48/12-24-12/10 smoke eligibility、配对身份和真实 Coordinator/ScriptedModel 重放证据。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: `019f76ba-41ca-7ec3-aae6-2531f007888d` / Task 9 规格与预算隔离只读审查，2026-07-18 派发，禁止改文件；预期交付为数据集/身份/预算风险清单，状态 RUNNING。`019f76ba-563d-7212-84c7-9cd642581c0d` / Task 9 评估数据架构只读分析，2026-07-18 派发，禁止改文件；预期交付为最小 Generator/Fixture 方案，状态 RUNNING。主模型将在首次回报、核心 GREEN 和提交前检查实际差异和测试。
+```
+
+## 2026-07-18 Phase 16 Task 9 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 9 - Frozen Pairwise Evaluation
+状态: VERIFY / READY_TO_COMMIT
+目标: 完成独立 48 例资产、真实 Coordinator/ScriptedModel 重放和 PostgreSQL 同构恢复证据。
+禁止事项: 不调用真实模型；不借用 Phase 13/14/15 账本；不把评估标签输入 AgentTask；不新增自动经营写路径。
+当前 HEAD: 502b67c238ddb74e4d576cc09143b6f231f53701
+本 Task 文件: decision_support/multi_agent_evaluation.py、evaluation/phase16_controlled_multi_agent、生成器、Task 9 unit/PostgreSQL tests、路线图和 worklog。
+用户脏文件: 主工作区既有文档和临时脚本保持在隔离工作树之外；当前暂未暂存任何文件。
+最近命令与结果: Task 9 RED 为缺少评估模块。最终专项 unit `7 passed`；隔离 PostgreSQL 新 Store 重放 `1 passed in 46.99s`；完整 unit `1480 passed, 4 warnings`；完整 integration `183 passed, 7 deselected, 5 warnings`，出口码均为 0。48 例为 12 normal、24 paired high-conflict、12 adversarial，split 为 12/24/12 且全部业务输入独立，smoke eligibility 为 10；重放报告为 Analyst 30、Planner 26、READY 24、DEGRADED 6、no-send 18、real-model 0。
+错误与尝试次数: 1) 主题摘要不匹配正式 Evidence 模板，已改用正式中文模板；2) 历史固定时钟被 Store 实时 freshness 拒绝，改为 Store 权威当前 UTC、保持数据/请求身份不变；3) ScriptedModel 冻结 Mapping 未规范化为 AgentResult JSON，已经 Pydantic JSON 边界恢复；4) PostgreSQL 不接受内存 Store 的 now 参数，改为统一依赖 Store 时钟；5) 首轮规格审查发现 sent failure 合同成本漏记、模型正文未带完整 task、lineage/restart 断言不足，均已先 RED 后 GREEN；6) 整改复审发现源码闭包遗漏 Store/Proposal、未执行 paired baseline、case/split 元数据泄漏、Profile 合同未真实执行、加载资产未重验摘要，均已先 RED 后 GREEN；7) 最终复审要求真实 PriorityLiveOpsPolicy 基线、AgentAction FINAL 信封、split 业务输入独立、Specialist 依赖纳入闭包，均已先 RED 后 GREEN。最新专项 unit `7 passed`；审查线程自身未注入隔离 5434 密码导致 PostgreSQL 认证失败，该外部环境问题不覆盖主模型已取得的通过证据。
+设计偏差与决策编号: 未改变 D-143 的共享 Runner fail-closed。Task 9 只提供独立 EvaluationScriptedRunner，逐次强制精确 Phase 16 Profile、单模型调用、零 Skill、ScriptedModel、case 级成本汇总和 no-fallback；Task 10 前仍不接入真实/共享模型账本。
+下一条精确操作: 运行最终严格 UTF-8/LF/BOM/空白、Manifest 重建、迁移 dry-run 和暂存差异门禁；仅暂存 Task 9 文件，独立提交推送 `test: add controlled multi-agent evaluation`，再切换到 Task 10 RED。
+模型费用累计: Phase 16 0.000000 CNY；Scripted 合同成本仅为离线报告字段，不是外部消费；Task 10 预检前禁止真实模型。
+Sub-agent: 所有 Task 9 sub-agent 均只读、未改文件、未暂存/提交/推送且已关闭。精简终审 `019f76fd-d10e-7e60-91e2-15cb6854e643` 为 PASS，确认 PriorityLiveOpsPolicy 基线、AgentAction FINAL、Profile 合同、独立输入/闭包和 fail-closed 资产加载；当前无运行中的 sub-agent。
+```
+
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
