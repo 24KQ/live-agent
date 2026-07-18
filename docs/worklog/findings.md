@@ -664,3 +664,21 @@
 - 迁移 dry-run、compileall、目标文件严格 UTF-8/LF/BOM/replacement/trailing whitespace、敏感扫描和 `git diff --check` 均通过；全仓编码扫描的既有 4 errors/51 warnings 未计入目标文件结果。
 - Phase 13 源码闭包明确排除 Phase 15 `release_gates` 与 `gateway/api_server.py` 集成面，重新生成 v2/v3 Manifest 仅修正闭包摘要，不改变 case、label、prompt、Schema、价格或历史评估结论。
 - 最终只读规格审查未在等待窗口返回，已由主模型按 Design/Plan、实际 diff 和完整测试接管；没有剩余 Critical/Important 阻断。
+
+## 2026-07-18 Phase 15 Task 5 COMMIT/PUSH 与 Task 6 RED
+
+- Task 5 已以 `d181cd1 feat: capture blinded operator studies` 推送，Task 6 进入 RED；用户已有脏文件继续排除。
+- Task 6 只建立真实 Copilot smoke 的预检与预算边界；endpoint、价格、usage、Manifest/代码哈希、Schema、fallback、严重违规、重复请求或预算不满足时必须阻止模型发送或 Promotion。
+- 当前不访问外部模型；预检前真实模型费用保持 `0`。
+
+## 2026-07-18 Phase 15 Task 6 GREEN
+
+- `copilot_smoke.py` 已实现可信预检、模型身份/endpoint/价格/Manifest/代码摘要核对、零温度、10 例上限、单 case request ID 和 Phase 15 独立预算 reservation/settlement。
+- Task 6 unit `7 passed`；PostgreSQL 预算重启/耗尽集成 `1 passed`；Phase 15 相关聚合 unit `18 passed`、integration `5 passed`；真实模型费用仍为 `0`。
+- fallback、Schema 无效、严重违规、模型明确失败和 unknown usage 均不能成为 Promotion 资格；unknown usage 按完整 reservation 保守结算并返回 `BLOCKED`，已知 usage 超过单 case reservation 时封顶结算并阻断。
+
+## 2026-07-18 Phase 15 Task 6 VERIFY
+
+- Task 6 专项 unit `8 passed`，PostgreSQL `1 passed`；完整 unit `1356 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`，退出码均为 0。
+- compileall、Phase 15 迁移 dry-run、目标文件严格 UTF-8/LF/BOM/replacement/trailing whitespace、敏感扫描和 `git diff --check` 已通过；未访问真实模型或 endpoint。
+- 只读审查线程未在等待窗口返回，已停止并由主模型按 Design/Plan、实际 diff 和完整回归接管；无剩余 Critical/Important 阻断。

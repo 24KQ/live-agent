@@ -830,3 +830,20 @@
 - 修复 Phase 13 动态源码闭包对 Task 5 gateway 集成面的污染，v2/v3 Manifest 重建后字节稳定；case、label、prompt、Schema、价格和历史结论未改变。
 - 迁移 dry-run、compileall、目标编码扫描、敏感扫描和 `git diff --check` 通过。全仓编码扫描的既有 4 errors/51 warnings 单独报告，不阻断本 Task。
 - 状态切换为 `PHASE_15_TASK_5_READY_TO_PUSH`；下一步只暂存 Task 5 文件，提交并推送，之后进入 Task 6 RED，真实模型继续禁止直到预检完成。
+
+# 2026-07-18 Phase 15 Task 5 COMMIT/PUSH 与 Task 6 RED
+
+- Task 5 已提交并推送：`d181cd1 feat: capture blinded operator studies`，本地与 `origin/main` 一致；用户既有脏文件未纳入。
+- 连续游标切换到 Task 6 RED：新建 `copilot_smoke.py` 的测试契约，真实模型/外部 endpoint 继续禁止访问。
+
+# 2026-07-18 Phase 15 Task 6 GREEN
+
+- Task 6 首轮 RED 为缺少 `src.release_gates.copilot_smoke`；实现后专项 unit `7 passed`、PostgreSQL 预算/重启 `1 passed`。
+- 相关 Phase 15 聚合 unit `18 passed`、integration `5 passed`，compileall 通过；真实模型和网络 endpoint 仍未访问。
+- 下一步执行规格/质量审查、完整 unit/integration、严格编码与敏感扫描，之后提交 `feat: evaluate phase 15 copilot smoke` 并推送。
+
+# 2026-07-18 Phase 15 Task 6 VERIFY
+
+- Task 6 专项 unit `8 passed`、PostgreSQL `1 passed`；完整 unit `1356 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`。
+- unknown usage 严格返回 `BLOCKED`；超 reservation usage 封顶并阻断；真实模型与网络 endpoint 费用保持 `0`。
+- 状态切换为 `PHASE_15_TASK_6_READY_TO_PUSH`；下一步只暂存 Task 6 文件，提交并推送，之后进入 Task 7 RED。
