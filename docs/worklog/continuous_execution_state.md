@@ -204,6 +204,42 @@ Phase / Task: Phase 16 / Task 9 - Frozen Pairwise Evaluation
 Sub-agent: 所有 Task 9 sub-agent 均只读、未改文件、未暂存/提交/推送且已关闭。精简终审 `019f76fd-d10e-7e60-91e2-15cb6854e643` 为 PASS，确认 PriorityLiveOpsPolicy 基线、AgentAction FINAL、Profile 合同、独立输入/闭包和 fail-closed 资产加载；当前无运行中的 sub-agent。
 ```
 
+## 2026-07-18 Phase 16 Task 9 PUSHED / Task 10 RED
+
+```text
+Phase / Task: Phase 16 / Task 10 - Formal Smoke Preflight
+状态: RED
+目标: 在不改变默认 ScriptedModel 演练的前提下，建立独立 PHASE16_MULTI_AGENT_SMOKE 账本和真实 smoke 的 fail-closed 发送预检。
+禁止事项: 不在 endpoint、官方价格、usage、Profile Prompt/Schema、Manifest、代码哈希、可用 reservation 全部通过前访问真实模型；不借用 Phase 13/14/15 预算；不打开默认路由。
+当前 HEAD: be6de9784f16492408300c48d9186eee7c913bdf
+本 Task 文件: Phase 16 smoke preflight/ledger、对应 unit/PostgreSQL tests、Phase 16 worklog 和总控计划。
+用户脏文件: 主工作区既有文档和临时脚本仍保持在隔离工作树之外；当前工作树仅有本 Task 的未暂存留痕变更。
+最近命令与结果: Task 9 unit `7 passed`；Task 9 PostgreSQL 新 Store 重放已有通过证据；`be6de97 test: add controlled multi-agent evaluation` 已推送，远端与本地一致。
+错误与尝试次数: 无；真实模型调用为 0。
+设计偏差与决策编号: 沿用 D-134 至 D-163；若需要改变公开账本、真实模型身份或安全发送边界，必须先新增决策并补测试。
+下一条精确操作: 写失败测试，锁定缺少任何一项预检证据、超过 case/预算上限、账本重放或 usage 未知时均不向 Model Port 发送。
+模型费用累计: Phase 16 0.000000 CNY；本 Task 上限 1.000000 CNY。
+Sub-agent: `019f7708-38b8-7e33-b353-b292373b1cf8` / Task 10 预检与账本只读审查，2026-07-18 派发，禁止修改、暂存、提交、推送或真实网络；预期交付为复用边界和 fail-closed 风险清单，状态 RUNNING。主模型将在首次回报、核心 GREEN 和提交前检查实际差异和测试。
+```
+
+## 2026-07-18 Phase 16 Task 10 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 10 - Formal Smoke Preflight
+状态: VERIFY / READY_TO_COMMIT
+目标: 以独立 PHASE16_MULTI_AGENT_SMOKE case reservation 审计真实 smoke 的预检、发送和保守 usage 结算。
+禁止事项: 不调用真实模型；不把 smoke PASS 解释为默认路由开启或经营授权；不复用 Phase 13/14/15 账本。
+当前 HEAD: be6de9784f16492408300c48d9186eee7c913bdf
+本 Task 文件: decision_support/multi_agent_smoke.py、init_phase16_smoke.sql、统一迁移清单、Task 10 unit/PostgreSQL tests、D-164 和阶段 worklog。
+用户脏文件: 主工作区既有文档和临时脚本仍保持在隔离工作树之外；当前未提交差异只属于 Task 10。
+最近命令与结果: Task 10 RED 为缺少 smoke 模块与 DDL。最终专项 unit `12 passed`、PostgreSQL `2 passed`、Task 9/10 聚合 `15 passed`；完整 unit 和完整 integration 均使用隔离 `liveagent-phase16-test-postgres:5434` 并以退出码 0 完成。`compileall` 通过；迁移 dry-run 18 步且实际迁移为 `18 passed, 0 warnings, 0 failed`；真实模型调用为 0。
+错误与尝试次数: 首轮规格复审发现 4 个 Critical/2 个 Important；后续质量复审发现恢复 outcome、TOCTOU、文件资产错误和 DDL RELEASED/PASS 直写问题。均已先 RED 后 GREEN：预检缺证据为 BLOCKED、发送后外部证据不足为 INCONCLUSIVE，唯一 scope 同时限制 10 slot/1.00 CNY，Planner 未发送结算已有 Analyst 成本，Task 9 资产在预检和 Port 前重验，reservation 持久化 outcome/reason，DDL 与内存/PostgreSQL API 同构。最终规格复审和质量/安全复审均为 PASS。
+设计偏差与决策编号: D-164 新增独立 case 级 reservation、cache-miss 保守计价和“Task 10 transport/成本证据不代替 Task 9 Coordinator 正确性”的边界。D-165 固定唯一 scope、双重 slot/金额上限、重验资产与 D-121 同进程可信启动装配边界。D-166 固定恢复 outcome/reason 和发送前资产重验。Phase 16 的 1.00 CNY 是已批准的独立 scope，不借用 Phase 13/14/15 账本。
+下一条精确操作: 对 Task 10 目标文件执行严格 UTF-8/LF/尾随空白和 `git diff --check`，仅暂存本 Task 文件，独立提交推送 `feat: gate controlled multi-agent smoke`，再切换 Task 11 RED。
+模型费用累计: Phase 16 0.000000 CNY；脚本和无网络 Port 不构成真实费用。
+Sub-agent: `019f7708-38b8-7e33-b353-b292373b1cf8` 的预检审查已关闭；`019f7715-745d-7282-bd99-ecc62f9e9284` 的规格复审和复审整改均为 PASS；`019f7722-61a1-7b83-907b-d8e6150af30c` 的三轮质量/安全复审发现并验证 outcome/TOCTOU/DDL 整改，最终为 PASS。所有 sub-agent 均只读、未修改/暂存/提交/推送，当前无运行中的 sub-agent。
+```
+
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。

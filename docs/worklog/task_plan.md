@@ -10,8 +10,9 @@
 - [x] Task 6：实现 Planner 段、整份 Validator 拒绝和受控 Proposal lineage。D-148 至 D-152、专项 `83 passed`、PostgreSQL `29 passed`、完整 unit `1440 passed`、integration `181 passed, 7 deselected` 与双重复审均已通过，`d42eab9` 已独立提交推送；不改变 OperatorDecision/Compiler 或经营执行。
 - [x] Task 7：接入 operator-authenticated HTTP、WebSocket 和 Workspace 投影。D-153 至 D-158 的窄请求、认证、Bundle/lease 装配、重试、投影与人工/自动所有权门禁已通过，`2f4b7ef` 已独立提交推送。
 - [x] Task 8：扩展本地三视图工作台的高冲突事故展示与交互。D-159 至 D-163 的 Bundle 白名单摘要、route/trigger/analysis/outcome 展示、READY/lineage 禁用、安全订阅/撤销和 UNAVAILABLE 状态已通过完整回归，`502b67c` 已独立提交推送。
-- [ ] Task 9：生成独立冻结 48 例数据集及 ScriptedModel 配对评估（VERIFY 完成，待独立提交推送）。
-- [ ] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本。
+- [x] Task 9：生成独立冻结 48 例数据集及 ScriptedModel 配对评估。独立 48 例资产、实际 Coordinator/ScriptedModel 重放、
+  全新 PostgreSQL Store 恢复与完整回归已通过，`be6de97` 已独立提交并推送。
+- [ ] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本（VERIFY 完成，待独立提交推送）。
 - [ ] Task 11：生成 `live-session-p001-sold-out-v2` Demo、Acceptance，并停止在 Phase 17 Gate。
 
 所有 Task 使用 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> DOCS -> COMMIT -> PUSH；

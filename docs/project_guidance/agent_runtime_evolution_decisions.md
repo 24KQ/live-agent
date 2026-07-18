@@ -2149,3 +2149,81 @@
   都不改变。
 - **重新评估条件**：跨域或正式多租户部署前必须重新缩小 cookie domain/path、引入 CSRF/session 管理和
   集中撤销；在此之前同源本地工作台的根路径 cookie 是保证 REST 与 WebSocket 一致撤销的最小边界。
+
+## D-164：Phase 16 真实 smoke 使用独立 case 级 reservation 账本，预检不构成路由开启
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 允许最多十个高冲突 smoke case 的真实模型证据，但 Analyst 与 Planner 每例有两次
+  外部调用。若沿用 Phase 13-15 预算、按单次调用临时扣费，或把“端点可用”当成可以发送的充分条件，
+  就会混淆阶段成本、在第二个 Agent 前失去保守上限，或把 smoke 的外部证据错误升级为生产路由授权。
+- **候选方案**：复用 Phase 15 的 0.60 元 ledger；两个 Profile 各自独立 reservation；直接读取 API key
+  后发送并事后结算；或为 Phase 16 创建 case 级独立 ledger，在任一发送前预约完整 `0.03 + 0.07 = 0.10`
+  元上限。
+- **最终选择**：新增 `PHASE16_MULTI_AGENT_SMOKE` 独立内存/PostgreSQL ledger，硬上限为 10 case / 1.00
+  CNY。每个 smoke case 在 Analyst 调用前原子预约 0.10 CNY；仅当 Analyst 与 Planner 都返回可计价 usage
+  时按官方冻结价格结算实际成本。任一已发送请求 usage 不明、异常或总价超过 reservation 时，整例按 0.10
+  CNY 保守结算并阻止 Planner/后续发送；发送门禁仍为 `BLOCKED`，但这类已经发送后的外部证据不足在正式
+  smoke 报告中为 `INCONCLUSIVE`。预检还必须同时验证精确 model/endpoint、官方价格摘要、usage
+  协议、两个冻结 Profile 的 Prompt/Schema digest、Task 9 Manifest/dataset/source closure、Task 10 runtime
+  hash、端点可用性和 reservation。预检通过只允许显式 smoke 调用，不改变默认 `DETERMINISTIC_ONLY`。
+- **选择理由**：case 级 reservation 与用户可理解的十例预算完全一致，并能在两个 Agent 的部分失败中
+  保持硬上限。独立 scope 和表让 Phase 13-15 的历史评估账本不受新代码或新费用影响。将预检与路由
+  决策分离，避免“外部模型曾响应”被误解为自动经营或默认多 Agent 的许可。
+- **未选理由**：复用旧 ledger 会破坏阶段预算隔离和历史 code digest；逐 Agent 临时预留会让成功的
+  Analyst 占用后 Planner 无预算，不能表达一次业务 case 的保守上限；事后结算无法在并发时阻止超额；
+  将 smoke PASS 直接接到路由违反 Phase 16 人工授权和默认关闭边界。
+- **影响**：Task 10 新增独立 migration、Budget Store、可信预检和无网络单元/PostgreSQL 测试。真实
+  模型仍由显式 `AgentModelPort` 注入；默认测试只使用 ScriptedModel 或无网络 Port。Task 10 验证
+  transport identity、Profile Prompt/Schema、reservation 与 usage，不代替 Task 9 对实际 Coordinator/
+  Validator 行为的 ScriptedModel 重放。`ModelUsage` 未区分 cache 命中时，全部输入 token 按公开
+  cache-miss 输入价保守计费。Task 11 可把缺失 endpoint、价格或 usage 证据报告为 `INCONCLUSIVE`，但
+  不得以此打开默认路由。
+- **重新评估条件**：若后续引入并发多租户 smoke 或独立签名费用收据，必须设计租户/运行维度 scope 和
+  外部收据校验；在此之前不得扩大十例/一元上限、借用其他阶段余额，或让预检对象直接成为经营写授权。
+
+## D-165：真实 smoke 的外部就绪事实只在可信启动装配注入，唯一 scope 同时限制金额和 case 数
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 复审发现自定义 ledger scope 可产生额外一元池，低实际 token 成本会在金额余额中
+  回流而可能允许第十一例，且任意同进程 Python 调用可构造 endpoint/usage/价格值。把后者误称为插件
+  沙箱会违反 D-121 的服务进程威胁模型。
+- **候选方案**：允许每次 smoke 生成新 scope；只限制金额 exposure；把预检对象开放给 HTTP 调用方；或
+  固定唯一 `PHASE16_MULTI_AGENT_SMOKE` scope，以 reservation 行数和金额共同限流，并将外部就绪事实
+  限定在没有 HTTP/API 入口的可信启动装配。
+- **最终选择**：Phase 16 只有一个精确 scope，内存与 PostgreSQL 都拒绝后缀或任意 scope。`RESERVED` 与
+  `SETTLED` 行各占一个不可回收的十例 slot，`RELEASED` 仅适用于 Analyst 在 Model Port 明确
+  `request_sent=false` 前的零外部成本；Planner 未发送也必须结算已有 Analyst 成本。预检每次重算 Task 9
+  generator、源码闭包、case 与数据集摘要。endpoint 可用性、usage 协议和官方价格证据只由可信启动装配
+  传给无 HTTP 暴露的预检函数；任意可执行同进程 Python 的代码按 D-121 已等同服务进程失陷，不能靠
+  PrivateAttr 或类型对象伪装成不可信扩展隔离。Task 11 在没有真实、可验证外部证据时只能报告
+  `INCONCLUSIVE`，不会构造可发送的生产 composition。
+- **选择理由**：双重上限阻止“低成本多发”与并发超额，唯一 scope 让 1.00 CNY 可审计。明确可信启动边界
+  不会虚假宣称 Python 对内部调用方提供安全沙箱，同时保留 HTTP/外部边界零发送的 fail-closed 契约。
+- **未选理由**：suffix scope 会把一个阶段额度拆成无限多个池；只看价格不看 case 数违反十例约束；公开
+  预检端点会将外部事实注入面扩大到浏览器；PrivateAttr 不能抵御同进程代码。
+- **影响**：Task 10 新增 PostgreSQL 低成本结算后第十一例拒绝、唯一 scope、Planner 未发送不回滚 Analyst
+  成本及 Dataset 重验测试。真实 endpoint probe、价格文件签名或进程隔离如需对不可信扩展开放，必须另立
+  设计，不在当前本地演示范围内。
+- **重新评估条件**：若未来引入外部插件、远程多租户或独立 smoke 服务，必须以独立进程、签名 receipt 和
+  最小 RPC 重新定义预检 authority；在此之前不得把同进程调用者视为不可信安全主体或开放预检 HTTP 端点。
+
+## D-166：case 级 smoke 结论与 reason 必须随 reservation 持久化，发送前再次重验冻结资产
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 质量复审发现仅凭 `SETTLED` 无法区分双 Agent 成功、usage 不明或 Planner 未发送；
+  进程重启会把保守失败错误重放为 PASS。预检后缓存可变 Dataset 引用也允许模型发送前的嵌套输入漂移。
+- **候选方案**：把任意 settled 行重放为 PASS；仅由 `usage_known` 猜测结果；只在内存保存 outcome；或在
+  reservation 上追加稳定 outcome/reason 并在每次发送前重算 Task 9 资产身份。
+- **最终选择**：`RESERVED` 行没有结论；`SETTLED` 与 `RELEASED` 行保存 `PASS | FAIL | INCONCLUSIVE`
+  和稳定 reason code。重放只能返回已持久化的同一结论，绝不重发或提升为 PASS。Analyst 未发送的
+  `RELEASED/FAIL` 不消费 slot；已发送后的 `SETTLED/INCONCLUSIVE` 和 Planner 未发送的 `SETTLED/FAIL`
+  保留 slot/成本。预检中的 Task 9 重验失败转换为可审计的零发送 `BLOCKED`；Runner 在每次准备发送前
+  重新验证缓存 Dataset，消除预检到 Port 的 TOCTOU 窗口。
+- **选择理由**：持久化结论使重启、重复运行和报告具有同一事实源，且不需要把模型自由文本写入 ledger。
+  重验成本很低，却将 source/case 资产漂移阻断在真实模型调用之前。
+- **未选理由**：将 settled 默认视作成功会掩盖外部证据不足；usage 布尔无法表达 Planner 未发送等技术失败；
+  仅在内存保存会在重启丢失；只在 preflight 验证仍留下可变嵌套对象窗口。
+- **影响**：Task 10 DDL、内存/PostgreSQL Store 和恢复测试追加结果字段；所有既有旧空表通过幂等列扩展。
+  该事实只服务 smoke 技术审计，不进入 Proposal、OperatorDecision、命令编译、业务执行或默认路由。
+- **重新评估条件**：若以后需要保存签名的供应商 receipt、分阶段 response 摘要或跨服务结果，必须设计独立
+  append-only receipt 表与密钥边界；在此之前不得把自由模型正文写入预算 ledger。

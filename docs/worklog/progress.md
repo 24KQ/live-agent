@@ -1184,3 +1184,25 @@
   lineage/restart、新 Store PostgreSQL、源码闭包、真实确定性 baseline、AgentAction FINAL、split 输入独立、
   评估元数据隔离和冻结资产重验。最终精简终审为 PASS，所有只读 sub-agent 已关闭。
 - 最终证据：Task 9 unit `7 passed`、PostgreSQL 新 Store `1 passed in 46.99s`、完整 unit `1480 passed, 4 warnings`、完整 integration `183 passed, 7 deselected, 5 warnings`。真实模型费用仍为 `0.000000 CNY`；下一步只提交并推送 Task 9。
+
+# 2026-07-18 Phase 16 Task 9 PUSHED / Task 10 RED
+
+- Task 9 已以 `be6de97 test: add controlled multi-agent evaluation` 独立提交并推送；本地与
+  `origin/codex/phase16-controlled-multi-agent` 一致。
+- Task 10 开始于 RED：任何真实发送必须先同时绑定精确 model/endpoint、官方价格和 usage 协议、冻结 Profile Prompt/Schema、
+  Phase 16 Manifest/源码闭包、独立 `PHASE16_MULTI_AGENT_SMOKE` reservation，以及 10 case / 1.00 CNY 上限。
+- `019f7708-38b8-7e33-b353-b292373b1cf8` 正在进行只读预检/账本复用审查；无文件写权限、无真实模型权限，主模型将在其首次
+  回报、核心 GREEN 与提交前核查实际差异和测试证据。
+
+# 2026-07-18 Phase 16 Task 10 VERIFY / READY_TO_COMMIT
+
+- Task 10 建立独立 `PHASE16_MULTI_AGENT_SMOKE` ledger：唯一 scope、10 个不可回收 case slot、1.00 CNY
+  ceiling 和每例 0.10 CNY reservation。低成本结算不能释放第十一例；已发送 usage 不明为 `INCONCLUSIVE`
+  且保守结算，Planner 未发送保留已有 Analyst 成本。
+- D-164 至 D-166 记录独立预算、可信启动装配、Task 9 资产重验、重启 outcome/reason 和 DDL 终态约束。
+  预检缺少身份、官方价格、usage、endpoint、Manifest、代码、Prompt 或 Schema 时为零发送 `BLOCKED`；
+  不存在 HTTP 预检入口，默认 `DETERMINISTIC_ONLY` 不变。
+- 验证：专项 unit `12 passed`、PostgreSQL `2 passed`、Task 9/10 聚合 `15 passed`、完整 unit 和完整
+  integration 均以隔离 5434 测试库退出码 `0` 完成；迁移 dry-run 与实际 `18 passed, 0 warnings, 0 failed`；
+  compileall 通过。两轮规格和三轮代码质量/安全复审的 Critical/Important 均已 RED/GREEN 整改。
+- 真实模型调用/费用仍为 `0.000000 CNY`。下一步执行严格编码、差异和暂存边界检查，仅提交 Task 10 文件。

@@ -914,3 +914,41 @@
   `final_output` 的 JSON Schema，最后才构造 Coordinator 消费的 AgentResult。
 - 每例的备品库存与节奏分数进入真实 Evidence payload，使三组 split 的 48 个输入互不重复；闭包加入
   Specialist `models.py`、`profiles.py`、`live_ops.py`，并在加载与执行前重新验证。
+
+## 2026-07-18 Phase 16 Task 10 RED
+
+- Task 10 的真实 smoke 不是默认回归能力：发送门必须在单次 `AgentModelPort` 调用前同时验证模型/endpoint、
+  官方价格和 usage、冻结 Prompt/Schema、Phase 16 Manifest/源码闭包与独立 reservation；任一证据缺失时只允许
+  `BLOCKED` 或 `INCONCLUSIVE`，不得探测网络。
+- Phase 16 账本必须有独立 scope、表和 1.00 CNY ceiling，不能借用 Phase 13、14 或 15 的余额；ScriptedModel
+  演练不产生真实预算消费，也不能被误作预检成功证据。
+
+## 2026-07-18 Phase 16 Task 10 GREEN / REVIEW
+
+- `PHASE16_MULTI_AGENT_SMOKE` 按业务 case 而非单个 Agent 请求预约：Analyst 与 Planner 共用 0.10 CNY，
+  十例总 exposure 永不超过 1.00 CNY。PostgreSQL 先锁 ledger 行再重算 exposure，重启后仍保持同一硬上限。
+- 预检缺少 endpoint、官方价格、usage 合同、Manifest/dataset/source closure、Profile Prompt/Schema 或 Task 10
+  runtime digest 时为 `BLOCKED` 且零发送。已经进入 Model Port 后 usage 不明、异常或身份不可信时为
+  `INCONCLUSIVE`，整例保守结算 0.10 CNY 并停止 Planner；这区分了发送门禁与外部证据不足。
+- `ModelUsage` 无 cache 命中字段，所有 input token 按公开 cache-miss 价格保守结算。Task 10 只证明真实发送
+  身份/成本门禁，Task 9 的 Coordinator/Validator ScriptedModel 重放仍是行为正确性的唯一离线证据。
+
+## 2026-07-18 Phase 16 Task 10 REVIEW REMEDIATION
+
+- scope 现为唯一精确 `PHASE16_MULTI_AGENT_SMOKE`。`RESERVED` 与 `SETTLED` 行都消费十例 slot，只有
+  Analyst 调用明确未发送时才能 `RELEASED`；低实际价格不会让第十一例重新获得发送资格。
+- Planner 未发送时会结算已经发生的 Analyst 可计价成本，不再错误 release 整例。内存与 PostgreSQL 都先
+  执行相同 slot/金额门禁；PostgreSQL 测试覆盖 10 条并发 reservation、低成本 settle、重启和第十一例拒绝。
+- 预检每次调用 `_validate_dataset_for_run`，重算 Task 9 的 generator、源码闭包、case 与 dataset digest；
+  嵌套 `input` 篡改在接触 Model Port 前失败。D-165 明确 endpoint/价格/usage 是 D-121 可信启动装配内部
+  事实，不存在 HTTP 预检端点，也不将 Python PrivateAttr 冒充插件隔离。
+
+## 2026-07-18 Phase 16 Task 10 FINAL REVIEW REMEDIATION
+
+- Reservation 现在持久化 `PASS | FAIL | INCONCLUSIVE` 终态和稳定 reason。重启重放只返回原结论：
+  `SETTLED/INCONCLUSIVE` 不会提升为 PASS，`RELEASED` 只允许未发送 Analyst 的 `FAIL`。
+- Task 9 generator/source closure/case/dataset 漂移包含文件丢失、编码错误和摘要不匹配，均在预检或每次
+  发送前转换为零发送 `TASK9_DATASET_INVALID`。直接 SQL 同样被 DDL 拒绝 `RELEASED/PASS`，内存和 PostgreSQL
+  状态机同构。
+- Task 10 最终验证完成：unit `12 passed`，PostgreSQL `2 passed`，完整 unit/integration 退出码均为 0，
+  18 步迁移实际执行无失败；真实模型费用保持 0。
