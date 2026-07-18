@@ -32,6 +32,7 @@ from src.decision_support.models import (
 )
 from src.decision_support.multi_agent import (
     HighConflictEscalationCoordinator,
+    build_decision_planner_profile,
     build_evidence_analyst_profile,
 )
 from src.decision_support.store import (
@@ -313,6 +314,73 @@ def test_postgres_escalation_single_bundle_cas_and_operator_fencing() -> None:
             operator_id=lease.operator_id,
             fencing_token=lease.fencing_token + 1,
         )
+
+
+def test_postgres_planner_dispatch_claim_is_single_and_binds_exact_analysis() -> None:
+    """两个数据库调用方争抢同一 Planner 发送权时只能有一个新 claim，且必须绑定既有 Analysis。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    _workspace_fact, _incident_fact, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    escalation = _escalation(bundle, suffix)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=after_bundle.version
+    )
+    analysis = _analysis(escalation, bundle, suffix)
+    store.append_conflict_analysis(
+        analysis, expected_workspace_version=after_escalation.version
+    )
+
+    def claim_once():
+        return store.claim_planner_dispatch(
+            escalation_id=escalation.escalation_id,
+            analysis_id=analysis.analysis_id,
+            analysis_digest=analysis.analysis_digest,
+            task_digest="a" * 64,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = tuple(pool.map(lambda _value: claim_once(), range(2)))
+
+    assert sum(item[1] for item in (first, second)) == 1
+    assert first[0] == second[0]
+    assert first[0].analysis_id == analysis.analysis_id
+    assert first[0].analysis_digest == analysis.analysis_digest
+
+
+def test_postgres_planner_dispatch_claim_rejects_direct_sql_without_store_context() -> None:
+    """Planner claim 的 SQL 关系与 Store API 必须共同拒绝绕过 Analysis/task 绑定的直写。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    _workspace_fact, _incident_fact, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    escalation = _escalation(bundle, suffix)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=after_bundle.version
+    )
+    analysis = _analysis(escalation, bundle, suffix)
+    store.append_conflict_analysis(
+        analysis, expected_workspace_version=after_escalation.version
+    )
+    instant = datetime.now(timezone.utc)
+
+    with psycopg.connect(**_database_kwargs()) as conn:
+        with pytest.raises(psycopg.Error, match="planner dispatch claim authorization context"):
+            conn.execute(
+                """INSERT INTO phase16_planner_dispatch_claims
+                   (escalation_id,live_session_id,analysis_id,analysis_digest,
+                    task_digest,created_at,lease_until)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    escalation.escalation_id,
+                    escalation.live_session_id,
+                    analysis.analysis_id,
+                    analysis.analysis_digest,
+                    "b" * 64,
+                    instant,
+                    instant + timedelta(seconds=2),
+                ),
+            )
 
 
 def test_postgres_escalation_trigger_rejects_ledger_bypass() -> None:
@@ -996,6 +1064,95 @@ class _PostgresScriptedAnalyst:
         )
 
 
+class _PostgresScriptedPlanner:
+    """不访问网络的 Planner 端口，只回显已冻结证据并验证 PostgreSQL 完整 Proposal 父链。"""
+
+    def __init__(self) -> None:
+        self.calls: list[AgentTask] = []
+
+    def resolve_profile(self, _task: AgentTask):
+        """返回精确冻结 Planner Profile，生产协调器不得接受同名不同摘要替身。"""
+
+        return build_decision_planner_profile()
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """构造一个只含运营确认备品的合法 option，不携带 Proposal 身份或执行字段。"""
+
+        self.calls.append(task)
+        return self._result(task)
+
+    def _result(self, task: AgentTask) -> AgentResult:
+        """按冻结 task 生成稳定合法 Planner 输出，供阻塞并发替身复用而不重复计数。"""
+
+        return AgentResult(
+            task_id=task.task_id,
+            profile_id=task.profile_id,
+            profile_version=task.profile_version,
+            status=AgentResultStatus.SUCCEEDED,
+            output={
+                "options": [
+                    {
+                        "option_id": "switch-backup",
+                        "product_strategy": "SWITCH_TO_BACKUP",
+                        "backup_product_id": "p002",
+                        "host_prompt": "主商品售罄，请等待运营确认后切换备品。",
+                        "timing": "AFTER_OPERATOR_CONFIRMATION",
+                        "risk_flags": [
+                            "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
+                            "HUMAN_CONFIRMATION_REQUIRED",
+                            "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+                        ],
+                        "evidence_refs": [
+                            item.model_dump(mode="json")
+                            for item in task.initial_evidence_refs
+                        ],
+                    }
+                ]
+            },
+            evidence_refs=task.initial_evidence_refs,
+            summary="POSTGRES_SCRIPTED_PLANNER_SUCCEEDED",
+        )
+
+
+class _BlockingPostgresPlanner(_PostgresScriptedPlanner):
+    """把第一个 Planner 调用停留在持久化 claim 窗口内，暴露跨 Store 的重复发送。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """第二个 Coordinator 若越过 PostgreSQL claim，会在 calls 中产生可观察的第二条记录。"""
+
+        self.calls.append(task)
+        if len(self.calls) == 1:
+            self.entered.set()
+            await self.release.wait()
+        return self._result(task)
+
+
+class _ReadyOutcomeFailurePostgresStore:
+    """仅在 Proposal 已提交后的第一个 READY Outcome 写入点模拟进程中断。"""
+
+    def __init__(self, delegate: PostgresDecisionSupportStore) -> None:
+        self._delegate = delegate
+        self._fail_ready_once = True
+
+    def __getattr__(self, name: str):
+        """保持其余操作使用真实 PostgreSQL Store，不以测试替身重写领域语义。"""
+
+        return getattr(self._delegate, name)
+
+    def append_multi_agent_outcome(self, fact: MultiAgentOutcome, **kwargs):
+        """首个 READY 写入失败，使恢复逻辑必须发现已提交 Proposal 而不是重发 Planner。"""
+
+        if self._fail_ready_once and fact.status is MultiAgentOutcomeStatus.READY:
+            self._fail_ready_once = False
+            raise RuntimeError("injected postgres READY outcome persistence loss")
+        return self._delegate.append_multi_agent_outcome(fact, **kwargs)
+
+
 class _BlockingPostgresAnalyst(_PostgresScriptedAnalyst):
     """在首个 Analyst 发送期间保持 claim 未闭合，用于验证跨连接并发不会重复 dispatch。"""
 
@@ -1160,6 +1317,217 @@ def test_postgres_coordinator_persists_analysis_and_restart_reuses_it() -> None:
     assert restarted_store.list_multi_agent_outcomes(workspace.live_session_id) == ()
 
 
+def test_postgres_planner_persists_ready_proposal_and_restart_reuses_both_agents() -> None:
+    """Task 6 READY 必须在真实 PostgreSQL 中重启恢复，不得重复发送任一 Agent。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    workspace, _incident, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    analyst = _PostgresScriptedAnalyst()
+    planner = _PostgresScriptedPlanner()
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            planner_runner=planner,
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+
+    restarted_analyst = _PostgresScriptedAnalyst()
+    restarted_planner = _PostgresScriptedPlanner()
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=_store(),
+            analyst_runner=restarted_analyst,
+            planner_runner=restarted_planner,
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+
+    assert first.analysis is not None
+    assert first.proposal is not None
+    assert first.outcome is not None
+    assert first.outcome.status is MultiAgentOutcomeStatus.READY
+    assert recovered.proposal == first.proposal
+    assert recovered.outcome == first.outcome
+    assert len(analyst.calls) == 1
+    assert len(planner.calls) == 1
+    assert restarted_analyst.calls == []
+    assert restarted_planner.calls == []
+
+
+def test_postgres_concurrent_coordinators_share_one_planner_dispatch_claim() -> None:
+    """不同 Store 连接看到同一已验证 Analysis 时，只有一个 Planner 任务可以离开进程。"""
+
+    async def scenario():
+        suffix = uuid4().hex
+        first_store = _store()
+        _workspace, _incident, bundle, after_bundle = _seed_live_bundle(first_store, suffix)
+        planner = _BlockingPostgresPlanner()
+        first_task = asyncio.create_task(
+            HighConflictEscalationCoordinator(
+                store=first_store,
+                analyst_runner=_PostgresScriptedAnalyst(),
+                planner_runner=planner,
+                clock=lambda: datetime.now(timezone.utc),
+            ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+        )
+        await planner.entered.wait()
+        second_store = PostgresDecisionSupportStore(
+            SimpleNamespace(postgres_connection_kwargs=_database_kwargs())
+        )
+        second = await HighConflictEscalationCoordinator(
+            store=second_store,
+            analyst_runner=_PostgresScriptedAnalyst(),
+            planner_runner=planner,
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+        planner.release.set()
+        return await first_task, second, planner
+
+    first, second, planner = asyncio.run(scenario())
+
+    assert first.proposal is not None
+    assert first.outcome is not None
+    assert second.analysis is not None
+    assert second.proposal is None
+    assert second.outcome is None
+    assert len(planner.calls) == 1
+
+
+def test_postgres_restart_closes_persisted_proposal_without_resending_planner() -> None:
+    """Proposal/READY 之间的响应丢失只能在重启时补终态，不能形成第二次 Planner 调用。"""
+
+    suffix = uuid4().hex
+    backing_store = _store()
+    _workspace, _incident, bundle, after_bundle = _seed_live_bundle(backing_store, suffix)
+    first_planner = _PostgresScriptedPlanner()
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=_ReadyOutcomeFailurePostgresStore(backing_store),
+            analyst_runner=_PostgresScriptedAnalyst(),
+            planner_runner=first_planner,
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+    restarted_planner = _PostgresScriptedPlanner()
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=PostgresDecisionSupportStore(
+                SimpleNamespace(postgres_connection_kwargs=_database_kwargs())
+            ),
+            analyst_runner=_PostgresScriptedAnalyst(),
+            planner_runner=restarted_planner,
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+
+    assert first.analysis is not None
+    assert first.proposal is not None
+    assert first.outcome is None
+    assert recovered.proposal == first.proposal
+    assert recovered.outcome is not None
+    assert recovered.outcome.status is MultiAgentOutcomeStatus.READY
+    assert len(first_planner.calls) == 1
+    assert restarted_planner.calls == []
+
+
+def test_postgres_expired_planner_claim_closes_review_without_analysis_or_proposal() -> None:
+    """Planner 已发送而 READY 中断后，播后恢复只能写受限 DEGRADED，不能补 READY 或重发。"""
+
+    suffix = uuid4().hex
+    backing_store = _store()
+    _workspace, _incident, bundle, after_bundle = _seed_live_bundle(backing_store, suffix)
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=_ReadyOutcomeFailurePostgresStore(backing_store),
+            analyst_runner=_PostgresScriptedAnalyst(),
+            planner_runner=_PostgresScriptedPlanner(),
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+    assert first.proposal is not None
+    assert first.outcome is None
+
+    # PostgreSQL claim 的租约以数据库墙钟为准。等待过期后运营才可从 LIVE 迁移到 REVIEW；
+    # 该测试不依赖 Worker 的业务时钟，也不让恢复路径调用任何真实模型。
+    time.sleep(2.1)
+    current = backing_store.get_workspace(bundle.live_session_id)
+    lease = backing_store.acquire_operator_lock(
+        bundle.live_session_id, "phase16-planner-review", 60
+    )
+    backing_store.advance_view(
+        bundle.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=current.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+    )
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=PostgresDecisionSupportStore(
+                SimpleNamespace(postgres_connection_kwargs=_database_kwargs())
+            ),
+            analyst_runner=_PostgresScriptedAnalyst(),
+            planner_runner=_PostgresScriptedPlanner(),
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+
+    assert recovered.analysis is None
+    assert recovered.proposal is None
+    assert recovered.outcome is not None
+    assert recovered.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert recovered.outcome.analysis_id is None
+    assert recovered.outcome.proposal_id is None
+
+
+def test_postgres_rejects_direct_multi_agent_proposal_without_store_context() -> None:
+    """DDL 必须拒绝绕过 Pydantic/Store 的多 Agent Proposal 直写，不能污染不可变父链。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    _workspace, _incident, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_PostgresScriptedAnalyst(),
+            planner_runner=_PostgresScriptedPlanner(),
+            clock=lambda: datetime.now(timezone.utc),
+        ).run_automatic(bundle, expected_workspace_version=after_bundle.version)
+    )
+    assert result.proposal is not None
+    persisted = store.get_proposal(result.proposal.proposal_id)
+    payload = persisted.model_dump(mode="json")
+    payload["proposal_id"] = f"forged-proposal:{suffix}"
+    payload["proposal_key"] = f"forged-proposal:{suffix}"
+    payload["idempotency_key"] = f"forged-proposal:{suffix}"
+    payload["snapshot"]["proposal_id"] = payload["proposal_id"]
+
+    with psycopg.connect(**_database_kwargs()) as conn:
+        with pytest.raises(
+            psycopg.Error, match="multi-agent proposal requires coordinator context"
+        ):
+            conn.execute(
+                """INSERT INTO phase14_proposals
+                   (proposal_id,live_session_id,incident_id,evidence_bundle_id,
+                    proposal_key,proposal_version,payload,created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    payload["proposal_id"],
+                    payload["live_session_id"],
+                    payload["incident_id"],
+                    payload["evidence_bundle_id"],
+                    payload["proposal_key"],
+                    payload["proposal_version"],
+                    Jsonb(payload),
+                    payload["created_at"],
+                ),
+            )
+        conn.rollback()
+
+
 def test_postgres_operator_requested_escalation_reconstructs_server_signals() -> None:
     """真实 PostgreSQL 人工升级只接收 lease/Bundle 输入，并持久化服务端重建的 Analysis。"""
 
@@ -1255,6 +1623,125 @@ def test_postgres_review_rejects_claim_bound_degraded_outcome_with_analysis() ->
             _outcome(escalation, analysis, suffix),
             expected_workspace_version=after_review.version,
         )
+
+
+def test_postgres_review_rejects_unlinked_degraded_outcome_without_timeout() -> None:
+    """PostgreSQL 也只能将未知响应的协调器超时写成 REVIEW 无父链审计闭合。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    workspace, _incident, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    escalation = _escalation(bundle, suffix)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=after_bundle.version
+    )
+    # 保留真实的已发送 Analyst claim 作为 D-147 合法来源，但不创建 Analysis；这样能
+    # 隔离 failure_code 约束，证明 Store/DDL 不会把 Planner 的已分类错误伪装成超时。
+    store.claim_analyst_dispatch(
+        escalation_id=escalation.escalation_id,
+        task_digest="c" * 64,
+    )
+    time.sleep(2.1)
+    lease = store.acquire_operator_lock(
+        workspace.live_session_id, "phase16-review-non-timeout", 60
+    )
+    after_review = store.advance_view(
+        workspace.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=after_escalation.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+    )
+    invalid = MultiAgentOutcome.model_validate(
+        {
+            **_outcome(escalation, _analysis(escalation, bundle, suffix), suffix).model_dump(
+                mode="python"
+            ),
+            "analysis_id": None,
+            "analysis_digest": None,
+            "failure_code": MultiAgentFailureCode.PLANNER_MODEL_ERROR,
+            "outcome_digest": "",
+        }
+    )
+
+    with pytest.raises(
+        WorkspaceConflictError, match="review degraded closure requires coordinator timeout"
+    ):
+        store.append_multi_agent_outcome(
+            invalid, expected_workspace_version=after_review.version
+        )
+
+
+def test_postgres_trigger_rejects_direct_review_closure_without_timeout() -> None:
+    """DDL trigger 即使面对绕过 Store 的直写，也必须从 payload 读取并拒绝非超时闭合。"""
+
+    suffix = uuid4().hex
+    store = _store()
+    workspace, _incident, bundle, after_bundle = _seed_live_bundle(store, suffix)
+    escalation = _escalation(bundle, suffix)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=after_bundle.version
+    )
+    store.claim_analyst_dispatch(
+        escalation_id=escalation.escalation_id,
+        task_digest="d" * 64,
+    )
+    time.sleep(2.1)
+    lease = store.acquire_operator_lock(
+        workspace.live_session_id, "phase16-direct-review-non-timeout", 60
+    )
+    after_review = store.advance_view(
+        workspace.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=after_escalation.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+    )
+    invalid = MultiAgentOutcome.model_validate(
+        {
+            **_outcome(escalation, _analysis(escalation, bundle, suffix), suffix).model_dump(
+                mode="python"
+            ),
+            "analysis_id": None,
+            "analysis_digest": None,
+            "failure_code": MultiAgentFailureCode.PLANNER_MODEL_ERROR,
+            "outcome_digest": "",
+        }
+    )
+    payload = invalid.model_dump(mode="json")
+
+    with psycopg.connect(**_database_kwargs()) as conn:
+        with pytest.raises(
+            psycopg.Error, match="review degraded closure requires coordinator timeout"
+        ):
+            # 省略 Store 事务上下文与幂等账本，专门证明 BEFORE CAS trigger 会在这些
+            # 后续防线之前读取 immutable payload.failure_code 并拒绝直写旁路。
+            conn.execute(
+                """INSERT INTO phase16_multi_agent_outcomes
+                   (outcome_id,live_session_id,incident_id,evidence_bundle_id,
+                    evidence_bundle_digest,escalation_id,escalation_digest,analysis_id,
+                    analysis_digest,proposal_id,proposal_digest,status,
+                    expected_workspace_version,payload,created_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    invalid.outcome_id,
+                    invalid.live_session_id,
+                    invalid.incident_id,
+                    invalid.evidence_bundle_id,
+                    invalid.evidence_bundle_digest,
+                    invalid.escalation_id,
+                    invalid.escalation_digest,
+                    None,
+                    None,
+                    None,
+                    None,
+                    invalid.status.value,
+                    after_review.version,
+                    Jsonb(payload),
+                    invalid.created_at,
+                ),
+            )
+        conn.rollback()
 
 
 def test_postgres_concurrent_coordinators_share_one_dispatch_claim() -> None:

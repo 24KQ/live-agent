@@ -341,6 +341,42 @@ class AnalystDispatchClaim(DecisionSupportFrozenModel):
         return self
 
 
+class PlannerDispatchClaim(DecisionSupportFrozenModel):
+    """发送 Planner 前绑定既有 Analysis 的持久化单次 claim。
+
+    Analyst 成功并不意味着同一升级可以安全地重复发送 Planner。该事实把 Planner 的
+    task digest 与不可变 Analysis 摘要一起保存，使并发 Coordinator、进程重启和响应
+    丢失都只能等待、恢复或降级，不能第二次发送同一冻结模型请求。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    escalation_id: str = Field(..., min_length=1)
+    live_session_id: str = Field(..., min_length=1)
+    analysis_id: str = Field(..., min_length=1)
+    analysis_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    task_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+    lease_until: datetime
+
+    @field_validator("created_at", "lease_until")
+    @classmethod
+    def _require_claim_timezone(cls, value: datetime) -> datetime:
+        """所有跨重启 claim 都归一为 UTC，禁止无时区时间放大外部等待窗口。"""
+
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("planner dispatch claim times must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _require_positive_claim_window(self) -> "PlannerDispatchClaim":
+        """Planner 的观察租约必须严格晚于发送意图，不能制造零长或倒置 claim。"""
+
+        if self.lease_until <= self.created_at:
+            raise ValueError("planner dispatch claim lease_until must follow created_at")
+        return self
+
+
 class MultiAgentProposalLineage(DecisionSupportFrozenModel):
     """Planner 方案绑定上游升级、分析、Bundle 与精确 Profile，禁止跨事实拼接。"""
 

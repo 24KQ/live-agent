@@ -349,8 +349,8 @@ def test_escalation_allows_one_analysis_per_profile_and_one_terminal_outcome() -
         )
 
 
-def test_ready_outcome_fails_closed_until_task6_persists_verified_proposal() -> None:
-    """Task 4 没有 Proposal 事实摘要存储，不能接受无法验证 digest 的 READY 终态。"""
+def test_ready_outcome_requires_a_matching_persisted_multi_agent_proposal() -> None:
+    """READY 必须引用完整且可重验的多 Agent Proposal，不能只携带调用方自报摘要。"""
 
     store = InMemoryDecisionSupportStore()
     workspace, _lease, bundle = _seed_live_bundle(store)
@@ -374,7 +374,7 @@ def test_ready_outcome_fails_closed_until_task6_persists_verified_proposal() -> 
         }
     )
 
-    with pytest.raises(WorkspaceConflictError, match="Task 6"):
+    with pytest.raises(WorkspaceConflictError, match="proposal parent"):
         store.append_multi_agent_outcome(
             ready, expected_workspace_version=workspace.version
         )
@@ -530,4 +530,48 @@ def test_review_can_only_close_claim_with_unlinked_degraded_outcome() -> None:
     with pytest.raises(WorkspaceConflictError, match="review degraded closure cannot carry analysis"):
         store.append_multi_agent_outcome(
             _outcome(escalation, analysis), expected_workspace_version=after_review.version
+        )
+
+
+def test_review_rejects_unlinked_degraded_outcome_without_coordinator_timeout() -> None:
+    """播后无父链闭合只能表达未知响应超时，不能把可分类 Planner 错误伪装为超时。"""
+
+    instant = datetime.now(timezone.utc)
+    store_clock = [instant]
+    store = InMemoryDecisionSupportStore(clock=lambda: store_clock[0])
+    workspace, lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+    # 不写 Analysis，仅建立已离开进程的 Analyst claim，使测试只覆盖 D-147 允许的
+    # REVIEW 无父链闭合来源；若 failure code 不是协调器超时，Store 必须仍然拒绝。
+    store.claim_analyst_dispatch(
+        escalation_id=escalation.escalation_id,
+        task_digest="e" * 64,
+    )
+    store_clock[0] = instant + timedelta(seconds=3)
+    after_review = store.advance_view(
+        workspace.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=after_escalation.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+        now=store_clock[0],
+    )
+    invalid = MultiAgentOutcome.model_validate(
+        {
+            **_outcome(escalation, _analysis(escalation, bundle)).model_dump(mode="python"),
+            "analysis_id": None,
+            "analysis_digest": None,
+            "failure_code": MultiAgentFailureCode.PLANNER_MODEL_ERROR,
+            "outcome_digest": "",
+        }
+    )
+
+    with pytest.raises(
+        WorkspaceConflictError, match="review degraded closure requires coordinator timeout"
+    ):
+        store.append_multi_agent_outcome(
+            invalid, expected_workspace_version=after_review.version
         )

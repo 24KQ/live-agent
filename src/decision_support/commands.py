@@ -12,6 +12,8 @@ from src.decision_support.models import (
     DecisionKind,
     DecisionSupportFrozenModel,
     ExecutionCommand,
+    MultiAgentOutcome,
+    MultiAgentOutcomeStatus,
     OperatorDecision,
     OperatorLease,
     Proposal,
@@ -20,10 +22,12 @@ from src.decision_support.proposal import (
     DecisionOption,
     DecisionTiming,
     LiveDecisionProposal,
+    ProposalOrigin,
     ProposalStatus,
 )
 from src.plan_engine.commands import PlanCommand
 from src.plan_engine.models import PlanCommandType, PlanNodeState
+from src.specialist_runtime.models import canonical_json_sha256
 
 
 class DecisionCompilationError(ValueError):
@@ -129,6 +133,7 @@ class DecisionSupportCommandCompiler:
         lease: OperatorLease,
         execution_context: DecisionExecutionContext,
         now: datetime,
+        multi_agent_ready_outcome: MultiAgentOutcome | None = None,
     ) -> CompiledOperatorDecision:
         """校验 Proposal/lease/CAS 后返回 append-only 决定和可选 APPROVE 命令。"""
 
@@ -142,6 +147,13 @@ class DecisionSupportCommandCompiler:
             )
             selected_lease = OperatorLease.model_validate(
                 lease.model_dump(mode="json")
+            )
+            selected_outcome = (
+                None
+                if multi_agent_ready_outcome is None
+                else MultiAgentOutcome.model_validate(
+                    multi_agent_ready_outcome.model_dump(mode="json")
+                )
             )
         except Exception as exc:
             raise DecisionCompilationError("proposal or lease snapshot is invalid") from exc
@@ -167,6 +179,11 @@ class DecisionSupportCommandCompiler:
         if draft.decision_kind in {DecisionKind.APPROVE, DecisionKind.MODIFY}:
             if proposal_view.status is not ProposalStatus.READY:
                 raise DecisionCompilationError("DEGRADED proposal cannot be approved")
+            if proposal_view.proposal_origin is ProposalOrigin.MULTI_AGENT:
+                self._require_matching_multi_agent_ready_outcome(
+                    proposal=proposal_view,
+                    outcome=selected_outcome,
+                )
             selected_option = self._selected_option(proposal_view, draft.option_id)
             selected_option, priority, changes = self._apply_modification(
                 selected_option, draft
@@ -244,6 +261,34 @@ class DecisionSupportCommandCompiler:
             execution_command=execution_command,
             plan_command=plan_command,
         )
+
+    @staticmethod
+    def _require_matching_multi_agent_ready_outcome(
+        *,
+        proposal: LiveDecisionProposal,
+        outcome: MultiAgentOutcome | None,
+    ) -> None:
+        """D-152：多 Agent 的经营批准必须读取同一父链上已经完成的 READY 终态。"""
+
+        lineage = proposal.multi_agent_lineage
+        proposal_digest = canonical_json_sha256(proposal.model_dump(mode="json"))
+        if (
+            lineage is None
+            or outcome is None
+            or outcome.status is not MultiAgentOutcomeStatus.READY
+            or outcome.live_session_id != proposal.live_session_id
+            or outcome.incident_id != proposal.incident_id
+            or outcome.evidence_bundle_id != proposal.evidence_bundle_id
+            or outcome.escalation_id != lineage.escalation_id
+            or outcome.escalation_digest != lineage.escalation_digest
+            or outcome.analysis_id != lineage.analysis_id
+            or outcome.analysis_digest != lineage.analysis_digest
+            or outcome.proposal_id != proposal.proposal_id
+            or outcome.proposal_digest != proposal_digest
+        ):
+            # 结构合法的 Proposal 不证明 Planner/Validator/READY 已经完整落库；没有
+            # 精确 Outcome 只能由运营 REJECT，绝不能编译 APPROVE/MODIFY 经营恢复命令。
+            raise DecisionCompilationError("multi-agent proposal requires READY outcome")
 
     @staticmethod
     def _normalize_now(value: datetime) -> datetime:

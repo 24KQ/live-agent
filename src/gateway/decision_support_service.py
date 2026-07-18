@@ -142,12 +142,22 @@ class DecisionSupportService:
             operator_id,
             self._lease_seconds,
         )
+        # D-152：通用 Proposal 的 READY 状态不足以授权多 Agent 经营恢复。Service 只从
+        # append-only Store 读取同一 Proposal ID 的 Outcome；Compiler 还会复核完整
+        # Proposal/Analysis/Escalation 摘要，缺失或不匹配时 APPROVE/MODIFY 保持 fail-closed。
+        matching_outcomes = [
+            item
+            for item in self._store.list_multi_agent_outcomes(live_session_id)
+            if item.proposal_id == proposal.proposal_id
+        ]
+        ready_outcome = matching_outcomes[0] if len(matching_outcomes) == 1 else None
         compiled = self._compiler.compile(
             proposal=proposal,
             draft=request.draft,
             lease=lease,
             execution_context=request.execution_context,
             now=datetime.now(timezone.utc),
+            multi_agent_ready_outcome=ready_outcome,
         )
         if self._recovery_flow is None and request.draft.decision_kind is DecisionKind.REJECT:
             updated = self._store.append_operator_decision(

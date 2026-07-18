@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Any, Callable, TypeVar
@@ -17,6 +18,7 @@ from src.decision_support.evidence import (
     EvidenceBundleSnapshot,
     EvidenceRole,
     IncidentEvidenceBinding,
+    ProductInventoryPayload,
     RhythmSignalKind,
     _require_governed_evidence_receipt,
 )
@@ -25,19 +27,29 @@ from src.decision_support.models import (
     AnalystDispatchClaim,
     ConflictAnalysis,
     ConflictAnalysisCode,
+    ConflictConstraintCode,
     EscalationMode,
     EscalationRecord,
     EvidenceBundle,
     ExecutionCommand,
     Incident,
     LiveSessionWorkspace,
+    MultiAgentFailureCode,
     MultiAgentOutcome,
     MultiAgentOutcomeStatus,
     OperatorDecision,
     OperatorLease,
+    PlannerDispatchClaim,
     Proposal,
     WorkspaceView,
 )
+from src.decision_support.proposal import (
+    LiveDecisionProposal,
+    ProductStrategy,
+    ProposalOrigin,
+    ProposalStatus,
+)
+from src.specialist_runtime.models import _plain_json, canonical_json_sha256
 
 
 class WorkspaceStoreError(RuntimeError):
@@ -89,6 +101,123 @@ def _bundle_digest(evidence: EvidenceBundle) -> str:
     """从已校验的 Bundle 快照重建摘要，禁止相信调用方重复提供的摘要。"""
 
     return EvidenceBundleSnapshot.model_validate(evidence.snapshot).bundle_digest
+
+
+def _multi_agent_proposal_snapshot(fact: Proposal) -> LiveDecisionProposal | None:
+    """仅将显式标记为 MULTI_AGENT 的快照交给新协议解析，保留历史通用 Proposal 契约。
+
+    Phase 14 的 `Proposal.snapshot` 是通用不可变审计 JSON，并不承诺全部符合
+    `LiveDecisionProposal`。Task 6 只能收紧明确声明 `MULTI_AGENT` 的新事实；把旧快照
+    强行重载会破坏既有 OperatorDecision/Compiler 链路，也不会提供额外安全性。
+    """
+
+    snapshot = _plain_json(fact.snapshot)
+    if not isinstance(snapshot, Mapping):
+        return None
+    if snapshot.get("proposal_origin") != ProposalOrigin.MULTI_AGENT.value:
+        return None
+    try:
+        return LiveDecisionProposal.model_validate(snapshot)
+    except Exception as exc:
+        raise WorkspaceConflictError("multi-agent proposal snapshot is invalid") from exc
+
+
+_CONSTRAINT_REQUIRED_RISK_FLAGS = {
+    ConflictConstraintCode.OPERATOR_CONFIRMATION_REQUIRED: "HUMAN_CONFIRMATION_REQUIRED",
+    ConflictConstraintCode.BACKUP_AVAILABILITY_UNCERTAIN: "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+    ConflictConstraintCode.HOST_RHYTHM_PAUSE_REQUIRED: "RHYTHM_PAUSE_REQUIRED",
+}
+
+
+def _validate_multi_agent_proposal(
+    *,
+    fact: Proposal,
+    evidence: EvidenceBundle,
+    escalation: EscalationRecord,
+    analysis: ConflictAnalysis,
+    workspace: LiveSessionWorkspace,
+    now: datetime,
+) -> LiveDecisionProposal | None:
+    """复核完整多 Agent Proposal；任一选项违规都拒绝整份事实而不做局部过滤。
+
+    这里是模型输出进入 append-only Store 前的统一权威边界。模型只能提供 options，
+    Proposal 身份、版本、上游摘要、风险继承和可用备品都必须由已持久化的事实重新计算。
+    """
+
+    proposal = _multi_agent_proposal_snapshot(fact)
+    if proposal is None:
+        return None
+    if workspace.view is not WorkspaceView.LIVE:
+        raise WorkspaceConflictError("multi-agent proposal requires Workspace LIVE view")
+    if proposal.status is not ProposalStatus.READY or proposal.multi_agent_lineage is None:
+        raise WorkspaceConflictError("multi-agent proposal must be READY with complete lineage")
+    snapshot = EvidenceBundleSnapshot.model_validate(evidence.snapshot)
+    references = tuple(component.reference for component in snapshot.components)
+    lineage = proposal.multi_agent_lineage
+    if (
+        fact.proposal_id != proposal.proposal_id
+        or fact.live_session_id != proposal.live_session_id
+        or fact.incident_id != proposal.incident_id
+        or fact.evidence_bundle_id != proposal.evidence_bundle_id
+        or fact.profile_id != lineage.planner_profile_id
+        or fact.profile_version != lineage.planner_profile_version
+        or fact.proposal_key != f"phase16-proposal:{escalation.escalation_id}"
+        or fact.proposal_version != 1
+        or fact.idempotency_key != f"phase16-proposal:{escalation.escalation_id}"
+    ):
+        raise WorkspaceConflictError("multi-agent proposal fact identity is invalid")
+    if (
+        proposal.live_session_id != escalation.live_session_id
+        or proposal.incident_id != escalation.incident_id
+        or proposal.evidence_bundle_id != escalation.evidence_bundle_id
+        or proposal.evidence_bundle_digest != snapshot.bundle_digest
+        or proposal.trace_id != snapshot.scope.trace_id
+        or lineage.escalation_id != escalation.escalation_id
+        or lineage.escalation_digest != escalation.escalation_digest
+        or lineage.analysis_id != analysis.analysis_id
+        or lineage.analysis_digest != analysis.analysis_digest
+        or lineage.evidence_bundle_id != evidence.evidence_bundle_id
+        or lineage.evidence_bundle_digest != snapshot.bundle_digest
+        or lineage.evidence_refs != references
+        or proposal.evidence_refs != references
+    ):
+        raise WorkspaceConflictError("multi-agent proposal lineage is invalid")
+    if not snapshot.proposal_eligible or now >= snapshot.valid_until:
+        raise WorkspaceConflictError("multi-agent proposal evidence is not fresh")
+    inventory_component = next(
+        (
+            component
+            for component in snapshot.components
+            if component.role is EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT
+        ),
+        None,
+    )
+    if inventory_component is None or not isinstance(
+        inventory_component.payload, ProductInventoryPayload
+    ):
+        raise WorkspaceConflictError("multi-agent proposal inventory evidence is invalid")
+    available_backups = {
+        product.product_id
+        for product in inventory_component.payload.backup_products
+        if product.is_active and product.inventory > 0
+    }
+    required_risks = {item.value for item in analysis.risk_codes}
+    required_risks.update(
+        _CONSTRAINT_REQUIRED_RISK_FLAGS[constraint]
+        for constraint in analysis.constraint_codes
+    )
+    for option in proposal.options:
+        if option.evidence_refs != references:
+            raise WorkspaceConflictError("multi-agent proposal option evidence is invalid")
+        option_risks = set(option.risk_flags)
+        if not required_risks.issubset(option_risks):
+            raise WorkspaceConflictError("multi-agent proposal option omits required risk")
+        if option.product_strategy is ProductStrategy.SWITCH_TO_BACKUP:
+            if option.backup_product_id not in available_backups:
+                raise WorkspaceConflictError("multi-agent proposal backup is unavailable")
+            if "BACKUP_PRODUCT_REQUIRES_CONFIRMATION" not in option_risks:
+                raise WorkspaceConflictError("multi-agent proposal backup risk is missing")
+    return proposal
 
 
 def derive_automatic_escalation_codes(
@@ -167,6 +296,9 @@ class InMemoryDecisionSupportStore:
         # claim 与 append-only 领域事实分开保存：它不推进 Workspace 版本，也不允许
         # Agent 获得任何写能力，只是为外部 Analyst 调用提供跨重启的单次发送证据。
         self._analyst_dispatch_claims: dict[str, AnalystDispatchClaim] = {}
+        # Planner claim 与 Analyst claim 物理分开：它额外绑定不可变 Analysis，避免第二段
+        # 模型调用在并发 Coordinator 或 READY 持久化中断后被重复发送。
+        self._planner_dispatch_claims: dict[str, PlannerDispatchClaim] = {}
         self._proposals: dict[str, Proposal] = {}
         self._decisions: dict[str, OperatorDecision] = {}
         self._decision_fencing: dict[str, tuple[str, int]] = {}
@@ -282,7 +414,10 @@ class InMemoryDecisionSupportStore:
                 and any(
                     claim.live_session_id == live_session_id
                     and instant < claim.lease_until
-                    for claim in self._analyst_dispatch_claims.values()
+                    for claim in (
+                        *self._analyst_dispatch_claims.values(),
+                        *self._planner_dispatch_claims.values(),
+                    )
                 )
             ):
                 # dispatch claim 是模型请求的持久化线性化点。短暂阻止 LIVE 结束可使
@@ -406,9 +541,40 @@ class InMemoryDecisionSupportStore:
     def append_proposal(
         self, fact: Proposal, *, expected_workspace_version: int
     ) -> LiveSessionWorkspace:
+        """追加普通人机协同 Proposal；多 Agent 快照必须走协调器专用持久化入口。"""
+
+        return self._append_proposal(
+            fact, expected_workspace_version=expected_workspace_version, allow_multi_agent=False
+        )
+
+    def append_multi_agent_proposal(
+        self, fact: Proposal, *, expected_workspace_version: int
+    ) -> LiveSessionWorkspace:
+        """仅由 Phase 16 Coordinator 调用，追加已完成 Planner 全量验证的多 Agent Proposal。"""
+
+        return self._append_proposal(
+            fact, expected_workspace_version=expected_workspace_version, allow_multi_agent=True
+        )
+
+    def _append_proposal(
+        self,
+        fact: Proposal,
+        *,
+        expected_workspace_version: int,
+        allow_multi_agent: bool,
+    ) -> LiveSessionWorkspace:
+        """在唯一 Store 边界区分通用 Proposal 与 Coordinator 已验证的多 Agent 事实。"""
+
         self._require_control_integer(expected_workspace_version, "expected_version")
         with self._lock:
             validated = Proposal.model_validate(fact.model_dump(mode="json"))
+            proposal_view = _multi_agent_proposal_snapshot(validated)
+            if proposal_view is not None and not allow_multi_agent:
+                # D-152：通用 HTTP/工作台创建和错误装配都不能借幂等重放写入或复用
+                # MULTI_AGENT 方案；只有 Coordinator 在 Planner/Validator 后可调用专用入口。
+                raise WorkspaceConflictError(
+                    "multi-agent proposal requires coordinator persistence"
+                )
             replay = self._replay_workspace("proposal", validated)
             if replay is not None:
                 return replay
@@ -422,6 +588,31 @@ class InMemoryDecisionSupportStore:
                 or evidence.incident_id != validated.incident_id
             ):
                 raise WorkspaceConflictError("proposal evidence scope is invalid")
+            escalation_matches = [
+                item
+                for item in self._escalations.values()
+                if item.live_session_id == validated.live_session_id
+                and item.evidence_bundle_id == validated.evidence_bundle_id
+            ]
+            analysis_matches = [
+                item
+                for item in self._analyses.values()
+                if item.live_session_id == validated.live_session_id
+                and item.evidence_bundle_id == validated.evidence_bundle_id
+            ]
+            if proposal_view is not None:
+                if len(escalation_matches) != 1 or len(analysis_matches) != 1:
+                    raise WorkspaceConflictError(
+                        "multi-agent proposal parent facts are invalid"
+                    )
+                _validate_multi_agent_proposal(
+                    fact=validated,
+                    evidence=evidence,
+                    escalation=escalation_matches[0],
+                    analysis=analysis_matches[0],
+                    workspace=self.get_workspace(validated.live_session_id),
+                    now=self._normalize_now(self._clock()),
+                )
             lineage_versions = [
                 item.proposal_version
                 for item in self._proposals.values()
@@ -616,6 +807,91 @@ class InMemoryDecisionSupportStore:
             # 不能把持久化 lease_until 与本地业务时钟相减而把两秒观察窗错误拉长。
             return max(0.0, (claim.lease_until - instant).total_seconds())
 
+    def claim_planner_dispatch(
+        self,
+        *,
+        escalation_id: str,
+        analysis_id: str,
+        analysis_digest: str,
+        task_digest: str,
+        now: datetime | None = None,
+        lease_seconds: int = 2,
+    ) -> tuple[PlannerDispatchClaim, bool, bool]:
+        """原子记录绑定 Analysis 的 Planner 单次发送意图，禁止并发或重启重复调用模型。"""
+
+        if lease_seconds != 2:
+            raise ValueError("lease_seconds must be exactly 2 for planner dispatch")
+        with self._lock:
+            escalation = self._escalations.get(escalation_id)
+            analysis = self._analyses.get(analysis_id)
+            if (
+                escalation is None
+                or analysis is None
+                or analysis.escalation_id != escalation_id
+                or analysis.analysis_digest != analysis_digest
+                or analysis.live_session_id != escalation.live_session_id
+            ):
+                raise WorkspaceConflictError("planner dispatch analysis parent is invalid")
+            # Store 自身的受控时钟是唯一租约来源。now 仅保留与 Analyst API 对称的调用
+            # 形状，不能让 Coordinator 借时间漂移延长已经持久化的发送观察窗口。
+            instant = self._normalize_now(self._clock())
+            existing = self._planner_dispatch_claims.get(escalation_id)
+            if existing is not None:
+                if (
+                    existing.analysis_id != analysis_id
+                    or existing.analysis_digest != analysis_digest
+                    or existing.task_digest != task_digest
+                ):
+                    raise WorkspaceConflictError("planner dispatch claim identity is invalid")
+                return existing, False, instant < existing.lease_until
+            workspace = self._workspaces[escalation.live_session_id]
+            bundle = self._evidence_bundles.get(escalation.evidence_bundle_id)
+            if workspace.view is not WorkspaceView.LIVE:
+                raise WorkspaceConflictError("planner dispatch workspace is not LIVE")
+            if bundle is None:
+                raise WorkspaceConflictError("planner dispatch evidence bundle is invalid")
+            try:
+                snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
+            except Exception as exc:
+                raise WorkspaceConflictError(
+                    "planner dispatch evidence bundle is invalid"
+                ) from exc
+            if (
+                not snapshot.proposal_eligible
+                or snapshot.bundle_digest != escalation.evidence_bundle_digest
+                or instant + timedelta(seconds=lease_seconds) >= snapshot.valid_until
+            ):
+                raise WorkspaceConflictError(
+                    "planner dispatch evidence bundle is not fresh for planner window"
+                )
+            claim = PlannerDispatchClaim(
+                escalation_id=escalation_id,
+                live_session_id=escalation.live_session_id,
+                analysis_id=analysis_id,
+                analysis_digest=analysis_digest,
+                task_digest=task_digest,
+                created_at=instant,
+                lease_until=instant + timedelta(seconds=lease_seconds),
+            )
+            self._planner_dispatch_claims[escalation_id] = claim
+            return claim, True, True
+
+    def get_planner_dispatch_claim(self, escalation_id: str) -> PlannerDispatchClaim | None:
+        """读取 Planner 的持久化发送意图，恢复逻辑只能依据该事实判断 pending 或降级。"""
+
+        with self._lock:
+            return self._planner_dispatch_claims.get(escalation_id)
+
+    def get_planner_dispatch_remaining_seconds(self, escalation_id: str) -> float:
+        """只以 Store 权威时钟返回 Planner claim 剩余时间，调用方不得自行重算 lease。"""
+
+        with self._lock:
+            claim = self._planner_dispatch_claims.get(escalation_id)
+            if claim is None:
+                raise WorkspaceConflictError("planner dispatch claim is missing")
+            instant = self._normalize_now(self._clock())
+            return max(0.0, (claim.lease_until - instant).total_seconds())
+
     def append_multi_agent_outcome(
         self, fact: MultiAgentOutcome, *, expected_workspace_version: int
     ) -> LiveSessionWorkspace:
@@ -627,13 +903,26 @@ class InMemoryDecisionSupportStore:
             replay = self._replay_workspace("multi_agent_outcome", validated)
             if replay is not None:
                 return replay
-            # Task 4 尚未持久化 LiveDecisionProposal 的完整摘要；接受 READY 会让
-            # proposal_digest 退化为调用方自报。Task 6 先补齐该父事实再开放此终态。
-            if validated.status.value == "READY":
-                raise WorkspaceConflictError(
-                    "Task 6 proposal persistence is required for READY outcome"
-                )
             workspace = self.get_workspace(validated.live_session_id)
+            has_analysis = any(
+                item.escalation_id == validated.escalation_id
+                for item in self._analyses.values()
+            )
+            if (
+                workspace.view is WorkspaceView.REVIEW
+                and validated.status is MultiAgentOutcomeStatus.DEGRADED
+                and validated.analysis_id is None
+                and validated.analysis_digest is None
+                and validated.proposal_id is None
+                and validated.proposal_digest is None
+                and validated.failure_code is not MultiAgentFailureCode.COORDINATOR_TIMEOUT
+            ):
+                # D-151：播后无父链终态只能记录外部请求已发送但响应状态未知的
+                # Coordinator 超时。可明确分类的模型、校验或持久化失败必须在 LIVE
+                # 内形成带父链事实，不能利用 REVIEW 例外伪装为未知响应。
+                raise WorkspaceConflictError(
+                    "review degraded closure requires coordinator timeout"
+                )
             review_terminalization_allowed = (
                 workspace.view is WorkspaceView.REVIEW
                 and validated.status is MultiAgentOutcomeStatus.DEGRADED
@@ -641,9 +930,21 @@ class InMemoryDecisionSupportStore:
                 and validated.analysis_digest is None
                 and validated.proposal_id is None
                 and validated.proposal_digest is None
-                and any(
-                    claim.escalation_id == validated.escalation_id
-                    for claim in self._analyst_dispatch_claims.values()
+                and (
+                    # 只有未形成 Analysis 的 Analyst 请求或已发送 Planner 的第二段请求
+                    # 可以在 REVIEW 留下无父链审计终态。成功 Analysis 存在时不能仅凭
+                    # 历史 Analyst claim 伪造失败，必须证明 Planner 已经离开进程。
+                    any(
+                        claim.escalation_id == validated.escalation_id
+                        for claim in self._planner_dispatch_claims.values()
+                    )
+                    or (
+                        not has_analysis
+                        and any(
+                            claim.escalation_id == validated.escalation_id
+                            for claim in self._analyst_dispatch_claims.values()
+                        )
+                    )
                 )
             )
             if (
@@ -651,9 +952,9 @@ class InMemoryDecisionSupportStore:
                 and validated.status is MultiAgentOutcomeStatus.DEGRADED
                 and (validated.analysis_id is not None or validated.analysis_digest is not None)
             ):
-                # D-147 只为已经离开进程、却在视图切换后超时的 Analyst 请求留下
-                # 无中间结果的审计闭合。带 Analysis 的降级属于 LIVE 内后续链路，
-                # 不能借 REVIEW 例外绕过生命周期、Planner 或 Proposal 约束。
+                # 已发送请求在 REVIEW 后只允许不携带中间/方案父链的失败审计闭合。
+                # 无论来源是 Analyst 还是 Planner，带 Analysis 的降级都会把 LIVE 内
+                # 的模型后续链路错误扩展到播后视图，必须保持 fail-closed。
                 raise WorkspaceConflictError(
                     "review degraded closure cannot carry analysis"
                 )
@@ -682,13 +983,44 @@ class InMemoryDecisionSupportStore:
                     or analysis.analysis_digest != validated.analysis_digest
                 ):
                     raise WorkspaceConflictError("outcome analysis parent is invalid")
+            if validated.proposal_id is not None:
+                proposal_fact = self._proposals.get(validated.proposal_id)
+                if proposal_fact is None:
+                    raise WorkspaceConflictError("outcome proposal parent is invalid")
+                try:
+                    proposal = _multi_agent_proposal_snapshot(proposal_fact)
+                    if proposal is None:
+                        raise ValueError("proposal is not multi-agent")
+                    proposal_digest = canonical_json_sha256(
+                        proposal.model_dump(mode="json")
+                    )
+                except Exception as exc:
+                    raise WorkspaceConflictError(
+                        "outcome proposal snapshot is invalid"
+                    ) from exc
+                if (
+                    validated.status is not MultiAgentOutcomeStatus.READY
+                    or proposal.proposal_origin is not ProposalOrigin.MULTI_AGENT
+                    or proposal.status is not ProposalStatus.READY
+                    or proposal_fact.live_session_id != validated.live_session_id
+                    or proposal_fact.incident_id != validated.incident_id
+                    or proposal_fact.evidence_bundle_id != validated.evidence_bundle_id
+                    or validated.proposal_digest != proposal_digest
+                    or proposal.multi_agent_lineage is None
+                    or proposal.multi_agent_lineage.escalation_id
+                    != validated.escalation_id
+                    or proposal.multi_agent_lineage.escalation_digest
+                    != validated.escalation_digest
+                    or proposal.multi_agent_lineage.analysis_id != validated.analysis_id
+                    or proposal.multi_agent_lineage.analysis_digest
+                    != validated.analysis_digest
+                ):
+                    raise WorkspaceConflictError("outcome proposal parent is invalid")
             if (
                 validated.status is MultiAgentOutcomeStatus.DEGRADED
                 and validated.analysis_id is None
-                and any(
-                    item.escalation_id == validated.escalation_id
-                    for item in self._analyses.values()
-                )
+                and not review_terminalization_allowed
+                and has_analysis
             ):
                 # 无 Analysis 的 DEGRADED 表示 Analyst 未能产出可持久化事实。已有成功
                 # Analysis 时再追加该终态会制造相互矛盾的审计链，必须在内存实现中与
@@ -1469,19 +1801,154 @@ class PostgresDecisionSupportStore:
         # 再次限制到冻结 Profile 的两秒上限，防止错误替身或损坏行放大外部等待窗口。
         return float(row["remaining_seconds"])
 
+    def claim_planner_dispatch(
+        self,
+        *,
+        escalation_id: str,
+        analysis_id: str,
+        analysis_digest: str,
+        task_digest: str,
+        now: datetime | None = None,
+        lease_seconds: int = 2,
+    ) -> tuple[PlannerDispatchClaim, bool, bool]:
+        """以数据库唯一键创建绑定 Analysis 的 Planner 单次 claim，数据库墙钟是唯一过期权威。"""
+
+        if lease_seconds != 2:
+            raise ValueError("lease_seconds must be exactly 2 for planner dispatch")
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT live_session_id,incident_id,evidence_bundle_id
+                       FROM phase16_escalations WHERE escalation_id=%s""",
+                    (escalation_id,),
+                )
+                escalation = cur.fetchone()
+                if escalation is None:
+                    raise WorkspaceConflictError("planner dispatch escalation parent is invalid")
+                # 与 LIVE->REVIEW 使用同一根行锁，保证 Planner claim 的线性化点不可能
+                # 落在生命周期切换之后。锁内再读取 Analysis，避免跨连接替换父事实。
+                workspace = self._lock_workspace(cur, escalation["live_session_id"])
+                instant = self._database_now(cur)
+                cur.execute(
+                    """SELECT live_session_id,incident_id,evidence_bundle_id,
+                              escalation_id,payload
+                       FROM phase16_conflict_analyses WHERE analysis_id=%s""",
+                    (analysis_id,),
+                )
+                analysis = cur.fetchone()
+                if (
+                    analysis is None
+                    or analysis["live_session_id"] != escalation["live_session_id"]
+                    or analysis["incident_id"] != escalation["incident_id"]
+                    or analysis["evidence_bundle_id"] != escalation["evidence_bundle_id"]
+                    or analysis["escalation_id"] != escalation_id
+                    or dict(analysis["payload"])["analysis_digest"] != analysis_digest
+                ):
+                    raise WorkspaceConflictError("planner dispatch analysis parent is invalid")
+                cur.execute(
+                    """SELECT escalation_id,live_session_id,analysis_id,analysis_digest,
+                              task_digest,created_at,lease_until
+                       FROM phase16_planner_dispatch_claims
+                       WHERE escalation_id=%s FOR UPDATE""",
+                    (escalation_id,),
+                )
+                existing = cur.fetchone()
+                if existing is not None:
+                    claim = PlannerDispatchClaim(**dict(existing))
+                    if (
+                        claim.analysis_id != analysis_id
+                        or claim.analysis_digest != analysis_digest
+                        or claim.task_digest != task_digest
+                    ):
+                        raise WorkspaceConflictError("planner dispatch claim identity is invalid")
+                    conn.commit()
+                    return claim, False, instant < claim.lease_until
+                if workspace["current_view"] != WorkspaceView.LIVE.value:
+                    raise WorkspaceConflictError("planner dispatch workspace is not LIVE")
+                cur.execute(
+                    """SELECT payload FROM phase14_evidence_bundles
+                       WHERE live_session_id=%s AND evidence_bundle_id=%s""",
+                    (escalation["live_session_id"], escalation["evidence_bundle_id"]),
+                )
+                evidence = cur.fetchone()
+                try:
+                    snapshot = EvidenceBundleSnapshot.model_validate(
+                        dict(evidence["payload"])["snapshot"]
+                    )
+                except Exception as exc:
+                    raise WorkspaceConflictError(
+                        "planner dispatch evidence bundle is invalid"
+                    ) from exc
+                if (
+                    not snapshot.proposal_eligible
+                    or instant + timedelta(seconds=lease_seconds) >= snapshot.valid_until
+                ):
+                    raise WorkspaceConflictError(
+                        "planner dispatch evidence bundle is not fresh for planner window"
+                    )
+                # 该本地事务标记与 DDL trigger 共同防止可信服务代码意外绕过 Store 的
+                # Analysis/task 绑定；它遵守 D-121，不把同进程上下文伪装成沙箱。
+                cur.execute("SELECT set_config('phase16.planner_claim_write','store',true)")
+                cur.execute(
+                    """INSERT INTO phase16_planner_dispatch_claims
+                       (escalation_id,live_session_id,analysis_id,analysis_digest,
+                        task_digest,created_at,lease_until)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (escalation_id) DO NOTHING
+                       RETURNING escalation_id,live_session_id,analysis_id,analysis_digest,
+                                 task_digest,created_at,lease_until""",
+                    (
+                        escalation_id,
+                        escalation["live_session_id"],
+                        analysis_id,
+                        analysis_digest,
+                        task_digest,
+                        instant,
+                        instant + timedelta(seconds=lease_seconds),
+                    ),
+                )
+                created = cur.fetchone()
+                assert created is not None
+                claim = PlannerDispatchClaim(**dict(created))
+            conn.commit()
+        return claim, True, True
+
+    def get_planner_dispatch_claim(self, escalation_id: str) -> PlannerDispatchClaim | None:
+        """读取 PostgreSQL Planner claim，用于重启恢复时阻断任何第二次外部发送。"""
+
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT escalation_id,live_session_id,analysis_id,analysis_digest,
+                              task_digest,created_at,lease_until
+                       FROM phase16_planner_dispatch_claims WHERE escalation_id=%s""",
+                    (escalation_id,),
+                )
+                row = cur.fetchone()
+        return None if row is None else PlannerDispatchClaim(**dict(row))
+
+    def get_planner_dispatch_remaining_seconds(self, escalation_id: str) -> float:
+        """由 PostgreSQL `clock_timestamp()` 计算 Planner 剩余观察窗口，禁止 Worker 墙钟参与。"""
+
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT GREATEST(0, EXTRACT(EPOCH FROM lease_until-clock_timestamp()))
+                       AS remaining_seconds
+                       FROM phase16_planner_dispatch_claims WHERE escalation_id=%s""",
+                    (escalation_id,),
+                )
+                row = cur.fetchone()
+        if row is None:
+            raise WorkspaceConflictError("planner dispatch claim is missing")
+        return float(row["remaining_seconds"])
+
     def append_multi_agent_outcome(
         self, fact: MultiAgentOutcome, *, expected_workspace_version: int
     ) -> LiveSessionWorkspace:
         """持久化每次升级唯一的 READY 或 DEGRADED 终态，且不创建隐式恢复动作。"""
 
         validated = MultiAgentOutcome.model_validate(fact.model_dump(mode="json"))
-        # READY Outcome 的 proposal_digest 必须在 Task 6 与其完整 Proposal 事实共同
-        # 校验；在那之前本 Store 明确 fail-closed，不留下可被以后误当成已验证的终态。
-        if validated.status.value == "READY":
-            raise WorkspaceConflictError(
-                "Task 6 proposal persistence is required for READY outcome"
-            )
-
         def validate_parent(cur: Any) -> None:
             cur.execute(
                 """SELECT live_session_id,incident_id,evidence_bundle_id,
@@ -1522,21 +1989,83 @@ class PostgresDecisionSupportStore:
                 and validated.analysis_id is None
             ):
                 cur.execute(
+                    """SELECT current_view FROM phase14_live_session_workspaces
+                       WHERE live_session_id=%s""",
+                    (validated.live_session_id,),
+                )
+                workspace = cur.fetchone()
+                if (
+                    workspace is not None
+                    and workspace["current_view"] == WorkspaceView.REVIEW.value
+                    and validated.failure_code
+                    is not MultiAgentFailureCode.COORDINATOR_TIMEOUT
+                ):
+                    # D-151：Store 必须在触发器前以与内存 Store 相同的公开错误拒绝
+                    # 非超时码的播后无父链闭合；触发器仍保留同一约束以阻断直写旁路。
+                    raise WorkspaceConflictError(
+                        "review degraded closure requires coordinator timeout"
+                    )
+                cur.execute(
                     """SELECT 1 FROM phase16_conflict_analyses
                        WHERE live_session_id=%s AND escalation_id=%s""",
                     (validated.live_session_id, validated.escalation_id),
                 )
-                if cur.fetchone() is not None:
-                    raise WorkspaceConflictError(
-                        "analysis prevents unlinked degraded outcome"
+                has_analysis = cur.fetchone() is not None
+                if has_analysis:
+                    # REVIEW 下只有已经发送过 Planner 的第二段请求可用无父链降级闭合。
+                    # 普通成功 Analysis 不能仅凭历史 Analyst claim 被伪造成失败终态。
+                    cur.execute(
+                        """SELECT 1 FROM phase16_planner_dispatch_claims
+                           WHERE live_session_id=%s AND escalation_id=%s""",
+                        (validated.live_session_id, validated.escalation_id),
                     )
+                    has_planner_claim = cur.fetchone() is not None
+                    if (
+                        workspace is None
+                        or workspace["current_view"] != WorkspaceView.REVIEW.value
+                        or not has_planner_claim
+                    ):
+                        raise WorkspaceConflictError(
+                            "analysis prevents unlinked degraded outcome"
+                        )
             if validated.proposal_id is not None:
                 cur.execute(
-                    """SELECT 1 FROM phase14_proposals
+                    """SELECT incident_id,evidence_bundle_id,payload
+                       FROM phase14_proposals
                        WHERE live_session_id=%s AND proposal_id=%s""",
                     (validated.live_session_id, validated.proposal_id),
                 )
-                if cur.fetchone() is None:
+                proposal_fact = cur.fetchone()
+                if proposal_fact is None:
+                    raise WorkspaceConflictError("outcome proposal parent is invalid")
+                try:
+                    proposal = LiveDecisionProposal.model_validate(
+                        dict(proposal_fact["payload"])["snapshot"]
+                    )
+                    proposal_digest = canonical_json_sha256(
+                        proposal.model_dump(mode="json")
+                    )
+                except Exception as exc:
+                    raise WorkspaceConflictError(
+                        "outcome proposal snapshot is invalid"
+                    ) from exc
+                if (
+                    validated.status is not MultiAgentOutcomeStatus.READY
+                    or proposal.proposal_origin is not ProposalOrigin.MULTI_AGENT
+                    or proposal.status is not ProposalStatus.READY
+                    or proposal_fact["incident_id"] != validated.incident_id
+                    or proposal_fact["evidence_bundle_id"]
+                    != validated.evidence_bundle_id
+                    or validated.proposal_digest != proposal_digest
+                    or proposal.multi_agent_lineage is None
+                    or proposal.multi_agent_lineage.escalation_id
+                    != validated.escalation_id
+                    or proposal.multi_agent_lineage.escalation_digest
+                    != validated.escalation_digest
+                    or proposal.multi_agent_lineage.analysis_id != validated.analysis_id
+                    or proposal.multi_agent_lineage.analysis_digest
+                    != validated.analysis_digest
+                ):
                     raise WorkspaceConflictError("outcome proposal parent is invalid")
             cur.execute(
                 """SELECT 1 FROM phase16_multi_agent_outcomes
@@ -1568,6 +2097,7 @@ class PostgresDecisionSupportStore:
             expected_workspace_version=expected_workspace_version,
             validate_parent=validate_parent,
             workspace_version_advanced_by_trigger=True,
+            write_context=("phase16.outcome_write", "store"),
         )
 
     def append_proposal(
@@ -1576,13 +2106,43 @@ class PostgresDecisionSupportStore:
         *,
         expected_workspace_version: int,
     ) -> LiveSessionWorkspace:
-        """同时绑定同一 Workspace 下的事故和 EvidenceBundle。"""
+        """追加普通 Proposal；多 Agent 快照只能由 Coordinator 使用专用写入上下文持久化。"""
+
+        return self._append_proposal(
+            fact, expected_workspace_version=expected_workspace_version, allow_multi_agent=False
+        )
+
+    def append_multi_agent_proposal(
+        self,
+        fact: Proposal,
+        *,
+        expected_workspace_version: int,
+    ) -> LiveSessionWorkspace:
+        """以独立 PostgreSQL 写入上下文追加完整验证过的多 Agent Proposal。"""
+
+        return self._append_proposal(
+            fact, expected_workspace_version=expected_workspace_version, allow_multi_agent=True
+        )
+
+    def _append_proposal(
+        self,
+        fact: Proposal,
+        *,
+        expected_workspace_version: int,
+        allow_multi_agent: bool,
+    ) -> LiveSessionWorkspace:
+        """保持 Proposal 父链校验，同时把多 Agent 来源收束到唯一 Coordinator 入口。"""
 
         validated = Proposal.model_validate(fact.model_dump(mode="json"))
+        multi_agent_proposal = _multi_agent_proposal_snapshot(validated) is not None
+        if multi_agent_proposal and not allow_multi_agent:
+            raise WorkspaceConflictError(
+                "multi-agent proposal requires coordinator persistence"
+            )
 
         def validate_parent(cur: Any) -> None:
             cur.execute(
-                """SELECT e.live_session_id, e.incident_id
+                """SELECT e.live_session_id, e.incident_id, e.payload
                    FROM phase14_evidence_bundles e
                    WHERE e.evidence_bundle_id=%s""",
                 (validated.evidence_bundle_id,),
@@ -1594,6 +2154,43 @@ class PostgresDecisionSupportStore:
                 or evidence["incident_id"] != validated.incident_id
             ):
                 raise WorkspaceConflictError("proposal evidence scope is invalid")
+            proposal_view = _multi_agent_proposal_snapshot(validated)
+            if proposal_view is not None:
+                cur.execute(
+                    """SELECT payload FROM phase16_escalations
+                       WHERE live_session_id=%s AND evidence_bundle_id=%s""",
+                    (validated.live_session_id, validated.evidence_bundle_id),
+                )
+                escalation_rows = cur.fetchall()
+                cur.execute(
+                    """SELECT payload FROM phase16_conflict_analyses
+                       WHERE live_session_id=%s AND evidence_bundle_id=%s""",
+                    (validated.live_session_id, validated.evidence_bundle_id),
+                )
+                analysis_rows = cur.fetchall()
+                if len(escalation_rows) != 1 or len(analysis_rows) != 1:
+                    raise WorkspaceConflictError(
+                        "multi-agent proposal parent facts are invalid"
+                    )
+                cur.execute(
+                    """SELECT * FROM phase14_live_session_workspaces
+                       WHERE live_session_id=%s""",
+                    (validated.live_session_id,),
+                )
+                workspace_row = cur.fetchone()
+                assert workspace_row is not None
+                _validate_multi_agent_proposal(
+                    fact=validated,
+                    evidence=EvidenceBundle.model_validate(dict(evidence["payload"])),
+                    escalation=EscalationRecord.model_validate(
+                        dict(escalation_rows[0]["payload"])
+                    ),
+                    analysis=ConflictAnalysis.model_validate(
+                        dict(analysis_rows[0]["payload"])
+                    ),
+                    workspace=self._workspace_from_row(workspace_row),
+                    now=self._database_now(cur),
+                )
             cur.execute(
                 """SELECT MAX(proposal_version) AS latest_version
                    FROM phase14_proposals
@@ -1619,6 +2216,9 @@ class PostgresDecisionSupportStore:
             },
             expected_workspace_version=expected_workspace_version,
             validate_parent=validate_parent,
+            write_context=("phase16.multi_agent_proposal_write", "coordinator")
+            if multi_agent_proposal
+            else None,
         )
 
     def append_operator_decision(
@@ -1934,7 +2534,13 @@ class PostgresDecisionSupportStore:
                     raise WorkspaceConflictError("illegal workspace view transition")
                 if current.view is WorkspaceView.LIVE and target_view is WorkspaceView.REVIEW:
                     cur.execute(
-                        """SELECT 1 FROM phase16_analyst_dispatch_claims
+                        """SELECT 1 FROM (
+                               SELECT live_session_id,lease_until
+                                 FROM phase16_analyst_dispatch_claims
+                               UNION ALL
+                               SELECT live_session_id,lease_until
+                                 FROM phase16_planner_dispatch_claims
+                           ) active_claim
                            WHERE live_session_id=%s AND lease_until>%s LIMIT 1""",
                         (live_session_id, instant),
                     )

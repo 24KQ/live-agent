@@ -12,9 +12,14 @@ from decimal import Decimal
 from datetime import datetime, timezone
 import hashlib
 import json
+from time import monotonic
 from typing import Any, Callable, Protocol
 
-from src.decision_support.evidence import EvidenceBundleSnapshot
+from src.decision_support.evidence import (
+    EvidenceBundleSnapshot,
+    EvidenceRole,
+    ProductInventoryPayload,
+)
 from src.decision_support.models import (
     ConflictAnalysisCode,
     ConflictConstraintCode,
@@ -26,7 +31,16 @@ from src.decision_support.models import (
     MultiAgentFailureCode,
     MultiAgentOutcome,
     MultiAgentOutcomeStatus,
+    MultiAgentProposalLineage,
+    Proposal,
     WorkspaceView,
+)
+from src.decision_support.proposal import (
+    DecisionOption,
+    LiveDecisionProposal,
+    ProductStrategy,
+    ProposalOrigin,
+    ProposalStatus,
 )
 from src.decision_support.store import (
     WorkspaceConflictError,
@@ -40,6 +54,7 @@ from src.specialist_runtime.models import (
     EvidenceRef,
     SpecialistTaskKind,
     canonical_json_sha256,
+    _plain_json,
 )
 from src.specialist_runtime.profiles import (
     FORMAL_ENDPOINT_HOST,
@@ -51,6 +66,9 @@ from src.specialist_runtime.profiles import (
 EVIDENCE_ANALYST_PROFILE_ID = "evidence_analyst"
 DECISION_PLANNER_PROFILE_ID = "decision_planner"
 CONTROLLED_MULTI_AGENT_PROFILE_VERSION = "1.0.0"
+COORDINATOR_DEADLINE_SECONDS = 5
+COORDINATOR_MAX_TOTAL_TOKENS = 4000
+COORDINATOR_MAX_CASE_COST_CNY = Decimal("0.100000")
 
 
 # Agent 只能返回引用身份，不接收正文解析、自由工具参数或任意额外字段。
@@ -308,6 +326,16 @@ class _AnalystRunner(Protocol):
         """返回实际 Runner Registry 中与任务匹配的完整冻结 Profile。"""
 
 
+class _PlannerRunner(Protocol):
+    """Planner 唯一依赖的单次模型端口；不暴露 Store、Skill 或执行能力。"""
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """执行已冻结的 LIVE_DECISION_PLANNING 任务。"""
+
+    def resolve_profile(self, task: AgentTask) -> SpecialistProfile:
+        """返回实际 Runner Registry 中与 Planner 任务对应的完整 Profile。"""
+
+
 class _EscalationStore(Protocol):
     """Task 5 使用的窄 Store 读写面，禁止把 SQL 或任意事实容器交给 Agent。"""
 
@@ -328,6 +356,9 @@ class _EscalationStore(Protocol):
     ) -> tuple[MultiAgentOutcome, ...]:
         """读取唯一终态，失败重试只能返回原有降级事实。"""
 
+    def list_proposals(self, live_session_id: str) -> tuple[Proposal, ...]:
+        """读取既有 Proposal，处理 Proposal 已提交但 READY Outcome 尚未落库的恢复窗口。"""
+
     def append_escalation(
         self,
         fact: EscalationRecord,
@@ -346,7 +377,20 @@ class _EscalationStore(Protocol):
     def append_multi_agent_outcome(
         self, fact: MultiAgentOutcome, *, expected_workspace_version: int
     ) -> Any:
-        """原子追加每次升级唯一的 `DEGRADED` 终态。"""
+        """原子追加每次升级唯一的 READY 或 DEGRADED 终态。"""
+
+    def append_proposal(
+        self, fact: Proposal, *, expected_workspace_version: int
+    ) -> Any:
+        """追加已由确定性 Validator 完整验证的 Proposal 快照。"""
+
+    def append_multi_agent_proposal(
+        self, fact: Proposal, *, expected_workspace_version: int
+    ) -> Any:
+        """仅允许受控 Coordinator 写入已经完成 Planner 全量验证的多 Agent Proposal。"""
+
+    def get_proposal(self, fact_id: str) -> Proposal:
+        """按稳定身份恢复 Proposal，用于 READY Outcome 的重启重放。"""
 
     def claim_analyst_dispatch(
         self,
@@ -358,11 +402,32 @@ class _EscalationStore(Protocol):
     ) -> tuple[Any, bool, bool]:
         """持久化外部发送前的单次 claim，返回事实、发送权及 Store 权威活跃状态。"""
 
+    def get_analyst_dispatch_remaining_seconds(self, escalation_id: str) -> float:
+        """返回 Analyst claim 的 Store 权威剩余时间，禁止 Coordinator 自行使用墙钟重算。"""
+
+    def claim_planner_dispatch(
+        self,
+        *,
+        escalation_id: str,
+        analysis_id: str,
+        analysis_digest: str,
+        task_digest: str,
+        now: datetime | None = None,
+        lease_seconds: int = 2,
+    ) -> tuple[Any, bool, bool]:
+        """在 Planner 外部发送前原子绑定既有 Analysis，重复调用只能观察同一 claim。"""
+
+    def get_planner_dispatch_remaining_seconds(self, escalation_id: str) -> float:
+        """返回 Planner claim 的 Store 权威剩余时间，不能由 Worker 时钟放大租约。"""
+
+    def get_planner_dispatch_claim(self, escalation_id: str) -> Any:
+        """读取 Planner 已发送事实，以便 REVIEW 恢复只闭合已离开进程的第二段请求。"""
+
 
 class HighConflictCoordinationResult:
-    """Task 5 的受限协调结果，不包含 Planner、Proposal、命令或执行授权。"""
+    """受控双 Agent 协调结果；Proposal 仍只供后续人工 OperatorDecision 使用。"""
 
-    __slots__ = ("selected", "escalation", "analysis", "outcome")
+    __slots__ = ("selected", "escalation", "analysis", "proposal", "outcome")
 
     def __init__(
         self,
@@ -370,50 +435,85 @@ class HighConflictCoordinationResult:
         selected: bool,
         escalation: EscalationRecord | None = None,
         analysis: ConflictAnalysis | None = None,
+        proposal: LiveDecisionProposal | None = None,
         outcome: MultiAgentOutcome | None = None,
     ) -> None:
         """固定成功、未选中和降级三种不可扩展结果形状。"""
 
-        if not selected and any(item is not None for item in (escalation, analysis, outcome)):
+        if not selected and any(
+            item is not None for item in (escalation, analysis, proposal, outcome)
+        ):
             raise ValueError("unselected coordination cannot carry persisted facts")
         if analysis is not None and escalation is None:
             raise ValueError("analysis requires escalation")
+        if proposal is not None and analysis is None:
+            raise ValueError("proposal requires analysis")
         if outcome is not None and escalation is None:
             raise ValueError("outcome requires escalation")
-        if outcome is not None and outcome.status is not MultiAgentOutcomeStatus.DEGRADED:
-            raise ValueError("Task 5 only exposes DEGRADED outcomes")
+        if outcome is not None and outcome.status is MultiAgentOutcomeStatus.READY:
+            if proposal is None or analysis is None:
+                raise ValueError("READY outcome requires analysis and proposal")
+        if outcome is not None and outcome.status is MultiAgentOutcomeStatus.DEGRADED:
+            if proposal is not None:
+                raise ValueError("DEGRADED outcome cannot carry proposal")
         self.selected = selected
         self.escalation = escalation
         self.analysis = analysis
+        self.proposal = proposal
         self.outcome = outcome
 
 
 class HighConflictEscalationCoordinator:
-    """把高冲突 LIVE Bundle 受控接入单次 EvidenceAnalystAgent。
+    """把高冲突 LIVE Bundle 受控接入顺序双 Agent，并保留确定性安全与人工权限。
 
-    本协调器只决定是否升级、持久化父事实、调用 Analyst 并落库其完整分析。它从不
-    创建 Planner 输入、READY Proposal、经营命令或自动恢复；Task 6 才能消费成功
-    的分析。所有运行错误在已经存在升级后转为唯一 `DEGRADED` Outcome，以便重启
-    恢复不会重新发送模型请求。
+    Coordinator 只负责升级选择、持久化单次 Analyst/Planner dispatch claim、完整 Analysis
+    与 Proposal 父链、READY/DEGRADED Outcome 以及重启恢复。两个 Agent 只能读取冻结
+    Evidence，不能调用 Skill、写 Store 或执行经营恢复；OperatorDecision、Compiler 与受控
+    ExecutionCommand 继续是唯一的人工授权路径。任何未知响应只能恢复或降级，绝不重发模型。
     """
 
-    __slots__ = ("_store", "_analyst_runner", "_profile", "_clock")
+    __slots__ = (
+        "_store",
+        "_analyst_runner",
+        "_analyst_profile",
+        "_planner_runner",
+        "_planner_profile",
+        "_clock",
+        "_monotonic_clock",
+    )
 
     def __init__(
         self,
         *,
         store: _EscalationStore,
         analyst_runner: _AnalystRunner,
+        planner_runner: _PlannerRunner | None = None,
         clock: Callable[[], datetime] | None = None,
+        monotonic_clock: Callable[[], float] | None = None,
     ) -> None:
-        """冻结精确 Analyst Profile 与可信 UTC 时钟，拒绝运行期替换边界。"""
+        """冻结精确 Agent Profile 与可信 UTC 时钟，缺失 Planner 时保持 Task 5 只分析语义。"""
 
         if clock is not None and not callable(clock):
             raise TypeError("coordinator clock must be callable")
+        if monotonic_clock is not None and not callable(monotonic_clock):
+            raise TypeError("coordinator monotonic_clock must be callable")
         self._store = store
         self._analyst_runner = analyst_runner
-        self._profile = build_evidence_analyst_profile()
+        self._analyst_profile = build_evidence_analyst_profile()
+        self._planner_runner = planner_runner
+        self._planner_profile = build_decision_planner_profile()
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._monotonic_clock = monotonic_clock or monotonic
+        # 两个启动冻结 Profile 的 token 和成本相加必须正好落在总 Coordinator 上限内。
+        # 这个断言不替代 Task 10 的真实计费账本，只防止后续改动静默扩大本 Task 的设计预算。
+        if (
+            self._analyst_profile.max_total_tokens + self._planner_profile.max_total_tokens
+            != COORDINATOR_MAX_TOTAL_TOKENS
+            or self._analyst_profile.max_case_cost_cny
+            + self._planner_profile.max_case_cost_cny
+            != COORDINATOR_MAX_CASE_COST_CNY
+        ):
+            raise ValueError("controlled multi-agent profile budget does not match coordinator ceiling")
 
     def __setattr__(self, name: str, value: Any) -> None:
         """启动冻结后禁止替换 Store、Runner、Profile 或时钟取得额外能力。"""
@@ -430,6 +530,11 @@ class HighConflictEscalationCoordinator:
     ) -> HighConflictCoordinationResult:
         """仅在同一权威 Bundle 满足三选二、fresh、eligible、LIVE 时自动升级。"""
 
+        # 总预算从公共入口开始。权威 Bundle 重载、Store 读取、选择器判断和 CAS 前置均会
+        # 消耗直播现场时间，不能完成这些工作后再获得一整段新的五秒模型预算。
+        coordinator_deadline = (
+            self._monotonic_clock() + COORDINATOR_DEADLINE_SECONDS
+        )
         validated = self._load_authoritative_bundle(bundle)
         if validated is None:
             return HighConflictCoordinationResult(selected=False)
@@ -445,6 +550,7 @@ class HighConflictEscalationCoordinator:
                 operator_id=None,
                 fencing_token=None,
                 may_dispatch=self._is_proposal_eligible_and_fresh(validated),
+                coordinator_deadline=coordinator_deadline,
             )
         if self._store.get_workspace(validated.live_session_id).view is not WorkspaceView.LIVE:
             return HighConflictCoordinationResult(selected=False)
@@ -459,6 +565,7 @@ class HighConflictEscalationCoordinator:
             operator_id=None,
             fencing_token=None,
             may_dispatch=True,
+            coordinator_deadline=coordinator_deadline,
         )
 
     async def run_operator_requested(
@@ -471,6 +578,10 @@ class HighConflictEscalationCoordinator:
     ) -> HighConflictCoordinationResult:
         """在当前 lease 下执行人工显式升级；调用方不能提供触发码、Profile 或父作用域。"""
 
+        # 人工显式升级同样不能绕过端到端延迟上限；运营授权不授予额外模型等待时间。
+        coordinator_deadline = (
+            self._monotonic_clock() + COORDINATOR_DEADLINE_SECONDS
+        )
         validated = self._load_authoritative_bundle(bundle)
         if validated is None:
             return HighConflictCoordinationResult(selected=False)
@@ -484,6 +595,7 @@ class HighConflictEscalationCoordinator:
                 operator_id=None,
                 fencing_token=None,
                 may_dispatch=self._is_proposal_eligible_and_fresh(validated),
+                coordinator_deadline=coordinator_deadline,
             )
         if self._store.get_workspace(validated.live_session_id).view is not WorkspaceView.LIVE:
             return HighConflictCoordinationResult(selected=False)
@@ -505,6 +617,7 @@ class HighConflictEscalationCoordinator:
             operator_id=operator_id,
             fencing_token=fencing_token,
             may_dispatch=True,
+            coordinator_deadline=coordinator_deadline,
         )
 
     def _load_authoritative_bundle(self, supplied: EvidenceBundle) -> EvidenceBundle | None:
@@ -552,6 +665,7 @@ class HighConflictEscalationCoordinator:
         operator_id: str | None,
         fencing_token: int | None,
         may_dispatch: bool,
+        coordinator_deadline: float,
     ) -> HighConflictCoordinationResult:
         """先写升级、再恢复已有终态或分析，最后才允许一次 Analyst 调用。"""
 
@@ -581,6 +695,66 @@ class HighConflictEscalationCoordinator:
 
         recovered = self._recover_existing(escalation)
         if recovered is not None:
+            if (
+                recovered.analysis is not None
+                and recovered.proposal is not None
+                and recovered.outcome is None
+            ):
+                # Proposal 已是不可变父事实时，唯一合法恢复动作是补写 READY Outcome；
+                # 绝不能重新进入 Planner 模型调用，哪怕前次响应恰好在 Outcome 写入前中断。
+                workspace = self._store.get_workspace(bundle.live_session_id)
+                if workspace.view is WorkspaceView.LIVE:
+                    return self._append_ready_outcome(
+                        escalation=escalation,
+                        analysis=recovered.analysis,
+                        proposal=recovered.proposal,
+                        expected_workspace_version=workspace.version,
+                        coordinator_deadline=coordinator_deadline,
+                    )
+                # Planner 已经发送且 Proposal 也已存在，但 READY 未在 LIVE 内完成。播后
+                # 不能补 Proposal/READY；仅能利用既有 claim 追加不含父链的降级审计闭合。
+                return self._persist_degraded(
+                    escalation,
+                    MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                    analysis=recovered.analysis,
+                    allow_review_terminalization=True,
+                )
+            if (
+                recovered.analysis is not None
+                and recovered.proposal is None
+                and recovered.outcome is None
+                and self._planner_runner is not None
+                and self._store.get_workspace(bundle.live_session_id).view
+                is WorkspaceView.LIVE
+            ):
+                # Task 5 可能已经安全落下 Analysis，而本次启动才显式装配 Planner。
+                # 该分支只消费现有不可变中间事实，不再创建 Analyst claim 或重发 Analyst。
+                return await self._plan_after_analysis(
+                    bundle=bundle,
+                    escalation=escalation,
+                    analysis=recovered.analysis,
+                    expected_workspace_version=self._store.get_workspace(
+                        bundle.live_session_id
+                    ).version,
+                    coordinator_deadline=coordinator_deadline,
+                )
+            if (
+                recovered.analysis is not None
+                and recovered.proposal is None
+                and recovered.outcome is None
+                and self._store.get_workspace(bundle.live_session_id).view
+                is WorkspaceView.REVIEW
+                and self._store.get_planner_dispatch_claim(escalation.escalation_id)
+                is not None
+            ):
+                # 只有 Planner claim 已经离开进程时才允许播后闭合。未装配 Planner 的
+                # Task 5 历史 Analysis 不能被伪造成模型失败或自动写入新的终态。
+                return self._persist_degraded(
+                    escalation,
+                    MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                    analysis=recovered.analysis,
+                    allow_review_terminalization=True,
+                )
             return recovered
 
         # 已完成结果可以跨 LIVE 结束读取，但任何尚未 dispatch 的升级在进入 REVIEW
@@ -588,6 +762,14 @@ class HighConflictEscalationCoordinator:
         # 与 claim 创建之间发生状态切换后仍把陈旧直播上下文发送给 Analyst。
         if self._store.get_workspace(bundle.live_session_id).view is not WorkspaceView.LIVE:
             return HighConflictCoordinationResult(selected=True, escalation=escalation)
+
+        # D-148 的五秒上限必须覆盖 Analyst 之前的升级落库、Profile 校验和 claim 创建。
+        # 若这些确定性步骤已经耗尽总窗口，发送模型只会制造迟到且不可安全使用的响应。
+        coordinator_remaining = coordinator_deadline - self._monotonic_clock()
+        if not 0 < coordinator_remaining <= COORDINATOR_DEADLINE_SECONDS:
+            return self._persist_degraded(
+                escalation, MultiAgentFailureCode.COORDINATOR_TIMEOUT
+            )
 
         task = self._build_analyst_task(bundle, escalation)
         if not self._runner_profile_matches(task):
@@ -599,7 +781,7 @@ class HighConflictEscalationCoordinator:
                 escalation_id=escalation.escalation_id,
                 task_digest=task.task_digest,
                 now=self._utc_now(),
-                lease_seconds=self._profile.deadline_seconds,
+                lease_seconds=self._analyst_profile.deadline_seconds,
             )
         except Exception:
             return self._persist_degraded(
@@ -628,22 +810,44 @@ class HighConflictEscalationCoordinator:
             # PostgreSQL claim 的到期边界属于数据库事务时钟，不能同 Worker 的业务墙钟
             # 混算。Store 在发送前返回权威剩余秒数；这段时间已包含建 claim 到此处的
             # 所有本地工作，窗口用尽时只追加降级审计，绝不在过期 lease 外继续等待。
-            remaining_seconds = self._store.get_analyst_dispatch_remaining_seconds(
+            claim_remaining = self._store.get_analyst_dispatch_remaining_seconds(
                 claim.escalation_id
             )
-            if not 0 < remaining_seconds <= self._profile.deadline_seconds:
+            coordinator_remaining = coordinator_deadline - self._monotonic_clock()
+            remaining_seconds = min(
+                claim_remaining,
+                coordinator_remaining,
+                float(self._analyst_profile.deadline_seconds),
+            )
+            if not 0 < remaining_seconds <= self._analyst_profile.deadline_seconds:
                 return self._persist_degraded(
                     escalation, MultiAgentFailureCode.COORDINATOR_TIMEOUT
                 )
             result = await asyncio.wait_for(
                 self._analyst_runner.run(task), timeout=remaining_seconds
             )
+            # 外部 Analyst 返回后，响应本身与后续结构化校验都仍受同一五秒窗口限制。
+            # 先检查可阻断已过期的错误响应被解析为其他失败码，从而保持审计事实准确。
+            if not self._coordinator_budget_available(coordinator_deadline):
+                return self._persist_degraded(
+                    escalation, MultiAgentFailureCode.COORDINATOR_TIMEOUT
+                )
             analysis = self._analysis_from_result(bundle, escalation, task, result)
-            self._store.append_conflict_analysis(
+            # Analysis 的 Pydantic、证据与触发码验证属于模型派生事实的写入前工作；
+            # 即使输出结构完全合法，只要这一步耗尽总预算就不得 append 新的 Analysis。
+            if not self._coordinator_budget_available(coordinator_deadline):
+                return self._persist_degraded(
+                    escalation, MultiAgentFailureCode.COORDINATOR_TIMEOUT
+                )
+            after_analysis = self._store.append_conflict_analysis(
                 analysis, expected_workspace_version=after_escalation.version
             )
-            return HighConflictCoordinationResult(
-                selected=True, escalation=escalation, analysis=analysis
+            return await self._plan_after_analysis(
+                bundle=bundle,
+                escalation=escalation,
+                analysis=analysis,
+                expected_workspace_version=after_analysis.version,
+                coordinator_deadline=coordinator_deadline,
             )
         except asyncio.TimeoutError:
             return self._persist_degraded(
@@ -669,11 +873,169 @@ class HighConflictEscalationCoordinator:
             normalized = SpecialistProfile.model_validate(actual.model_dump(mode="json"))
             return (
                 type(actual) is SpecialistProfile
-                and normalized.profile_digest == self._profile.profile_digest
-                and actual.profile_digest == self._profile.profile_digest
+                and normalized.profile_digest == self._analyst_profile.profile_digest
+                and actual.profile_digest == self._analyst_profile.profile_digest
                 and actual.allowed_skill_ids == ()
                 and actual.max_model_calls == 1
                 and actual.max_skill_calls == 0
+            )
+        except Exception:
+            return False
+
+    async def _plan_after_analysis(
+        self,
+        *,
+        bundle: EvidenceBundle,
+        escalation: EscalationRecord,
+        analysis: ConflictAnalysis,
+        expected_workspace_version: int,
+        coordinator_deadline: float,
+    ) -> HighConflictCoordinationResult:
+        """在已落库 Analysis 后可选地调用一次 Planner，整份 Proposal 通过才允许 READY。"""
+
+        # 没有显式冻结 Planner 装配时维持 Task 5 的分析止点，避免旧调用路径因为新增
+        # 能力而默默获得第二次模型调用或 READY 语义；Phase 16 的默认路由仍不启用它。
+        if self._planner_runner is None:
+            return HighConflictCoordinationResult(
+                selected=True, escalation=escalation, analysis=analysis
+            )
+        if self._store.get_workspace(bundle.live_session_id).view is not WorkspaceView.LIVE:
+            return HighConflictCoordinationResult(
+                selected=True, escalation=escalation, analysis=analysis
+            )
+        task = self._build_planner_task(bundle, escalation, analysis)
+        if not self._planner_profile_matches(task):
+            return self._persist_degraded(
+                escalation, MultiAgentFailureCode.PLANNER_INVALID_OUTPUT, analysis=analysis
+            )
+        try:
+            coordinator_remaining = coordinator_deadline - self._monotonic_clock()
+            if not 0 < coordinator_remaining <= COORDINATOR_DEADLINE_SECONDS:
+                return self._persist_degraded(
+                    escalation,
+                    MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                    analysis=analysis,
+                )
+            claim, is_new_claim, is_active_claim = self._store.claim_planner_dispatch(
+                escalation_id=escalation.escalation_id,
+                analysis_id=analysis.analysis_id,
+                analysis_digest=analysis.analysis_digest,
+                task_digest=task.task_digest,
+                now=self._utc_now(),
+                lease_seconds=self._planner_profile.deadline_seconds,
+            )
+            if claim.task_digest != task.task_digest:
+                return self._persist_degraded(
+                    escalation, MultiAgentFailureCode.PLANNER_INVALID_OUTPUT, analysis=analysis
+                )
+            if not is_new_claim:
+                if is_active_claim:
+                    return HighConflictCoordinationResult(
+                        selected=True, escalation=escalation, analysis=analysis
+                    )
+                return self._persist_degraded(
+                    escalation,
+                    MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                    analysis=analysis,
+                    # 已存在的 Planner claim 证明第二段请求已经离开进程。若此后第一
+                    # 次终态 CAS 与运营的 LIVE->REVIEW 切换竞争，D-150 只允许同次
+                    # 重建无父链的超时闭合，绝不能返回半成品 Analysis 或重发 Planner。
+                    allow_review_terminalization=True,
+                )
+            claim_remaining = self._store.get_planner_dispatch_remaining_seconds(
+                claim.escalation_id
+            )
+            remaining_seconds = min(
+                claim_remaining,
+                coordinator_deadline - self._monotonic_clock(),
+                float(self._planner_profile.deadline_seconds),
+            )
+            if not 0 < remaining_seconds <= self._planner_profile.deadline_seconds:
+                return self._persist_degraded(
+                    escalation, MultiAgentFailureCode.COORDINATOR_TIMEOUT, analysis=analysis
+                )
+            # Planner Profile 是固定两秒、2800 token、0.07 CNY；claim、端到端窗口与
+            # Profile deadline 三者取最小值，阻断错误适配器放大外部等待时间。
+            result = await asyncio.wait_for(
+                self._planner_runner.run(task),
+                timeout=remaining_seconds,
+            )
+            # 外部 Planner 虽然在发送时受剩余预算约束，但响应返回后仍可能已经越过
+            # 协调器总时限。先阻断 Validator，避免 CPU 校验和后续落库把迟到结果变成
+            # 可供运营使用的经营建议。
+            if not self._coordinator_budget_available(coordinator_deadline):
+                return self._persist_degraded(
+                    escalation,
+                    MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                    analysis=analysis,
+                )
+            proposal = self._proposal_from_result(bundle, escalation, analysis, task, result)
+            # 整份 Proposal 的 Schema、证据、备品和风险校验也计入同一个端到端窗口。
+            # 在持久化 Proposal 前再次检查，确保超时的验证结果不会形成新的父事实。
+            if not self._coordinator_budget_available(coordinator_deadline):
+                return self._persist_degraded(
+                    escalation,
+                    MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                    analysis=analysis,
+                )
+            proposal_fact = self._proposal_fact(proposal, escalation)
+            after_proposal = self._store.append_multi_agent_proposal(
+                proposal_fact, expected_workspace_version=expected_workspace_version
+            )
+            return self._append_ready_outcome(
+                escalation=escalation,
+                analysis=analysis,
+                proposal=proposal,
+                expected_workspace_version=after_proposal.version,
+                coordinator_deadline=coordinator_deadline,
+            )
+        except asyncio.TimeoutError:
+            # wait_for 既可能由 Planner 自身两秒 Profile/claim 窗口触发，也可能由
+            # Coordinator 五秒总预算截断。后者表示跨段延迟耗尽而非模型质量错误，必须
+            # 保留 COORDINATOR_TIMEOUT，才能按 D-150/D-152 在 REVIEW 审计未知响应。
+            failure_code = (
+                MultiAgentFailureCode.COORDINATOR_TIMEOUT
+                if not self._coordinator_budget_available(coordinator_deadline)
+                else MultiAgentFailureCode.PLANNER_MODEL_ERROR
+            )
+            return self._persist_degraded(
+                escalation,
+                failure_code,
+                analysis=analysis,
+                allow_review_terminalization=(
+                    failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+                ),
+            )
+        except _PlannerResultError as error:
+            return self._persist_degraded(
+                escalation, error.failure_code, analysis=analysis
+            )
+        except Exception:
+            # Proposal/Outcome 的持久化冲突同样不能变成重试模型调用；已写入的 Proposal
+            # 或 READY Outcome 优先由恢复逻辑返回，否则只把现有 Analyst 事实降级闭合。
+            recovered = self._recover_existing(escalation)
+            if recovered is not None:
+                return recovered
+            return self._persist_degraded(
+                escalation, MultiAgentFailureCode.VALIDATOR_REJECTED, analysis=analysis
+            )
+
+    def _planner_profile_matches(self, task: AgentTask) -> bool:
+        """发送前核对 Planner 的完整冻结 Profile，拒绝同名同版本的错误装配。"""
+
+        assert self._planner_runner is not None
+        try:
+            actual = self._planner_runner.resolve_profile(task)
+            normalized = SpecialistProfile.model_validate(actual.model_dump(mode="json"))
+            return (
+                type(actual) is SpecialistProfile
+                and normalized.profile_digest == self._planner_profile.profile_digest
+                and actual.profile_digest == self._planner_profile.profile_digest
+                and actual.allowed_skill_ids == ()
+                and actual.max_model_calls == 1
+                and actual.max_skill_calls == 0
+                and actual.deadline_seconds == 2
+                and actual.max_total_tokens == 2800
             )
         except Exception:
             return False
@@ -695,6 +1057,36 @@ class HighConflictEscalationCoordinator:
     ) -> HighConflictCoordinationResult | None:
         """优先恢复唯一终态，其次恢复完整分析，保证网络重试绝不触发第二次模型发送。"""
 
+        analyses = [
+            item
+            for item in self._store.list_conflict_analyses(escalation.live_session_id)
+            if item.escalation_id == escalation.escalation_id
+        ]
+        if len(analyses) > 1:
+            raise WorkspaceConflictError("escalation has multiple analyses")
+        analysis = analyses[0] if analyses else None
+
+        proposals: list[LiveDecisionProposal] = []
+        for proposal_fact in self._store.list_proposals(escalation.live_session_id):
+            try:
+                proposal = LiveDecisionProposal.model_validate(
+                    _plain_json(proposal_fact.snapshot)
+                )
+            except Exception:
+                # 历史单 Copilot 的通用 Proposal 不一定属于 LiveDecisionProposal 协议；
+                # 它们不是本次升级的恢复候选，不能被错误地视为存储损坏。
+                continue
+            lineage = proposal.multi_agent_lineage
+            if (
+                proposal.proposal_origin is ProposalOrigin.MULTI_AGENT
+                and lineage is not None
+                and lineage.escalation_id == escalation.escalation_id
+            ):
+                proposals.append(proposal)
+        if len(proposals) > 1:
+            raise WorkspaceConflictError("escalation has multiple multi-agent proposals")
+        proposal = proposals[0] if proposals else None
+
         outcomes = [
             item
             for item in self._store.list_multi_agent_outcomes(escalation.live_session_id)
@@ -703,21 +1095,89 @@ class HighConflictEscalationCoordinator:
         if len(outcomes) > 1:
             raise WorkspaceConflictError("escalation has multiple outcomes")
         if outcomes:
+            outcome = outcomes[0]
+            if outcome.status is MultiAgentOutcomeStatus.READY:
+                if analysis is None or proposal is None or outcome.proposal_id is None:
+                    raise WorkspaceConflictError("READY outcome parent is incomplete")
+                if proposal.proposal_id != outcome.proposal_id:
+                    raise WorkspaceConflictError("READY outcome proposal is invalid")
             return HighConflictCoordinationResult(
-                selected=True, escalation=escalation, outcome=outcomes[0]
+                selected=True,
+                escalation=escalation,
+                analysis=analysis,
+                proposal=proposal,
+                outcome=outcome,
             )
-        analyses = [
-            item
-            for item in self._store.list_conflict_analyses(escalation.live_session_id)
-            if item.escalation_id == escalation.escalation_id
-        ]
-        if len(analyses) > 1:
-            raise WorkspaceConflictError("escalation has multiple analyses")
-        if analyses:
+        if proposal is not None and analysis is None:
+            raise WorkspaceConflictError("multi-agent proposal parent analysis is incomplete")
+        if analysis is not None:
             return HighConflictCoordinationResult(
-                selected=True, escalation=escalation, analysis=analyses[0]
+                selected=True,
+                escalation=escalation,
+                analysis=analysis,
+                proposal=proposal,
             )
         return None
+
+    def _append_ready_outcome(
+        self,
+        *,
+        escalation: EscalationRecord,
+        analysis: ConflictAnalysis,
+        proposal: LiveDecisionProposal,
+        expected_workspace_version: int,
+        coordinator_deadline: float,
+    ) -> HighConflictCoordinationResult:
+        """在已持久化 Proposal 后补写唯一 READY Outcome，重启恢复绝不重新调用 Planner。"""
+
+        # 五秒协调窗口覆盖模型返回后的全部确定性校验和事实写入。Proposal 已经是
+        # append-only 父事实时，窗口耗尽只能以降级 Outcome 闭合，绝不能再把迟到的
+        # 经营建议标记为 READY 或让恢复路径重新调用 Planner。
+        if not self._coordinator_budget_available(coordinator_deadline):
+            return self._persist_degraded(
+                escalation,
+                MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+                analysis=analysis,
+            )
+
+        outcome = MultiAgentOutcome(
+            outcome_id=f"phase16-outcome:{escalation.escalation_id}",
+            idempotency_key=f"phase16-outcome:{escalation.escalation_id}",
+            escalation_id=escalation.escalation_id,
+            live_session_id=escalation.live_session_id,
+            incident_id=escalation.incident_id,
+            escalation_digest=escalation.escalation_digest,
+            evidence_bundle_id=escalation.evidence_bundle_id,
+            evidence_bundle_digest=escalation.evidence_bundle_digest,
+            status=MultiAgentOutcomeStatus.READY,
+            analysis_id=analysis.analysis_id,
+            analysis_digest=analysis.analysis_digest,
+            proposal_id=proposal.proposal_id,
+            proposal_digest=canonical_json_sha256(proposal.model_dump(mode="json")),
+            fact_summary=(
+                "Evidence analysis and deterministic proposal validation completed; "
+                "operator decision is required."
+            ),
+            created_at=self._utc_now(),
+        )
+        try:
+            self._store.append_multi_agent_outcome(
+                outcome, expected_workspace_version=expected_workspace_version
+            )
+        except Exception:
+            # 事实可能已由并发调用方成功提交；只有 Store 返回已存在终态才能恢复，不能
+            # 因 Outcome 失败回到 Planner 发送路径。
+            recovered = self._recover_existing(escalation)
+            if recovered is not None and recovered.outcome is not None:
+                return recovered
+            raise
+        return HighConflictCoordinationResult(
+            selected=True,
+            escalation=escalation,
+            analysis=analysis,
+            proposal=proposal,
+            outcome=outcome,
+        )
 
     def _build_analyst_task(
         self, bundle: EvidenceBundle, escalation: EscalationRecord
@@ -729,8 +1189,8 @@ class HighConflictEscalationCoordinator:
         return AgentTask(
             task_id=f"phase16-analyst:{escalation.escalation_id}",
             task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
-            profile_id=self._profile.profile_id,
-            profile_version=self._profile.profile_version,
+            profile_id=self._analyst_profile.profile_id,
+            profile_version=self._analyst_profile.profile_version,
             room_id=snapshot.scope.room_id,
             trace_id=snapshot.scope.trace_id,
             objective="Analyze only governed sold-out conflict evidence for operator review.",
@@ -745,6 +1205,140 @@ class HighConflictEscalationCoordinator:
             initial_evidence_refs=references,
         )
 
+    def _build_planner_task(
+        self,
+        bundle: EvidenceBundle,
+        escalation: EscalationRecord,
+        analysis: ConflictAnalysis,
+    ) -> AgentTask:
+        """只把同一 Bundle 与已验证 Analysis 交给 Planner，不传 Store、Skill 或命令对象。"""
+
+        snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
+        references = tuple(component.reference for component in snapshot.components)
+        return AgentTask(
+            task_id=f"phase16-planner:{escalation.escalation_id}:{analysis.analysis_id}",
+            task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+            profile_id=self._planner_profile.profile_id,
+            profile_version=self._planner_profile.profile_version,
+            room_id=snapshot.scope.room_id,
+            trace_id=snapshot.scope.trace_id,
+            objective="Generate one to three bounded options for human operator review.",
+            input_snapshot={
+                # Planner 的稳定 task_id 已绑定 escalation_id；模型正文只读取完整
+                # EvidenceBundle 与已经确定性验证的 Analysis，不能接触 operator、模式或
+                # 幂等控制字段，避免把控制面事实带入建议生成和可回显输出。
+                "analysis": analysis.model_dump(mode="json"),
+                "evidence_bundle": _plain_json(bundle.snapshot),
+            },
+            initial_evidence_refs=references,
+        )
+
+    def _proposal_from_result(
+        self,
+        bundle: EvidenceBundle,
+        escalation: EscalationRecord,
+        analysis: ConflictAnalysis,
+        task: AgentTask,
+        result: AgentResult,
+    ) -> LiveDecisionProposal:
+        """把 Planner 的封闭 options 重建为完整 Proposal，并在落库前做整份确定性验证。"""
+
+        if (
+            result.task_id != task.task_id
+            or result.profile_id != self._planner_profile.profile_id
+            or result.profile_version != self._planner_profile.profile_version
+        ):
+            raise _PlannerResultError(MultiAgentFailureCode.PLANNER_INVALID_OUTPUT)
+        if result.status is not AgentResultStatus.SUCCEEDED:
+            raise _PlannerResultError(self._planner_failure_code_for_result(result))
+        try:
+            output = _plain_json(result.output)
+            if not isinstance(output, dict) or set(output) != {"options"}:
+                raise ValueError("planner output must contain only options")
+            options = tuple(DecisionOption.model_validate(item) for item in output["options"])
+            if not 1 <= len(options) <= 3 or len({item.option_id for item in options}) != len(options):
+                raise ValueError("planner options must be one to three unique values")
+            snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
+            references = tuple(component.reference for component in snapshot.components)
+            if tuple(result.evidence_refs) != references:
+                raise ValueError("planner result evidence refs do not match bundle")
+            inventory_component = next(
+                component
+                for component in snapshot.components
+                if component.role is EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT
+            )
+            if not isinstance(inventory_component.payload, ProductInventoryPayload):
+                raise ValueError("planner inventory evidence is invalid")
+            available_backups = {
+                item.product_id
+                for item in inventory_component.payload.backup_products
+                if item.is_active and item.inventory > 0
+            }
+            required_analysis_risks = {item.value for item in analysis.risk_codes}
+            for option in options:
+                if tuple(option.evidence_refs) != references:
+                    raise ValueError("planner option evidence refs do not match bundle")
+                risk_flags = set(option.risk_flags)
+                if "HUMAN_CONFIRMATION_REQUIRED" not in risk_flags:
+                    raise ValueError("planner option omits human confirmation risk")
+                if not required_analysis_risks.issubset(risk_flags):
+                    raise ValueError("planner option omits analysis risk")
+                if option.product_strategy is ProductStrategy.SWITCH_TO_BACKUP:
+                    if option.backup_product_id not in available_backups:
+                        raise ValueError("planner option backup is unavailable")
+                    if "BACKUP_PRODUCT_REQUIRES_CONFIRMATION" not in risk_flags:
+                        raise ValueError("planner backup omits confirmation risk")
+            if not snapshot.proposal_eligible or snapshot.valid_until <= self._utc_now():
+                raise ValueError("planner evidence is no longer eligible")
+            lineage = MultiAgentProposalLineage(
+                escalation_id=escalation.escalation_id,
+                escalation_digest=escalation.escalation_digest,
+                analysis_id=analysis.analysis_id,
+                analysis_digest=analysis.analysis_digest,
+                evidence_bundle_id=bundle.evidence_bundle_id,
+                evidence_bundle_digest=snapshot.bundle_digest,
+                evidence_refs=references,
+                planner_profile_id=self._planner_profile.profile_id,
+                planner_profile_version=self._planner_profile.profile_version,
+                planner_profile_digest=self._planner_profile.profile_digest,
+            )
+            return LiveDecisionProposal(
+                proposal_id=f"phase16-proposal:{escalation.escalation_id}",
+                live_session_id=escalation.live_session_id,
+                incident_id=escalation.incident_id,
+                trace_id=snapshot.scope.trace_id,
+                evidence_bundle_id=bundle.evidence_bundle_id,
+                evidence_bundle_digest=snapshot.bundle_digest,
+                proposal_origin=ProposalOrigin.MULTI_AGENT,
+                status=ProposalStatus.READY,
+                options=options,
+                evidence_refs=references,
+                multi_agent_lineage=lineage,
+            )
+        except _PlannerResultError:
+            raise
+        except Exception as exc:
+            raise _PlannerResultError(MultiAgentFailureCode.VALIDATOR_REJECTED) from exc
+
+    def _proposal_fact(
+        self, proposal: LiveDecisionProposal, escalation: EscalationRecord
+    ) -> Proposal:
+        """把已验证的领域 Proposal 封装为 append-only Store 事实，调用方不能自报版本或 Profile。"""
+
+        return Proposal(
+            proposal_id=proposal.proposal_id,
+            live_session_id=proposal.live_session_id,
+            incident_id=proposal.incident_id,
+            evidence_bundle_id=proposal.evidence_bundle_id,
+            proposal_key=f"phase16-proposal:{escalation.escalation_id}",
+            proposal_version=1,
+            profile_id=self._planner_profile.profile_id,
+            profile_version=self._planner_profile.profile_version,
+            idempotency_key=f"phase16-proposal:{escalation.escalation_id}",
+            snapshot=proposal.model_dump(mode="json"),
+            created_at=self._utc_now(),
+        )
+
     def _analysis_from_result(
         self,
         bundle: EvidenceBundle,
@@ -756,8 +1350,8 @@ class HighConflictEscalationCoordinator:
 
         if (
             result.task_id != task.task_id
-            or result.profile_id != self._profile.profile_id
-            or result.profile_version != self._profile.profile_version
+            or result.profile_id != self._analyst_profile.profile_id
+            or result.profile_version != self._analyst_profile.profile_version
         ):
             raise _AnalystResultError(MultiAgentFailureCode.ANALYST_INVALID_OUTPUT)
         if result.status is not AgentResultStatus.SUCCEEDED:
@@ -786,9 +1380,9 @@ class HighConflictEscalationCoordinator:
                 incident_id=escalation.incident_id,
                 evidence_bundle_id=escalation.evidence_bundle_id,
                 evidence_bundle_digest=escalation.evidence_bundle_digest,
-                analyst_profile_id=self._profile.profile_id,
-                analyst_profile_version=self._profile.profile_version,
-                analyst_profile_digest=self._profile.profile_digest,
+                analyst_profile_id=self._analyst_profile.profile_id,
+                analyst_profile_version=self._analyst_profile.profile_version,
+                analyst_profile_digest=self._analyst_profile.profile_digest,
                 finding_codes=finding_codes,
                 constraint_codes=tuple(output["constraint_codes"]),
                 risk_codes=tuple(output["risk_codes"]),
@@ -803,44 +1397,76 @@ class HighConflictEscalationCoordinator:
         self,
         escalation: EscalationRecord,
         failure_code: MultiAgentFailureCode,
+        *,
+        analysis: ConflictAnalysis | None = None,
+        allow_review_terminalization: bool = False,
     ) -> HighConflictCoordinationResult:
         """以稳定身份追加唯一降级结果；已有终态优先返回，避免第二次写入或模型重试。"""
 
         recovered = self._recover_existing(escalation)
-        if recovered is not None:
+        # Analysis 是可继续交给 Planner 的中间事实，不是失败闭合。只有已经存在 Outcome
+        # 才能阻止本次降级写入；否则 Planner 的无效输出会留下孤立 Analysis 且无法审计。
+        if recovered is not None and recovered.outcome is not None:
             return recovered
-        outcome = MultiAgentOutcome(
-            outcome_id=f"phase16-outcome:{escalation.escalation_id}",
-            idempotency_key=f"phase16-outcome:{escalation.escalation_id}",
-            escalation_id=escalation.escalation_id,
-            live_session_id=escalation.live_session_id,
-            incident_id=escalation.incident_id,
-            escalation_digest=escalation.escalation_digest,
-            evidence_bundle_id=escalation.evidence_bundle_id,
-            evidence_bundle_digest=escalation.evidence_bundle_digest,
-            status=MultiAgentOutcomeStatus.DEGRADED,
-            failure_code=failure_code,
-            fact_summary=(
-                "Evidence analyst unavailable; deterministic protection remains active and "
-                "operator review is required."
-            ),
-            created_at=self._utc_now(),
-        )
         for attempt in range(2):
             workspace = self._store.get_workspace(escalation.live_session_id)
+            if (
+                workspace.view is WorkspaceView.REVIEW
+                and analysis is not None
+                and not allow_review_terminalization
+            ):
+                # 带 Analysis 的局部校验失败不能借 REVIEW 新增终态；保留现有
+                # append-only 事实并 fail-closed，等待人工而不伪造模型超时审计。反之，
+                # 已离开进程但尚未生成 Analysis 的 Analyst claim 可由数据库 trigger
+                # 验证后补写无父链降级审计，避免超时事实在跨视图竞争中永久悬空。
+                return recovered or HighConflictCoordinationResult(
+                    selected=True, escalation=escalation
+                )
+            # LIVE -> REVIEW 可在读取 Workspace 与 CAS 写入之间发生。每次重试均从
+            # Store 的最新投影重建 Outcome：REVIEW 的降级终态绝不携带已失效的
+            # Analysis/Proposal 父链，避免把直播期模型事实错误投影到播后审计。
+            outcome_analysis = (
+                None if workspace.view is WorkspaceView.REVIEW else analysis
+            )
+            outcome = MultiAgentOutcome(
+                outcome_id=f"phase16-outcome:{escalation.escalation_id}",
+                idempotency_key=f"phase16-outcome:{escalation.escalation_id}",
+                escalation_id=escalation.escalation_id,
+                live_session_id=escalation.live_session_id,
+                incident_id=escalation.incident_id,
+                escalation_digest=escalation.escalation_digest,
+                evidence_bundle_id=escalation.evidence_bundle_id,
+                evidence_bundle_digest=escalation.evidence_bundle_digest,
+                status=MultiAgentOutcomeStatus.DEGRADED,
+                analysis_id=(
+                    None if outcome_analysis is None else outcome_analysis.analysis_id
+                ),
+                analysis_digest=(
+                    None if outcome_analysis is None else outcome_analysis.analysis_digest
+                ),
+                failure_code=failure_code,
+                fact_summary=(
+                    "Evidence analyst unavailable; deterministic protection remains active and "
+                    "operator review is required."
+                ),
+                created_at=self._utc_now(),
+            )
             try:
                 self._store.append_multi_agent_outcome(
                     outcome, expected_workspace_version=workspace.version
                 )
                 return HighConflictCoordinationResult(
-                    selected=True, escalation=escalation, outcome=outcome
+                    selected=True,
+                    escalation=escalation,
+                    analysis=outcome_analysis,
+                    outcome=outcome,
                 )
             except WorkspaceConflictError:
                 # claim 到期后运营可进入 REVIEW。首次读版本与写入之间若恰好发生该
                 # 迁移，只重新读取并重试同一条 append-only DEGRADED 事实一次；不重发
                 # 模型、不改写 payload，也不把这条受限恢复扩大到 Analysis 或 Proposal。
                 recovered = self._recover_existing(escalation)
-                if recovered is not None:
+                if recovered is not None and recovered.outcome is not None:
                     return recovered
                 if attempt == 0:
                     continue
@@ -851,6 +1477,15 @@ class HighConflictEscalationCoordinator:
                     return recovered
                 raise
 
+    def _coordinator_budget_available(self, coordinator_deadline: float) -> bool:
+        """统一判定协调器总窗口是否仍可安全产生新的模型派生事实。"""
+
+        return (
+            0
+            < coordinator_deadline - self._monotonic_clock()
+            <= COORDINATOR_DEADLINE_SECONDS
+        )
+
     @staticmethod
     def _failure_code_for_result(result: AgentResult) -> MultiAgentFailureCode:
         """将共享 Runner 的开放失败状态压缩为 Phase 16 可审计的封闭代码。"""
@@ -860,6 +1495,16 @@ class HighConflictEscalationCoordinator:
         if result.status is AgentResultStatus.MODEL_ERROR:
             return MultiAgentFailureCode.ANALYST_MODEL_ERROR
         return MultiAgentFailureCode.ANALYST_INVALID_OUTPUT
+
+    @staticmethod
+    def _planner_failure_code_for_result(result: AgentResult) -> MultiAgentFailureCode:
+        """把共享 Runner 的 Planner 失败状态收束为封闭审计代码，禁止泄漏自由错误详情。"""
+
+        if result.status is AgentResultStatus.BUDGET_EXCEEDED:
+            return MultiAgentFailureCode.PLANNER_BUDGET_EXCEEDED
+        if result.status is AgentResultStatus.MODEL_ERROR:
+            return MultiAgentFailureCode.PLANNER_MODEL_ERROR
+        return MultiAgentFailureCode.PLANNER_INVALID_OUTPUT
 
     def _utc_now(self) -> datetime:
         """把可注入时钟规范为 UTC；无时区时间不能作为 append-only 事实时间。"""
@@ -872,6 +1517,14 @@ class HighConflictEscalationCoordinator:
 
 class _AnalystResultError(RuntimeError):
     """在不泄漏模型自由文本的前提下，把 Analyst 失败归一为一个稳定原因码。"""
+
+    def __init__(self, failure_code: MultiAgentFailureCode) -> None:
+        super().__init__(failure_code.value)
+        self.failure_code = failure_code
+
+
+class _PlannerResultError(RuntimeError):
+    """把 Planner 身份、Schema 和整份确定性校验失败传递为安全的固定失败码。"""
 
     def __init__(self, failure_code: MultiAgentFailureCode) -> None:
         super().__init__(failure_code.value)

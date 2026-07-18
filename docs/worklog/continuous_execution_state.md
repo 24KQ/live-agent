@@ -4,7 +4,7 @@
 
 ```text
 Phase / Task: Phase 16 / Task 1 - Approved Design and Implementation Plan persistence
-状态: COMMIT
+状态: PUSHED
 目标: 持久化受控双 Agent 设计、实施计划、D-134 至 D-140、路线图、总控和恢复入口。
 禁止事项: 不修改业务代码、数据库迁移、模型配置或 Phase 15 历史 Acceptance；不触碰用户脏文件。
 当前 HEAD: ee0de7c4e333e1b247a587c4be793c771abcb0e4
@@ -105,15 +105,33 @@ Phase / Task: Phase 16 / Task 5 - Select and Analyze High Conflict
 状态: COMMIT
 目标: 实现确定性三选二高冲突选择、lease-bound 运营显式升级和 EvidenceAnalystAgent 协调段；失败只形成一个可解释 DEGRADED Outcome。
 禁止事项: 不实现 Planner、READY Proposal、HTTP/WebSocket、前端或自动经营恢复；不调用真实模型、Skill 或通用 Phase 13/14 预算路径。
-当前 HEAD: 1ea229a（Task 5 未提交）
+当前 HEAD: b584808（Task 5 已提交并推送）
 本 Task 文件: src/decision_support/multi_agent.py、src/decision_support/store.py、tests/phase14_evidence_factory.py、Task 5 unit/PostgreSQL 测试与本 Task worklog。
 用户脏文件: 主工作区既有用户文件保持不接触、不暂存。
 最近命令与结果: RED 因缺少 HighConflictEscalationCoordinator 收集失败。D-146/D-147 后 Task 5 selector/Store 聚合 `25 passed`，隔离 PostgreSQL 聚合 `20 passed`，目标 compileall 与 `git diff --check` 通过。最终全量 unit `1420 passed, 4 warnings`；完整 integration `172 passed, 7 deselected, 5 warnings`。本机 5432 是用户已有不同凭据实例；所有本 Task PostgreSQL 验证仅在 `liveagent-phase16-test-postgres:5434` 上临时覆盖环境变量，不修改仓库配置。真实模型费用为 `0.000000 CNY`。
 错误与尝试次数: 首轮 GREEN 将 AgentResult 的冻结 FrozenDict 误判为非 dict，专项失败 2 项；已按实际数据流改为只读 Mapping 本地复制。测试 Fixture 首次 anchor scope 不一致，Store 正确拒绝，已修正测试父事实而未削弱生产绑定。最终复审发现 13 项 Important：重复 dispatch、过期恢复、响应丢失、finding 旁路、Runner Profile 旁路、PostgreSQL Profile 旁路、普通 lease 契约漂移、claim 生命周期窗口、SQL 终态竞态、人工空 finding、跨 REVIEW 终态丢失、裸 SQL Analysis 旁路和慢 Worker 墙钟延长数据库 claim；均已按 D-146/D-147 完成 RED/GREEN。最终规格复核又发现 REVIEW 例外允许携带 Analysis 的 DEGRADED Outcome；新增内存/PostgreSQL RED 各 `1 failed`，收紧为同 claim 且无 Analysis/Proposal 后各转绿。
 设计偏差与决策编号: 遵守 D-134 至 D-145；将 Store 与协调器共用的三选二规则提升为 derive_automatic_escalation_codes，消除双实现漂移。D-146 固定发送前 append-only dispatch claim、未知响应 at-most-once 降级、实际 Runner Profile 绑定与根行线性化。D-147 固定人工单项服务端事实重建、仅由 Store/数据库权威时钟计算 claim 剩余等待、REVIEW 下仅 claim 绑定的无 Analysis/Proposal 降级审计闭合，以及 Store 作为完整 Analysis Pydantic/canonical 验证边界。Task 6 前 READY 继续 fail-closed。
-下一条精确操作: 对本 Task 目标文件执行严格 UTF-8/LF/BOM/replacement/trailing-whitespace 检查与编码扫描；仅暂存目标文件，提交 `feat: analyze high-conflict live evidence` 并推送。
+下一条精确操作: 已以 `b584808 feat: analyze high-conflict live evidence` 推送，切换 Phase 16 Task 6 RED。
 模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
 Sub-agent: 规格 explorer `019f754b-dec4-7541-b647-0b322e14b243`、测试/并发 explorer `019f754b-f34e-7280-a908-c6e116f5d122`、质量/安全复审 `019f759f-33d4-7d40-bb8b-1a3b78a22158` 与最终规格复审 `019f759e-fd28-7e42-9beb-1e89f4b91d74` 均已完成并关闭；后续独立复审报告的 Important 已逐项由主模型复查、补 RED/GREEN 并重跑验证。所有 sub-agent 只读，未修改、暂存、提交或推送文件；当前无运行中 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 6 VERIFY / READY_TO_COMMIT
+
+```text
+Phase / Task: Phase 16 / Task 6 - Plan and Validate Whole Proposals
+状态: VERIFY / READY_TO_COMMIT
+目标: 在同一 Bundle/Analysis 父链上执行一次受限 DecisionPlannerAgent，持久化完整 Proposal，整份验证后才追加 READY Outcome。
+禁止事项: 不修改 OperatorDecision/Compiler 权限，不实现 HTTP/WebSocket/前端，不自动提交经营恢复，不调用真实模型或复用 Phase 13/14 预算账本。
+当前 HEAD: b584808
+本 Task 文件: src/decision_support/multi_agent.py、src/decision_support/proposal.py、src/decision_support/store.py、Task 6 unit/PostgreSQL 测试、DDL 与本 Task worklog。
+用户脏文件: 主工作区既有用户文件保持不接触、不暂存。
+最近命令与结果: D-151/D-152 的 RED/GREEN、D-147/D-150 正向回归和 Task 6 unit/Store/API 聚合为 `83 passed`；Task 6 PostgreSQL 套件为 `29 passed`，direct-SQL coordinator-context 拒绝为 `1 passed`。以隔离 `POSTGRES_PORT=5434` 运行的完整 unit 为 `1440 passed, 4 warnings`，完整 integration 为 `181 passed, 7 deselected, 5 warnings`。`compileall`、迁移 dry-run 与 `git diff --check` 均通过；目标文件严格 UTF-8/LF/BOM/replacement/trailing-whitespace 检查已含 commands/service 复跑通过。
+错误与尝试次数: 初轮完整 unit 暴露普通 Phase 14 Proposal 被错误按多 Agent Schema 强制重载；已用显式 `MULTI_AGENT` marker 分流且复跑历史 Store 测试。D-149/D-150 后最终规格复审又发现 Analyst 返回/验证预算、过期 Planner claim 竞态、REVIEW 非超时代码和 Planner 控制面输入四项 Important；D-151 已补最小代码与 RED/GREEN。DDL 首次把 failure_code 误读为顶层列，造成合法超时闭合被拒；已改为 `payload.failure_code` 并用直接 SQL trigger RED/GREEN 验证。未调用真实模型。
+设计偏差与决策编号: D-148 至 D-151 保持有效；D-152 将多 Agent Proposal 写入收束到 Coordinator 专用入口，并要求 `APPROVE/MODIFY` 绑定精确 READY Outcome，同时修正 Planner 全局预算超时分类。OperatorDecision 权限、默认路由和真实模型禁令均不变。
+下一条精确操作: 复跑最终目标文件编码检查与差异核验，只暂存 Task 6 目标文件，提交 `feat: validate multi-agent live proposals` 并推送；远端 SHA 一致后才切换到 Task 7 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 初审 `019f75d1-1c20-7b40-8b92-4bd1eadc3560` 与整改规格复审 `019f75e9-e35b-75b1-9c23-5b9167384440` 已完成并关闭，D-149/D-150 Important 均已补 RED/GREEN。最终规格复审 `019f75f8-26ed-7750-9ad8-7302eae010d0` 发现两项 Important，D-150 已整改。新最终规格复审 `019f7607-d575-70b2-b771-5adaac3aa51c` 对 D-147 至 D-151 PASS。独立质量/安全审查 `019f7620-5181-7ae0-8f11-b526f1f5dabf` 发现 D-152 的 Proposal/READY Outcome 旁路和 Planner timeout 误分类两项 Important；主模型已补 RED/GREEN，整改复审 PASS 且该线程已关闭。当前无运行中的 sub-agent。
 ```
 
 ## 2. 当前授权边界

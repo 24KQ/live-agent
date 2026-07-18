@@ -185,6 +185,19 @@ CREATE TABLE IF NOT EXISTS phase16_analyst_dispatch_claims (
     CHECK (lease_until > created_at)
 );
 
+-- Planner 是第二次、同样可能在响应持久化前中断的外部模型调用。它必须绑定已落库
+-- Analysis，不能复用 Analyst claim 或靠进程内锁猜测是否已经发送。
+CREATE TABLE IF NOT EXISTS phase16_planner_dispatch_claims (
+    escalation_id TEXT PRIMARY KEY,
+    live_session_id TEXT NOT NULL REFERENCES phase14_live_session_workspaces(live_session_id),
+    analysis_id TEXT NOT NULL,
+    analysis_digest TEXT NOT NULL CHECK (analysis_digest ~ '^[0-9a-f]{64}$'),
+    task_digest TEXT NOT NULL CHECK (task_digest ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL,
+    lease_until TIMESTAMPTZ NOT NULL,
+    CHECK (lease_until > created_at)
+);
+
 CREATE TABLE IF NOT EXISTS phase16_conflict_analyses (
     analysis_id TEXT PRIMARY KEY,
     live_session_id TEXT NOT NULL REFERENCES phase14_live_session_workspaces(live_session_id),
@@ -241,6 +254,10 @@ ALTER TABLE phase16_multi_agent_outcomes
 -- 重新添加。否则 PostgreSQL 会拒绝删除仍被外键引用的唯一索引。
 ALTER TABLE phase16_analyst_dispatch_claims
     DROP CONSTRAINT IF EXISTS fk_phase16_dispatch_claim_escalation_scope;
+ALTER TABLE phase16_planner_dispatch_claims
+    DROP CONSTRAINT IF EXISTS fk_phase16_planner_claim_escalation_scope;
+ALTER TABLE phase16_planner_dispatch_claims
+    DROP CONSTRAINT IF EXISTS fk_phase16_planner_claim_analysis_scope;
 DROP INDEX IF EXISTS uq_phase16_escalation_scope;
 DROP INDEX IF EXISTS uq_phase16_escalation_bundle;
 DROP INDEX IF EXISTS uq_phase16_escalation_lineage;
@@ -253,6 +270,8 @@ CREATE UNIQUE INDEX uq_phase16_escalation_scope
     ON phase16_escalations(live_session_id, escalation_id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_phase16_dispatch_claim_scope
     ON phase16_analyst_dispatch_claims(live_session_id, escalation_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_phase16_planner_dispatch_claim_scope
+    ON phase16_planner_dispatch_claims(live_session_id, escalation_id);
 CREATE UNIQUE INDEX uq_phase16_escalation_bundle
     ON phase16_escalations(live_session_id, evidence_bundle_id);
 CREATE UNIQUE INDEX uq_phase16_escalation_lineage
@@ -291,6 +310,14 @@ ALTER TABLE phase16_analyst_dispatch_claims
     ADD CONSTRAINT fk_phase16_dispatch_claim_escalation_scope
     FOREIGN KEY (live_session_id,escalation_id)
     REFERENCES phase16_escalations(live_session_id,escalation_id);
+ALTER TABLE phase16_planner_dispatch_claims
+    ADD CONSTRAINT fk_phase16_planner_claim_escalation_scope
+    FOREIGN KEY (live_session_id,escalation_id)
+    REFERENCES phase16_escalations(live_session_id,escalation_id);
+ALTER TABLE phase16_planner_dispatch_claims
+    ADD CONSTRAINT fk_phase16_planner_claim_analysis_scope
+    FOREIGN KEY (live_session_id,analysis_id)
+    REFERENCES phase16_conflict_analyses(live_session_id,analysis_id);
 ALTER TABLE phase16_conflict_analyses
     ADD CONSTRAINT fk_phase16_analysis_escalation_scope
     FOREIGN KEY (live_session_id,incident_id,evidence_bundle_id,escalation_id)
@@ -417,6 +444,23 @@ BEGIN
                OR NEW.payload->>'proposal_key' IS DISTINCT FROM NEW.proposal_key
                OR (NEW.payload->>'proposal_version')::bigint IS DISTINCT FROM NEW.proposal_version THEN
                 RAISE EXCEPTION 'phase14 proposal payload identity mismatch';
+            END IF;
+            -- D-152：多 Agent Proposal 需要完整 Python/Pydantic canonical 校验，不能
+            -- 允许通用 Proposal API 或直接 SQL 伪造嵌套 lineage、EvidenceRef 或备品风险。
+            -- 专用标记只收束可信服务的 Coordinator 写路径，不改变 D-121 的同进程信任边界。
+            IF NEW.payload->'snapshot'->>'proposal_origin'='MULTI_AGENT' THEN
+                IF current_setting('phase16.multi_agent_proposal_write', true)
+                   IS DISTINCT FROM 'coordinator' THEN
+                    RAISE EXCEPTION 'phase16 multi-agent proposal requires coordinator context';
+                END IF;
+                IF NEW.payload->'snapshot'->>'proposal_id' IS DISTINCT FROM NEW.proposal_id
+                   OR NEW.payload->'snapshot'->>'live_session_id' IS DISTINCT FROM NEW.live_session_id
+                   OR NEW.payload->'snapshot'->>'incident_id' IS DISTINCT FROM NEW.incident_id
+                   OR NEW.payload->'snapshot'->>'evidence_bundle_id' IS DISTINCT FROM NEW.evidence_bundle_id
+                   OR NEW.payload->'snapshot'->>'status' IS DISTINCT FROM 'READY'
+                   OR NEW.payload->'snapshot'->'multi_agent_lineage' IS NULL THEN
+                    RAISE EXCEPTION 'phase16 multi-agent proposal payload identity is invalid';
+                END IF;
             END IF;
         WHEN 'phase14_operator_decisions' THEN
             IF NEW.payload->>'decision_id' IS DISTINCT FROM NEW.decision_id
@@ -624,15 +668,48 @@ BEGIN
                 SELECT 1 FROM phase16_conflict_analyses analysis
                  WHERE analysis.live_session_id=NEW.live_session_id
                    AND analysis.escalation_id=NEW.escalation_id
+            ) AND NOT (
+                -- 已有 Analysis 时，只有 Planner 已经发送且 Workspace 已进入 REVIEW 的
+                -- 未知响应才可留下不携带中间父链的审计闭合；不能把正常 Analyst 成功或
+                -- LIVE 内校验失败伪造成这个受限例外。
+                EXISTS (
+                    SELECT 1 FROM phase16_planner_dispatch_claims claim
+                     WHERE claim.live_session_id=NEW.live_session_id
+                       AND claim.escalation_id=NEW.escalation_id
+                )
+                AND EXISTS (
+                    SELECT 1 FROM phase14_live_session_workspaces workspace
+                     WHERE workspace.live_session_id=NEW.live_session_id
+                       AND workspace.current_view='REVIEW'
+                )
             ) THEN
-                -- 已成功落库的 Analysis 与"未产出 Analysis"的降级终态互斥；READY
-                -- 将来仍可通过自己的非空 analysis_id 继承该中间事实。
                 RAISE EXCEPTION 'phase16 analysis prevents unlinked degraded outcome';
             END IF;
-            -- Proposal 的可验证快照、摘要和全链路绑定由 Task 6 一起持久化；在它
-            -- 出现前数据库与 Store 一律拒绝 READY，避免把外部自报 digest 变成事实。
+            -- READY 只能引用 Store 已完整验证的多 Agent Proposal。SQL 可以复核可索引
+            -- 的父身份和 lineage；Unicode/canonical digest 等完整语义仍由 Store 的
+            -- Pydantic 写入上下文权威校验，避免两套 JSON 规范不等价。
             IF NEW.status='READY' THEN
-                RAISE EXCEPTION 'phase16 READY outcome requires Task 6 proposal persistence';
+                IF current_setting('phase16.outcome_write', true) IS DISTINCT FROM 'store' THEN
+                    RAISE EXCEPTION 'phase16 READY outcome write authorization context is invalid';
+                END IF;
+                IF NEW.analysis_id IS NULL OR NEW.analysis_digest IS NULL
+                   OR NEW.proposal_id IS NULL OR NEW.proposal_digest IS NULL
+                   OR NEW.payload->>'failure_code' IS NOT NULL
+                   OR NOT EXISTS (
+                        SELECT 1 FROM phase14_proposals proposal
+                         WHERE proposal.live_session_id=NEW.live_session_id
+                           AND proposal.proposal_id=NEW.proposal_id
+                           AND proposal.incident_id=NEW.incident_id
+                           AND proposal.evidence_bundle_id=NEW.evidence_bundle_id
+                           AND proposal.payload->'snapshot'->>'proposal_origin'='MULTI_AGENT'
+                           AND proposal.payload->'snapshot'->>'status'='READY'
+                           AND proposal.payload->'snapshot'->'multi_agent_lineage'->>'escalation_id'=NEW.escalation_id
+                           AND proposal.payload->'snapshot'->'multi_agent_lineage'->>'escalation_digest'=NEW.escalation_digest
+                           AND proposal.payload->'snapshot'->'multi_agent_lineage'->>'analysis_id'=NEW.analysis_id
+                           AND proposal.payload->'snapshot'->'multi_agent_lineage'->>'analysis_digest'=NEW.analysis_digest
+                   ) THEN
+                    RAISE EXCEPTION 'phase16 READY outcome proposal lineage is invalid';
+                END IF;
             ELSIF NEW.proposal_id IS NOT NULL
                OR NEW.proposal_digest IS NOT NULL
                OR COALESCE(length(btrim(NEW.payload->>'failure_code')),0)=0
@@ -735,11 +812,40 @@ BEGIN
         AND to_jsonb(NEW)->>'analysis_digest' IS NULL
         AND to_jsonb(NEW)->>'proposal_id' IS NULL
         AND to_jsonb(NEW)->>'proposal_digest' IS NULL
-        AND EXISTS (
-            SELECT 1 FROM phase16_analyst_dispatch_claims claim
-             WHERE claim.live_session_id=NEW.live_session_id
-               AND claim.escalation_id=NEW.escalation_id
+        AND (
+            EXISTS (
+                SELECT 1 FROM phase16_planner_dispatch_claims claim
+                 WHERE claim.live_session_id=NEW.live_session_id
+                   AND claim.escalation_id=NEW.escalation_id
+            )
+            OR (
+                NOT EXISTS (
+                    SELECT 1 FROM phase16_conflict_analyses analysis
+                     WHERE analysis.live_session_id=NEW.live_session_id
+                       AND analysis.escalation_id=NEW.escalation_id
+                )
+                AND EXISTS (
+                    SELECT 1 FROM phase16_analyst_dispatch_claims claim
+                     WHERE claim.live_session_id=NEW.live_session_id
+                       AND claim.escalation_id=NEW.escalation_id
+                )
+            )
         );
+    IF current_view='REVIEW'
+       AND TG_TABLE_NAME='phase16_multi_agent_outcomes'
+       AND to_jsonb(NEW)->>'status'='DEGRADED'
+       AND to_jsonb(NEW)->>'analysis_id' IS NULL
+       AND to_jsonb(NEW)->>'analysis_digest' IS NULL
+       AND to_jsonb(NEW)->>'proposal_id' IS NULL
+       AND to_jsonb(NEW)->>'proposal_digest' IS NULL
+       -- Outcome 的 failure_code 是不可变 payload 的一部分，不是关系表的顶层列。
+       -- 读取顶层 JSON 会把合法超时错误误判为 NULL，从而错误阻断 D-147 的审计闭合。
+       AND NEW.payload->>'failure_code' IS DISTINCT FROM 'COORDINATOR_TIMEOUT' THEN
+        -- D-151：REVIEW 的无父链终态只审计已经离开进程、响应状态未知的请求。
+        -- 可确定的模型、验证或写入失败必须保留其 LIVE 内的父链，不能借跨视图
+        -- 例外伪装成超时，故数据库直写也必须与两个 Store 使用相同失败码门禁。
+        RAISE EXCEPTION 'phase16 review degraded closure requires coordinator timeout';
+    END IF;
     IF current_view='REVIEW'
        AND TG_TABLE_NAME='phase16_multi_agent_outcomes'
        AND to_jsonb(NEW)->>'status'='DEGRADED'
@@ -817,6 +923,62 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION phase16_validate_planner_dispatch_claim() RETURNS trigger AS $$
+DECLARE
+    parent_live_session_id TEXT;
+    parent_incident_id TEXT;
+    parent_bundle_id TEXT;
+    database_now TIMESTAMPTZ;
+    workspace_view TEXT;
+    evidence_snapshot JSONB;
+BEGIN
+    -- Planner claim 必须在 Store 已验证的 Analysis 之后创建。事务上下文只防止可信
+    -- 服务误用直写 SQL；它不是跨进程插件沙箱，D-121 的服务进程信任边界不变。
+    IF current_setting('phase16.planner_claim_write', true) IS DISTINCT FROM 'store' THEN
+        RAISE EXCEPTION 'phase16 planner dispatch claim authorization context is invalid';
+    END IF;
+    SELECT current_view INTO workspace_view
+      FROM phase14_live_session_workspaces
+     WHERE live_session_id=NEW.live_session_id FOR UPDATE;
+    IF workspace_view IS DISTINCT FROM 'LIVE' THEN
+        RAISE EXCEPTION 'phase16 planner dispatch workspace is not LIVE';
+    END IF;
+    SELECT escalation.live_session_id,escalation.incident_id,escalation.evidence_bundle_id,
+           evidence.payload->'snapshot'
+      INTO parent_live_session_id,parent_incident_id,parent_bundle_id,evidence_snapshot
+      FROM phase16_escalations escalation
+      JOIN phase14_evidence_bundles evidence
+        ON evidence.live_session_id=escalation.live_session_id
+       AND evidence.evidence_bundle_id=escalation.evidence_bundle_id
+     WHERE escalation.escalation_id=NEW.escalation_id;
+    IF parent_live_session_id IS NULL
+       OR parent_live_session_id IS DISTINCT FROM NEW.live_session_id
+       OR NOT EXISTS (
+            SELECT 1 FROM phase16_conflict_analyses analysis
+             WHERE analysis.live_session_id=NEW.live_session_id
+               AND analysis.incident_id=parent_incident_id
+               AND analysis.evidence_bundle_id=parent_bundle_id
+               AND analysis.escalation_id=NEW.escalation_id
+               AND analysis.analysis_id=NEW.analysis_id
+               AND analysis.payload->>'analysis_digest'=NEW.analysis_digest
+       ) THEN
+        RAISE EXCEPTION 'phase16 planner dispatch analysis parent is invalid';
+    END IF;
+    database_now := clock_timestamp();
+    IF COALESCE((evidence_snapshot->>'proposal_eligible')::boolean,false) IS NOT TRUE
+       OR (evidence_snapshot->>'valid_until')::timestamptz
+          <= database_now + interval '2 seconds' THEN
+        RAISE EXCEPTION 'phase16 planner dispatch evidence is not fresh';
+    END IF;
+    IF NEW.created_at < database_now - interval '1 second'
+       OR NEW.created_at > database_now + interval '1 second'
+       OR NEW.lease_until IS DISTINCT FROM NEW.created_at + interval '2 seconds' THEN
+        RAISE EXCEPTION 'phase16 planner dispatch claim lease is invalid';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION phase14_require_fact_ledger() RETURNS trigger AS $$
 DECLARE
     stable_fact_id TEXT;
@@ -863,6 +1025,9 @@ CREATE TRIGGER trg_phase16_outcomes_payload BEFORE INSERT ON phase16_multi_agent
 DROP TRIGGER IF EXISTS trg_phase16_dispatch_claims_payload ON phase16_analyst_dispatch_claims;
 CREATE TRIGGER trg_phase16_dispatch_claims_payload BEFORE INSERT ON phase16_analyst_dispatch_claims
     FOR EACH ROW EXECUTE FUNCTION phase16_validate_dispatch_claim();
+DROP TRIGGER IF EXISTS trg_phase16_planner_dispatch_claims_payload ON phase16_planner_dispatch_claims;
+CREATE TRIGGER trg_phase16_planner_dispatch_claims_payload BEFORE INSERT ON phase16_planner_dispatch_claims
+    FOR EACH ROW EXECUTE FUNCTION phase16_validate_planner_dispatch_claim();
 DROP TRIGGER IF EXISTS trg_phase16_escalations_workspace_cas ON phase16_escalations;
 CREATE TRIGGER trg_phase16_escalations_workspace_cas BEFORE INSERT ON phase16_escalations
     FOR EACH ROW EXECUTE FUNCTION phase16_advance_workspace_cas();
@@ -942,6 +1107,9 @@ CREATE TRIGGER trg_phase16_outcomes_append_only BEFORE UPDATE OR DELETE ON phase
     FOR EACH ROW EXECUTE FUNCTION phase14_reject_fact_mutation();
 DROP TRIGGER IF EXISTS trg_phase16_dispatch_claims_append_only ON phase16_analyst_dispatch_claims;
 CREATE TRIGGER trg_phase16_dispatch_claims_append_only BEFORE UPDATE OR DELETE ON phase16_analyst_dispatch_claims
+    FOR EACH ROW EXECUTE FUNCTION phase14_reject_fact_mutation();
+DROP TRIGGER IF EXISTS trg_phase16_planner_dispatch_claims_append_only ON phase16_planner_dispatch_claims;
+CREATE TRIGGER trg_phase16_planner_dispatch_claims_append_only BEFORE UPDATE OR DELETE ON phase16_planner_dispatch_claims
     FOR EACH ROW EXECUTE FUNCTION phase14_reject_fact_mutation();
 DROP TRIGGER IF EXISTS trg_phase14_idempotency_append_only ON phase14_workspace_idempotency;
 CREATE TRIGGER trg_phase14_idempotency_append_only BEFORE UPDATE OR DELETE ON phase14_workspace_idempotency

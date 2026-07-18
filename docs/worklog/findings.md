@@ -835,3 +835,9 @@
 
 - D-147 的 `REVIEW` 例外必须同时要求既有 dispatch claim、`DEGRADED`、无 Analysis lineage 和无 Proposal lineage；只检查 claim 会把 LIVE 内 Planner/Validator 失败错误扩大到播后视图。
 - 新增内存和真实 PostgreSQL RED，各 `1 failed`；收紧 Store 与 CAS trigger 后分别转绿。Task 5 最终专项为 unit `25 passed`、PostgreSQL `20 passed`，全量为 unit `1420 passed, 4 warnings`、integration `172 passed, 7 deselected, 5 warnings`。
+
+## 2026-07-18 Phase 16 Task 6 VERIFY
+
+- D-148 至 D-151 将双 Agent 的总预算、单次 Planner dispatch、LIVE/REVIEW 恢复和迟到事实全部收束到同一不可重置的五秒窗口；Planner 只读取精确 EvidenceBundle 与已验证 ConflictAnalysis。
+- D-152 关闭了两条经营恢复旁路：通用 Proposal 写入/API 拒绝 `MULTI_AGENT`，Coordinator 是唯一写入入口；多 Agent `APPROVE/MODIFY` 必须精确绑定同一 Proposal、Analysis、Escalation 摘要的 `READY` Outcome。全局 deadline 耗尽也稳定归类为 `COORDINATOR_TIMEOUT`。
+- 最终证据：Task 6 聚合 `83 passed`、真实 PostgreSQL Task 6 套件 `29 passed`、direct-SQL coordinator-context 拒绝 `1 passed`、完整 unit `1440 passed, 4 warnings`、完整 integration `181 passed, 7 deselected, 5 warnings`。规格审查和质量/安全整改复审均为 PASS，真实模型费用 `0.000000 CNY`。

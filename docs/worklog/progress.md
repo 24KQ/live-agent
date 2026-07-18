@@ -1055,3 +1055,55 @@
   `DEGRADED` Outcome。内存与 PostgreSQL 都已收紧为同 claim、无 Analysis/Proposal 的唯一审计闭合。
 - 专项 unit `25 passed`、隔离 PostgreSQL `20 passed`、完整 unit `1420 passed, 4 warnings`、完整 integration `172 passed, 7 deselected, 5 warnings`。数据库测试临时使用隔离 `5434` 容器，未修改 5432 用户服务或仓库配置；真实模型费用仍为 `0.000000 CNY`。
 - 当前进入 COMMIT：只暂存 Phase 16 Task 5 代码、DDL、测试、决策与工作日志，随后推送并切换到 Task 6 RED。
+
+# 2026-07-18 Phase 16 Task 5 PUSHED / Task 6 RED
+
+- Task 5 已以 `b584808 feat: analyze high-conflict live evidence` 推送到 `origin/codex/phase16-controlled-multi-agent`；本地与远端一致，用户脏文件未纳入。
+- 连续游标进入 Task 6。该任务将新增受限 Planner、完整 Proposal 父链/摘要、整份 Validator 和 READY Outcome；OperatorDecision、Compiler、HTTP/WebSocket、前端和自动经营恢复仍不在范围内。
+
+# 2026-07-18 Phase 16 Task 6 GREEN / REVIEW
+
+- Task 6 已从 Planner 缺失的预期 RED 转为 GREEN：受限 Planner 只接收精确 Bundle 与持久化
+  Analysis，输出经整份 Validator 验证后才以完整 immutable lineage 持久化 Proposal 与 READY Outcome。
+- 聚合专项为 `53 passed`，新增 Planner Profile identity 与 PostgreSQL direct SQL bypass 专项为
+  `2 passed`，PostgreSQL READY/restart 专项为 `1 passed`。未运行真实模型，费用仍为
+  `0.000000 CNY`。
+- D-148 固定双 Agent/Coordinator 聚合预算和 Store/DDL 写入边界。当前正在独立规格审查，之后
+  才能进入质量/安全审查、全量 VERIFY、独立提交 `feat: validate multi-agent live proposals` 与推送。
+
+# 2026-07-18 Phase 16 Task 6 REVIEW 整改
+
+- 规格审查的 Planner 重复发送、Proposal/READY 中断恢复和 Analyst 总预算三项 Important 已验证并
+  修复。D-149 固定 Planner Analysis-bound claim、Proposal 终态补写和端到端最小剩余时间规则。
+- 额外修复普通 Phase 14 Proposal 被误解为多 Agent Schema 的历史回归；显式 `MULTI_AGENT` marker
+  是新 Validator 的唯一入口。
+- 当前专项单元为 `56 passed`；PostgreSQL 已有完整套件单独绿色证据前仍不进入提交，真实模型
+  费用保持 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 6 REVIEW 整改二至四
+
+- D-152：通用 Proposal Store/API 拒绝 `MULTI_AGENT`，Coordinator 使用专用 Store 入口及独立
+  PostgreSQL context；多 Agent `APPROVE/MODIFY` 必须绑定精确 READY Outcome，Planner 全局预算超时
+  统一归类为 `COORDINATOR_TIMEOUT`。新增 RED/GREEN `3 passed`，Phase 14 API/OperatorDecision/Task 6
+  聚合为 `83 passed`；真实模型费用仍为 `0.000000 CNY`。
+
+- D-151 补齐 Analyst 返回后、Analysis 验证后和每个模型派生事实写入前的五秒预算重检；Planner
+  正文只保留精确 Bundle 与已验证 Analysis。过期 Planner claim 的 LIVE->REVIEW 竞态可同次写入无
+  父链超时终态，任何其他 failure code 由内存 Store、PostgreSQL Store 与 DDL trigger 共同拒绝。
+- 新增 unit `5 passed`、PostgreSQL Store/DDL `2 passed`、D-147/D-150 正向 PostgreSQL `3 passed`，
+  以及直接 SQL trigger 旁路 `1 passed`；专用 `5434` 容器已重放正式 DDL，真实模型费用仍为 `0.000000 CNY`。
+
+- D-150 修复入口前 I/O 未计入五秒预算，以及 Planner 已发送后 REVIEW 返回半成品 Proposal 的缺口。
+- 新规则为：公共入口启动 deadline；LIVE 只补 READY；REVIEW 只对已发送 Planner 追加无父链
+  DEGRADED。内存新专项为 `58 passed`，PostgreSQL REVIEW 闭合为 `1 passed`；完整回归仍待最终
+  独立退出码，真实模型费用保持 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 6 VERIFY / READY_TO_COMMIT
+
+- D-152 已将多 Agent Proposal 关进 Coordinator 专用 Store/DDL 写入边界，并要求经营 `APPROVE/MODIFY`
+  读取精确匹配的 READY Outcome；两项质量/安全 Important 已补 RED/GREEN，整改复审 PASS。
+- 最终验证：Task 6 相关聚合 `83 passed`、真实 PostgreSQL 套件 `29 passed`、direct-SQL 拒绝 `1 passed`、
+  完整 unit `1440 passed, 4 warnings`、完整 integration `181 passed, 7 deselected, 5 warnings`。真实模型未调用，Phase 16 费用为
+  `0.000000 CNY`。
+- 当前只待重新执行目标文件严格编码检查、`git diff --check` 和独立提交 `feat: validate multi-agent live proposals`；
+  推送并核验远端 SHA 前不开始 Task 7。

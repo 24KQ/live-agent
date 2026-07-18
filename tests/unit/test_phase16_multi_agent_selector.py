@@ -11,6 +11,7 @@ import pytest
 
 from src.decision_support.models import (
     ConflictAnalysisCode,
+    DecisionKind,
     EscalationMode,
     EscalationRecord,
     Incident,
@@ -19,13 +20,22 @@ from src.decision_support.models import (
     MultiAgentOutcomeStatus,
     WorkspaceView,
 )
+from src.decision_support.commands import (
+    DecisionCompilationError,
+    DecisionExecutionContext,
+    DecisionSupportCommandCompiler,
+    OperatorDecisionDraft,
+)
 from src.decision_support.evidence import EvidenceBundleSnapshot
 from src.decision_support.multi_agent import (
     HighConflictEscalationCoordinator,
     build_evidence_analyst_profile,
+    build_decision_planner_profile,
 )
+from src.decision_support.proposal import LiveDecisionProposal, ProposalOrigin, ProposalStatus
 from src.decision_support.store import (
     InMemoryDecisionSupportStore,
+    WorkspaceConflictError,
     WorkspaceLeaseError,
 )
 from src.specialist_runtime.models import (
@@ -35,6 +45,7 @@ from src.specialist_runtime.models import (
     AgentTask,
 )
 from src.specialist_runtime.profiles import SpecialistProfile
+from src.plan_engine.models import PlanNodeState
 from tests.phase14_evidence_factory import build_evidence_bundle
 
 
@@ -181,6 +192,76 @@ class _ScriptedAnalystRunner:
         )
 
 
+class _ScriptedPlannerRunner:
+    """只回显冻结 EvidenceRef 的 Planner 替身，证明协调器不需网络即可验证完整方案链。"""
+
+    def __init__(self, *, options: list[dict[str, object]] | None = None) -> None:
+        self.calls: list[AgentTask] = []
+        self._profile = build_decision_planner_profile()
+        self._options = options
+
+    def resolve_profile(self, _task: AgentTask) -> SpecialistProfile:
+        """暴露启动冻结 Planner Profile，供生产协调器在发送前比较完整摘要。"""
+
+        return self._profile
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """返回一个只含受限选项的结构化 FINAL，父事实和 Proposal 身份仍由协调器注入。"""
+
+        self.calls.append(task)
+        return self._result(task)
+
+    def _result(self, task: AgentTask) -> AgentResult:
+        """按冻结任务重建合法 Planner 回应，阻塞替身可复用且不会二次计数。"""
+
+        options = self._options or [
+            {
+                "option_id": "switch-backup",
+                "product_strategy": "SWITCH_TO_BACKUP",
+                "backup_product_id": "p002",
+                "host_prompt": "主商品售罄，请等待运营确认后切换备品。",
+                "timing": "AFTER_OPERATOR_CONFIRMATION",
+                "risk_flags": [
+                    "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
+                    "HUMAN_CONFIRMATION_REQUIRED",
+                    "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+                ],
+                "evidence_refs": None,
+            }
+        ]
+        # 测试替身只允许以 None 请求 Coordinator 注入任务已有的 EvidenceRef，避免测试
+        # 自己伪造证据身份；其他值原样返回，用于证明生产 Validator 会拒绝坏引用。
+        normalized_options = []
+        for option in options:
+            normalized = dict(option)
+            if normalized.get("evidence_refs") is None:
+                normalized["evidence_refs"] = [
+                    reference.model_dump(mode="json")
+                    for reference in task.initial_evidence_refs
+                ]
+            normalized_options.append(normalized)
+        return AgentResult(
+            task_id=task.task_id,
+            profile_id=task.profile_id,
+            profile_version=task.profile_version,
+            status=AgentResultStatus.SUCCEEDED,
+            output={
+                "options": normalized_options
+            },
+            evidence_refs=task.initial_evidence_refs,
+            summary="SCRIPTED_PLANNER_SUCCEEDED",
+        )
+
+
+class _WrongProfilePlannerRunner(_ScriptedPlannerRunner):
+    """模拟同一 Coordinator 被错误 Profile 装配，发送前身份校验必须阻断模型调用。"""
+
+    def resolve_profile(self, _task: AgentTask) -> SpecialistProfile:
+        """故意返回 Analyst Profile，证明仅名称相近或可运行的 Runner 都不能获得 Planner 权限。"""
+
+        return build_evidence_analyst_profile()
+
+
 class _ForgedBundleObject:
     """模拟同进程不可信调用方提供的伪对象，仅暴露协调器入口会读取的序列化方法。"""
 
@@ -239,6 +320,116 @@ class _BlockingAnalystRunner(_ScriptedAnalystRunner):
         return self._result(task)
 
 
+class _BlockingPlannerRunner(_ScriptedPlannerRunner):
+    """把首个 Planner 发送停在 claim 窗口内，验证并发恢复不能产生第二次模型调用。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """首个 Planner 等待测试释放；任何绕过 claim 的第二次调用都会增加 calls 计数。"""
+
+        self.calls.append(task)
+        if len(self.calls) == 1:
+            self.entered.set()
+            await self.release.wait()
+        return self._result(task)
+
+
+class _CoordinatorDeadlinePlannerRunner(_ScriptedPlannerRunner):
+    """在 Planner 观察窗口内模拟全局 deadline 耗尽，区分模型错误与协调器超时。"""
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """记录唯一发送后直接抛超时；单调时钟由测试序列推进到五秒外。"""
+
+        self.calls.append(task)
+        raise asyncio.TimeoutError
+
+
+class _ReadyOutcomeFailureStore:
+    """只在 Proposal 已提交后的首个 READY Outcome 写入点制造响应丢失窗口。"""
+
+    def __init__(self, delegate: InMemoryDecisionSupportStore) -> None:
+        self._delegate = delegate
+        self._fail_ready_once = True
+
+    def __getattr__(self, name: str) -> Any:
+        """除 READY Outcome 的精确失败点外，所有存储语义仍委托生产内存 Store。"""
+
+        return getattr(self._delegate, name)
+
+    def append_multi_agent_outcome(self, *args: Any, **kwargs: Any) -> Any:
+        """模拟 Proposal 已持久化而终态响应尚未写入时的单次进程中断。"""
+
+        fact = args[0]
+        if self._fail_ready_once and fact.status is MultiAgentOutcomeStatus.READY:
+            self._fail_ready_once = False
+            raise RuntimeError("injected READY outcome persistence loss")
+        return self._delegate.append_multi_agent_outcome(*args, **kwargs)
+
+
+class _DelayedBundleReadStore:
+    """在权威 Bundle 读取完成后推进单调时钟，验证总预算从公共入口而非内部协调开始。"""
+
+    def __init__(self, delegate: InMemoryDecisionSupportStore, advance: Callable[[], None]) -> None:
+        self._delegate = delegate
+        self._advance = advance
+        self._advanced = False
+
+    def __getattr__(self, name: str) -> Any:
+        """除一次可控读取延迟外，保持所有 Store 行为与生产内存实现一致。"""
+
+        return getattr(self._delegate, name)
+
+    def get_evidence_bundle(self, fact_id: str):
+        """模拟入口处的权威 Store 读取耗时，不能在读取后重新获得新的五秒模型预算。"""
+
+        bundle = self._delegate.get_evidence_bundle(fact_id)
+        if not self._advanced:
+            self._advanced = True
+            self._advance()
+        return bundle
+
+
+class _ReviewBeforeDegradedOutcomeStore:
+    """在首次降级终态写入前推进 REVIEW，复现 LIVE/REVIEW 竞争而不伪造 Store 结果。"""
+
+    def __init__(
+        self,
+        delegate: InMemoryDecisionSupportStore,
+        *,
+        lease: Any,
+        review_now: datetime,
+    ) -> None:
+        self._delegate = delegate
+        self._lease = lease
+        self._review_now = review_now
+        self._advanced = False
+
+    def __getattr__(self, name: str) -> Any:
+        """除精确竞争点外，所有事实读取和写入仍由生产内存 Store 负责。"""
+
+        return getattr(self._delegate, name)
+
+    def append_multi_agent_outcome(self, fact: Any, **kwargs: Any) -> Any:
+        """第一次 DEGRADED 追加前让运营切到 REVIEW，迫使 Coordinator 重建受限终态。"""
+
+        if not self._advanced and fact.status is MultiAgentOutcomeStatus.DEGRADED:
+            self._advanced = True
+            workspace = self._delegate.get_workspace(fact.live_session_id)
+            self._delegate.advance_view(
+                fact.live_session_id,
+                target_view=WorkspaceView.REVIEW,
+                expected_version=workspace.version,
+                operator_id=self._lease.operator_id,
+                fencing_token=self._lease.fencing_token,
+                now=self._review_now,
+            )
+        return self._delegate.append_multi_agent_outcome(fact, **kwargs)
+
+
 def test_automatic_three_select_two_persists_analysis_and_retries_without_second_model_call() -> None:
     """自动路径只在精确两项冻结信号成立时升级，并用稳定身份跨重试复用分析。"""
 
@@ -269,6 +460,391 @@ def test_automatic_three_select_two_persists_analysis_and_retries_without_second
     assert len(runner.calls) == 1
     assert runner.calls[0].task_id == f"phase16-analyst:{first.escalation.escalation_id}"
     assert runner.calls[0].task_kind.value == "CONFLICT_ANALYSIS"
+
+
+def test_planner_persists_full_lineage_before_ready_outcome() -> None:
+    """Task 6 只能用已验证 Analysis 生成整份 Proposal，READY 仍不授予任何执行权限。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-ready")
+    analyst = _ScriptedAnalystRunner()
+    planner = _ScriptedPlannerRunner()
+    coordinator = HighConflictEscalationCoordinator(
+        store=store,
+        analyst_runner=analyst,
+        planner_runner=planner,
+        clock=_now,
+    )
+
+    result = asyncio.run(
+        coordinator.run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is not None
+    assert result.proposal is not None
+    assert result.proposal.status is ProposalStatus.READY
+    assert result.proposal.proposal_origin is ProposalOrigin.MULTI_AGENT
+    assert result.proposal.multi_agent_lineage is not None
+    assert result.proposal.multi_agent_lineage.analysis_id == result.analysis.analysis_id
+    assert result.outcome is not None
+    assert result.outcome.status is MultiAgentOutcomeStatus.READY
+    assert result.outcome.proposal_id == result.proposal.proposal_id
+    assert len(planner.calls) == 1
+    persisted = store.get_proposal(result.proposal.proposal_id)
+    stored_proposal = LiveDecisionProposal.model_validate(persisted.snapshot)
+    assert stored_proposal == result.proposal
+
+
+def test_generic_proposal_store_rejects_multi_agent_proposal_even_on_replay() -> None:
+    """通用 Proposal 入口不得创建或重放多 Agent 快照，只有 Coordinator 可写该事实。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="generic-multi-agent-rejected")
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=_ScriptedPlannerRunner(),
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    assert result.proposal is not None
+
+    with pytest.raises(WorkspaceConflictError, match="multi-agent proposal requires coordinator"):
+        # 使用已由 Coordinator 写入的同一 Proposal 重放，证明门禁位于通用 Store 边界，
+        # 不会因幂等检查早返回而让 HTTP 或错误装配借既有 payload 绕过专用入口。
+        store.append_proposal(
+            store.get_proposal(result.proposal.proposal_id),
+            expected_workspace_version=store.get_workspace(bundle.live_session_id).version,
+        )
+
+
+def test_multi_agent_approval_requires_exact_ready_outcome() -> None:
+    """结构合法且 READY 的多 Agent Proposal 缺少匹配 Outcome 时不得编译经营恢复命令。"""
+
+    store, workspace, operator_lease, bundle = _seed_bundle(
+        suffix="multi-agent-approval-outcome"
+    )
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=_ScriptedPlannerRunner(),
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    assert result.proposal is not None
+    proposal = store.get_proposal(result.proposal.proposal_id)
+    draft = OperatorDecisionDraft(
+        decision_id="phase16-decision-missing-outcome",
+        proposal_id=proposal.proposal_id,
+        expected_proposal_version=proposal.proposal_version,
+        operator_id=operator_lease.operator_id,
+        decision_kind=DecisionKind.APPROVE,
+        reason_code="OPERATOR_CONFIRMED",
+        idempotency_key="phase16-decision-missing-outcome",
+        option_id=result.proposal.options[0].option_id,
+    )
+
+    with pytest.raises(DecisionCompilationError, match="multi-agent proposal requires READY outcome"):
+        DecisionSupportCommandCompiler().compile(
+            proposal=proposal,
+            draft=draft,
+            lease=operator_lease,
+            execution_context=DecisionExecutionContext(
+                plan_run_id="phase16-plan-run",
+                expected_plan_version=1,
+                node_id="phase16-approval-node",
+                expected_node_status=PlanNodeState.WAITING_APPROVAL,
+            ),
+            now=_now(),
+        )
+
+    compiled = DecisionSupportCommandCompiler().compile(
+        proposal=proposal,
+        draft=draft,
+        lease=operator_lease,
+        execution_context=DecisionExecutionContext(
+            plan_run_id="phase16-plan-run",
+            expected_plan_version=1,
+            node_id="phase16-approval-node",
+            expected_node_status=PlanNodeState.WAITING_APPROVAL,
+        ),
+        now=_now(),
+        multi_agent_ready_outcome=result.outcome,
+    )
+    # 唯一完整 Outcome 到位后仍只编译人工批准意图，执行提交继续由 Phase 14 恢复门面控制。
+    assert compiled.plan_command is not None
+    assert compiled.execution_command is not None
+
+
+def test_planner_task_receives_only_exact_bundle_and_validated_analysis() -> None:
+    """Planner 输入不得泄漏 Escalation、操作员或幂等控制字段，只保留冻结的两个事实。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-minimal-input")
+    planner = _ScriptedPlannerRunner()
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is not None
+    assert len(planner.calls) == 1
+    # 任务身份仍在 AgentTask 的固定字段中；模型正文只能读取 Bundle 与已验证 Analysis，
+    # 因而不能看到 Escalation mode、operator_id 或 idempotency_key 等控制面字段。
+    assert set(planner.calls[0].input_snapshot) == {"analysis", "evidence_bundle"}
+    assert (
+        planner.calls[0].input_snapshot["analysis"]["analysis_id"]
+        == result.analysis.analysis_id
+    )
+
+
+def test_restart_after_persisted_analysis_starts_planner_without_resending_analyst() -> None:
+    """分析已落库而 Planner 尚未装配时，后续受控重启只能复用 Analysis 并继续规划。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-restart")
+    analyst = _ScriptedAnalystRunner()
+    initial = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    planner = _ScriptedPlannerRunner()
+    resumed = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert initial.analysis is not None
+    assert len(analyst.calls) == 1
+    assert resumed.analysis == initial.analysis
+    assert resumed.proposal is not None
+    assert resumed.outcome is not None
+    assert resumed.outcome.status is MultiAgentOutcomeStatus.READY
+    assert len(planner.calls) == 1
+
+
+def test_planner_rejects_the_whole_proposal_when_any_option_uses_unavailable_backup() -> None:
+    """一至三个选项必须作为整体通过；任何失效备品都只能得到带 Analysis 的降级终态。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-invalid-backup")
+    analyst = _ScriptedAnalystRunner()
+    planner = _ScriptedPlannerRunner(
+        options=[
+            {
+                "option_id": "unavailable-backup",
+                "product_strategy": "SWITCH_TO_BACKUP",
+                "backup_product_id": "p999",
+                "host_prompt": "备品库存需要运营确认。",
+                "timing": "AFTER_OPERATOR_CONFIRMATION",
+                "risk_flags": [
+                    "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
+                    "HUMAN_CONFIRMATION_REQUIRED",
+                    "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+                ],
+                "evidence_refs": None,
+            }
+        ]
+    )
+
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            planner_runner=planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is not None
+    assert result.proposal is None
+    assert result.outcome is not None
+    assert result.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert result.outcome.failure_code is MultiAgentFailureCode.VALIDATOR_REJECTED
+    assert len(planner.calls) == 1
+
+
+def test_coordinator_does_not_send_planner_after_end_to_end_budget_is_exhausted() -> None:
+    """Analysis 落库后若五秒总预算已耗尽，Coordinator 只能降级而不能再发送 Planner。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-total-timeout")
+    # 依次覆盖 Coordinator 起点、Analyst 前检查、Analyst 等待裁剪、Analyst 返回后、
+    # Analysis 验证后和 Planner 前检查；只有最后一刻跨越五秒，才能证明本用例测试的是
+    # Planner 而不是新增的 Analyst 派生事实预算门禁。
+    monotonic_values = iter((0.0, 0.0, 0.0, 0.0, 0.0, 5.1))
+    planner = _ScriptedPlannerRunner()
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=_now,
+            monotonic_clock=lambda: next(monotonic_values),
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is not None
+    assert result.proposal is None
+    assert result.outcome is not None
+    assert result.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert result.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert planner.calls == []
+
+
+def test_coordinator_does_not_send_analyst_after_end_to_end_budget_is_exhausted() -> None:
+    """全局五秒预算在 Analyst claim 前耗尽时，Coordinator 只能持久化降级而不能发送模型。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="analyst-total-timeout")
+    monotonic_values = iter((0.0, 5.1))
+    analyst = _ScriptedAnalystRunner()
+
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            clock=_now,
+            monotonic_clock=lambda: next(monotonic_values),
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.selected is True
+    assert result.analysis is None
+    assert result.outcome is not None
+    assert result.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert analyst.calls == []
+
+
+def test_coordinator_does_not_validate_analyst_response_after_total_budget_expires() -> None:
+    """Analyst 返回后若总预算已耗尽，Coordinator 必须先超时降级而不能解析错误响应。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="analyst-post-result-budget")
+    # 顺序覆盖入口、发送前检查和 wait_for 裁剪；最后一个值只在 Runner 返回后出现。
+    # 使用失败响应可证明此处确实在结构化校验前阻断，而非碰巧在后续写入时失败。
+    monotonic_values = iter((0.0, 0.0, 0.0, 5.1))
+    analyst = _ScriptedAnalystRunner(failure=AgentResultStatus.MODEL_ERROR)
+
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            clock=_now,
+            monotonic_clock=lambda: next(monotonic_values),
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is None
+    assert result.outcome is not None
+    assert result.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert len(analyst.calls) == 1
+    assert store.list_conflict_analyses(bundle.live_session_id) == ()
+
+
+def test_coordinator_does_not_persist_validated_analysis_after_total_budget_expires() -> None:
+    """Analyst 输出验证消耗完五秒后，合法 Analysis 也不得成为新的 append-only 事实。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="analyst-pre-append-budget")
+    # 第四次检查发生在 Runner 返回后，仍保留预算；第五次检查位于 Analysis 验证之后、
+    # append 前，必须拒绝这条已经迟到但结构正确的模型派生事实。
+    monotonic_values = iter((0.0, 0.0, 0.0, 0.0, 5.1))
+    analyst = _ScriptedAnalystRunner()
+
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=analyst,
+            clock=_now,
+            monotonic_clock=lambda: next(monotonic_values),
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is None
+    assert result.outcome is not None
+    assert result.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert len(analyst.calls) == 1
+    assert store.list_conflict_analyses(bundle.live_session_id) == ()
+
+
+def test_coordinator_budget_starts_before_authoritative_bundle_load() -> None:
+    """入口处权威 Bundle 重载耗尽五秒后，Coordinator 不得在内部重新取得完整模型预算。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="entry-budget")
+    monotonic_value = [0.0]
+    delayed_store = _DelayedBundleReadStore(
+        store, lambda: monotonic_value.__setitem__(0, 5.1)
+    )
+    analyst = _ScriptedAnalystRunner()
+
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=delayed_store,
+            analyst_runner=analyst,
+            clock=_now,
+            monotonic_clock=lambda: monotonic_value[0],
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.selected is True
+    assert result.analysis is None
+    assert result.outcome is not None
+    assert result.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert analyst.calls == []
+
+
+def test_coordinator_does_not_persist_planner_result_after_total_budget_expires() -> None:
+    """Planner 在五秒内返回后，验证、Proposal 和 READY 写入前仍必须重新检查端到端期限。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-post-result-budget")
+    # 前七次分别覆盖入口、Analyst 发送/验证两处、Planner claim 前、Planner 等待；
+    # 第八次才在 Planner 返回后跨越预算，保证本用例仍验证 Proposal 写入门禁。
+    monotonic_values = iter((0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.1))
+    planner = _ScriptedPlannerRunner()
+
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=_now,
+            monotonic_clock=lambda: next(monotonic_values),
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is not None
+    assert result.proposal is None
+    assert result.outcome is not None
+    assert result.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert result.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert len(planner.calls) == 1
+    assert store.list_proposals(bundle.live_session_id) == ()
+
+
+def test_planner_profile_mismatch_degrades_before_second_model_call() -> None:
+    """Planner Registry 返回错误冻结 Profile 时，Analysis 可保留但 Planner 绝不能被调用。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="planner-profile-mismatch")
+    planner = _WrongProfilePlannerRunner()
+    result = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert result.analysis is not None
+    assert result.proposal is None
+    assert result.outcome is not None
+    assert result.outcome.failure_code is MultiAgentFailureCode.PLANNER_INVALID_OUTPUT
+    assert planner.calls == []
 
 
 def test_completed_analysis_recovers_after_bundle_expiry_without_reopening_route() -> None:
@@ -319,6 +895,259 @@ def test_concurrent_coordinators_use_one_durable_dispatch_claim() -> None:
     assert second.analysis is None
     assert second.outcome is None
     assert len(runner.calls) == 1
+
+
+def test_concurrent_coordinators_use_one_durable_planner_dispatch_claim() -> None:
+    """同一已验证 Analysis 的第二个 Coordinator 只能观察 Planner pending，不能重复发送。"""
+
+    async def scenario() -> tuple[Any, Any, _BlockingPlannerRunner]:
+        store, workspace, _lease, bundle = _seed_bundle(suffix="planner-concurrent")
+        planner = _BlockingPlannerRunner()
+        first_task = asyncio.create_task(
+            HighConflictEscalationCoordinator(
+                store=store,
+                analyst_runner=_ScriptedAnalystRunner(),
+                planner_runner=planner,
+                clock=_now,
+            ).run_automatic(bundle, expected_workspace_version=workspace.version)
+        )
+        await planner.entered.wait()
+        second = await HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+        planner.release.set()
+        return await first_task, second, planner
+
+    first, second, planner = asyncio.run(scenario())
+
+    assert first.proposal is not None
+    assert first.outcome is not None
+    assert second.analysis is not None
+    assert second.proposal is None
+    assert second.outcome is None
+    assert len(planner.calls) == 1
+
+
+def test_restart_closes_persisted_proposal_without_resending_planner() -> None:
+    """READY 写入短暂失败后，重启必须复用已持久化 Proposal 并只补写唯一终态。"""
+
+    backing_store, workspace, _lease, bundle = _seed_bundle(suffix="planner-ready-loss")
+    store = _ReadyOutcomeFailureStore(backing_store)
+    first_planner = _ScriptedPlannerRunner()
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=first_planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    restarted_planner = _ScriptedPlannerRunner()
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=restarted_planner,
+            clock=_now,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert first.analysis is not None
+    assert first.proposal is not None
+    assert first.outcome is None
+    assert recovered.proposal == first.proposal
+    assert recovered.outcome is not None
+    assert recovered.outcome.status is MultiAgentOutcomeStatus.READY
+    assert len(first_planner.calls) == 1
+    assert restarted_planner.calls == []
+
+
+def test_expired_planner_claim_closes_review_with_unlinked_degraded_outcome() -> None:
+    """Planner 已发送后切到 REVIEW 时只能追加不携带 Analysis/Proposal 的降级审计闭合。"""
+
+    instant = _now()
+    store_clock = [instant]
+    backing_store, workspace, lease, bundle = _seed_bundle(
+        suffix="planner-review-close", store_clock=lambda: store_clock[0]
+    )
+    store = _ReadyOutcomeFailureStore(backing_store)
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=_ScriptedPlannerRunner(),
+            clock=lambda: instant,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    assert first.proposal is not None
+    assert first.outcome is None
+
+    # claim 的受控两秒观察窗结束后，运营才可推进 REVIEW；恢复不能在播后写 Proposal
+    # 或 READY，只能写不含中间父链的审计终态。
+    store_clock[0] = instant + timedelta(seconds=3)
+    current = backing_store.get_workspace(bundle.live_session_id)
+    backing_store.advance_view(
+        bundle.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=current.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+        now=store_clock[0],
+    )
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=_ScriptedPlannerRunner(),
+            clock=lambda: instant,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert recovered.proposal is None
+    assert recovered.analysis is None
+    assert recovered.outcome is not None
+    assert recovered.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert recovered.outcome.analysis_id is None
+    assert recovered.outcome.proposal_id is None
+
+
+def test_expired_planner_claim_race_rebuilds_review_timeout_outcome() -> None:
+    """过期 Planner claim 在终态 CAS 时切到 REVIEW，必须同次闭合而不能返回半成品 Analysis。"""
+
+    instant = _now()
+    store_clock = [instant]
+    backing_store, workspace, lease, bundle = _seed_bundle(
+        suffix="planner-expired-review-race", store_clock=lambda: store_clock[0]
+    )
+    # 先按 Task 5 语义持久化唯一 Analysis，再手工建立已经离开进程的 Planner claim；
+    # 这样本用例专门覆盖“非新 claim 且已过期”的恢复分支，不依赖第二次模型调用。
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=backing_store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            clock=lambda: instant,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    assert first.escalation is not None
+    assert first.analysis is not None
+    planner_coordinator = HighConflictEscalationCoordinator(
+        store=backing_store,
+        analyst_runner=_ScriptedAnalystRunner(),
+        planner_runner=_ScriptedPlannerRunner(),
+        clock=lambda: instant,
+    )
+    planner_task = planner_coordinator._build_planner_task(
+        bundle, first.escalation, first.analysis
+    )
+    backing_store.claim_planner_dispatch(
+        escalation_id=first.escalation.escalation_id,
+        analysis_id=first.analysis.analysis_id,
+        analysis_digest=first.analysis.analysis_digest,
+        task_digest=planner_task.task_digest,
+    )
+    store_clock[0] = instant + timedelta(seconds=3)
+    racing_store = _ReviewBeforeDegradedOutcomeStore(
+        backing_store, lease=lease, review_now=store_clock[0]
+    )
+
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=racing_store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=_ScriptedPlannerRunner(),
+            clock=lambda: instant,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert recovered.analysis is None
+    assert recovered.proposal is None
+    assert recovered.outcome is not None
+    assert recovered.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert recovered.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+
+
+def test_global_planner_budget_timeout_rebuilds_review_timeout_outcome() -> None:
+    """全局 deadline 限制 Planner 时，超时不能被误记为模型错误或返回半成品 Analysis。"""
+
+    instant = _now()
+    store_clock = [instant]
+    store, workspace, lease, bundle = _seed_bundle(
+        suffix="planner-global-budget-review", store_clock=lambda: store_clock[0]
+    )
+    # 前六次保持零以让 Analyst 完整落库；第七次在 Planner 等待裁剪时保留一秒，
+    # 第八次由 timeout handler 观察到五秒已耗尽。Store 视图迁移使用到期的 claim 时钟，
+    # 使断言覆盖 D-150/D-152 的真实 LIVE->REVIEW 竞争闭合。
+    monotonic_values = iter((0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 5.1))
+    racing_store = _ReviewBeforeDegradedOutcomeStore(
+        store, lease=lease, review_now=instant + timedelta(seconds=3)
+    )
+    planner = _CoordinatorDeadlinePlannerRunner()
+
+    recovered = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=racing_store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=planner,
+            clock=lambda: instant,
+            monotonic_clock=lambda: next(monotonic_values),
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert len(planner.calls) == 1
+    assert recovered.analysis is None
+    assert recovered.proposal is None
+    assert recovered.outcome is not None
+    assert recovered.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+
+
+def test_live_to_review_race_rebuilds_unlinked_degraded_outcome_without_second_retry() -> None:
+    """写降级终态时发生视图切换，Coordinator 必须在同次调用重试无父链闭合而非返回半成品。"""
+
+    instant = _now()
+    store_clock = [instant]
+    backing_store, workspace, lease, bundle = _seed_bundle(
+        suffix="planner-review-race", store_clock=lambda: store_clock[0]
+    )
+    ready_loss_store = _ReadyOutcomeFailureStore(backing_store)
+    first = asyncio.run(
+        HighConflictEscalationCoordinator(
+            store=ready_loss_store,
+            analyst_runner=_ScriptedAnalystRunner(),
+            planner_runner=_ScriptedPlannerRunner(),
+            clock=lambda: instant,
+        ).run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    assert first.escalation is not None
+    assert first.analysis is not None
+    assert first.proposal is not None
+    assert first.outcome is None
+
+    # Planner claim 已经过期，测试替身会在首次 DEGRADED 写入前把 Workspace 推进 REVIEW。
+    store_clock[0] = instant + timedelta(seconds=3)
+    racing_store = _ReviewBeforeDegradedOutcomeStore(
+        backing_store, lease=lease, review_now=store_clock[0]
+    )
+    recovered = HighConflictEscalationCoordinator(
+        store=racing_store,
+        analyst_runner=_ScriptedAnalystRunner(),
+        planner_runner=_ScriptedPlannerRunner(),
+        clock=lambda: instant,
+    )._persist_degraded(
+        first.escalation,
+        MultiAgentFailureCode.COORDINATOR_TIMEOUT,
+        analysis=first.analysis,
+        allow_review_terminalization=True,
+    )
+
+    assert recovered.analysis is None
+    assert recovered.proposal is None
+    assert recovered.outcome is not None
+    assert recovered.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert recovered.outcome.analysis_id is None
+    assert recovered.outcome.proposal_id is None
 
 
 def test_response_loss_claim_prevents_second_model_send_and_degrades_after_lease() -> None:

@@ -1765,3 +1765,129 @@
 - **重新评估条件**：若后续引入独立受限数据库角色、签名 RPC 或可验证模型服务端回执，可将
   Store 写入上下文替换为更强的跨进程证明；在此之前不得允许自由 SQL 写事实、空 finding 或
   `REVIEW` 下的 Analysis/READY/执行。
+
+## D-148：Planner 与 Coordinator 采用冻结聚合预算及 Store 写入上下文闭合
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 将第二个受限 Agent 接入同一高冲突售罄链路。若只依赖各 Agent 的独立 deadline，串行执行、验证与落库可能超过直播现场允许的总等待时间；若允许直接 SQL 写入 Proposal 或 `READY` Outcome，则可绕过 Bundle、Analysis、Profile 与 canonical digest 的完整父链校验。
+- **候选方案**：仅限制每个 Agent 的 deadline；把总预算放在调用方约定中；由 SQL trigger 复刻全部 JSON/Pydantic 校验；或由 Coordinator 注入单调时钟实施总预算，并让 Store 事务上下文成为多 Agent Proposal/READY 的唯一持久化入口。
+- **最终选择**：EvidenceAnalystAgent 固定 `2s/1200 tokens/0.03 CNY`，DecisionPlannerAgent 固定 `2s/2800 tokens/0.07 CNY`，Coordinator 在注入的单调时钟下对全链路强制 `5s/4000 tokens/0.10 CNY`。Planner 只读取同一冻结 Bundle 与已验证 Analysis；任一 Profile、身份、证据、备品、风险、时效或选项校验失败，整份 Proposal 降级。PostgreSQL 对多 Agent Proposal 和 `READY` Outcome 要求 Store 写入上下文，并复核可观察的 lineage、摘要与 CAS 父事实；该上下文仍是 D-121 的同进程完整性护栏，不构成恶意代码沙箱。
+- **选择理由**：总预算把两个模型段、确定性验证和持久化统一限制在可审计的直播延迟边界内；Store 保持 Python Schema、canonical digest 和 SQL 父事实校验的一致权威源，避免直接写入形成不完整或伪造的 `READY` 审计链。
+- **未选理由**：单段 deadline 不能阻止串行超时；调用方约定无法在重启或并发时证明；SQL 复刻 Unicode/canonical JSON/Pydantic 规则会与应用事实源漂移；直接 SQL 写入会绕过完整 Proposal 验证。
+- **影响**：Task 6 新增 Planner 段、完整 Proposal 事实、`READY` Outcome 与重启恢复测试；OperatorDecision 仍是唯一经营恢复授权主体，默认 `DETERMINISTIC_ONLY` 路由、无 fallback、真实模型禁令及 Phase 16 预算均不改变。
+- **重新评估条件**：获得真实模型延迟分布、服务端幂等回执和独立受限数据库写角色后，才可用新版本协议调整段预算或替换同进程写入上下文；不得降低总预算、放宽整份验证，或允许 Agent 直接执行经营恢复。
+
+## D-149：Planner 使用绑定 Analysis 的单次 dispatch claim，Proposal/READY 分步可恢复
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 规格复审发现 Planner 在已有 `ConflictAnalysis` 后直接发送，两个 Coordinator 或
+  进程重启可重复调用第二个模型；Proposal 写入成功但 `READY` Outcome 写入失败时，恢复逻辑也会
+  错过已持久化 Proposal。另一个缺口是 Coordinator 的五秒上限先前只约束 Planner 段，没有裁剪
+  Analyst claim 前和等待中的剩余时间。
+- **候选方案**：接受 Planner at-least-once 并依赖 Proposal 唯一键；用进程锁；把 Analyst claim
+  复用于 Planner；或为 Planner 追加绑定精确 Analysis 的独立持久化 claim，并从 Proposal 事实补写
+  READY Outcome，同时在两个 Agent 段都取 Profile、Store claim 与全局单调时钟的最小剩余窗口。
+- **最终选择**：Planner claim 以 `escalation_id` 唯一，持久化 `analysis_id`、`analysis_digest`、
+  `task_digest` 和固定两秒观察租约；内存与 PostgreSQL Store 在发送前原子创建并校验它。活跃 claim
+  只返回 pending，过期或未知响应只降级，不重发。恢复先读取唯一多 Agent Proposal：若没有 Outcome，
+  只补写同一 READY Outcome，绝不重发 Planner。Coordinator 在 Analyst 发送前、Analyst 等待和
+  Planner 等待均强制五秒总截止、两秒 Profile 与 Store 可信 claim 的最小值。
+- **选择理由**：两个模型段都获得可重放的 at-most-once 外部发送语义；Proposal 与 Outcome 可在
+  两次 append 的正常持久化边界上恢复；全链路延迟不再因确定性前置或 Analyst 等待而超过冻结上限。
+- **未选理由**：Proposal 唯一键只能阻止重复落库，不能阻止重复模型成本和相互矛盾输出；进程锁
+  在多进程/重启后失效；复用 Analyst claim 无法证明 Planner 输入绑定到哪个 Analysis；仅限制
+  Planner 仍会留下 Analyst 超时窗口。
+- **影响**：新增 `PlannerDispatchClaim`、`phase16_planner_dispatch_claims`、外键、触发器、
+  append-only/Store 上下文和跨 Store 并发测试；`LIVE -> REVIEW` 在任一活跃 dispatch claim 期间
+  保持阻断。普通 Phase 14 Proposal 继续是通用审计 JSON，只有显式 `MULTI_AGENT` 快照进入新
+  Schema 验证，避免破坏既有人工决定与命令链。
+- **重新评估条件**：模型平台提供可验证的服务端 idempotency receipt 且获得真实延迟分布后，才可
+  用新版本协议缩短未知响应窗口或调整 claim 结构；不得删除 Analysis 绑定、允许第二次 Planner
+  发送，或让 `READY` 绕过完整 Proposal 父链。
+
+## D-150：Coordinator 总预算从公共入口起算，REVIEW 只闭合已发送 Planner 的未知响应
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 整改规格复审发现五秒单调 deadline 在 `_coordinate` 内才创建，入口的权威
+  Bundle 重载、Store 查询和选择器时间没有被计入。另一个缺口是 Planner 已发送、Proposal 已写而
+  `READY` 未写时，claim 到期后运营切到 `REVIEW`，恢复会返回半成品 Proposal 而没有唯一终态。
+- **候选方案**：内部 Coordinator 开始时才记时；只限制两个 `wait_for`；在 REVIEW 补写 READY；
+  任意已有 Analysis 都可补无父链 DEGRADED；或在两个公共入口起算并传递不可重置的截止时间，且
+  仅对已持久化 Planner claim 的未知第二段响应在 REVIEW 追加无 Analysis/Proposal 的 DEGRADED。
+- **最终选择**：`run_automatic` 与 `run_operator_requested` 在任何权威读取前启动同一五秒单调
+  deadline，并传递到 Analyst/Planner 所有剩余时间计算。Proposal 无 Outcome 时，LIVE 只补同一
+  READY；REVIEW 只在 Planner claim 已存在时追加无父链 `COORDINATOR_TIMEOUT` DEGRADED。已有
+  Analysis 但没有 Planner claim 的历史/Task 5 路径保持原事实，不伪造失败。内存 Store、
+  PostgreSQL Store 和 DDL 均要求：无 Analysis 的 REVIEW 降级要么来自未产出 Analysis 的 Analyst
+  claim，要么来自已发送 Planner claim。
+- **选择理由**：端到端预算覆盖调用入口的真实等待，不能被内部函数边界重置；播后不继续生成
+  方案或恢复经营，但仍为已离开进程的 Planner 请求留下准确、最小化的审计闭合。
+- **未选理由**：仅限制模型等待忽略入口 I/O；在 REVIEW 补 READY 会把播中事实延长到播后；
+  任意 Analysis 都可降级会把成功的 Task 5 事实伪造成 Planner 失败；不写终态则无法解释已发请求。
+- **影响**：新增入口延迟和 Planner REVIEW 闭合的内存/PostgreSQL 回归，收紧 Outcome Store/DDL
+  的无父链允许条件。默认 `DETERMINISTIC_ONLY`、OperatorDecision 唯一经营授权、两秒单段预算、
+  一元真实 smoke 上限和真实模型禁令均不改变。
+- **重新评估条件**：获取正式延迟 SLO、服务端已接收回执和独立会话终态协议后，才可为播后回放
+  增加新版本的终态类型；在此之前不得重置 deadline、在 REVIEW 写 READY，或把成功 Analysis 当作
+  可自由关闭的失败事实。
+
+## D-151：模型派生事实写入前重检总预算，REVIEW 闭合仅记录协调器超时
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 最终规格复审发现 D-148/D-150 的总预算尚未覆盖 Analyst 返回后的输出验证与
+  `ConflictAnalysis` 写入；同时过期 Planner claim 的 LIVE->REVIEW 竞争未显式请求受限闭合，且
+  Store/DDL 接受任意 failure code 的无父链播后 `DEGRADED`，会把可明确分类的 Planner 错误伪装成
+  未知响应超时。Planner 输入还携带了超出冻结范围的 Escalation 正文。
+- **候选方案**：只在模型发送前检查预算；把所有 Planner 失败都允许播后闭合；只由 Python Store
+  判断超时代码；或在每个模型响应验证与模型派生事实写入前重检同一截止时间，并由内存 Store、
+  PostgreSQL Store 和触发器共同限制播后无父链闭合为 `COORDINATOR_TIMEOUT`。
+- **最终选择**：Coordinator 在 Analyst 与 Planner 的模型返回后、结构化验证后及每个派生事实
+  append 前重检不可重置的五秒单调 deadline；过期时不再产生新的 Analysis、Proposal 或 READY。
+  已过期 Planner claim 若在写终态时竞争进入 REVIEW，可显式走 D-150 的无父链超时闭合；没有该
+  claim 的成功 Analysis 仍不得播后终态化。`REVIEW` 的无 Analysis/Proposal `DEGRADED` 必须同时
+  绑定同一 Escalation 的合法 dispatch claim 且 `failure_code=COORDINATOR_TIMEOUT`，内存、
+  PostgreSQL Store 与 DDL trigger 同构执行。Planner input snapshot 只包含精确
+  `evidence_bundle` 与已验证 `analysis`，不传 Escalation、操作员或幂等正文。
+- **选择理由**：模型调用结束不代表结果仍可安全使用；将验证和持久化纳入同一延迟窗口才能阻断
+  迟到事实。播后审计只描述“外部响应状态未知”的事实，不能掩盖可分类模型、校验或系统错误。
+  最小化 Planner 输入降低身份与控制面字段被模型误用或回显的风险。
+- **未选理由**：只限制 `wait_for` 会让迟到结果在 CPU 验证或数据库写入时逃逸；任意失败码可闭合会
+  弱化失败诊断；只靠应用层检查允许同进程 SQL/Store 边界漂移；保留 Escalation 正文违反冻结的
+  Bundle + Analysis 最小输入合同。
+- **影响**：Task 6 新增 Analyst 返回/验证预算 RED、Planner claim 竞态 RED、内存/PostgreSQL
+  failure-code 拒绝回归和 Planner 输入键回归；不改变 Agent Profile、模型费用、OperatorDecision
+  权限、默认 `DETERMINISTIC_ONLY` 路由或真实模型禁令。
+- **重新评估条件**：若未来引入带签名的模型服务端 receipt、独立写角色和显式播后终态协议，可在
+  新版本 Schema 中增加可证明的失败类型；在此之前不得允许迟到模型事实、任意 failure code 的
+  REVIEW 闭合或额外 Planner 控制面输入。
+
+## D-152：多 Agent Proposal 仅由协调器持久化，经营批准必须绑定 READY Outcome
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 质量/安全审查发现 Phase 14 的通用 Proposal API 和 Store 可接受结构上合法的
+  `MULTI_AGENT` snapshot；Compiler 只检查 Proposal `READY`，未要求同一 Escalation 的 `READY`
+  Outcome。攻击者或错误装配可跳过 Planner dispatch、整份 Validator 和终态写入，直接提交
+  `APPROVE/MODIFY` 并编译经营恢复命令。另一个缺口是当全局五秒 deadline 而非 Planner profile/claim
+  是 `wait_for` 限制因素时，超时被错误记为 `PLANNER_MODEL_ERROR`，破坏 D-150 的播后审计闭合。
+- **候选方案**：继续允许通用 API 写多 Agent Proposal 并只由 Compiler 检查状态；让 Compiler
+  隐式扫描任意 Outcome；在通用 Store 中信任调用方 context；或为多 Agent Proposal 引入协调器专用
+  持久化入口、在 Store/DDL 双重拒绝通用入口，并由审批编译器验证精确 READY Outcome。
+- **最终选择**：通用 `append_proposal` 和 HTTP Proposal 创建路径拒绝所有 `MULTI_AGENT` snapshot；
+  只有 `HighConflictEscalationCoordinator` 可调用专用 `append_multi_agent_proposal`，其 PostgreSQL
+  写入需独立协调器 context。对 `MULTI_AGENT` Proposal，`APPROVE/MODIFY` 必须携带同一
+  Proposal ID/digest、Analysis ID/digest、Escalation ID/digest 的 `READY` Outcome；`REJECT` 仍可
+  记录人工拒绝，不会产生执行命令。Planner `wait_for` 捕获超时时重新检查全局 deadline：若已耗尽，
+  写 `COORDINATOR_TIMEOUT` 并允许既有 Planner claim 按 D-150/D-151 在 REVIEW 无父链闭合；否则才
+  记为 `PLANNER_MODEL_ERROR`。
+- **选择理由**：Proposal 结构合法不等于 Planner 已被受控执行或经营建议已获完整验证；将创建与
+  批准都绑定到不可变 Outcome 形成双重权限门。准确区分总预算与模型错误保留可解释、可恢复的超时
+  审计语义，避免把全球延迟上限误诊为模型质量问题。
+- **未选理由**：仅在 API 层拒绝会留下 Store/同进程消费者旁路；仅依赖 Proposal `READY` 无法证明
+  终态存在；扫描任意 Outcome 可能接纳另一 Proposal 的终态；把所有超时都当模型错误会阻断合法的
+  REVIEW 审计闭合。
+- **影响**：Task 6 增加专用 Store API、PostgreSQL context/trigger 门禁、Compiler/Service 的 READY
+  Outcome 绑定与预算超时分类 RED/GREEN。不会开放 Agent 执行权限、不会自动批准或恢复经营，默认
+  `DETERMINISTIC_ONLY`、模型预算和 Task 7 API 范围保持不变。
+- **重新评估条件**：若未来采用签名的独立 Planner receipt 和数据库受限写角色，可将协调器 context
+  升级为跨进程证明；在此之前不得让通用 Proposal 创建、缺失/不匹配 Outcome 的批准，或错误分类的
+  全局超时生成经营命令。
