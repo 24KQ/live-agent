@@ -910,3 +910,14 @@
 - Task 11 的显式 Release、Verified Defaults、三路启动冻结和独立 Promotion 门禁已完成；专项 `18 passed`。
 - 完整 unit `1379 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`；正式源码/入口 compileall、生产 import、严格编码和 `git diff --check` 通过。
 - 全仓 compileall 仅被用户已有临时脚本的语法错误阻断；未修改这些脚本。真实模型、GitHub Actions 和外部 Release 证据仍为 0，待提交推送 Task 11。
+
+# 2026-07-18 Phase 15 Task 11 COMMIT/PUSH 与 Task 12 RED
+
+- Task 11 已提交并推送：`efe16c5 feat: promote verified runtime defaults`，远端与本地一致。
+- Task 12 开始核对三场景 Demo、48 例 Golden、双轨 Release 结论、外部证据状态和最终停止条件；真实模型、GitHub Actions 和外部 Release 仍不调用/不伪造。
+
+# 2026-07-18 Phase 15 Task 12 VERIFY
+
+- 三场景业务闭环、两次本地 Release profile、48 例冻结 Manifest 摘要、Promotion BLOCKED 和确定性默认路由均已写入可重复报告。
+- unit `1382 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`；Task 12 专项 `3 passed`、相关聚合 `33 passed`，迁移 dry-run 和正式源码 compileall 通过。
+- 真实模型、真人对照、coverage artifact、PostgreSQL Release 事实和 GitHub Actions evidence 未提供；Release 返回 BLOCKED，Phase 15/Final Acceptance 为 INCONCLUSIVE，阶段停止且不自动进入下一阶段。

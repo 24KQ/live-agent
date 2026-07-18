@@ -747,3 +747,15 @@
 - Task 11 专项 `18 passed`；完整 unit `1379 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；目标源码/入口 compileall、生产路由 import、`git diff --check` 和 16 个目标文件严格 UTF-8/LF/BOM/replacement/trailing whitespace 检查通过。
 - 全仓 compileall 仍被用户已有 `scripts/patch_run_all.py` 与 `scripts/tmp_gen_story.py` 的历史语法错误阻断；两文件未修改、未暂存、未纳入 Task 11，正式源码编译证据独立通过。
 - 规格与质量审查未发现 Critical/Important；真实模型、GitHub Actions 和外部 Release 仍未调用/伪造，费用保持 `0` 新增。
+
+## 2026-07-18 Phase 15 Task 11 COMMIT/PUSH 与 Task 12 RED
+
+- Task 11 已以 `efe16c5 feat: promote verified runtime defaults` 独立提交并推送，远端与本地 HEAD 一致；用户脏文件和临时脚本未纳入。
+- Task 12 开始：先验证现有三场景 Demo、48 例报告、双轨结论、路由 profile、模型/真人/Actions 外部证据和最终停止状态；不调用真实模型，不伪造外部 Release 证据。
+
+## 2026-07-18 Phase 15 Task 12 VERIFY
+
+- Task 12 Demo 已组合 Phase 14 三视图业务闭环与 Phase 15 两次本地 profile Release；冻结 Manifest 为 48 例，本地 PR 运行 36 个非 holdout case，两次技术 dry-run 均 `PASS`，Promotion `BLOCKED`，默认路由 `DETERMINISTIC_ONLY`。
+- 业务证据：同一 `live-session-p001-sold-out-v1` 穿过 `PREPARE/LIVE/REVIEW`，售罄自动保护 `APPLIED`，人工决定 `MODIFY`，经营恢复命令未提交，记忆晋升与重放均 `APPLIED`。
+- 验证证据：Task 12 专项 `3 passed`、Phase 14/15 聚合 `33 passed`、完整 unit `1382 passed, 4 warnings`、integration `155 passed, 3 deselected, 5 warnings`；迁移 dry-run、正式源码 compileall、PR/Nightly 本地门禁和 `git diff --check` 通过。
+- Release 模式因 coverage、PostgreSQL 和托管 GitHub evidence 缺失明确 `BLOCKED`；未调用真实模型，Phase 15 新增费用 `0`，Acceptance 与 Final Acceptance 诚实记录为 `INCONCLUSIVE`。

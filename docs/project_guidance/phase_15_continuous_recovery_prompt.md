@@ -6,7 +6,7 @@
 2. `docs/superpowers/specs/phase-15-golden-release-gates-design.md`
 3. `docs/superpowers/plans/2026-07-18-phase-15-golden-release-gates-plan.md`
 4. `docs/project_guidance/agent_runtime_completion_master_plan.md`
-5. `docs/project_guidance/agent_runtime_evolution_decisions.md` 的 D-123 至 D-132
+5. `docs/project_guidance/agent_runtime_evolution_decisions.md` 的 D-123 至 D-133
 6. `docs/worklog/task_plan.md`
 7. `docs/worklog/findings.md` 与 `docs/worklog/progress.md`
 8. `git status --short` 与 `git log -5 --oneline --decorate`
@@ -14,7 +14,7 @@
 ## 恢复规则
 
 - Stage A 已完成；实时状态明确记录用户已授权 Stage B 时，按 Phase 15 Plan 的 Task 1-12 继续。
-- 当前游标为 Task 7 READY_TO_PUSH；恢复时先读取 Task 7 文件范围和最终测试证据，不访问真实模型。
+- 当前状态为 `PHASE_15_COMPLETE_INCONCLUSIVE`；Task 1-12 已完成，恢复时先读取 Phase 15/Final Acceptance 和实时状态，不自动开始新阶段。
 - Phase 15 使用双轨结论：技术 Release 可以 PASS，Copilot 仍可能为 `KEEP_DISABLED` 或 `BLOCKED`。
 - 真实模型预算上限为 0.60 元；没有真实 usage 时按预留额结算并禁止 Promotion。
 - 没有 3-5 名真实参与者的 24-40 条记录时，不生成真人 Promotion 证据。

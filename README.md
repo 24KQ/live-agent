@@ -86,7 +86,7 @@ python scripts/run_all.py phase14-demo
 python scripts/run_all.py phase15-demo
 ```
 
-其中 Phase 15 在 Golden Runner 和托管 CI 完成前只输出 `BLOCKED`，不会调用真实模型。
+其中 Phase 15 会回放三场景业务闭环并运行两次本地确定性 Release profile；在真实模型、真人对照和托管 CI 证据缺失时，技术 dry-run 可为 `PASS`，但 Promotion/Acceptance 保持 `BLOCKED`/`INCONCLUSIVE`，不会调用真实模型。
 
 ## 核心功能
 
