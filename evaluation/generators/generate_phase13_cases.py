@@ -869,22 +869,23 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
 
     # v2 的数据资产闭包只能包含它自己生成的 phase13 子树。后续版本化数据集（如
     # LiveOps v3）必须独立绑定自己的 Manifest，不能因同目录新增文件而反向改变 v2。
+    # Phase 13 是历史基线；Schema 目录现在还包含 Phase 15 文件，不能再用整个
+    # 目录发现，否则向后新增的 Release Schema 会改变 Phase 13 Manifest 字节。
+    artifact_paths = [root / "schemas" / "phase13_case.schema.json"]
     artifact_directories = (
-        root / "schemas",
         root / "pricing",
         root / "prompts",
         root / "result_schemas",
         root / "cases" / "phase13",
         root / "labels" / "phase13",
     )
-    artifact_paths = tuple(
-        sorted(
-            path.relative_to(root)
-            for directory in artifact_directories
-            for path in directory.rglob("*")
-            if path.is_file()
-        )
+    artifact_paths.extend(
+        path
+        for directory in artifact_directories
+        for path in directory.rglob("*")
+        if path.is_file()
     )
+    artifact_paths = tuple(sorted(path.relative_to(root) for path in artifact_paths))
     artifact_digests = {
         relative.as_posix(): _digest_bytes((root / relative).read_bytes())
         for relative in artifact_paths

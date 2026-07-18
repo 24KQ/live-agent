@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`PHASE_15_TASK_1_PUSHED`
+文档状态：`PHASE_15_TASK_2_READY_TO_PUSH`
 
 最后更新：2026-07-18
 
@@ -9,20 +9,20 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 15 Golden Release Gates Stage B |
-| 最近完成任务 | Phase 15 Stage A：Design/Plan、D-123 至 D-132、路线图、worklog 和恢复协议持久化 |
-| 当前任务 | Task 1：发布入口、迁移清单与仓库事实 |
-| 当前任务状态 | `PUSHED` / `PHASE_15_TASK_1_PUSHED` |
-| 当前子步骤 | 规格/质量审查、unit/integration、迁移、入口、扫描、编译和编码检查均通过；本 Task 文件已准备提交推送 |
+| 最近完成任务 | Task 1：发布入口、迁移清单与仓库事实（`2a88224` 已推送） |
+| 当前任务 | Task 2：48 例 Golden Dataset 与 Manifest |
+| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_2_READY_TO_PUSH` |
+| 当前子步骤 | 48 例、split、来源、脱敏、case digest、规则/源码摘要和双次生成契约均已转绿；专项、unit/integration 和历史 Manifest 回归已通过，待静态门禁与提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | Phase 14 Task 12 Acceptance；Stage A 文档提交以 `git log -1 --oneline --decorate` 解析 |
-| 远端状态 | `origin/main=25a4b68`；Task 1 代码提交前保留用户脏文件，恢复时必须核对本地/远端 HEAD |
+| 远端状态 | `origin/main=2a88224`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
 | 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
 
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
 - 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-122；Phase 15 Design/Plan、D-123 至 D-132 和恢复协议。
-- 当前授权：Phase 15 Stage B Task 1-12 连续实施；当前仅执行 Task 1。
+- 当前授权：Phase 15 Stage B Task 1-12 连续实施；当前仅执行 Task 2。
 - 仍禁止：Task 6 预检前运行真实模型；伪造真人或 GitHub Actions 证据；修改用户脏文件；跳过 RED/REVIEW/VERIFY。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
 - 当前禁止：提交红灯/半成品/已知失败代码、修改或提交用户脏文件、自动进入下一 Phase。
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 15 / Task 1
-状态: PUSHED
-目标: 对齐已有迁移、统一 Demo 入口、敏感扫描和 Phase 15 迁移测试事实
+Phase / Task: Phase 15 / Task 2
+状态: READY_TO_PUSH
+目标: 生成 48 例字节稳定 Golden Dataset、Schema 和不可变 Manifest
 禁止事项: 不调用真实模型；不伪造真人/托管 CI 证据；不修改用户脏文件；不把临时兼容脚本纳入提交
-当前 HEAD: 本文件已包含在最新远端提交；恢复时以 `git log -1 --oneline --decorate` 读取精确值
-本 Task 文件: scripts/run_db_migrations.py、scripts/run_all.py、scripts/check_sensitive_payloads.py、pyproject.toml、README.md、Phase 15 迁移/入口测试
+当前 HEAD: `2a88224` 是最新远端提交；Task 2 仍在工作区，恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
+本 Task 文件: src/release_gates/dataset.py、evaluation/schemas/phase15_golden_manifest.schema.json、evaluation/generators/generate_phase15_cases.py、evaluation/manifests/phase15-runtime-v1.json、evaluation/cases/phase15-runtime-v1、evaluation/labels/phase15-runtime-v1、Task 2 测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 1 专项/迁移/Demo 回归 `24 passed`；迁移 dry-run `17` 步；入口 help、Phase 13/15 Demo、tracked 敏感扫描、compileall 均退出 0
+最近命令与结果: Task 2 数据/Phase 13/14 回归 `25 passed`；全量 unit `1329 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`；Task 1 `2a88224` 已推送；Phase 13 历史 Manifest 闭包修复已通过回归
 错误与尝试次数: 本 Task 尚未运行真实模型或写入数据库；用户既有脏文件保持原状
-设计偏差与决策编号: 沿用 D-123 至 D-132；Task 1 只对齐入口、迁移和扫描事实，不改变业务安全边界
-下一条精确操作: 只暂存 Task 1 文件，提交 `build: align phase 15 release entrypoints` 并推送；随后切换 Task 2 RED
+设计偏差与决策编号: 沿用 D-123 至 D-132；Task 2 活跃清单固定 48 例，Phase 13 240 例只做归档 Manifest 完整性校验
+下一条精确操作: 运行严格 UTF-8/LF、敏感扫描、Manifest 双次生成和 git diff 检查；通过后只暂存 Task 2 目标文件，提交并推送
 模型费用累计: 0.042344 元
 ```
 

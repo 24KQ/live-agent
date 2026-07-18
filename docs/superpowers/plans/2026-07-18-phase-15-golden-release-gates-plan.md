@@ -1,8 +1,8 @@
 # Phase 15 Golden Release Gates Implementation Plan
 
-文档状态：`PHASE_15_DESIGN_REVIEWED_AWAITING_IMPLEMENTATION_AUTHORIZATION`
+文档状态：`PHASE_15_TASK_2_READY_TO_PUSH`
 
-本文件已完成 Stage A 持久化；只有用户单独授权 Stage B 后才可执行 Task 1-12。
+本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1 已推送，Task 2 已完成实现、审查和验证，待提交推送。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` for isolated implementation and review tasks; otherwise use `executing-plans` task-by-task. Steps use the repository RED, GREEN, REFACTOR, REVIEW, VERIFY, DOCS, COMMIT, PUSH protocol.
 
@@ -38,7 +38,7 @@
 
 - RED：覆盖 48 case、12/24/12 split、三场景、归档 Phase 13 Manifest、重复 ID、敏感字段、Manifest 摘要和生成器字节稳定。
 - GREEN：生成 24 Runtime、复用 16 Phase 14 live case、新增 8 PREPARE/REVIEW case；Manifest 记录来源文件、case 摘要、Schema/规则/源码摘要和 supersedes。
-- VERIFY：生成器连续运行两次逐字节比较；确认 Phase 13 240 例只做历史完整性检查。
+- VERIFY：生成器连续运行两次逐字节比较；Phase 13 240 例只做历史完整性检查；专项、unit/integration、编码和差异门禁通过。
 - COMMIT/PUSH：`feat: version phase 15 golden dataset`。
 
 ## Task 3：统一 Subject Runner 与规则门禁

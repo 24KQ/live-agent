@@ -750,3 +750,27 @@
 - Task 1 已完成 RED/GREEN/REVIEW/VERIFY：迁移从 13 步扩展到 17 步，统一入口新增三阶段 Demo，tracked 敏感扫描可编译并严格运行。
 - 完整 unit `1324 passed`、integration `150 passed, 3 deselected`；目标文件编码、compileall 和 `git diff --check` 通过。
 - 下一步只暂存 Task 1 文件，提交 `build: align phase 15 release entrypoints` 并推送，然后开始 Task 2 RED。
+
+# 2026-07-18 Phase 15 Task 2 RED
+
+- Task 1 已推送：`2a88224 build: align phase 15 release entrypoints`。
+- 连续游标切换到 Task 2：48 例 Golden Dataset、冻结 Schema、Manifest 和字节稳定生成器；真实模型仍禁止调用。
+- 下一步检查 Phase 13/14 数据集复用边界，先写 split、case ID、脱敏、Manifest 摘要和双次生成一致性的红灯测试。
+
+# 2026-07-18 Phase 15 Task 2 GREEN
+
+- Task 2 红灯确认缺失 `src.release_gates.dataset`，最小实现后专项 `5 passed`。
+- 已生成 `phase15-runtime-v1` 的 cases/labels/Manifest；48 例、三场景来源、12/24/12 split、脱敏、case/artifact digest 和历史 supersedes 约束闭合。
+- Manifest 额外绑定规则摘要和当前 `release_gates` 源码闭包摘要；下一步运行 Phase 13/14 数据回归、完整 unit 和规格/质量审查。
+
+# 2026-07-18 Phase 15 Task 2 REVIEW
+
+- Phase 13/14 数据回归 `25 passed`，完整 unit `1329 passed, 4 warnings`；新增 labels split/ID 校验通过。
+- 修复历史 Phase 13 generator 的目录级 Schema 污染，v2/v3 Manifest 只更新来源闭包摘要；Phase 13 240 例 case/label 内容保持不变。
+- 当前进入完整 integration、严格编码、敏感扫描、双次生成和 diff 验证；通过后提交 `feat: version phase 15 golden dataset`。
+
+# 2026-07-18 Phase 15 Task 2 VERIFY
+
+- 全量 integration 明确通过：`150 passed, 3 deselected, 5 warnings`；全量 unit 明确通过：`1329 passed, 4 warnings`；退出码均为 `0`。
+- Task 2 专项和 Phase 13/14 聚合回归共 `25 passed`，真实模型和外部服务费用保持 `0`。
+- 阶段状态改为 `PHASE_15_TASK_2_READY_TO_PUSH`；下一步只执行严格编码/敏感扫描、Manifest 双次生成、差异检查、暂存、提交和推送。

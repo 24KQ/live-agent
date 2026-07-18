@@ -581,3 +581,28 @@
 
 - Task 1 目标文件严格编码检查 `15` 个文件通过，`git diff --check` 通过，用户已有脏文件未纳入。
 - 当前提交范围仅包含迁移注册/DDL、统一入口、扫描器、README、开发依赖、Task 1 测试和阶段留痕；Phase 15 Golden/Store/真实模型仍未实现。
+
+## 2026-07-18 Phase 15 Task 2 RED
+
+- Task 1 已以 `2a88224 build: align phase 15 release entrypoints` 提交并推送，用户脏文件未纳入。
+- Task 2 固定活跃数据为 48 例：24 Runtime 安全、16 播中复合事故、8 PREPARE/REVIEW；split 为 `12/24/12`，Phase 13 240 例只做历史 Manifest 完整性校验。
+- 当前尚未生成 Phase 15 数据、Manifest 或模型输入；下一步先读取既有 Phase 13/14 数据资产，建立预期失败测试。
+
+## 2026-07-18 Phase 15 Task 2 GREEN
+
+- 新增 `GoldenCase`、`GoldenManifest`、`Phase15Dataset` 和确定性生成器；活跃数据固定为 48 例，split `12/24/12`，domain 分布为 Runtime 三类各 8、LIVE 16、PREPARE/REVIEW 各 4。
+- Phase 14 16 例以新 case ID 只读复用；Phase 13 v3 与 Phase 14 Manifest 只保存来源摘要；模型输入与 labels 分离，holdout label 不进入 case。
+- Manifest 绑定文件级 artifact digest、48 个 case digest、Schema/规则/生成器/源码摘要和 source Manifest digest；连续生成逐字节稳定。
+- Task 2 专项当前 `5 passed`，真实模型和外部服务未调用。
+
+## 2026-07-18 Phase 15 Task 2 REVIEW
+
+- 规格审查确认 48 例分布、Phase 14 只读复用、labels/holdout 隔离、Manifest case/artifact/Schema/规则/源码/来源摘要和 supersedes 均闭合。
+- 审查发现 Phase 13 旧生成器会把新增 Phase 15 Schema 纳入历史 artifact；已将其收窄为明确的 Phase 13 Schema 文件，v2/v3 仅刷新源码闭包摘要，case/label 内容未变化。
+- 增加 labels split/ID 重载校验和 Phase 13 历史 240 例完整性断言；未发现 Critical/Important 阻断，真实模型仍未调用。
+
+## 2026-07-18 Phase 15 Task 2 VERIFY
+
+- Task 2 专项 `5 passed`；全量 unit `1329 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`，退出码均为 `0`。
+- `compileall`、Phase 13/14 数据聚合 `25 passed` 和生成器连续运行字节稳定性通过；真实模型、数据库写入和外部服务均未调用。
+- 当前仅剩目标文件严格编码、敏感扫描、`git diff --check`、暂存边界、独立提交和推送；用户已有脏文件继续排除。

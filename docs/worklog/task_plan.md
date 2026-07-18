@@ -178,9 +178,9 @@
   - [x] Task 11：真实模型 smoke 预检与严格结论（`6a79359` 已提交并推送）。
   - [x] Task 12：三场景 Demo、Phase 14 Acceptance 与 Phase 15 Gate（`c4124ce` 已提交并推送）。
 - [x] Phase 15 Stage A：Golden Dataset、发布门禁、双轨结论、真人证据、预算、CI、路由和 Final Acceptance Design/Plan 已审核持久化；D-123 至 D-132 已追加，旧 Discussion Baseline 已标记为历史输入。
-- [ ] Phase 15 Stage B：用户已授权，按 Task 1-12 连续执行；当前 Task 1 RED。
-  - [x] Task 1：发布入口、迁移清单与仓库事实（已验证，待提交推送）。
-  - [ ] Task 2：48 例 Golden Dataset 与 Manifest。
+- [ ] Phase 15 Stage B：用户已授权，按 Task 1-12 连续执行；当前 Task 2 已验证，待提交推送。
+  - [x] Task 1：发布入口、迁移清单与仓库事实（`2a88224` 已推送）。
+  - [ ] Task 2：48 例 Golden Dataset 与 Manifest（已验证，待提交推送）。
   - [ ] Task 3：统一 Subject Runner 与规则门禁。
   - [ ] Task 4：Release Store、双轨决策与 Phase 15 预算。
   - [ ] Task 5：真人交叉对照采集器。

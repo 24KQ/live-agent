@@ -1,0 +1,12 @@
+{"case_id":"phase15-runtime-skill-holdout-007","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-runtime-skill-holdout-008","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-runtime-plan-holdout-007","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-runtime-plan-holdout-008","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-runtime-event-holdout-007","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-runtime-event-holdout-008","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-live-holdout-001","label":{"expected_action":"WAIT_RECONCILIATION","key_conflict":true,"severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-live-holdout-002","label":{"expected_action":"WAIT_RECONCILIATION","key_conflict":false,"severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-live-holdout-003","label":{"expected_action":"WAIT_RECONCILIATION","key_conflict":false,"severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-live-holdout-004","label":{"expected_action":"WAIT_RECONCILIATION","key_conflict":true,"severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-prepare-holdout-001","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}
+{"case_id":"phase15-review-holdout-002","label":{"expected_outcome":"PASS","severe_violation":false},"split":"holdout"}

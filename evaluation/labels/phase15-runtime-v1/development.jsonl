@@ -1,0 +1,12 @@
+{"case_id":"phase15-runtime-skill-development-001","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-runtime-skill-development-002","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-runtime-plan-development-001","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-runtime-plan-development-002","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-runtime-event-development-001","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-runtime-event-development-002","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-live-development-001","label":{"expected_action":"WAIT_OPERATOR_BACKUP","key_conflict":true,"severe_violation":false},"split":"development"}
+{"case_id":"phase15-live-development-002","label":{"expected_action":"IGNORE_DANMAKU_NOISE","key_conflict":false,"severe_violation":false},"split":"development"}
+{"case_id":"phase15-live-development-003","label":{"expected_action":"WAIT_OPERATOR_TIMING","key_conflict":false,"severe_violation":false},"split":"development"}
+{"case_id":"phase15-live-development-004","label":{"expected_action":"WAIT_RECONCILIATION","key_conflict":true,"severe_violation":false},"split":"development"}
+{"case_id":"phase15-prepare-development-001","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
+{"case_id":"phase15-review-development-002","label":{"expected_outcome":"PASS","severe_violation":false},"split":"development"}
