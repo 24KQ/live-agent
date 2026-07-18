@@ -53,9 +53,14 @@ def build_evidence_bundle(
     reconciliation_required: bool = False,
     side_effect_unknown: bool = False,
     evidence_time: datetime | None = None,
+    include_availability_noise: bool = True,
+    pause_required: bool = True,
+    valid_backup_count: int = 1,
 ) -> AssembledEvidenceBundle:
     """通过真实受治理 Assembler 生成可写入 Store 的最小证据链。"""
 
+    if type(valid_backup_count) is not int or not 1 <= valid_backup_count <= 3:
+        raise ValueError("valid_backup_count must be an integer from 1 through 3")
     # 默认固定时间维持历史测试字节稳定；需要验证数据库实时 freshness 的调用方显式
     # 注入 UTC 时钟，避免通过修改全局 NOW 或手工伪造 receipt 改变被测安全边界。
     reference_time = evidence_time or NOW
@@ -123,7 +128,18 @@ def build_evidence_bundle(
                 expected_version=2,
                 planned_product=_product("p001", "39.90", 1, 10, True),
                 current_product=_product("p001", "39.90", 2, 0, False),
-                backup_products=(_product("p002", "35.90", 4, 18, True),),
+                # Task 5 需要覆盖三选二的每个组合；仍通过正式产品快照类型构造
+                # 多备品信号，避免测试直接覆盖 snapshot 而跳过证据摘要校验。
+                backup_products=tuple(
+                    _product(
+                        f"p{index + 2:03d}",
+                        "35.90",
+                        4,
+                        18,
+                        True,
+                    )
+                    for index in range(valid_backup_count)
+                ),
             ),
         ),
         _component(
@@ -181,7 +197,14 @@ def build_evidence_bundle(
                 aggregate_id=f"danmaku-{suffix}",
                 window_start=reference_time - timedelta(seconds=10),
                 window_end=reference_time - timedelta(seconds=2),
-                noise_level=DanmakuNoiseLevel.HIGH,
+                # 默认继续构造高冲突售罄样本；Task 5 可显式关闭任一信号，复用
+                # 同一受治理装配链生成“正常但仍完整”的六角色 Bundle，不能用
+                # 手工篡改快照来测试选择器的未选中分支。
+                noise_level=(
+                    DanmakuNoiseLevel.HIGH
+                    if include_availability_noise
+                    else DanmakuNoiseLevel.LOW
+                ),
                 topics=(
                     DanmakuTopicEvidence(
                         category="PRODUCT_AVAILABILITY",
@@ -204,7 +227,11 @@ def build_evidence_bundle(
                 signal_id=f"rhythm-{suffix}",
                 window_start=reference_time - timedelta(seconds=9),
                 window_end=reference_time - timedelta(seconds=1),
-                signal_kind=RhythmSignalKind.PAUSE_REQUIRED,
+                signal_kind=(
+                    RhythmSignalKind.PAUSE_REQUIRED
+                    if pause_required
+                    else RhythmSignalKind.STEADY
+                ),
                 pace_score=82,
             ),
         ),

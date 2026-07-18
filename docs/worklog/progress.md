@@ -67,6 +67,55 @@
   `DEGRADED` 终态形状全部下沉到内存/PostgreSQL 双实现。最终 unit `1402 passed, 4 warnings`，
   integration `160 passed, 7 deselected, 5 warnings`；真实模型新增费用仍为 0。
 
+## 2026-07-18 Phase 16 Task 4 PUSHED / Task 5 RED
+
+- Task 4 已以 `1ea229a feat: persist multi-agent escalation facts` 推送到
+  `origin/codex/phase16-controlled-multi-agent`；远端和本地 HEAD 一致。
+- 连续游标进入 Task 5。该任务只实现确定性选择与 Analyst 协调，默认失败必须形成可解释
+  `DEGRADED` Outcome；Planner、READY Proposal、HTTP 与经营执行继续留在后续任务。
+
+## 2026-07-18 Phase 16 Task 5 GREEN / REVIEW
+
+- Task 5 RED 已确认：选择器/协调器不存在。新增受控协调器后，自动路径只对 fresh、
+  proposal-eligible、LIVE Bundle 的任意三选二信号调用一次 Analyst；正常、对账阻断或
+  伪造对象在模型边界前停止。
+- 成功只追加完整 `ConflictAnalysis`；模型、身份、输出或超时失败只追加一条安全摘要
+  `DEGRADED` Outcome。重试优先恢复已有 analysis/outcome，不重新发送冻结任务。
+- 当前专项 unit `8 passed`、Phase 16 相关 unit `25 passed`、隔离 PostgreSQL `10 passed`、
+  目标 compileall 通过；真实模型新增费用仍为 `0.000000 CNY`。正在进行最终双重复审。
+
+## 2026-07-18 Phase 16 Task 5 REVIEW REMEDIATION
+
+- 双重复审发现并已整改 6 项 Important：跨 Coordinator 重复模型发送、过期 Bundle 下已完成
+  事实无法恢复、响应丢失后重发、Store/DDL finding 旁路和错误 Runner Profile 冒充冻结身份。
+- 新增 D-146 和 append-only dispatch claim：同一冻结 Analyst task 至多发送一次；活跃 claim
+  返回 pending，过期/未知响应只写 `DEGRADED`。分析 finding/Profile 在内存和 PostgreSQL
+  都与父升级和冻结 Profile 精确绑定，终态后禁止追加分析。
+- 整改专项：selector/Store unit `20 passed`，隔离 PostgreSQL `12 passed`，真实模型费用仍为 0；
+  正在执行整改复审和最终全量验证。
+
+## 2026-07-18 Phase 16 Task 5 FINAL REVIEW REMEDIATION
+
+- 最终只读复审发现内存普通 operator lease 被错误限制为两秒，以及 claim、`LIVE -> REVIEW` 与
+  Evidence freshness 没有共享线性化点。已恢复普通续租的正整数契约；新 claim 必须在根 Workspace
+  锁内确认 `LIVE`、proposal-eligible，并保证完整两秒等待窗未过期；活跃 claim 暂时阻断进入
+  `REVIEW`，已有 claim 的恢复读取不重发模型。
+- PostgreSQL payload 触发器现在在检查 Analysis/Outcome 互斥前锁定同一根 Workspace。新增双连接
+  直写回归，证明已成功 Analysis 后，攻击者即使猜中下一 Workspace 版本也不能提交无 Analysis 的
+  `DEGRADED` Outcome。Task 5 聚合为 `63 passed`；真实模型费用仍为 `0.000000 CNY`。
+
+## 2026-07-18 Phase 16 Task 5 D-147 REMEDIATION
+
+- 最终双复审继续发现：人工请求的空触发码无法满足非空 `ConflictAnalysis` finding，claim 创建后
+  再等待完整两秒会跨越其自身预算，而 PostgreSQL `REVIEW` 会拒绝已发送请求的审计终态。D-147
+  固定人工至少一项、自动至少两项服务端重建信号；Coordinator 只等待 claim 剩余时间。
+- 仅当同一 dispatch claim 已存在时，`REVIEW` 可追加一条不含 Analysis/Proposal 的 `DEGRADED`
+  Outcome；首次 CAS 被视图切换抢占时只重试同一审计写一次，不重发模型。Analysis、READY、Proposal
+  和执行仍严格限定 `LIVE`。
+- PostgreSQL Analysis 写入要求 Store 上下文，因此完整 Pydantic 的 Unicode/Schema/canonical
+  digest 验证不会被裸 JSONB 直写绕过。专项现为 `43 passed`，新增真实 PostgreSQL 人工正向路径；
+  真实模型费用仍为 `0.000000 CNY`。
+
 ## 2026-07-15 Phase 13 Just-in-Time Design/Plan 审核
 
 - 基于 Phase 12B Acceptance 重新审核 Phase 13，采用共享评估内核与 LiveOps、Planner、ReviewMemory 三个纵向候选切片。
@@ -993,3 +1042,16 @@
 
 - Task 12 已提交并推送：`c01a5da docs: accept agent runtime release`，远端与本地一致。
 - Phase 15 以 `PHASE_15_COMPLETE_INCONCLUSIVE` 收口；报告、双轨结论和业务闭环证据已保存，不自动进入下一阶段。
+
+# 2026-07-18 Phase 16 Task 5 REVIEW 整改
+
+- 最终质量复审发现 Coordinator 以本地业务墙钟计算 PostgreSQL dispatch claim 剩余时间，慢 Worker 可能把两秒数据库窗口放大后采纳迟到 Analysis。
+- 已新增真实 PostgreSQL RED `1 failed`，再由 InMemory/PostgreSQL Store 各自的权威时钟返回剩余秒数；GREEN 为 `1 passed`。Coordinator 继续只允许单次发送、超时只追加 `DEGRADED`，不重新调用模型。
+- D-147、Task Plan 和实时状态已同步；当前仍在 Task 5 VERIFY，等待规格复审、全量 unit/integration 与提交前门禁，真实模型费用为 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 5 VERIFY
+
+- D-147 最终复核新增 `REVIEW` 终态形状 RED：仅有 claim 不能授权携带 Analysis 的
+  `DEGRADED` Outcome。内存与 PostgreSQL 都已收紧为同 claim、无 Analysis/Proposal 的唯一审计闭合。
+- 专项 unit `25 passed`、隔离 PostgreSQL `20 passed`、完整 unit `1420 passed, 4 warnings`、完整 integration `172 passed, 7 deselected, 5 warnings`。数据库测试临时使用隔离 `5434` 容器，未修改 5432 用户服务或仓库配置；真实模型费用仍为 `0.000000 CNY`。
+- 当前进入 COMMIT：只暂存 Phase 16 Task 5 代码、DDL、测试、决策与工作日志，随后推送并切换到 Task 6 RED。

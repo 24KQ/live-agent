@@ -5,8 +5,8 @@
 - [x] Task 1：持久化已批准的 Design、Implementation Plan、D-134 至 D-140、路线图、总控和恢复入口；等待本 Task 验证、提交与推送。
 - [x] Task 2：修复根 pytest 的三处 Phase 14 PostgreSQL 测试模块同名收集冲突，并以 `.gitattributes` 固定 Python LF 检出消除冻结生成器伪漂移；根 collect、专项、完整 unit/integration 和最终审查已通过，`6ea5a57` 已提交并推送。
 - [x] Task 3：新增 `CONFLICT_ANALYSIS`、`LIVE_DECISION_PLANNING`、冻结 Profile 和不可变领域协议。Profile/lineage/预算/历史闭包/Prompt/展示安全整改、历史迁移/测试基线整改、双重复审、空库迁移和完整 unit/integration 均已通过，`ad0e185` 已独立提交并推送。
-- [ ] Task 4：实现 escalation、analysis、outcome 的内存/PostgreSQL append-only Store。四轮审查整改和最终验证均已完成，待独立提交推送；D-145 固定数据库 CAS、LIVE 线性化复核与 Task 6 前 READY fail-closed。
-- [ ] Task 5：实现三选二选择器、运营 lease 显式升级和 Analyst Coordinator 段。
+- [x] Task 4：实现 escalation、analysis、outcome 的内存/PostgreSQL append-only Store。四轮审查整改和最终验证均已完成，`1ea229a` 已独立提交推送；D-145 固定数据库 CAS、LIVE 线性化复核与 Task 6 前 READY fail-closed。
+- [ ] Task 5：实现三选二选择器、运营 lease 显式升级和 Analyst Coordinator 段。验证完成、待独立提交：D-146/D-147 已整改单次 dispatch、未知响应、过期恢复、Profile/finding 旁路、claim 与 `LIVE -> REVIEW` 线性化、无关联降级终态竞态、人工空 finding、跨视图审计闭合、慢 Worker 墙钟延长数据库租约，以及 REVIEW 携带 Analysis 的降级旁路；专项 unit `25 passed`、PostgreSQL `20 passed`、完整 unit `1420 passed`、integration `172 passed`。
 - [ ] Task 6：实现 Planner 段、整份 Validator 拒绝和受控 Proposal lineage。
 - [ ] Task 7：接入 operator-authenticated HTTP、WebSocket 和 Workspace 投影。
 - [ ] Task 8：扩展本地三视图工作台的高冲突事故展示与交互。

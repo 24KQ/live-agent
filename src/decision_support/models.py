@@ -311,6 +311,36 @@ class MultiAgentOutcome(_DatedMultiAgentFact):
         return self
 
 
+class AnalystDispatchClaim(DecisionSupportFrozenModel):
+    """发送 Analyst 前的持久化单次 claim，不承载模型正文或业务写权限。
+
+    claim 在外部请求发送前追加，因而模型响应丢失或 Coordinator 崩溃后也能知道该冻结
+    task 已经可能离开进程。lease 只定义其他调用方应等待多久；到期后只能降级，绝不能
+    用相同 task 再次发送，避免把未知副作用重试成重复模型调用。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    escalation_id: str = Field(..., min_length=1)
+    live_session_id: str = Field(..., min_length=1)
+    task_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime
+    lease_until: datetime
+
+    @field_validator("created_at", "lease_until")
+    @classmethod
+    def _require_claim_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("dispatch claim times must be timezone-aware")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def _require_positive_claim_window(self) -> "AnalystDispatchClaim":
+        if self.lease_until <= self.created_at:
+            raise ValueError("dispatch claim lease_until must follow created_at")
+        return self
+
+
 class MultiAgentProposalLineage(DecisionSupportFrozenModel):
     """Planner 方案绑定上游升级、分析、Bundle 与精确 Profile，禁止跨事实拼接。"""
 

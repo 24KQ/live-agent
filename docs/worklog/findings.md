@@ -49,6 +49,16 @@
 - Task 4 最终复审还确认：CAS trigger 必须在持有根行锁后再次检查 `LIVE`，否则 payload 校验与
   版本推进之间存在生命周期竞态；数据库直写的 `DEGRADED` Outcome 必须和领域模型一样带封闭
   failure code、非空事实摘要且没有 Proposal lineage，避免 append-only 审计链写入不可重载行。
+- Task 5 最终复审以 D-147 修正 Task 4 的“人工升级不携带触发码”旧留痕：人工请求仍不能提交
+  任何触发码，但服务器必须从同一 Bundle 重建至少一项真实冲突，否则 `ConflictAnalysis` 的非空
+  finding 契约会使合法人工升级必然失败。自动路径继续要求至少两项。
+- dispatch claim 的两秒预算从持久化创建时开始。claim 到期后切到 `REVIEW` 只能写入绑定既有
+  claim、没有 Analysis/Proposal 的一次 `DEGRADED` 审计终态；不能补写 Analysis、READY、方案、
+  命令或经营恢复。默认 5432 实例认证失败是本机环境差异，专项和全量数据库验证临时使用隔离
+  `5434` 容器，不写入仓库配置。
+- PostgreSQL 无法可靠复刻 Python 的全部 Unicode category C 与 canonical JSON 哈希规则；D-147
+  把 Analysis 写入收束到同事务 Store 上下文，Store 的严格 Pydantic 重载仍为唯一 Schema/digest
+  权威。该标记防止可信服务内的意外裸 SQL，不声称能隔离已失陷服务进程。
 
 ## 2026-07-11 文档编码治理发现
 
@@ -814,3 +824,14 @@
 
 - Task 12 已以 `c01a5da docs: accept agent runtime release` 提交并推送，远端与本地一致；用户脏文件未纳入。
 - Phase 15/Final Acceptance 已固定为 `INCONCLUSIVE`，Promotion `BLOCKED`，默认 `DETERMINISTIC_ONLY`；状态为 `PHASE_15_COMPLETE_INCONCLUSIVE`，不自动进入新阶段。
+
+## 2026-07-18 Phase 16 Task 5 时钟权威整改
+
+- PostgreSQL Analyst dispatch claim 的创建与过期由数据库事务时钟权威判定；Coordinator 若以 Worker 本地墙钟计算 `lease_until - now`，慢时钟会把两秒窗口错误放大，并采纳已过期的 Analyst 响应。
+- 新增真实 PostgreSQL 慢 Worker 时钟 RED：旧实现得到 `1 failed`，迟到响应被写为 Analysis。GREEN 后由 Store 计算权威剩余秒数，Coordinator 只接收不超过冻结两秒的预算，回归为 `1 passed`。
+- D-147 已同步为 Store/数据库权威剩余时间；不改变 at-most-once dispatch、`REVIEW` 闭合例外、默认 `DETERMINISTIC_ONLY` 或真实模型预算。
+
+## 2026-07-18 Phase 16 Task 5 VERIFY
+
+- D-147 的 `REVIEW` 例外必须同时要求既有 dispatch claim、`DEGRADED`、无 Analysis lineage 和无 Proposal lineage；只检查 claim 会把 LIVE 内 Planner/Validator 失败错误扩大到播后视图。
+- 新增内存和真实 PostgreSQL RED，各 `1 failed`；收紧 Store 与 CAS trigger 后分别转绿。Task 5 最终专项为 unit `25 passed`、PostgreSQL `20 passed`，全量为 unit `1420 passed, 4 warnings`、integration `172 passed, 7 deselected, 5 warnings`。

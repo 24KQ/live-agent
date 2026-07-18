@@ -122,10 +122,13 @@ def _escalation(bundle, *, mode: EscalationMode = EscalationMode.AUTOMATIC) -> E
         evidence_bundle_digest=snapshot.bundle_digest,
         idempotency_key="phase16-escalation-idem-001",
         mode=mode,
+        # D-147 后两类升级都记录服务端从默认冻结 Bundle 重建的真实信号；本夹具的
+        # 两项固定信号使各测试能独立验证 lease、freshness 和父链，而非被空 finding
+        # 的旧人工占位语义提前拦截。
         trigger_codes=(
             ConflictAnalysisCode.AVAILABILITY_NOISE_HIGH,
             ConflictAnalysisCode.RHYTHM_PAUSE_REQUIRED,
-        ) if mode is EscalationMode.AUTOMATIC else (),
+        ),
         operator_id="operator-phase16" if mode is EscalationMode.OPERATOR_REQUESTED else None,
         created_at=NOW,
     )
@@ -228,8 +231,8 @@ def test_escalation_requires_matching_bundle_parent_and_operator_fencing() -> No
         )
 
 
-def test_escalation_reconstructs_automatic_signals_and_rejects_manual_trigger_codes() -> None:
-    """Store 不能相信调用方自报冲突：自动规则来自 Bundle，人工规则不携带触发码。"""
+def test_escalation_reconstructs_signals_for_all_modes_and_rejects_manual_mismatch() -> None:
+    """Store 不能相信调用方自报冲突：自动与人工触发码都必须精确来自 Bundle。"""
 
     store = InMemoryDecisionSupportStore()
     workspace, lease, bundle = _seed_live_bundle(store)
@@ -374,4 +377,157 @@ def test_ready_outcome_fails_closed_until_task6_persists_verified_proposal() -> 
     with pytest.raises(WorkspaceConflictError, match="Task 6"):
         store.append_multi_agent_outcome(
             ready, expected_workspace_version=workspace.version
+        )
+
+
+def test_analysis_store_rejects_findings_that_differ_from_frozen_escalation_triggers() -> None:
+    """直接 Store 调用同样不能把模型新增或删减的 finding 伪装成同一高冲突升级。"""
+
+    store = InMemoryDecisionSupportStore()
+    workspace, _lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    workspace = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+    analysis = _analysis(escalation, bundle)
+    forged = ConflictAnalysis.model_validate(
+        {
+            **analysis.model_dump(mode="python"),
+            "finding_codes": (ConflictAnalysisCode.RHYTHM_PAUSE_REQUIRED,),
+            "analysis_digest": "",
+        }
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="finding codes"):
+        store.append_conflict_analysis(
+            forged, expected_workspace_version=workspace.version
+        )
+
+
+def test_dispatch_claim_uses_store_clock_and_fixed_two_second_window() -> None:
+    """内存 Store 不得让 Coordinator 传入任意时钟或租约长度来延长模型观察窗口。"""
+
+    instant = datetime.now(timezone.utc)
+    store = InMemoryDecisionSupportStore(clock=lambda: instant)
+    workspace, _lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    store.append_escalation(escalation, expected_workspace_version=workspace.version)
+
+    with pytest.raises(ValueError, match="exactly 2"):
+        store.claim_analyst_dispatch(
+            escalation_id=escalation.escalation_id,
+            task_digest="a" * 64,
+            now=instant + timedelta(days=1),
+            lease_seconds=3,
+        )
+
+
+def test_new_dispatch_claim_requires_live_workspace_and_blocks_review_during_window() -> None:
+    """新 claim 与 LIVE->REVIEW 迁移必须在同一 Store 锁下线性化，不能在已结束直播中发送 Analyst。"""
+
+    store = InMemoryDecisionSupportStore()
+    workspace, lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+    claim, is_new, is_active = store.claim_analyst_dispatch(
+        escalation_id=escalation.escalation_id,
+        task_digest="b" * 64,
+    )
+
+    assert is_new is True
+    assert is_active is True
+    with pytest.raises(WorkspaceConflictError, match="active analyst dispatch"):
+        store.advance_view(
+            bundle.live_session_id,
+            target_view=WorkspaceView.REVIEW,
+            expected_version=after_escalation.version,
+            operator_id=lease.operator_id,
+            fencing_token=lease.fencing_token,
+            now=NOW + timedelta(seconds=1),
+        )
+
+    store = InMemoryDecisionSupportStore()
+    workspace, lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+    store.advance_view(
+        bundle.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=after_escalation.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+        now=NOW + timedelta(seconds=1),
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="workspace is not LIVE"):
+        store.claim_analyst_dispatch(
+            escalation_id=escalation.escalation_id,
+            task_digest="c" * 64,
+        )
+
+
+def test_degraded_outcome_without_analysis_cannot_follow_a_persisted_analysis() -> None:
+    """成功 Analyst 事实已经存在时，不能再用无 Analysis 的降级终态覆盖同一升级的审计含义。"""
+
+    store = InMemoryDecisionSupportStore()
+    workspace, _lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+    analysis = _analysis(escalation, bundle)
+    after_analysis = store.append_conflict_analysis(
+        analysis, expected_workspace_version=after_escalation.version
+    )
+    degraded = MultiAgentOutcome.model_validate(
+        {
+            **_outcome(escalation, analysis).model_dump(mode="python"),
+            "analysis_id": None,
+            "analysis_digest": None,
+            "outcome_digest": "",
+        }
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="analysis prevents unlinked degraded outcome"):
+        store.append_multi_agent_outcome(
+            degraded, expected_workspace_version=after_analysis.version
+        )
+
+
+def test_review_can_only_close_claim_with_unlinked_degraded_outcome() -> None:
+    """D-147 的 REVIEW 例外不能把已完成 Analysis 的后续失败伪装为超时审计闭合。"""
+
+    instant = datetime.now(timezone.utc)
+    store = InMemoryDecisionSupportStore(clock=lambda: instant)
+    workspace, lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+    store.claim_analyst_dispatch(
+        escalation_id=escalation.escalation_id,
+        task_digest="d" * 64,
+    )
+    analysis = _analysis(escalation, bundle)
+    after_analysis = store.append_conflict_analysis(
+        analysis, expected_workspace_version=after_escalation.version
+    )
+    after_review = store.advance_view(
+        workspace.live_session_id,
+        target_view=WorkspaceView.REVIEW,
+        expected_version=after_analysis.version,
+        operator_id=lease.operator_id,
+        fencing_token=lease.fencing_token,
+        # claim 的两秒观察窗结束后运营可以切换视图，但只能保留“不含 Analysis”的
+        # 超时审计闭合；这个带 Analysis 的 Outcome 属于 LIVE 内的后续阶段失败。
+        now=instant + timedelta(seconds=3),
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="review degraded closure cannot carry analysis"):
+        store.append_multi_agent_outcome(
+            _outcome(escalation, analysis), expected_workspace_version=after_review.version
         )

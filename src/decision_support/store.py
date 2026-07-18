@@ -22,6 +22,7 @@ from src.decision_support.evidence import (
 )
 from src.decision_support.models import (
     POSTGRES_BIGINT_MAX,
+    AnalystDispatchClaim,
     ConflictAnalysis,
     ConflictAnalysisCode,
     EscalationMode,
@@ -31,6 +32,7 @@ from src.decision_support.models import (
     Incident,
     LiveSessionWorkspace,
     MultiAgentOutcome,
+    MultiAgentOutcomeStatus,
     OperatorDecision,
     OperatorLease,
     Proposal,
@@ -89,10 +91,15 @@ def _bundle_digest(evidence: EvidenceBundle) -> str:
     return EvidenceBundleSnapshot.model_validate(evidence.snapshot).bundle_digest
 
 
-def _automatic_escalation_codes(
+def derive_automatic_escalation_codes(
     evidence: EvidenceBundle,
 ) -> tuple[ConflictAnalysisCode, ...]:
-    """从冻结六角色 Bundle 重建三选二信号，绝不接受调用方自报的冲突代码。"""
+    """从冻结六角色 Bundle 重建三选二信号，绝不接受调用方自报的冲突代码。
+
+    Store 与 Phase 16 协调器必须共用这一唯一规则来源：协调器据此决定是否可进入
+    Analyst，Store 据此再次核对实际写入的自动升级事实。这样普通事件不会被意外
+    送往模型，而调用方也无法在写入时用另一套触发规则绕过选择器。
+    """
 
     snapshot = EvidenceBundleSnapshot.model_validate(evidence.snapshot)
     components = {component.role: component for component in snapshot.components}
@@ -124,7 +131,7 @@ def _automatic_escalation_codes(
 def _require_escalation_trigger_policy(
     *, fact: EscalationRecord, evidence: EvidenceBundle, now: datetime | None = None
 ) -> None:
-    """闭合 D-135：自动升级精确记录 Bundle 三选二信号，人工升级不携带规则断言。"""
+    """闭合 D-147：两类升级都记录 Bundle 派生信号，只有自动路径要求三选二。"""
 
     snapshot = EvidenceBundleSnapshot.model_validate(evidence.snapshot)
     instant = now or datetime.now(timezone.utc)
@@ -132,13 +139,10 @@ def _require_escalation_trigger_policy(
         raise WorkspaceConflictError("escalation requires fresh evidence bundle")
     if not snapshot.proposal_eligible:
         raise WorkspaceConflictError("escalation requires proposal eligible bundle")
-    if fact.mode is EscalationMode.OPERATOR_REQUESTED:
-        if fact.trigger_codes:
-            raise WorkspaceConflictError("operator escalation cannot carry trigger codes")
-        return
-    expected_codes = _automatic_escalation_codes(evidence)
-    if len(expected_codes) < 2 or fact.trigger_codes != expected_codes:
-        raise WorkspaceConflictError("automatic escalation trigger codes are invalid")
+    expected_codes = derive_automatic_escalation_codes(evidence)
+    minimum_codes = 1 if fact.mode is EscalationMode.OPERATOR_REQUESTED else 2
+    if len(expected_codes) < minimum_codes or fact.trigger_codes != expected_codes:
+        raise WorkspaceConflictError("escalation trigger codes are invalid")
 
 
 class InMemoryDecisionSupportStore:
@@ -148,8 +152,11 @@ class InMemoryDecisionSupportStore:
     相同校验顺序：先识别幂等重放，再锁定 Workspace 校验版本，最后写事实并 CAS。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
+        """初始化线程安全 Store；claim 的可信墙钟可注入以重放超时边界。"""
+
         self._lock = RLock()
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._workspaces: dict[str, LiveSessionWorkspace] = {}
         self._workspace_by_run_key: dict[str, str] = {}
         self._incidents: dict[str, Incident] = {}
@@ -157,6 +164,9 @@ class InMemoryDecisionSupportStore:
         self._escalations: dict[str, EscalationRecord] = {}
         self._analyses: dict[str, ConflictAnalysis] = {}
         self._outcomes: dict[str, MultiAgentOutcome] = {}
+        # claim 与 append-only 领域事实分开保存：它不推进 Workspace 版本，也不允许
+        # Agent 获得任何写能力，只是为外部 Analyst 调用提供跨重启的单次发送证据。
+        self._analyst_dispatch_claims: dict[str, AnalystDispatchClaim] = {}
         self._proposals: dict[str, Proposal] = {}
         self._decisions: dict[str, OperatorDecision] = {}
         self._decision_fencing: dict[str, tuple[str, int]] = {}
@@ -266,6 +276,21 @@ class InMemoryDecisionSupportStore:
             }
             if transitions.get(current.view) is not target_view:
                 raise WorkspaceConflictError("illegal workspace view transition")
+            if (
+                current.view is WorkspaceView.LIVE
+                and target_view is WorkspaceView.REVIEW
+                and any(
+                    claim.live_session_id == live_session_id
+                    and instant < claim.lease_until
+                    for claim in self._analyst_dispatch_claims.values()
+                )
+            ):
+                # dispatch claim 是模型请求的持久化线性化点。短暂阻止 LIVE 结束可使
+                # "先切 REVIEW 再发送"与"先 claim 再切 REVIEW"得到同一安全结果：
+                # 在两秒观察窗内要么不发送，要么保持 LIVE；不能让外部调用跨视图漂移。
+                raise WorkspaceConflictError(
+                    "active analyst dispatch prevents leaving LIVE"
+                )
             updated = LiveSessionWorkspace.model_validate(
                 {
                     **current.model_dump(mode="python"),
@@ -505,6 +530,10 @@ class InMemoryDecisionSupportStore:
                 raise WorkspaceConflictError("analysis evidence refs do not match bundle")
             if any(item.escalation_id == validated.escalation_id for item in self._analyses.values()):
                 raise WorkspaceConflictError("escalation already has an analysis")
+            if any(item.escalation_id == validated.escalation_id for item in self._outcomes.values()):
+                raise WorkspaceConflictError("terminal outcome prevents later analysis")
+            if validated.finding_codes != escalation.trigger_codes:
+                raise WorkspaceConflictError("analysis finding codes do not match escalation triggers")
             return self._append(
                 "conflict_analysis",
                 validated,
@@ -512,6 +541,80 @@ class InMemoryDecisionSupportStore:
                 self._analyses,
                 expected_workspace_version,
             )
+
+    def claim_analyst_dispatch(
+        self,
+        *,
+        escalation_id: str,
+        task_digest: str,
+        now: datetime | None = None,
+        lease_seconds: int = 2,
+    ) -> tuple[AnalystDispatchClaim, bool, bool]:
+        """原子记录 Analyst 单次发送意图，重复调用只返回原 claim 而不重发模型。"""
+
+        if lease_seconds != 2:
+            raise ValueError("lease_seconds must be exactly 2 for analyst dispatch")
+        with self._lock:
+            escalation = self._escalations.get(escalation_id)
+            if escalation is None:
+                raise WorkspaceConflictError("dispatch claim escalation parent is invalid")
+            # D-146 固定由 Store 自己的时钟生成两秒窗口。保留 now 参数仅为
+            # 接口兼容，不能让上游 Coordinator 伪造未来时间延长 pending claim。
+            instant = self._normalize_now(self._clock())
+            existing = self._analyst_dispatch_claims.get(escalation_id)
+            if existing is not None:
+                # 不在 Store 内抛出摘要冲突：Coordinator 会把不属于当前冻结任务的
+                # 直接写 claim 归一为安全降级；这样它不能永久阻断恢复或泄漏内部异常。
+                return existing, False, instant < existing.lease_until
+            workspace = self._workspaces[escalation.live_session_id]
+            bundle = self._evidence_bundles.get(escalation.evidence_bundle_id)
+            if workspace.view is not WorkspaceView.LIVE:
+                raise WorkspaceConflictError("dispatch workspace is not LIVE")
+            if bundle is None:
+                raise WorkspaceConflictError("dispatch claim evidence bundle is invalid")
+            try:
+                snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
+            except Exception as exc:
+                raise WorkspaceConflictError(
+                    "dispatch claim evidence bundle is invalid"
+                ) from exc
+            if (
+                not snapshot.proposal_eligible
+                or snapshot.bundle_digest != escalation.evidence_bundle_digest
+                or instant + timedelta(seconds=lease_seconds) >= snapshot.valid_until
+            ):
+                # claim 的两秒有效期覆盖整个外部 Analyst 等待窗口。若剩余 freshness
+                # 不足，则宁可不发送并由上层降级，也不能在 Evidence 过期后才发出请求。
+                raise WorkspaceConflictError(
+                    "dispatch claim evidence bundle is not fresh for analyst window"
+                )
+            claim = AnalystDispatchClaim(
+                escalation_id=escalation_id,
+                live_session_id=escalation.live_session_id,
+                task_digest=task_digest,
+                created_at=instant,
+                lease_until=instant + timedelta(seconds=lease_seconds),
+            )
+            self._analyst_dispatch_claims[escalation_id] = claim
+            return claim, True, True
+
+    def get_analyst_dispatch_claim(self, escalation_id: str) -> AnalystDispatchClaim | None:
+        """读取已发送或待观察的单次 claim，恢复逻辑不得从进程内状态猜测。"""
+
+        with self._lock:
+            return self._analyst_dispatch_claims.get(escalation_id)
+
+    def get_analyst_dispatch_remaining_seconds(self, escalation_id: str) -> float:
+        """仅用 Store 权威时钟计算 Analyst claim 的剩余发送窗口，禁止调用方传入墙钟。"""
+
+        with self._lock:
+            claim = self._analyst_dispatch_claims.get(escalation_id)
+            if claim is None:
+                raise WorkspaceConflictError("dispatch claim is missing")
+            instant = self._normalize_now(self._clock())
+            # Coordinator 可能运行在时间漂移节点；它只能消费本 Store 返回的短暂预算，
+            # 不能把持久化 lease_until 与本地业务时钟相减而把两秒观察窗错误拉长。
+            return max(0.0, (claim.lease_until - instant).total_seconds())
 
     def append_multi_agent_outcome(
         self, fact: MultiAgentOutcome, *, expected_workspace_version: int
@@ -529,6 +632,37 @@ class InMemoryDecisionSupportStore:
             if validated.status.value == "READY":
                 raise WorkspaceConflictError(
                     "Task 6 proposal persistence is required for READY outcome"
+                )
+            workspace = self.get_workspace(validated.live_session_id)
+            review_terminalization_allowed = (
+                workspace.view is WorkspaceView.REVIEW
+                and validated.status is MultiAgentOutcomeStatus.DEGRADED
+                and validated.analysis_id is None
+                and validated.analysis_digest is None
+                and validated.proposal_id is None
+                and validated.proposal_digest is None
+                and any(
+                    claim.escalation_id == validated.escalation_id
+                    for claim in self._analyst_dispatch_claims.values()
+                )
+            )
+            if (
+                workspace.view is WorkspaceView.REVIEW
+                and validated.status is MultiAgentOutcomeStatus.DEGRADED
+                and (validated.analysis_id is not None or validated.analysis_digest is not None)
+            ):
+                # D-147 只为已经离开进程、却在视图切换后超时的 Analyst 请求留下
+                # 无中间结果的审计闭合。带 Analysis 的降级属于 LIVE 内后续链路，
+                # 不能借 REVIEW 例外绕过生命周期、Planner 或 Proposal 约束。
+                raise WorkspaceConflictError(
+                    "review degraded closure cannot carry analysis"
+                )
+            if workspace.view is not WorkspaceView.LIVE and not review_terminalization_allowed:
+                # `REVIEW` 只保留已发送 Analyst 的失败审计闭合，不能借播后视图新增
+                # 分析、方案或任意无 claim 的终态。内存 Store 必须和 PostgreSQL CAS
+                # trigger 采用相同边界，保证重启前后的恢复语义一致。
+                raise WorkspaceConflictError(
+                    "degraded outcome requires dispatch claim after LIVE"
                 )
             escalation = self._escalations.get(validated.escalation_id)
             if (
@@ -548,6 +682,20 @@ class InMemoryDecisionSupportStore:
                     or analysis.analysis_digest != validated.analysis_digest
                 ):
                     raise WorkspaceConflictError("outcome analysis parent is invalid")
+            if (
+                validated.status is MultiAgentOutcomeStatus.DEGRADED
+                and validated.analysis_id is None
+                and any(
+                    item.escalation_id == validated.escalation_id
+                    for item in self._analyses.values()
+                )
+            ):
+                # 无 Analysis 的 DEGRADED 表示 Analyst 未能产出可持久化事实。已有成功
+                # Analysis 时再追加该终态会制造相互矛盾的审计链，必须在内存实现中与
+                # PostgreSQL 触发器保持同样的 fail-closed 语义。
+                raise WorkspaceConflictError(
+                    "analysis prevents unlinked degraded outcome"
+                )
             if any(item.escalation_id == validated.escalation_id for item in self._outcomes.values()):
                 raise WorkspaceConflictError("escalation already has an outcome")
             return self._append(
@@ -1126,7 +1274,7 @@ class PostgresDecisionSupportStore:
             cur.execute(
                 """SELECT escalation.live_session_id,escalation.incident_id,
                           escalation.evidence_bundle_id,escalation.evidence_bundle_digest,
-                          evidence.payload
+                          escalation.payload AS escalation_payload,evidence.payload
                    FROM phase16_escalations escalation
                    JOIN phase14_evidence_bundles evidence
                      ON evidence.live_session_id=escalation.live_session_id
@@ -1145,6 +1293,12 @@ class PostgresDecisionSupportStore:
                 != validated.evidence_bundle_digest
             ):
                 raise WorkspaceConflictError("analysis escalation parent is invalid")
+            if validated.finding_codes != EscalationRecord.model_validate(
+                dict(row["escalation_payload"])
+            ).trigger_codes:
+                raise WorkspaceConflictError(
+                    "analysis finding codes do not match escalation triggers"
+                )
             snapshot = EvidenceBundleSnapshot.model_validate(
                 dict(row["payload"])["snapshot"]
             )
@@ -1158,6 +1312,13 @@ class PostgresDecisionSupportStore:
             )
             if cur.fetchone() is not None:
                 raise WorkspaceConflictError("escalation already has an analysis")
+            cur.execute(
+                """SELECT 1 FROM phase16_multi_agent_outcomes
+                   WHERE live_session_id=%s AND escalation_id=%s""",
+                (validated.live_session_id, validated.escalation_id),
+            )
+            if cur.fetchone() is not None:
+                raise WorkspaceConflictError("terminal outcome prevents later analysis")
 
         return self._append_fact(
             fact_kind="conflict_analysis",
@@ -1178,7 +1339,135 @@ class PostgresDecisionSupportStore:
             expected_workspace_version=expected_workspace_version,
             validate_parent=validate_parent,
             workspace_version_advanced_by_trigger=True,
+            write_context=("phase16.analysis_write", "store"),
         )
+
+    def claim_analyst_dispatch(
+        self,
+        *,
+        escalation_id: str,
+        task_digest: str,
+        now: datetime | None = None,
+        lease_seconds: int = 2,
+    ) -> tuple[AnalystDispatchClaim, bool, bool]:
+        """以数据库唯一键原子创建单次 Analyst claim；数据库墙钟是唯一过期权威。"""
+
+        if lease_seconds != 2:
+            raise ValueError("lease_seconds must be exactly 2 for analyst dispatch")
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT live_session_id FROM phase16_escalations
+                       WHERE escalation_id=%s""",
+                    (escalation_id,),
+                )
+                parent = cur.fetchone()
+                if parent is None:
+                    raise WorkspaceConflictError("dispatch claim escalation parent is invalid")
+                # 与 LIVE->REVIEW 迁移采用同一根 Workspace 行锁。谁先取得锁谁先线性化：
+                # 视图已经结束则 claim 被拒绝；claim 已写入则迁移会观察到短暂的 active
+                # 观察窗并拒绝。外部模型调用因此不能跨越生命周期边界。
+                workspace = self._lock_workspace(cur, parent["live_session_id"])
+                instant = self._database_now(cur)
+                cur.execute(
+                    """SELECT escalation_id,live_session_id,task_digest,created_at,lease_until
+                       FROM phase16_analyst_dispatch_claims
+                       WHERE escalation_id=%s FOR UPDATE""",
+                    (escalation_id,),
+                )
+                existing = cur.fetchone()
+                if existing is not None:
+                    claim = AnalystDispatchClaim(**dict(existing))
+                    conn.commit()
+                    return claim, False, instant < claim.lease_until
+                if workspace["current_view"] != WorkspaceView.LIVE.value:
+                    raise WorkspaceConflictError("dispatch workspace is not LIVE")
+                cur.execute(
+                    """SELECT payload FROM phase14_evidence_bundles
+                       WHERE live_session_id=%s
+                         AND evidence_bundle_id=(
+                             SELECT evidence_bundle_id FROM phase16_escalations
+                              WHERE escalation_id=%s
+                         )""",
+                    (parent["live_session_id"], escalation_id),
+                )
+                evidence = cur.fetchone()
+                try:
+                    snapshot = EvidenceBundleSnapshot.model_validate(
+                        dict(evidence["payload"])["snapshot"]
+                    )
+                except Exception as exc:
+                    raise WorkspaceConflictError(
+                        "dispatch claim evidence bundle is invalid"
+                    ) from exc
+                if (
+                    not snapshot.proposal_eligible
+                    or instant + timedelta(seconds=lease_seconds) >= snapshot.valid_until
+                ):
+                    raise WorkspaceConflictError(
+                        "dispatch claim evidence bundle is not fresh for analyst window"
+                    )
+                # DDL trigger 也要求该事务显式声明 Store 写入上下文。它是防止同一
+                # 可信服务中误用直写 SQL 的完整性门禁，不是对任意同进程代码执行的
+                # 安全沙箱；D-121 的进程信任边界仍然成立。
+                cur.execute("SELECT set_config('phase16.claim_write','store',true)")
+                cur.execute(
+                    """INSERT INTO phase16_analyst_dispatch_claims
+                       (escalation_id,live_session_id,task_digest,created_at,lease_until)
+                       VALUES (%s,%s,%s,%s,%s)
+                       ON CONFLICT (escalation_id) DO NOTHING
+                       RETURNING escalation_id,live_session_id,task_digest,created_at,lease_until""",
+                    (
+                        escalation_id,
+                        parent["live_session_id"],
+                        task_digest,
+                        instant,
+                        instant + timedelta(seconds=lease_seconds),
+                    ),
+                )
+                created = cur.fetchone()
+                assert created is not None
+                claim = AnalystDispatchClaim(**dict(created))
+                is_new = True
+                # 数据库时钟是 PostgreSQL claim 的唯一租约权威。Coordinator 可能在
+                # 时钟漂移节点上运行，因此绝不能用本地 clock 复算这条边界。
+                is_active = is_new or instant < claim.lease_until
+            conn.commit()
+        return claim, is_new, is_active
+
+    def get_analyst_dispatch_claim(self, escalation_id: str) -> AnalystDispatchClaim | None:
+        """读取 PostgreSQL 追加 claim，用于重启后区分 in-flight 与未知响应。"""
+
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT escalation_id,live_session_id,task_digest,created_at,lease_until
+                       FROM phase16_analyst_dispatch_claims WHERE escalation_id=%s""",
+                    (escalation_id,),
+                )
+                row = cur.fetchone()
+        return None if row is None else AnalystDispatchClaim(**dict(row))
+
+    def get_analyst_dispatch_remaining_seconds(self, escalation_id: str) -> float:
+        """由 PostgreSQL 事务时钟返回 claim 剩余秒数，Worker 的本地墙钟不参与租约判断。"""
+
+        with self._connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT GREATEST(
+                           0,
+                           EXTRACT(EPOCH FROM lease_until - clock_timestamp())
+                       ) AS remaining_seconds
+                       FROM phase16_analyst_dispatch_claims
+                       WHERE escalation_id=%s""",
+                    (escalation_id,),
+                )
+                row = cur.fetchone()
+        if row is None:
+            raise WorkspaceConflictError("dispatch claim is missing")
+        # PostgreSQL numeric 可能映射为 Decimal；在端口边界归一成 float，并由 Coordinator
+        # 再次限制到冻结 Profile 的两秒上限，防止错误替身或损坏行放大外部等待窗口。
+        return float(row["remaining_seconds"])
 
     def append_multi_agent_outcome(
         self, fact: MultiAgentOutcome, *, expected_workspace_version: int
@@ -1228,6 +1517,19 @@ class PostgresDecisionSupportStore:
                     != validated.analysis_digest
                 ):
                     raise WorkspaceConflictError("outcome analysis parent is invalid")
+            if (
+                validated.status is MultiAgentOutcomeStatus.DEGRADED
+                and validated.analysis_id is None
+            ):
+                cur.execute(
+                    """SELECT 1 FROM phase16_conflict_analyses
+                       WHERE live_session_id=%s AND escalation_id=%s""",
+                    (validated.live_session_id, validated.escalation_id),
+                )
+                if cur.fetchone() is not None:
+                    raise WorkspaceConflictError(
+                        "analysis prevents unlinked degraded outcome"
+                    )
             if validated.proposal_id is not None:
                 cur.execute(
                     """SELECT 1 FROM phase14_proposals
@@ -1630,6 +1932,16 @@ class PostgresDecisionSupportStore:
                 }.get(current.view)
                 if expected_target is not target_view:
                     raise WorkspaceConflictError("illegal workspace view transition")
+                if current.view is WorkspaceView.LIVE and target_view is WorkspaceView.REVIEW:
+                    cur.execute(
+                        """SELECT 1 FROM phase16_analyst_dispatch_claims
+                           WHERE live_session_id=%s AND lease_until>%s LIMIT 1""",
+                        (live_session_id, instant),
+                    )
+                    if cur.fetchone() is not None:
+                        raise WorkspaceConflictError(
+                            "active analyst dispatch prevents leaving LIVE"
+                        )
                 cur.execute(
                     """UPDATE phase14_live_session_workspaces
                        SET current_view=%s,version=version+1,updated_at=NOW()
@@ -1708,6 +2020,7 @@ class PostgresDecisionSupportStore:
         validate_parent: Callable[[Any], None] | None = None,
         lease: tuple[str, int] | None = None,
         workspace_version_advanced_by_trigger: bool = False,
+        write_context: tuple[str, str] | None = None,
     ) -> LiveSessionWorkspace:
         """在单个根行锁事务中完成门禁、幂等、INSERT 与版本推进。"""
 
@@ -1745,6 +2058,13 @@ class PostgresDecisionSupportStore:
                     if lease is not None:
                         self._require_sql_lease(
                             row, *lease, self._database_now(cur)
+                        )
+                    if write_context is not None:
+                        # PostgreSQL 无法与 Python 完全等价地实现 Unicode category 与
+                        # canonical JSON 摘要。把写入收束到 Store 上下文可保证 Pydantic
+                        # 在同一事务前完成完整验证；D-121/D-147 明确这不是插件沙箱。
+                        cur.execute(
+                            "SELECT set_config(%s,%s,true)", write_context
                         )
                     if validate_parent is not None:
                         validate_parent(cur)

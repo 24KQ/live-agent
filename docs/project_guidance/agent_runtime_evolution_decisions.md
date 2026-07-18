@@ -1695,3 +1695,73 @@
   `DEGRADED` 终态；Task 6 扩展 Outcome 写入前必须补齐 READY 的 Store/DDL/重启回归。
 - **重新评估条件**：若未来数据库接入独立受限写角色或安全定义 RPC，可将同进程直写威胁模型
   从 D-121 的服务进程可信边界收紧；不得弱化现有 CAS、ledger 或父摘要校验。
+
+## D-146：Phase 16 Analyst 使用持久化单次 dispatch claim 与精确 Profile 绑定
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 5 复审发现，仅靠 Escalation/Analysis 的唯一事实约束无法阻止两个 Coordinator
+  在 Analysis 尚未写入时并发发送相同 Analyst Task；若外部响应已收到但进程在写入前失败，重试
+  也会错误地再次发送。另一个风险是同 ID/version 的错误 Runner Profile 可能被审计为冻结
+  `evidence_analyst` Profile，或直接 Store/SQL 写入绕过 trigger code/Profile 身份闭合。
+- **候选方案**：接受 at-least-once 模型调用并依赖唯一 Analysis；进程内锁；在外部发送前追加
+  持久化单次 dispatch claim，并强制 Runner Profile 与 Store/DDL 父事实匹配。
+- **最终选择**：每个 Escalation 在发送前原子创建一个 append-only Analyst dispatch claim，记录
+  冻结 task digest 与由 Store 权威时钟计算的两秒观察租约。活跃 claim 只返回 pending，不再发送；过期未闭合 claim
+  fail-closed 落为 `DEGRADED`，不重发模型。Coordinator 在 dispatch 前要求 Runner 解析出的
+  Profile 与启动冻结 Profile 的完整 digest 相同。Store 与 PostgreSQL trigger 同时要求
+  `ConflictAnalysis.finding_codes` 精确等于 Escalation trigger codes，并校验精确 Analyst
+  Profile 身份；Analysis 不得在已有终态后追加。claim 与 `LIVE -> REVIEW` 迁移锁定同一
+  Workspace 根行：新 claim 必须在 `LIVE` 且整个两秒窗口仍处于 Evidence freshness 内创建，
+  活跃 claim 会短暂阻断迁移；无 Analysis 的 `DEGRADED` 也不得在已持久化 Analysis 后追加。
+- **选择理由**：用保守的 at-most-once 外部发送语义防止直播现场重复模型成本和矛盾输出；
+  在响应状态不明时宁可降级交给运营，也不重复影响高风险决策链。数据库和应用层双重闭合保证
+  进程内调用或直写均不能伪造模型身份或事实含义。
+- **未选理由**：进程锁在多进程/重启后失效；只依赖 Analysis 唯一键仍允许重复外部调用；
+  无限租约会导致崩溃后无法恢复；允许过期后重发会把已发送但未记账的请求变成不可审计重复。
+- **影响**：Task 5 增加内存/PostgreSQL claim API、DDL 外键/append-only 约束、并发与
+  response-loss 测试。claim 不推进 Workspace 版本、不授予 Agent 写权限、不改变默认
+  `DETERMINISTIC_ONLY` 路由；PostgreSQL claim 还要求同一事务的 Store 写入上下文并以
+  数据库时钟判定活跃状态，但该标记只阻断意外直写、不构成同进程插件沙箱。Task 6 仍是
+  唯一可产生 READY Proposal 的阶段。续租仍是通用操作员 lease API，只接受正整数；固定两秒
+  约束仅属于 Analyst dispatch claim。两条 PostgreSQL 直写路径在 payload 触发器内先锁根行，
+  以防存在性检查与 CAS 之间形成跨连接终态竞态。
+- **重新评估条件**：若正式模型平台提供可验证的 server-side idempotency receipt，可在保留
+  事实审计的前提下以该 receipt 缩短未知状态窗口；不得移除单次 dispatch 或允许自动重发。
+
+## D-147：人工升级重建单项事实，过期 claim 只允许追加降级审计终态
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 5 最终复审发现两个关联缺口：人工升级记录空 `trigger_codes`，而冻结
+  `ConflictAnalysis` 至少要求一个 finding，导致任何合法人工请求都必然降级；同时 claim
+  的两秒窗口到期后，运营可以把 Workspace 切到 `REVIEW`，使已经发送的 Analyst 请求无法
+  落下成功 Analysis 或失败终态。另有 PostgreSQL 直写可构造不能被 Pydantic 重载的 Analysis
+  payload，风险是永久污染 append-only 审计链。
+- **候选方案**：人工请求携带自由触发码；允许空 finding 的特殊人工 Analysis；人工与自动
+  都要求三选二；在 `REVIEW` 拒绝所有后续事实；允许任意终态跨视图追加；或服务端重建事实、
+  以受 claim 约束的降级终态闭合审计，并将 Phase 16 fact 写入收束到 Store 验证边界。
+- **最终选择**：客户端继续不能提交 trigger code。服务端从同一冻结 Bundle 重建全部实际
+  信号：自动升级需要至少两项，持有当前 lease 的人工升级需要至少一项，二者写入的顺序化
+  trigger 集都必须精确等于 Bundle 派生事实。claim 创建后，Coordinator 的等待上限只能由
+  Store 的权威时钟计算：PostgreSQL 使用数据库 `clock_timestamp()` 返回剩余秒数，内存实现
+  使用自身受控时钟；Worker 本地业务墙钟绝不参与 `lease_until` 的差值计算，不能在两秒观察窗
+  外继续等待。若 claim 已发送而 Workspace 随后进入
+  `REVIEW`，只允许一次不含 Analysis/Proposal 的 `DEGRADED` Outcome 作为审计闭合，且必须
+  绑定同一 Escalation 的 claim；Analysis、READY、Proposal、命令和经营恢复仍严格要求
+  `LIVE`。PostgreSQL 对 Phase 16 Analysis 写入要求 Store 事务上下文，Store 的 Pydantic
+  重载仍是全量 Schema、展示文本与 canonical digest 的唯一权威验证；该上下文是 D-121 定义的
+  同进程完整性护栏，不是假装隔离恶意服务进程代码的沙箱。
+- **选择理由**：人工能在一个真实可解释冲突事实出现时请求更深分析，却不能凭空注入模型
+  发现；已发出的外部请求即使错过直播窗口也必须留下可恢复的失败审计，但绝不能在播后重新
+  激活分析、方案或执行。将完整 Python 契约收束到唯一 Store 写入路径避免 PostgreSQL JSONB
+  以不等价的 Unicode/canonical JSON 实现伪造摘要。
+- **未选理由**：自由触发码会把人工请求变成事实伪造入口；空 finding 会引入只供人工路径
+  使用的隐式分析语义；三选二会让人工升级没有实际价值；完全拒绝 `REVIEW` 后的终态会丢失
+  已发送请求的审计；允许任意事实跨视图会扩大经营权限；用 SQL 模拟全部 Python Unicode 和
+  canonical JSON 规则既不可靠也无法形成同一事实源。
+- **影响**：Task 5 更新 Escalation/Store/DDL 触发码规则、Store 权威 claim 剩余时间、`REVIEW`
+  下的受限 Outcome CAS 和 PostgreSQL Store 写入上下文；新增人工成功、claim 到期后视图切换、
+  慢 Worker 墙钟、单一降级恢复和直写负载拒绝回归。默认 `DETERMINISTIC_ONLY` 路由、无模型写权限、Task 6
+  前 READY fail-closed、预算和自动经营恢复边界均不变。
+- **重新评估条件**：若后续引入独立受限数据库角色、签名 RPC 或可验证模型服务端回执，可将
+  Store 写入上下文替换为更强的跨进程证明；在此之前不得允许自由 SQL 写事实、空 finding 或
+  `REVIEW` 下的 Analysis/READY/执行。

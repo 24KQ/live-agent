@@ -45,13 +45,13 @@ Sub-agent: `019f749a-05d0-7631-8e3d-addac444eba1` 已完成只读规格与质量
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 16 Controlled Multi-Agent Escalation |
-| 最近完成任务 | Phase 16 Task 3：运行时和领域冻结协议（`ad0e185` 已推送） |
-| 当前任务 | Task 4：升级、分析与 Outcome 的 append-only Store |
-| 当前任务状态 | `COMMIT` / `PHASE_16_TASK_4_ESCALATION_STORE_READY_TO_COMMIT` |
-| 当前子步骤 | 完整回归、DDL 重放、编码和四轮审查整改均完成；正在核对暂存边界并准备独立提交 |
+| 最近完成任务 | Phase 16 Task 4：升级、分析与 Outcome 的 append-only Store（`1ea229a` 已推送） |
+| 当前任务 | Task 5：高冲突选择与 EvidenceAnalystAgent 协调段 |
+| 当前任务状态 | `VERIFY` / `PHASE_16_TASK_5_FINAL_REMEDIATION_VERIFY` |
+| 当前子步骤 | 三选二选择、人工 lease、完整 Analyst 证据绑定、claim 生命周期、受限 REVIEW 审计闭合与 PostgreSQL 重启恢复已转绿；正在进行最终全量验证 |
 | 当前分支 | `codex/phase16-controlled-multi-agent` |
 | 当前业务基线 | Phase 15 Task 12 Acceptance（`c01a5da`）；历史结论保持 `INCONCLUSIVE` |
-| 远端状态 | `origin/codex/phase16-controlled-multi-agent=ad0e185`；主工作区用户脏文件保持 unstaged，恢复时必须读取命令输出 |
+| 远端状态 | `origin/codex/phase16-controlled-multi-agent=1ea229a`；Task 5 尚未提交，主工作区用户脏文件保持 unstaged，恢复时必须读取命令输出 |
 | 真实模型累计费用 | 历史累计 0.042344 元；Phase 16 新增 0.000000 元 |
 
 ## 2026-07-18 Phase 16 Task 3 RED
@@ -73,20 +73,20 @@ Sub-agent: `019f74b2-5897-7183-8e37-26fdb77e796f` 与 `019f74b2-8f66-7ed2-9c3a-7
 Sub-agent dispatch: STOPPED / Task 3 最终只读规格与安全审查因当前线程并发额度已满而未启动；原定文件边界为 Task 3 的 18 个暂存目标文件，禁止修改；预期交付物为 Critical/Important 发现及与冻结 Task 3 规范、零 Skill 权限、无真实模型、迁移可重复性的一致性结论。没有运行中或遗留 sub-agent，主模型已接管同一清单的最终复核。
 ```
 
-## 2026-07-18 Phase 16 Task 4 RED
+## 2026-07-18 Phase 16 Task 4 COMMIT/PUSH
 
 ```text
 Phase / Task: Phase 16 / Task 4 - Persist Escalation Facts
-状态: COMMIT
+状态: PUSHED
 目标: 在内存与 PostgreSQL Decision Support Store 中追加 EscalationRecord、ConflictAnalysis、MultiAgentOutcome，并保证父事实、CAS、fencing、唯一升级、幂等重放与重启恢复。
 禁止事项: 不实现升级选择器、Coordinator、Planner、HTTP、WebSocket、SkillCall、PlanCommand 或真实模型调用；不得修改既有 Workspace/Incident 事实。
-当前 HEAD: ad0e185a4cdcf312fb853195649027f05a6cc8b2
+当前 HEAD: 1ea229a
 本 Task 文件: docker/init_phase14_decision_support.sql、src/decision_support/store.py、Task 4 unit/PostgreSQL 测试及本 Task worklog。
 用户脏文件: 主工作区既有 7 个用户文件保持不接触、不暂存。
 最近命令与结果: Task 4 单元 `7 passed`；隔离 PostgreSQL `9 passed`，覆盖重启重放、同 Bundle 并发 CAS、lease fencing、三类 deferred ledger、partial evidence refs、ineligible/expired Bundle、D-135 有序触发码、数据库 CAS、降级终态形状和 READY fail-closed。完整 unit `1402 passed, 4 warnings`；完整 integration `160 passed, 7 deselected, 5 warnings`。PostgreSQL DDL 双重初始化和目标 compileall 通过。测试进程临时使用专用 `liveagent-phase16-test-postgres` 的 5434 端口，未修改仓库配置或用户已有 5432 数据库。
 错误与尝试次数: 首次 PostgreSQL 测试因默认 5432 属于用户已有不同凭据实例而无法认证；定位专用 5434 测试容器后转为预期 API/表缺失 RED。首轮 GREEN 的重启测试暴露 DDL 先重建父索引、后解除 Phase 16 外键依赖的顺序错误，已以先 drop 子约束整改。四轮独立审查又发现 D-135 eligibility/freshness/顺序、READY/DEGRADED 形状、直接 SQL CAS 与 LIVE 线性化窗口；均已补 RED/GREEN 并重新全量验证。
 设计偏差与决策编号: D-144 补齐中间事实幂等键；D-145 固定数据库 CAS、LIVE 线性化复核和 Task 6 前 READY Outcome fail-closed。其余遵守 D-134 至 D-143，不扩大 Profile、预算或路由。
-下一条精确操作: 运行最终 UTF-8/LF、文档扫描、决策编号和 `git diff --check`；仅暂存 Task 4 目标文件，提交 `feat: persist multi-agent escalation facts` 并推送。
+下一条精确操作: 已以 `1ea229a feat: persist multi-agent escalation facts` 提交并推送；切换 Task 5 RED。
 模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
 Sub-agent: 初审 `019f7511-a162-7c82-8b73-8054987bf119`（规格）与 `019f7511-b56f-7552-813e-56db44928aed`（质量/安全）、整改复审 `019f7524-3869-7703-997f-40b984eee830`/`019f7524-4dc8-7143-b070-69b614057e2f`，以及最终确认 `019f7535-71ef-7280-8954-f94277214c5f`/`019f753e-6638-7ab0-99fe-f067773876a5` 均已完成并关闭。全部 Critical 为 0；每个 Important 均有 RED/GREEN 与全量重跑证据。无运行中 sub-agent。
 
@@ -97,6 +97,23 @@ Sub-agent dispatch:
 `019f7524-4dc8-7143-b070-69b614057e2f` / Task 4 整改质量复审 / 已完成并关闭；发现 freshness 与 lease 错误协议 Important，已补 valid_until 双端门禁和 lease 异常归一化。
 `019f7535-71ef-7280-8954-f94277214c5f` / Task 4 最终确认 / 已完成并关闭；发现 DEGRADED 形状旁路 Important，已增加 DDL 形状校验与 PostgreSQL RED/GREEN。
 `019f753e-6638-7ab0-99fe-f067773876a5` / Task 4 最终确认 / 已完成并关闭；发现 LIVE 检查与 CAS 锁之间的线性化窗口 Important，已在 CAS trigger 锁内重检 `current_view='LIVE'` 并重跑专项、DDL 与完整回归。所有 sub-agent 为只读，未修改、暂存、提交或推送文件。
+
+## 2026-07-18 Phase 16 Task 5 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 5 - Select and Analyze High Conflict
+状态: COMMIT
+目标: 实现确定性三选二高冲突选择、lease-bound 运营显式升级和 EvidenceAnalystAgent 协调段；失败只形成一个可解释 DEGRADED Outcome。
+禁止事项: 不实现 Planner、READY Proposal、HTTP/WebSocket、前端或自动经营恢复；不调用真实模型、Skill 或通用 Phase 13/14 预算路径。
+当前 HEAD: 1ea229a（Task 5 未提交）
+本 Task 文件: src/decision_support/multi_agent.py、src/decision_support/store.py、tests/phase14_evidence_factory.py、Task 5 unit/PostgreSQL 测试与本 Task worklog。
+用户脏文件: 主工作区既有用户文件保持不接触、不暂存。
+最近命令与结果: RED 因缺少 HighConflictEscalationCoordinator 收集失败。D-146/D-147 后 Task 5 selector/Store 聚合 `25 passed`，隔离 PostgreSQL 聚合 `20 passed`，目标 compileall 与 `git diff --check` 通过。最终全量 unit `1420 passed, 4 warnings`；完整 integration `172 passed, 7 deselected, 5 warnings`。本机 5432 是用户已有不同凭据实例；所有本 Task PostgreSQL 验证仅在 `liveagent-phase16-test-postgres:5434` 上临时覆盖环境变量，不修改仓库配置。真实模型费用为 `0.000000 CNY`。
+错误与尝试次数: 首轮 GREEN 将 AgentResult 的冻结 FrozenDict 误判为非 dict，专项失败 2 项；已按实际数据流改为只读 Mapping 本地复制。测试 Fixture 首次 anchor scope 不一致，Store 正确拒绝，已修正测试父事实而未削弱生产绑定。最终复审发现 13 项 Important：重复 dispatch、过期恢复、响应丢失、finding 旁路、Runner Profile 旁路、PostgreSQL Profile 旁路、普通 lease 契约漂移、claim 生命周期窗口、SQL 终态竞态、人工空 finding、跨 REVIEW 终态丢失、裸 SQL Analysis 旁路和慢 Worker 墙钟延长数据库 claim；均已按 D-146/D-147 完成 RED/GREEN。最终规格复核又发现 REVIEW 例外允许携带 Analysis 的 DEGRADED Outcome；新增内存/PostgreSQL RED 各 `1 failed`，收紧为同 claim 且无 Analysis/Proposal 后各转绿。
+设计偏差与决策编号: 遵守 D-134 至 D-145；将 Store 与协调器共用的三选二规则提升为 derive_automatic_escalation_codes，消除双实现漂移。D-146 固定发送前 append-only dispatch claim、未知响应 at-most-once 降级、实际 Runner Profile 绑定与根行线性化。D-147 固定人工单项服务端事实重建、仅由 Store/数据库权威时钟计算 claim 剩余等待、REVIEW 下仅 claim 绑定的无 Analysis/Proposal 降级审计闭合，以及 Store 作为完整 Analysis Pydantic/canonical 验证边界。Task 6 前 READY 继续 fail-closed。
+下一条精确操作: 对本 Task 目标文件执行严格 UTF-8/LF/BOM/replacement/trailing-whitespace 检查与编码扫描；仅暂存目标文件，提交 `feat: analyze high-conflict live evidence` 并推送。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 规格 explorer `019f754b-dec4-7541-b647-0b322e14b243`、测试/并发 explorer `019f754b-f34e-7280-a908-c6e116f5d122`、质量/安全复审 `019f759f-33d4-7d40-bb8b-1a3b78a22158` 与最终规格复审 `019f759e-fd28-7e42-9beb-1e89f4b91d74` 均已完成并关闭；后续独立复审报告的 Important 已逐项由主模型复查、补 RED/GREEN 并重跑验证。所有 sub-agent 只读，未修改、暂存、提交或推送文件；当前无运行中 sub-agent。
 ```
 
 ## 2. 当前授权边界

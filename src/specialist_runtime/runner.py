@@ -254,6 +254,16 @@ class BoundedSpecialistRunner:
         self._pricing_policy_digest = pricing_policy.policy_digest
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
+    def resolve_profile(self, task: AgentTask) -> SpecialistProfile:
+        """只读返回实际 Runner Registry 解析出的 Profile，供上层组合再次绑定身份。
+
+        Coordinator 不能只相信任务携带的 profile ID/version：错误装配可能用同名版本但
+        不同 Prompt、Schema 或 Skill 权限执行。此方法不发送模型、不预留预算，也不暴露
+        Registry 修改能力，只让调用方比较完整冻结 digest 后决定是否可以 dispatch。
+        """
+
+        return self._orchestrator.resolve_profile(task)
+
     async def run(self, task: AgentTask) -> AgentResult:
         """执行单个任务；所有可预期失败都转换为封闭 AgentResult。"""
         started_at = self._clock()
