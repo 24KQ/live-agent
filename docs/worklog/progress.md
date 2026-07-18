@@ -1206,3 +1206,39 @@
   integration 均以隔离 5434 测试库退出码 `0` 完成；迁移 dry-run 与实际 `18 passed, 0 warnings, 0 failed`；
   compileall 通过。两轮规格和三轮代码质量/安全复审的 Critical/Important 均已 RED/GREEN 整改。
 - 真实模型调用/费用仍为 `0.000000 CNY`。下一步执行严格编码、差异和暂存边界检查，仅提交 Task 10 文件。
+
+# 2026-07-18 Phase 16 Task 10 PUSHED / Task 11 RED
+
+- Task 10 已以 `c6cb13a feat: gate controlled multi-agent smoke` 独立提交并推送，远端与本地 HEAD 一致。
+- Task 11 从 RED 开始：固定 `live-session-p001-sold-out-v2` 必须证明保护先于高冲突双 Agent、人工
+  approve/modify/reject 仍是唯一经营恢复入口、Compiler 只生成命令而绝不自动提交，并可在重启后重放
+  相同审计事实。Acceptance 必须如实保留真实 smoke `INCONCLUSIVE` 和默认路由关闭状态。
+
+# 2026-07-18 Phase 16 Task 11 GREEN / REVIEW
+
+- 已新增确定性本地 Demo：使用正式六角色 EvidenceBundle、真实 HighConflictEscalationCoordinator、受限 ScriptedModel Runner、
+  OperatorDecision Compiler 和 InMemory Store。固定售罄保护先于高冲突双 Agent；`MODIFY` 决定只形成审计事实与编译命令，
+  执行提交数始终为 `0`。
+- 专项 `3 passed`，Task 9/10/11 聚合 `22 passed`，统一入口 `python scripts/run_all.py phase16-demo` exit `0`；
+  Acceptance 如实报告真实 smoke `BLOCKED`、真实调用/费用 `0`、默认路由 `DETERMINISTIC_ONLY`。
+- 进入规格与代码质量/安全双重复审。任何 Critical/Important 发现必须 RED/GREEN 整改后才可进入全量验证与提交。
+
+# 2026-07-18 Phase 16 Task 11 REVIEW REMEDIATION / VERIFY
+
+## Final Verification
+
+- 最终根 pytest：`1684 passed, 8 deselected, 9 warnings`；Phase 16 PostgreSQL：`31 passed`；迁移 dry-run
+  识别 18 个现有步骤。目标 `compileall` 和 Demo CLI 均退出码 `0`。
+- Acceptance 保持 `INCONCLUSIVE`，原因是 `ENDPOINT_UNAVAILABLE`、`USAGE_CONTRACT_UNAVAILABLE` 和
+  `REAL_MODEL_SMOKE_NOT_RUN`；真实调用/费用为 `0/0.000000 CNY`，默认路由为 `DETERMINISTIC_ONLY`。
+- 编码、差异与暂存边界检查已完成；下一步提交 `docs: accept phase 16 controlled multi-agent` 并推送当前
+  隔离分支，仍不启动 Phase 17。
+- 目标 13 文件严格 UTF-8/LF/BOM/replacement/trailing-whitespace 检查通过；`git diff --check` 通过。全仓
+  文档扫描的 4 个 replacement-character 错误和 25 个 BOM 警告均来自历史扫描器自测/既有文件，未归因于本 Task。
+
+- 规格审查 0 Critical、2 Important；质量/安全审查 0 Critical、5 Important。已通过 RED/GREEN 补齐
+  `Analysis -> Escalation` 精确父链、报告的完整 ID/digest、operator lease/dispatch claim 重放、PlanStore
+  命令账本零提交验证、启动冻结默认路由读取和 UUID 作用域锁。专项聚合为 `39 passed`，Demo CLI 退出码 `0`。
+- Demo 报告固定为 `INCONCLUSIVE`：真实 smoke 为 `BLOCKED`，真实模型调用/费用为 `0/0.000000 CNY`，默认
+  `DETERMINISTIC_ONLY`，阶段状态为 `AWAITING_PHASE_17_GATE`。最终根回归、PostgreSQL、迁移和编码检查正在
+  收口；所有 sub-agent 已关闭且未修改文件。

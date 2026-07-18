@@ -13,6 +13,7 @@
     python scripts/run_all.py phase13-demo   # Phase 13 Specialist 评估结论演示
     python scripts/run_all.py phase14-demo   # Phase 14 三场景人机协同演示
     python scripts/run_all.py phase15-demo   # Phase 15 Golden Release 门禁演示
+    python scripts/run_all.py phase16-demo   # Phase 16 受控双 Agent 升级演示
     python scripts/run_all.py up         # migrate + seed + server（批量执行）
 """
 
@@ -256,6 +257,12 @@ def cmd_phase15_demo(args: argparse.Namespace) -> int:
     return _run_python("run_phase15_release_demo.py")
 
 
+def cmd_phase16_demo(args: argparse.Namespace) -> int:
+    """委托 Phase 16 本地受控双 Agent 演示；真实 smoke 只能显示预检阻断事实。"""
+    del args
+    return _run_python("run_phase16_controlled_multi_agent_demo.py")
+
+
 def _run_demo_with_db(args: argparse.Namespace) -> int:
     """有 PostgreSQL 时的真实演示链路。"""
     _info("[1/6] Database Migration")
@@ -281,6 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("phase13-demo", help="Phase 13 Specialist 评估结论无外部依赖演示")
     sub.add_parser("phase14-demo", help="Phase 14 三场景人机协同无外部依赖演示")
     sub.add_parser("phase15-demo", help="Phase 15 Golden Release 本地门禁演示")
+    sub.add_parser("phase16-demo", help="Phase 16 受控双 Agent 升级无外部依赖演示")
     sub.add_parser("story", help="\u7aef\u5230\u7aef Agent \u6545\u4e8b\u6f14\u793a\uff08\u65e0\u5916\u90e8\u4f9d\u8d56\uff09")
     sub.add_parser("daemon", help="启动 Kafka 弹幕守护进程（阻塞，需另开终端）")
     p_sim = sub.add_parser("simulator", help="启动 Kafka 弹幕模拟生产者（需先启动 daemon）")
@@ -311,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         "phase13-demo": cmd_phase13_demo,
         "phase14-demo": cmd_phase14_demo,
         "phase15-demo": cmd_phase15_demo,
+        "phase16-demo": cmd_phase16_demo,
         "story": cmd_story,
         "daemon": cmd_daemon,
         "simulator": cmd_simulator,

@@ -78,15 +78,18 @@ open http://localhost:8100
 | 播后复盘 | 打开 Web 页面 | 采纳率、准确率、归因分析 |
 | Agent 评估 | 打开 /evaluation 页面 | 回放时间线、维度评分、Verdict |
 
-Phase 13-15 的无外部依赖阶段演示：
+Phase 13-16 的无外部依赖阶段演示：
 
 ```bash
 python scripts/run_all.py phase13-demo
 python scripts/run_all.py phase14-demo
 python scripts/run_all.py phase15-demo
+python scripts/run_all.py phase16-demo
 ```
 
 其中 Phase 15 会回放三场景业务闭环并运行两次本地确定性 Release profile；在真实模型、真人对照和托管 CI 证据缺失时，技术 dry-run 可为 `PASS`，但 Promotion/Acceptance 保持 `BLOCKED`/`INCONCLUSIVE`，不会调用真实模型。
+
+Phase 16 固定回放 `live-session-p001-sold-out-v2`：确定性售罄保护先执行，随后仅在高冲突证据满足门槛时顺序运行 EvidenceAnalystAgent 和 DecisionPlannerAgent。运营可批准、受控修改或拒绝方案；Demo 只持久化选中的人工决定和编译命令，绝不自动提交经营恢复。真实 smoke 缺少 endpoint/usage 证据时保持 `BLOCKED`，默认路由保持 `DETERMINISTIC_ONLY`。
 
 ## 核心功能
 

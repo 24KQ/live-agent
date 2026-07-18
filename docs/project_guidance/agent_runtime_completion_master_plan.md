@@ -1,6 +1,6 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_TASK_10_VERIFY_COMPLETE_READY_TO_COMMIT`
+文档状态：`PHASE_16_COMPLETE_AWAITING_PHASE_17_GATE`
 
 最后更新：2026-07-18
 
@@ -61,8 +61,11 @@ D-163 已收口 cookie 绑定、重新认证撤销、会话 generation、lineage
 语义，完整回归与最终审查通过，`502b67c` 已独立提交推送。Task 9 的独立 48 例配对资产、
 ScriptedModel/Coordinator 重放与新 Store PostgreSQL 恢复已由 `be6de97` 提交推送。Task 10 已完成独立
 `PHASE16_MULTI_AGENT_SMOKE` 单一账本、10 slot/1.00 CNY case reservation、Task 9 资产重验、恢复 outcome/reason、
-官方 cache-miss 价格预检与真实发送门；最终双重复审、完整回归、18 步实际迁移和编码验证完成，等待独立提交推送。
-真实模型调用及费用仍为 0。默认仍只运行 ScriptedModel 演练，且不得扩展 OperatorDecision 权限、命令或自动经营恢复。
+官方 cache-miss 价格预检与真实发送门已由 `c6cb13a` 独立提交推送。Task 11 已完成确定性
+`live-session-p001-sold-out-v2` Demo、Acceptance 和 Phase 17 Gate 留痕：权威售罄保护先于受控
+双 Agent，完整 Evidence/Analysis/Proposal/Outcome 谱系、lease/dispatch claim 重放和人工命令编译边界
+均可重复核验。Acceptance 为 `INCONCLUSIVE`，因为真实 endpoint/usage 合同和真实回执缺失；真实模型
+调用及费用仍为 0，默认路由保持 `DETERMINISTIC_ONLY`，当前停止在 `AWAITING_PHASE_17_GATE`。
 
 ## 4. 阶段依赖与自动门禁
 

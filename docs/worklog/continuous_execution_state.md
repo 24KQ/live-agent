@@ -240,6 +240,85 @@ Phase / Task: Phase 16 / Task 10 - Formal Smoke Preflight
 Sub-agent: `019f7708-38b8-7e33-b353-b292373b1cf8` 的预检审查已关闭；`019f7715-745d-7282-bd99-ecc62f9e9284` 的规格复审和复审整改均为 PASS；`019f7722-61a1-7b83-907b-d8e6150af30c` 的三轮质量/安全复审发现并验证 outcome/TOCTOU/DDL 整改，最终为 PASS。所有 sub-agent 均只读、未修改/暂存/提交/推送，当前无运行中的 sub-agent。
 ```
 
+## 2026-07-18 Phase 16 Task 10 PUSHED / Task 11 RED
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: RED
+目标: 交付可重复的 live-session-p001-sold-out-v2 本地回放，证明保护优先、受控双 Agent、人工经营恢复、仅编译不自动提交和稳定重启审计；生成诚实的 Phase 16 Acceptance。
+禁止事项: 不调用真实模型或扩大真实 smoke；不把 Demo 结果当成默认路由开启；不自动提交经营恢复；不引入新业务写权限、自由 A2A 或用户无关文件。
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+本 Task 文件: Phase 16 Demo/Acceptance 生成器、专项 unit/PostgreSQL tests、Acceptance 文档和阶段 worklog。
+用户脏文件: 主工作区既有文档和临时脚本仍保持在隔离工作树之外；当前未提交变更仅为 Task 10 pushed/Task 11 RED 留痕。
+最近命令与结果: Task 10 `c6cb13a` 已推送；专项 unit `12 passed`、PostgreSQL `2 passed`、全量 unit/integration exit 0、迁移 `18 passed`，真实模型费用 0。
+错误与尝试次数: 无；Task 11 尚无 Demo/Acceptance 实现，下一步先写保护优先、人工审批、未自动提交和重启确定性的 RED。
+设计偏差与决策编号: 沿用 D-134 至 D-166；若需要新的公开 Demo/Acceptance Schema 或安全边界，先新增决策并补测试。
+下一条精确操作: 读取 Phase 14/15 既有 Demo/Acceptance 模式，添加 Task 11 失败测试并验证 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 11 不因 Acceptance 自动调用真实模型。
+Sub-agent: 无运行中的 sub-agent。若派发，只读分析必须在首报、核心 GREEN 和提交前由主模型复查；20 分钟无可验证进展或越界立即关闭。
+```
+
+## 2026-07-18 Phase 16 Task 11 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: GREEN / REVIEW
+目标: 固定 live-session-p001-sold-out-v2 的本地业务回放已生成，正在进行规格与质量/安全双重复审。
+禁止事项: 不调用真实模型、不自动提交经营恢复、不启动 Phase 17；不修改用户已有脏文件。
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+本 Task 文件: Phase 16 Demo 脚本、专项测试、Acceptance、统一入口、README 与阶段留痕。
+最近命令与结果: RED 为缺失 Demo 模块；GREEN 专项 unit 3 passed，Task 9/10/11 聚合 22 passed，python scripts/run_all.py phase16-demo exit 0。Demo 使用真实 Coordinator/Store/Compiler，保护 APPLIED 先于 Analyst/Planner，READY lineage 完整，命令 persisted 但 submitted 为 false，重放无第二次 Agent 调用；真实 smoke BLOCKED，费用 0。
+错误与尝试次数: 3 次 GREEN 整改均为 Demo 装配错误：pace_score 类型、Assembler receipt、Store 真实 freshness/lease 时钟；均未改变业务契约，已由专项测试覆盖。
+设计偏差与决策编号: 无。远期固定演练时钟只为同时保留字节稳定审计与 Store 原有 freshness 校验，不放宽任何 TTL 或业务门禁。
+下一条精确操作: 接收两个只读复审结论；修复 Critical/Important 后运行 PostgreSQL、全量测试、迁移、编码和差异验证。
+模型费用累计: Phase 16 0.000000 CNY；真实 smoke 无 endpoint/usage 证据，必须维持 INCONCLUSIVE。
+Sub-agent: 规格审查与代码质量/安全审查在本记录后派发，均只读、文件边界为 Task 11 新增/修改文件与冻结 Plan/Design，禁止修改、提交、推送或访问真实模型；主模型将在首次回报、整改后和提交前核对实际差异/测试。
+```
+
+## 2026-07-18 Phase 16 Task 11 REVIEW REMEDIATION / VERIFY
+
+## 2026-07-18 Phase 16 Task 11 VERIFY COMPLETE / READY TO COMMIT
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: VERIFY COMPLETE / READY TO COMMIT
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+最终证据: 根 pytest 1684 passed, 8 deselected, 9 warnings；Phase 16 PostgreSQL 31 passed；Task 11/Phase 16 专项 39 passed；Demo CLI exit 0；目标 compileall exit 0；迁移 dry-run 18 个现有步骤。
+Acceptance: INCONCLUSIVE；真实 smoke BLOCKED（ENDPOINT_UNAVAILABLE、USAGE_CONTRACT_UNAVAILABLE、REAL_MODEL_SMOKE_NOT_RUN），真实模型调用 0，费用 0.000000 CNY，默认 DETERMINISTIC_ONLY。
+阶段结论: Task 1-11 技术实现与本地验收完成，当前状态固定 AWAITING_PHASE_17_GATE；不自动开始 Phase 17。
+Sub-agent: 两个 Task 11 只读审查 agent 已关闭；当前无运行中的 sub-agent，未产生文件修改或真实模型调用。
+下一条精确操作: 严格 UTF-8/LF/BOM/replacement/trailing whitespace、全仓文档扫描、git diff --check、暂存边界、提交和推送。
+```
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: VERIFY / DOCS
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+已完成: Task 11 Demo、Acceptance 和两轮只读审查整改；停止目标固定为 AWAITING_PHASE_17_GATE。
+审查结论: 两个审查均为 0 Critical。规格审查 2 个 Important 已以 RED/GREEN 修复（Analysis->Escalation 父边、报告完整谱系）；质量/安全审查 5 个 Important 已收口（claim/lease 重放、PlanStore 命令账本、启动冻结路由、UUID 作用域）。Task 9 的 48 例 ScriptedModel 评估继续作为共享模型协议路径的权威证据，Task 11 不冒充该 Runner。
+最新命令与结果: Task 11/Phase 16 聚合 pytest 39 passed；python scripts/run_phase16_controlled_multi_agent_demo.py exit 0；目标 compileall exit 0；根 pytest 正在重新运行，未将旧运行结果记为最终通过。
+真实模型/费用: smoke BLOCKED，真实调用 0，Phase 16 费用 0.000000 CNY；无 endpoint/usage 合同或真实回执，Acceptance 固定 INCONCLUSIVE，默认 DETERMINISTIC_ONLY。
+Sub-agent: 019f7773-cb08-7e21-844e-521d391fdb03（规格）与 019f7773-df6e-7d73-9dfb-4b7cd542261e（质量/安全）均只读，已关闭，未修改/提交/推送/访问真实模型；当前无运行中的 sub-agent。
+下一条精确操作: 等待根 pytest 明确退出码；成功后运行 PostgreSQL、迁移、严格编码/差异检查，更新最终验证证据并只暂存 Task 11 文件。
+```
+
+## 2026-07-18 Phase 16 Task 11 REVIEW DISPATCH
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: REVIEW / VERIFY
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+主模型当前工作: 在隔离工作树重新运行 Demo、Task 11/Phase 16 专项、根 pytest、编译、迁移 dry-run 和编码检查；任何失败先定位根因后整改。
+Sub-agent A / 角色: Task 11 规格符合性只读审查
+文件边界: 只读 scripts/run_phase16_controlled_multi_agent_demo.py、tests/unit/test_phase16_acceptance_demo.py、Acceptance 报告、Task 11 已修改入口/README，以及冻结 Phase 16 Design/Plan；不得修改、提交、推送、运行真实模型或访问外部 endpoint。
+预期交付物: 逐项核对保护优先、双 Agent 顺序/次数、完整谱系、人工 approve/modify/reject、未自动提交、重启重放、INCONCLUSIVE/默认路由和 Phase 17 停止边界；报告 Critical/Important/Minor 与文件行号。
+Sub-agent B / 角色: Task 11 代码质量与安全只读审查
+文件边界: 同上，另可只读 tests/unit/test_phase16_escalation_store.py；不得修改、提交、推送、运行真实模型或访问外部 endpoint。
+预期交付物: 检查时间/租约、确定性、不可变事实重放、命令提交边界、数据泄露、伪造外部证据和测试隔离；报告 Critical/Important/Minor 与文件行号。
+监控协议: 首次回报、整改后和提交前由主模型核验实际差异与测试；20 分钟无可验证进展、重复阻塞、越界或建议放宽门禁即关闭并由主模型接管。
+模型费用累计: Phase 16 0.000000 CNY；本次审查及本地验证不得产生真实模型费用。
+```
+
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
@@ -785,3 +864,14 @@ Task 9 审查整改摘要：
 - PR/Nightly 实际报告均为技术 `PASS`、36 个非 holdout case；Release 实际报告为 48 个 case、技术 `BLOCKED`、最终 `NOT_RELEASED`，原因包含数据库、覆盖率和 Actions evidence 缺失。
 - `compileall`、迁移 dry-run、敏感扫描、目标 13 文件严格 UTF-8/LF/BOM/replacement/trailing whitespace、`git diff --check` 均通过；仓库历史文档扫描为既有 4 errors/52 warnings，未归因于本 Task。
 - 当前只暂存本 Task 文件，保留用户已有脏文件和无关临时脚本；准备提交 `build: add local phase 15 release gates`。
+
+## 2026-07-18 Phase 16 COMPLETE / AWAITING PHASE 17 GATE
+
+```text
+Phase / Task: Phase 16 / COMPLETE
+状态: AWAITING_PHASE_17_GATE
+最终证据: 根 pytest 1684 passed, 8 deselected, 9 warnings；Phase 16 PostgreSQL 31 passed；Task 11/Phase 16 专项 39 passed；Demo CLI 与目标 compileall exit 0；迁移 dry-run 18 个现有步骤；目标文件严格 UTF-8/LF/BOM/replacement/trailing-whitespace 与 git diff --check 通过。
+Acceptance: INCONCLUSIVE；真实 smoke BLOCKED（ENDPOINT_UNAVAILABLE、USAGE_CONTRACT_UNAVAILABLE、REAL_MODEL_SMOKE_NOT_RUN），真实模型调用 0，费用 0.000000 CNY，默认 DETERMINISTIC_ONLY。
+审查: 两个只读 Task 11 sub-agent 均为 0 Critical；2 个规格 Important 与 5 个质量/安全 Important 已 RED/GREEN 修复。所有 sub-agent 已关闭，无运行中的 sub-agent。
+下一条精确操作: 仅暂存 Task 11 文件，提交 docs: accept phase 16 controlled multi-agent，推送当前隔离分支；不得自动开始 Phase 17。
+```

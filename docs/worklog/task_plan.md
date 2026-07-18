@@ -12,8 +12,10 @@
 - [x] Task 8：扩展本地三视图工作台的高冲突事故展示与交互。D-159 至 D-163 的 Bundle 白名单摘要、route/trigger/analysis/outcome 展示、READY/lineage 禁用、安全订阅/撤销和 UNAVAILABLE 状态已通过完整回归，`502b67c` 已独立提交推送。
 - [x] Task 9：生成独立冻结 48 例数据集及 ScriptedModel 配对评估。独立 48 例资产、实际 Coordinator/ScriptedModel 重放、
   全新 PostgreSQL Store 恢复与完整回归已通过，`be6de97` 已独立提交并推送。
-- [ ] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本（VERIFY 完成，待独立提交推送）。
-- [ ] Task 11：生成 `live-session-p001-sold-out-v2` Demo、Acceptance，并停止在 Phase 17 Gate。
+- [x] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本。D-164 至 D-166、最终双重复审、专项/全量回归、迁移与编码验证已通过，`c6cb13a` 已独立提交并推送。
+- [x] Task 11：生成 `live-session-p001-sold-out-v2` Demo、Acceptance，并停止在 Phase 17 Gate。Demo 使用权威
+  Phase 12B 保护、完整多 Agent 谱系、PlanStore 命令账本和新 Store 的 lease/dispatch claim 重放；Acceptance
+  为 `INCONCLUSIVE`，默认路由保持 `DETERMINISTIC_ONLY`，当前为 `AWAITING_PHASE_17_GATE`。
 
 所有 Task 使用 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> DOCS -> COMMIT -> PUSH；
 Task 10 前不访问真实模型，任何严重安全违规、预算风险或强制基础设施阻塞均停止当前 Task。

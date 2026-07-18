@@ -516,6 +516,14 @@ def test_review_can_only_close_claim_with_unlinked_degraded_outcome() -> None:
     after_analysis = store.append_conflict_analysis(
         analysis, expected_workspace_version=after_escalation.version
     )
+    # 模块级 NOW 可能早于本测试的动态 instant；这里重新取得有效 operator lease，确保
+    # 测试只让两秒 Analyst claim 过期，而不把操作员 lease 过期误当成 REVIEW 规则结果。
+    lease = store.acquire_operator_lock(
+        workspace.live_session_id,
+        lease.operator_id,
+        60,
+        now=instant,
+    )
     after_review = store.advance_view(
         workspace.live_session_id,
         target_view=WorkspaceView.REVIEW,
@@ -551,6 +559,14 @@ def test_review_rejects_unlinked_degraded_outcome_without_coordinator_timeout() 
         task_digest="e" * 64,
     )
     store_clock[0] = instant + timedelta(seconds=3)
+    # 同上：保持测试目标为 dispatch claim 观察窗结束，而非使用模块导入时旧 NOW
+    # 创建的操作员 lease 过期。新的 fencing token 也覆盖真实的重新认证语义。
+    lease = store.acquire_operator_lock(
+        workspace.live_session_id,
+        lease.operator_id,
+        60,
+        now=store_clock[0],
+    )
     after_review = store.advance_view(
         workspace.live_session_id,
         target_view=WorkspaceView.REVIEW,

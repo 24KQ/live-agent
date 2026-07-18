@@ -952,3 +952,16 @@
   状态机同构。
 - Task 10 最终验证完成：unit `12 passed`，PostgreSQL `2 passed`，完整 unit/integration 退出码均为 0，
   18 步迁移实际执行无失败；真实模型费用保持 0。
+
+## 2026-07-18 Phase 16 Task 11 REVIEW REMEDIATION
+
+- 两个只读审查均为 0 Critical。规格审查发现 Demo 验收投影遗漏 `Analysis -> Escalation` 父边，且报告未
+  展示完整 escalation/analysis/proposal/outcome ID 与 digest；已添加 RED 用例、完整链校验和可独立复核的报告行。
+- 质量/安全审查要求验收不依赖常量伪造：`execution_command_submitted` 现在读取权威 PlanStore 命令账本；
+  `production_default_route` 由启动冻结 `DecisionSupportRoutePolicy.from_settings(Settings())` 读取并在非确定性
+  默认时 fail-closed；Demo 的 UUID 替换范围由进程锁串行化。
+- 新 Store 重放把 operator lease、Analyst/Planner dispatch claim 及其精确 task digest 纳入审计投影，并经
+  公开 Store API 重建后比较。Task 9 的 48 例评估仍是 `ScriptedAgentModel`/模型协议/预算路径的权威行为证据；
+  Task 11 只负责将其与单一事故的真实保护、人工命令和恢复审计连接，不把轻量 Demo runner 冒充为共享生产 Runner。
+- 真实 smoke 仍缺 endpoint、usage 合同和回执：不发送请求，费用保持 `0.000000 CNY`，Acceptance 必须为
+  `INCONCLUSIVE`，默认路由不改变。
