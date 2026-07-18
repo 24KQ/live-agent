@@ -863,3 +863,9 @@
 
 - 质量/安全复审发现自动调用会推进已有 pending `OPERATOR_REQUESTED` escalation。人工升级的单信号资格不能被自动三选二入口在失去当前 lease 后续跑；D-158 令自动入口只读恢复或返回 pending 身份。
 - 新 RED/GREEN 证明自动观察不会产生 Runner 调用、Analysis 或 Outcome。完整验证在隔离 PostgreSQL 上为 unit `1457 passed, 4 warnings`、integration `182 passed, 7 deselected, 5 warnings`；真实模型费用保持 `0.000000 CNY`。独立整改复审为 PASS。
+
+## 2026-07-18 Phase 16 Task 8 GREEN / REVIEW
+
+- D-159 让 Workspace 只投影可升级 Bundle 的六项白名单摘要，工作台不要求运营输入 ID，也不显示六角色原始证据正文。
+- D-160 至 D-163 依次修复浏览器认证头缺口、cookie browser binding、异步旧会话、同浏览器重新认证撤销、lineage 错配和客户端伪 DEGRADED。票据为 60 秒一次性、会话与 HttpOnly/SameSite binding 限定；Token 不进入 URL，票据不授予任何写权限。
+- 工作台展示 escalation route/trigger、Analysis 和 Outcome，`DEGRADED` 只来自服务端稳定失败码与事实摘要，读取/写入失败为不可执行 `UNAVAILABLE`/提交失败；当前 multi-Agent escalation 缺少同 lineage `READY` Outcome 时，运营决定不回退到无关 Proposal。Task 8 聚合 `44 passed, 1 warning`，完整 unit `1473 passed, 4 warnings`、integration `182 passed, 7 deselected, 5 warnings`；最终复审 PASS。

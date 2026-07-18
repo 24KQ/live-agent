@@ -106,8 +106,15 @@ class DecisionSupportService:
         """返回同一 Workspace 的根事实与 append-only 历史摘要。"""
 
         workspace = self._store.get_workspace(live_session_id)
+        evidence_bundles = [
+            self._workspace_evidence_bundle_summary(item)
+            for item in self._store.list_evidence_bundles(live_session_id)
+        ]
         return {
             **workspace.model_dump(mode="json"),
+            # D-159：浏览器只需要选择受治理 Bundle 并解释为何当前可升级；投影绝不
+            # 带出六角色 payload、原始事件、外部返回值或任何可伪造 Coordinator 输入。
+            "evidence_bundles": evidence_bundles,
             "incidents": [
                 item.model_dump(mode="json")
                 for item in self._store.list_incidents(live_session_id)
@@ -136,6 +143,31 @@ class DecisionSupportService:
                 item.model_dump(mode="json")
                 for item in self._store.list_execution_commands(live_session_id)
             ],
+        }
+
+    @staticmethod
+    def _workspace_evidence_bundle_summary(bundle: Any) -> dict[str, Any]:
+        """从已验证的 Store Bundle 导出固定白名单摘要，拒绝前端自由证据查询。"""
+
+        serialized = bundle.model_dump(mode="json")
+        snapshot = serialized.get("snapshot")
+        if not isinstance(snapshot, dict):
+            raise WorkspaceConflictError("evidence bundle snapshot is invalid")
+        required = (
+            "proposal_eligible",
+            "blocking_reasons",
+            "valid_until",
+            "bundle_digest",
+        )
+        if any(field not in snapshot for field in required):
+            raise WorkspaceConflictError("evidence bundle summary is incomplete")
+        return {
+            "evidence_bundle_id": serialized["evidence_bundle_id"],
+            "incident_id": serialized["incident_id"],
+            "proposal_eligible": snapshot["proposal_eligible"],
+            "blocking_reasons": snapshot["blocking_reasons"],
+            "valid_until": snapshot["valid_until"],
+            "bundle_digest": snapshot["bundle_digest"],
         }
 
     async def request_multi_agent_escalation(

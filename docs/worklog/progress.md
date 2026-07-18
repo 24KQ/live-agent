@@ -1156,3 +1156,11 @@
 - RED/GREEN 定向 `3 passed`；完整 unit `1457 passed, 4 warnings`，完整 integration `182 passed, 7 deselected,
   5 warnings`。compileall、迁移 dry-run、D-001 至 D-158 审计、目标文件严格 UTF-8 和 `git diff --check`
   均通过。独立整改复审 PASS，下一步提交推送；真实模型费用保持 `0.000000 CNY`。
+
+# 2026-07-18 Phase 16 Task 8 RED / GREEN / VERIFY
+
+- Task 7 已由 `2f4b7ef` 提交推送。Task 8 RED 先固定最小 Bundle 摘要、route/trigger/analysis/outcome
+  展示、无 READY 禁用、窄升级请求和安全浏览器订阅契约。
+- D-159 至 D-163 依次收口最小 Bundle 摘要、短时票据、HttpOnly binding、generation、重新认证撤销、
+  lineage-first Proposal 和 UNAVAILABLE。Token 不进 URL，票据不替代经营写授权，HTTP 错误不伪造成业务 Outcome。
+- Task 8 聚合 `44 passed, 1 warning`，完整 unit `1473 passed, 4 warnings`、完整 integration `182 passed, 7 deselected, 5 warnings`；前端脚本语法和最终复审均通过，真实模型费用未增加，下一步提交推送。

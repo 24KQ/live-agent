@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from src.decision_support.models import WorkspaceView
 from src.decision_support.multi_agent import HighConflictCoordinationResult
@@ -17,6 +18,9 @@ from src.gateway.decision_support_service import (
     DecisionSupportService,
     DecisionSupportServiceUnavailable,
     MultiAgentEscalationRequest,
+)
+from src.gateway.decision_support_subscription import (
+    DECISION_SUPPORT_BROWSER_BINDING_COOKIE,
 )
 from src.gateway.operator_auth import OperatorAuthError, OperatorIdentity, OperatorRole
 
@@ -374,6 +378,28 @@ class _WorkspaceStore:
             evidence_bundle_id=BUNDLE_ID,
             live_session_id=SESSION_ID,
         )
+        self.workspace_bundle = SimpleNamespace(
+            evidence_bundle_id=BUNDLE_ID,
+            incident_id="incident-phase16-api",
+            # 工作台只需要决定是否允许请求升级的最小事实，不能读取完整六角色正文或
+            # 原始外部事件。该替身故意只暴露安全投影所需字段，以固定 Service 白名单。
+            snapshot={
+                "proposal_eligible": True,
+                "blocking_reasons": [],
+                "valid_until": "2026-07-18T12:00:00Z",
+                "bundle_digest": "a" * 64,
+            },
+            model_dump=lambda mode: {
+                "evidence_bundle_id": BUNDLE_ID,
+                "incident_id": "incident-phase16-api",
+                "snapshot": {
+                    "proposal_eligible": True,
+                    "blocking_reasons": [],
+                    "valid_until": "2026-07-18T12:00:00Z",
+                    "bundle_digest": "a" * 64,
+                },
+            },
+        )
         self.workspace = SimpleNamespace(
             live_session_id=SESSION_ID,
             version=7,
@@ -415,6 +441,11 @@ class _WorkspaceStore:
 
     def list_incidents(self, _live_session_id: str) -> tuple[object, ...]:
         return ()
+
+    def list_evidence_bundles(self, _live_session_id: str) -> tuple[object, ...]:
+        """模拟仅由 Store 提供的 Bundle 事实枚举，不允许 HTTP 传入快照。"""
+
+        return (self.workspace_bundle,)
 
     def list_escalations(self, _live_session_id: str) -> tuple[object, ...]:
         return ()
@@ -581,3 +612,124 @@ def test_workspace_payload_projects_all_phase16_append_only_facts() -> None:
     assert payload["escalations"] == []
     assert payload["conflict_analyses"] == []
     assert payload["multi_agent_outcomes"] == []
+
+
+def test_workspace_payload_projects_only_safe_bundle_summary_for_operator_escalation() -> None:
+    """工作台只能得到启动升级所需的 Bundle 摘要，不能拿到六角色原始证据正文。"""
+
+    payload = DecisionSupportService(store=_WorkspaceStore()).get_workspace_payload(SESSION_ID)
+
+    assert payload["evidence_bundles"] == [
+        {
+            "evidence_bundle_id": BUNDLE_ID,
+            "incident_id": "incident-phase16-api",
+            "proposal_eligible": True,
+            "blocking_reasons": [],
+            "valid_until": "2026-07-18T12:00:00Z",
+            "bundle_digest": "a" * 64,
+        }
+    ]
+
+
+def test_authenticated_subscription_ticket_opens_one_matching_workspace_websocket(
+    client: tuple[TestClient, _RecordingEscalationService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """浏览器订阅只能使用已认证 REST 签发的一次性、绑定 session 的不透明票据。"""
+
+    test_client, _ = client
+    _operator(monkeypatch)
+
+    issued = test_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/subscription-ticket",
+        headers={"x-operator-id": "operator-phase16-api"},
+    )
+
+    assert issued.status_code == 200
+    ticket = issued.json()["ticket"]
+    subprotocol = f"liveagent.ticket.{ticket}"
+    with test_client.websocket_connect(
+        f"/ws/decision-support?live_session_id={SESSION_ID}",
+        subprotocols=[subprotocol],
+    ) as socket:
+        assert socket.accepted_subprotocol == subprotocol
+
+    with pytest.raises(WebSocketDisconnect):
+        with test_client.websocket_connect(
+            f"/ws/decision-support?live_session_id={SESSION_ID}",
+            subprotocols=[subprotocol],
+        ):
+            pass
+
+
+def test_subscription_ticket_cannot_be_used_by_another_browser_session(
+    client: tuple[TestClient, _RecordingEscalationService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """短票据离开签发浏览器的 HttpOnly binding cookie 后必须在握手前失效。"""
+
+    issuing_client, _ = client
+    _operator(monkeypatch)
+    issued = issuing_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/subscription-ticket",
+        headers={"x-operator-id": "operator-phase16-api"},
+    )
+    assert issued.status_code == 200
+    ticket = issued.json()["ticket"]
+
+    other_browser = TestClient(api_server.app)
+    with pytest.raises(WebSocketDisconnect):
+        with other_browser.websocket_connect(
+            f"/ws/decision-support?live_session_id={SESSION_ID}",
+            subprotocols=[f"liveagent.ticket.{ticket}"],
+        ):
+            pass
+
+
+def test_new_authenticated_operator_ticket_invalidates_old_ticket_in_same_browser(
+    client: tuple[TestClient, _RecordingEscalationService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同一浏览器从操作员 A 切换到 B 后，A 的未消费订阅票据不得继续有效。"""
+
+    test_client, _ = client
+    monkeypatch.setattr(
+        api_server,
+        "get_settings",
+        lambda: SimpleNamespace(operator_auth_enabled=True),
+    )
+    monkeypatch.setattr(
+        api_server,
+        "authenticate_request",
+        lambda headers: OperatorIdentity(
+            headers["x-operator-id"], OperatorRole.OPERATOR, "测试运营"
+        ),
+    )
+    monkeypatch.setattr(api_server, "authorize_action", lambda _identity, _role: None)
+
+    first = test_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/subscription-ticket",
+        headers={"x-operator-id": "operator-a"},
+    )
+    old_binding = test_client.cookies.get(DECISION_SUPPORT_BROWSER_BINDING_COOKIE)
+    second = test_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/subscription-ticket",
+        headers={"x-operator-id": "operator-b"},
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert old_binding
+
+    # 模拟旧 WebSocket 握手已经携带 A 的 cookie 在网络中飞行，随后 B 的签票 REST 已
+    # 到达服务端。该握手不能依赖浏览器 cookie 覆盖时序，必须被服务端撤销记录拒绝。
+    late_old_handshake = TestClient(api_server.app)
+    late_old_handshake.cookies.set(
+        DECISION_SUPPORT_BROWSER_BINDING_COOKIE,
+        old_binding,
+    )
+    with pytest.raises(WebSocketDisconnect):
+        with late_old_handshake.websocket_connect(
+            f"/ws/decision-support?live_session_id={SESSION_ID}",
+            subprotocols=[f"liveagent.ticket.{first.json()['ticket']}"],
+        ):
+            pass

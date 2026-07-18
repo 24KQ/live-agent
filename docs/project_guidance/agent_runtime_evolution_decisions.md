@@ -2032,3 +2032,120 @@
   的同 key 人工恢复继续有效。
 - **重新评估条件**：若未来需要系统代表运营续跑人工请求，必须先设计独立的、可审计的 delegation
   Command、显式时限和独立预算身份；在此之前不得从历史 escalation 隐式推导或延长人工 lease。
+
+## D-159：运营工作台读取最小 Bundle 摘要，而非让浏览器输入或接收完整证据快照
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 的人工升级端点只接受 `evidence_bundle_id` 与 Workspace CAS，但既有 Workspace
+  投影没有可选 Bundle 身份。让运营手工填写 ID 会形成易错、不可解释的控制输入；直接暴露六角色
+  Bundle snapshot 又会扩大原始事件和证据正文的浏览器暴露面。
+- **候选方案**：增加可编辑 Bundle ID 输入框；把完整 Bundle snapshot 放进 Workspace 投影；让前端
+  通过 Store/新自由查询 API 获取 Bundle；或在既有权威 Workspace 投影中追加固定白名单摘要。
+- **最终选择**：Workspace 投影新增只读 `evidence_bundles` 数组，每项只包含 `evidence_bundle_id`、
+  `incident_id`、`proposal_eligible`、`blocking_reasons`、`valid_until` 和 `bundle_digest`。前端只从该
+  摘要选择可升级 Bundle，并仍向 D-153 端点发送 ID、当前 Workspace 版本和规范幂等键；不接收或发送
+  六角色正文、Profile、trigger、lease、fencing 或模型输入。
+- **选择理由**：最小摘要同时满足可操作性和可审计性，浏览器可解释为何按钮可用/禁用，但无法伪造
+  证据内容或获得 Store 查询能力。服务端仍会在真正升级前完整重载并校验 Bundle。
+- **未选理由**：手填 ID 不能证明来源且易误操作；完整 snapshot 会扩大数据暴露；自由查询 API 会形成
+  另一个事实入口并削弱 Workspace 单一投影；前端直连 Store 不符合 HTTP 边界。
+- **影响**：Task 8 为 `get_workspace_payload` 增加安全 Bundle 摘要和对应契约测试；该字段只读、不改变
+  事实、权限、CAS、模型预算或经营恢复授权。
+- **重新评估条件**：若后续需要展示证据正文，必须定义字段级脱敏、会话级授权和版本化只读 Evidence
+  API；在此之前 Workspace 不得投影组件 payload、原始事件、外部凭据或自由查询结果。
+
+## D-160：浏览器订阅使用短时一次性 WebSocket 票据，不在 URL 或子协议中携带长期操作员 Token
+
+- **状态**：`ACCEPTED`
+- **背景**：浏览器原生 WebSocket 无法附带现有 `X-Operator-Id` 与 `X-Operator-Token`，旧页面在
+  认证启用时会被服务端稳定关闭。把长期 Token 放入 query string 会被浏览历史、代理和日志记录；直接
+  关闭认证又违反 D-154。
+- **候选方案**：关闭 WebSocket 鉴权；将长期 Token 放入 query string；长期 Token 放入
+  `Sec-WebSocket-Protocol`；只做无实时 REST 页面；或由已认证 REST 请求签发短时、一次性、绑定
+  `live_session_id` 与 operator 的不透明订阅票据，并只通过 WebSocket subprotocol 使用该票据。
+- **最终选择**：新增受 Operator 鉴权保护的订阅票据端点。服务端以内存票据注册表保存随机不透明值、
+  目标会话、操作员和 60 秒过期时间；浏览器以 `liveagent.ticket.<opaque>` subprotocol 建连，服务端在
+  accept 前原子消费、核对会话并回显同一 subprotocol。票据不授予经营写权限、不能重用、不能跨会话或
+  跨操作员使用，且不出现在 URL；页面断线时先以原认证 REST 刷新票据再重连。
+- **选择理由**：保留服务器端 Operator 鉴权，同时避免长寿命凭据进入 URL 或浏览器可见的请求参数。
+  短时单次票据只解决订阅握手，不替代 HTTP 写入口的 Token、lease、CAS、fencing 或 OperatorDecision。
+- **未选理由**：关闭鉴权直接违反安全边界；query string 泄漏风险不可接受；长期 Token 进入 subprotocol
+  仍会扩大长期凭据暴露；纯轮询会降级已冻结的实时工作台而不能证明 WebSocket 路由可用。
+- **影响**：Task 8 增加票据签发/消费及真实 WebSocket 契约测试；服务重启会丢弃未使用票据并要求浏览器
+  重新签发，属于安全 fail-closed。票据注册表不持久化业务事实，不改变默认路由或 Agent 权限。
+- **重新评估条件**：远程部署、多运营协作或多进程横向扩展前，必须设计签名/共享票据存储、TLS、
+  session 撤销和访问审计；在此之前不得把内存票据误称为生产多节点会话方案。
+
+## D-161：短时订阅票据还必须绑定签发浏览器的 HttpOnly 同源 cookie，并丢弃陈旧会话连接
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 双重复审发现两项遗漏：仅凭 subprotocol ticket 仍是可被其他浏览器使用的一次性
+  bearer 凭据；同时会话 A 的异步票据请求可能在用户切换到 B 后返回，建立旧 socket 并覆盖当前页面。
+  输入 Token 后旧页面也没有重新签发订阅票据。
+- **候选方案**：将票据维持为无额外绑定的 bearer；把长期 Token 回填到 WebSocket；用 query 参数传递
+  操作员；在原生 WebSocket 外引入自由客户端库；或将 ticket 与签发 REST 响应的 HttpOnly/SameSite
+  同源 cookie 绑定，并为前端连接维护单调 generation。
+- **最终选择**：签发端生成独立 browser binding，保存于票据记录并通过 `HttpOnly; SameSite=Strict`
+  cookie 仅发送给 `/ws/decision-support`。握手在 accept 前原子核对 ticket、Workspace 和 cookie binding；
+  缺失/不匹配即 `4401`。前端每次启动或认证变更递增 connection generation，await 票据返回、open、
+  message 和 close 回调均核对 generation 与当前 session，过时结果直接丢弃；请求失败只提示，不能伪造
+  `DEGRADED` Outcome。
+- **选择理由**：cookie 将票据限制在已认证签发的同源浏览器上下文，避免票据泄漏后被另一浏览器重放；
+  generation 将异步完成与当前 UI 状态绑定，防止跨会话事实污染。两者均不需要把长期 Token 交给 URL、
+  query、subprotocol 或模型。
+- **未选理由**：bearer-only 无法证明接收浏览器；重传长期 Token 会扩大泄漏面；query 参数不具备安全性；
+  外部客户端库扩大本地演示范围；仅靠 REST 轮询不能验证已冻结的实时 WebSocket 路由。
+- **影响**：Task 8 增加跨浏览器 cookie binding、陈旧连接 generation 和认证输入重连测试。票据仍不代表
+  经营权限，服务重启继续 fail-closed；服务端模型、PlanEngine、Store、CAS、lease、fencing 和
+  OperatorDecision 边界均不改变。
+- **重新评估条件**：若引入跨域前端、远程多节点或正式身份提供方，必须重新设计 Secure cookie、CSRF、
+  session 轮换、共享票据和撤销机制；在此之前票据只适用于同源单进程本地工作台。
+
+## D-162：重新认证撤销旧浏览器票据，当前升级只认同 lineage 的 READY Proposal
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 整改复审发现：同源浏览器切换操作员时，旧 binding 的未消费票据仍可能在 cookie
+  覆盖前被使用；同时 `currentProposal()` 总取最后一条 Proposal，当前高冲突 escalation pending 或
+  `DEGRADED` 时可能错误回退到无关单 Copilot Proposal。REST 读取错误也被局部 UI 伪装成业务
+  `DEGRADED`，混淆客户端不可用和服务端终态。
+- **候选方案**：依赖 cookie 覆盖的时序自然失效；让 WebSocket 重传长期操作员 Token；忽略当前
+  escalation 而继续取最后 Proposal；将读取失败统一称为 DEGRADED；或在新票据签发前撤销旧 binding
+  的未消费票据，当前 escalation 存在时只认其同 lineage `READY` Proposal，并建立独立 UNAVAILABLE
+  UI 状态。
+- **最终选择**：订阅票据服务提供原子 `revoke_browser_binding`，认证 REST 每次签发新 binding 前撤销
+  请求 cookie 对应的未消费票据；旧 ticket 立即 fail-closed。前端当前 escalation 存在时只使用其
+  `multi_agent_lineage` 匹配且具有同 Proposal ID `READY` Outcome 的 Proposal，pending/DEGRADED 不回退
+  到任何无关 Proposal。Workspace HTTP 读取失败进入不可执行的 `UNAVAILABLE`，只提示错误并等待权威
+  REST/WebSocket 恢复，只有服务端事实可显示业务 `DEGRADED`。
+- **选择理由**：显式撤销消除 cookie 覆盖和异步握手间的短窗口；lineage-first 选择确保 UI 不会将
+  高风险事件的经营权限错配给另一条建议；区分不可用和业务降级使运营审计保持诚实而不放宽 fail-closed。
+- **未选理由**：依赖浏览器时序不可证明；重传 Token 违反 D-160；最后 Proposal 规则忽略父事实；把
+  网络错误标记为业务终态会污染演示与评估证据。
+- **影响**：Task 8 新增同浏览器操作员切换、旧票据撤销、当前 escalation Proposal 选择和 UNAVAILABLE
+  视图 RED/GREEN。该调整不改变已消费连接的只读性质，也不增加 Agent、模型、Store 写、经营执行或
+  默认路由能力。
+- **重新评估条件**：若需要主动撤销已建立 WebSocket、跨标签精确身份切换或远程多节点会话，必须设计
+  连接级身份审计、集中撤销事件和共享 session 存储；在此之前本地单进程只保证未消费票据立即撤销。
+
+## D-163：绑定 cookie 覆盖签发与握手共同路径，客户端写失败不伪造业务降级
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 最终复审发现 binding cookie 的 Path 仅覆盖 WebSocket 路径，浏览器不会将旧 cookie
+  发送给 REST 签票端点，导致 D-162 的撤销调用拿到空值；旧握手若晚到仍可能成功。复审还发现运营决定
+  HTTP 写入失败被 UI 写为 `DEGRADED`，混淆客户端/权限失败和持久化 MultiAgentOutcome。
+- **候选方案**：维持窄 cookie Path 并接受撤销窗口；把 binding 放进请求体或 URL；将 cookie 设为同源根
+  路径；为签票另建不兼容路由；或继续把所有写失败显示为业务降级。
+- **最终选择**：binding 保持随机、短时、`HttpOnly; SameSite=Strict`，但 Path 设为 `/`，使同源 REST
+  签票与 WebSocket 握手都能读取；签发新 binding 前撤销请求 cookie 对应的未消费票据，晚到旧握手即使
+  显式携带旧 cookie 也被拒绝。运营决定 HTTP 失败只显示“提交失败”并保持现有 Workspace 事实，只有
+  服务端 Outcome 可以显示 `DEGRADED`。
+- **选择理由**：根路径不会暴露长期 Token，cookie 仍同源、HttpOnly、短时且不进入 URL；它消除了
+  重新认证时服务端无法读取旧 binding 的逻辑断点。分离提交失败与业务降级保留 fail-closed 同时保证
+  回放、评估和 UI 语义诚实。
+- **未选理由**：Path 过窄使撤销不可执行；请求体/URL 会把 binding 暴露给脚本或日志；新路由会扩大既有
+  API 面；将写失败称为 DEGRADED 会制造不存在的模型终态。
+- **影响**：Task 8 增加“旧握手晚到且携带旧 cookie”与“运营写失败不伪造 DEGRADED”的 RED/GREEN。
+  cookie 仅绑定订阅握手，不授权任何经营操作；模型、Store、lease、CAS、fencing 与 OperatorDecision
+  都不改变。
+- **重新评估条件**：跨域或正式多租户部署前必须重新缩小 cookie domain/path、引入 CSRF/session 管理和
+  集中撤销；在此之前同源本地工作台的根路径 cookie 是保证 REST 与 WebSocket 一致撤销的最小边界。

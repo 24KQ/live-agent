@@ -9,6 +9,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
+from secrets import token_urlsafe
 from typing import Literal
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -34,6 +35,13 @@ from src.gateway.harness_session_store import PostgresHarnessSessionStore
 from src.core.agent_evaluation import AgentRuleEvaluator
 from src.core.agent_replay import AgentReplayService
 from src.gateway.websocket_manager import WebSocketManager
+from src.gateway.decision_support_subscription import (
+    DecisionSupportSubscriptionTicketError,
+    DecisionSupportSubscriptionTickets,
+    DECISION_SUPPORT_BROWSER_BINDING_COOKIE,
+    SUBSCRIPTION_TICKET_TTL_SECONDS,
+    WEBSOCKET_TICKET_SUBPROTOCOL_PREFIX,
+)
 from src.gateway.decision_support_service import (
     DecisionSupportDecisionRequest,
     DecisionSupportProposalRequest,
@@ -59,6 +67,7 @@ _harness_dashboard_service = None
 _agent_evaluation_service = None
 _agent_evaluation_worker = None
 _decision_support_service = None
+_decision_support_subscription_tickets = DecisionSupportSubscriptionTickets()
 _phase15_human_study_store: HumanStudyStore | None = None
 DECISION_SUPPORT_EVENT_TYPE = "decision_support_workspace_update"
 HARNESS_EVENT_TYPE = "agent_harness_update"
@@ -399,6 +408,65 @@ async def request_multi_agent_escalation(
         return JSONResponse(status_code=409, content={"error": str(exc)})
     except DecisionSupportServiceUnavailable as exc:
         return JSONResponse(status_code=503, content={"error": str(exc)})
+
+
+@app.post("/api/decision-support/workspaces/{live_session_id}/subscription-ticket")
+async def create_decision_support_subscription_ticket(
+    live_session_id: str,
+    http_request: Request,
+):
+    """以 REST 操作员认证签发单次订阅票据，长期 Token 永远不进入 WebSocket URL。"""
+
+    # D-160：新票据入口与高冲突写入口同样不能继承认证关闭时的默认管理员兼容。票据
+    # 本身虽不授予经营写权限，却能读取实时 Workspace 投影，必须在签发前 fail-closed。
+    if not get_settings().operator_auth_enabled:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "operator authentication is required for decision support subscription"},
+        )
+    identity = authenticate_request(dict(http_request.headers))
+    authorize_action(identity, OperatorRole.OPERATOR)
+    try:
+        # 先确认 Workspace 存在，避免已认证调用方签发任意未来 scope 的监听能力；该读取
+        # 不返回事实正文，真正订阅仍只接收 WebSocket 的服务端广播。
+        get_decision_support_service().get_workspace_payload(live_session_id)
+    except WorkspaceNotFoundError:
+        return JSONResponse(status_code=404, content={"error": "workspace not found"})
+    except WorkspaceConflictError as exc:
+        return JSONResponse(status_code=409, content={"error": str(exc)})
+    # D-161：ticket 不能只是离开签发浏览器后仍可使用的一次性 bearer。binding 从不
+    # 出现在 JSON/URL/subprotocol；只由同源浏览器自动回传的 HttpOnly cookie 携带。
+    # D-162：同源浏览器重新认证前撤销旧 binding 的未消费票据，避免 cookie 覆盖和
+    # 异步 WebSocket 握手之间仍由前一操作员身份建立新订阅。
+    _decision_support_subscription_tickets.revoke_browser_binding(
+        http_request.cookies.get(DECISION_SUPPORT_BROWSER_BINDING_COOKIE, "")
+    )
+    browser_binding = token_urlsafe(32)
+    ticket = _decision_support_subscription_tickets.issue(
+        live_session_id=live_session_id,
+        operator_id=identity.operator_id,
+        browser_binding=browser_binding,
+    )
+    response = JSONResponse(
+        content={
+            "ticket": ticket,
+            "expires_in_seconds": SUBSCRIPTION_TICKET_TTL_SECONDS,
+        }
+    )
+    response.set_cookie(
+        key=DECISION_SUPPORT_BROWSER_BINDING_COOKIE,
+        value=browser_binding,
+        max_age=SUBSCRIPTION_TICKET_TTL_SECONDS,
+        httponly=True,
+        samesite="strict",
+        # 本地 HTTP 演示不发送 Secure cookie 时浏览器无法订阅；HTTPS 部署自动启用
+        # Secure，使同一份代码不会在 TLS 环境降级为可被明文传输的 cookie。
+        secure=http_request.url.scheme == "https",
+        # D-163：签票 REST 与 WebSocket 必须共同收到旧 binding，服务端才能在重新
+        # 认证时撤销未消费票据。该值仍是短时 HttpOnly 同源随机量，不是长期 Token。
+        path="/",
+    )
+    return response
 
 
 @app.post("/api/decision-support/workspaces/{live_session_id}/proposals")
@@ -947,23 +1015,39 @@ async def get_llm_review(room_id: str):
 
 @app.websocket("/ws/decision-support")
 async def decision_support_websocket(websocket: WebSocket):
-    """受 Operator 鉴权保护的 Phase 14 Workspace 更新订阅。"""
-
-    try:
-        identity = authenticate_request(dict(websocket.headers))
-        authorize_action(identity, OperatorRole.OPERATOR)
-    except OperatorAuthError:
-        await websocket.close(code=4401)
-        return
-    except OperatorPermissionError:
-        await websocket.close(code=4403)
-        return
+    """通过短时一次性票据订阅受 Operator 鉴权保护的 Workspace 更新。"""
 
     live_session_id = websocket.query_params.get("live_session_id")
     if not live_session_id:
         await websocket.close(code=4400)
         return
-    await websocket.accept()
+    # 浏览器不能自定义握手认证头，D-160 因而只接受认证 REST 签发的短时票据。将
+    # ``Sec-WebSocket-Protocol`` 原样回显为协商子协议，既不把长期 Token 放进 URL，
+    # 也不允许匿名/默认管理员兼容直接连接决策频道。
+    requested_protocols = [
+        value.strip()
+        for value in websocket.headers.get("sec-websocket-protocol", "").split(",")
+        if value.strip()
+    ]
+    if len(requested_protocols) != 1 or not requested_protocols[0].startswith(
+        WEBSOCKET_TICKET_SUBPROTOCOL_PREFIX
+    ):
+        await websocket.close(code=4401)
+        return
+    protocol = requested_protocols[0]
+    ticket = protocol.removeprefix(WEBSOCKET_TICKET_SUBPROTOCOL_PREFIX)
+    try:
+        _decision_support_subscription_tickets.consume(
+            ticket=ticket,
+            live_session_id=live_session_id,
+            browser_binding=websocket.cookies.get(
+                DECISION_SUPPORT_BROWSER_BINDING_COOKIE, ""
+            ),
+        )
+    except DecisionSupportSubscriptionTicketError:
+        await websocket.close(code=4401)
+        return
+    await websocket.accept(subprotocol=protocol)
     websocket_manager.connect(websocket, scope=live_session_id)
     try:
         while True:

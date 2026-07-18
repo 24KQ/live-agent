@@ -55,8 +55,11 @@ Phase 16 Task 1 至 6 已独立提交推送；Task 5 的受控选择、单次 An
 升级和 fail-closed 审计闭合由 `b584808` 固化，Task 6 的受限 Planner、整份 Proposal 验证、
 Analysis-bound 单次 claim、入口级总预算、READY Outcome 与 D-152 经营恢复双重门禁由
 `d42eab9` 固化。Task 7 的窄端点、服务端 Bundle/lease 装配、完整 Workspace/WebSocket 投影与
-D-153 至 D-158 的双向人工/自动所有权门禁已经完成 RED/GREEN；完整回归和迁移门禁通过，当前等待
-独立提交与推送。仍不得扩展 OperatorDecision 权限、命令或自动经营恢复。
+D-153 至 D-158 的双向人工/自动所有权门禁已由 `2f4b7ef` 提交推送。Task 8 已将工作台收口到
+服务端 Bundle 摘要、route/trigger/analysis/outcome 事实、无 READY 禁用和安全订阅票据；D-159 至
+D-163 已收口 cookie 绑定、重新认证撤销、会话 generation、lineage-first Proposal 和 UNAVAILABLE
+语义，完整回归与最终审查通过，当前等待独立提交与推送。仍不得扩展 OperatorDecision 权限、命令或
+自动经营恢复。
 
 ## 4. 阶段依赖与自动门禁
 

@@ -151,6 +151,23 @@ Phase / Task: Phase 16 / Task 7 - Governed API and WebSocket Projection
 Sub-agent: 规格审查 `019f7675-f8f5-79b0-baef-c6f8ca523d70` 已 PASS 并关闭；质量/安全审查 `019f7676-3385-72b1-b287-71da0c8a7e27` 发现 D-158 Important，主模型已补独立 RED/GREEN 并关闭该审查。整改复审 `019f7682-94d6-7a61-a780-822f61d31243` 已 PASS 并关闭；所有 Task 7 sub-agent 只读、未修改、暂存、提交或推送，当前无运行中 sub-agent。
 ```
 
+## 2026-07-18 Phase 16 Task 8 RED / GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 8 - Local Operations Workspace
+状态: VERIFY / READY_TO_COMMIT
+目标: 在三视图工作台中展示服务器投影的 route、trigger、analysis、outcome；只从安全 Bundle 摘要发起窄人工升级，并在无匹配 READY Proposal 时禁用经营决定。
+禁止事项: 不让浏览器构造 Bundle 快照、Profile、trigger、lease、fencing 或模型输入；不把长期操作员 Token 放进 URL/subprotocol；不提供自动恢复、自动批准或直接执行。
+当前 HEAD: 2f4b7ef69fbb35f7196efc29e4471ad189697ac0
+本 Task 文件: front/index.html、decision_support_service.py、api_server.py、decision_support_subscription.py、Task 8 unit/API/WebSocket 测试、决策与 worklog。
+最近命令与结果: RED 为缺少 Bundle 摘要、升级面板、窄请求、READY 禁用和浏览器安全订阅。D-159 至 D-163 已依次补最小摘要、短时单次票据、HttpOnly browser binding、generation、重新认证撤销、lineage-first Proposal 和 UNAVAILABLE。Task 8/API/旧 Dashboard 聚合 `44 passed, 1 warning`；完整 unit `1473 passed, 4 warnings`；完整 integration `182 passed, 7 deselected, 5 warnings`；前端 JavaScript 语法通过。
+错误与尝试次数: 三轮独立复审共发现七项 Critical/Important，均先 RED 后 GREEN。最终修复 cookie Path 使签票 REST 可读取并撤销旧 binding，晚到旧握手被拒绝；REST/运营写失败不再伪造 `DEGRADED`。未调用真实模型。
+设计偏差与决策编号: D-159 至 D-163 只补安全投影、浏览器订阅与诚实 UI 状态，不改变业务事实、模型权限、默认路由、CAS、lease、fencing 或 OperatorDecision。
+下一条精确操作: 运行严格编码、迁移 dry-run、D-001 至 D-163 审计和差异门禁；只暂存 Task 8 目标文件，独立提交推送，再进入 Task 9 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: `019f768c-26ec-76b3-983e-e92e2b1fb0b7` 的只读实现地图发现浏览器认证 Important；三轮独立规格/安全复审已发现并验证 D-160 至 D-163 整改。最终复审 `019f76ab-72a7-74c2-b967-853c81fb31ca` 为 PASS 并已关闭；所有 Task 8 sub-agent 只读、未修改、暂存、提交或推送，当前无运行中的 sub-agent。
+```
+
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
