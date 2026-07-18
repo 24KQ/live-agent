@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`PHASE_15_TASK_3_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_4_READY_TO_PUSH`
 
 最后更新：2026-07-18
 
@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 15 Golden Release Gates Stage B |
-| 最近完成任务 | Task 2：48 例 Golden Dataset 与 Manifest（`eb31dd9` 已推送） |
-| 当前任务 | Task 3：统一 Subject Runner 与规则门禁 |
-| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_3_READY_TO_PUSH` |
-| 当前子步骤 | 五类受限 Runner、Skill/Plan/Event 权限、EvidenceRef、CAS/fencing、幂等、敏感信息、预算和 no-fallback 规则已转绿，完整回归通过，待静态门禁与提交 |
+| 最近完成任务 | Task 3：统一 Subject Runner 与规则门禁（`9f9d835` 已推送） |
+| 当前任务 | Task 4：Release Store、双轨决策与 Phase 15 预算 |
+| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_4_READY_TO_PUSH` |
+| 当前子步骤 | ReleaseRun 幂等、case 结果唯一性、缺 case、digest 不匹配、Technical/Promotion 双结论和独立 0.60 元预算均已转绿，完整回归通过，待提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | Phase 14 Task 12 Acceptance；Stage A 文档提交以 `git log -1 --oneline --decorate` 解析 |
 | 远端状态 | `origin/main=2a88224`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 15 / Task 3
+Phase / Task: Phase 15 / Task 4
 状态: READY_TO_PUSH
-目标: 实现统一 Subject Runner 与规则门禁
+目标: 实现 Release Store、双轨决策与 Phase 15 预算
 禁止事项: 不调用真实模型；不伪造真人/托管 CI 证据；不修改用户脏文件；不把临时兼容脚本纳入提交
-当前 HEAD: `eb31dd9` 是最新远端提交；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
-本 Task 文件: src/release_gates/models.py、src/release_gates/rules.py、src/release_gates/runner.py、Task 3 测试
+当前 HEAD: `9f9d835` 是最新远端提交；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
+本 Task 文件: src/release_gates/store.py、src/release_gates/decisions.py、docker/init_phase15_release_gates.sql、Phase 15 Task 4 测试和预算迁移
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 3/Task 2 专项 `15 passed`；全量 unit `1337 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`；Task 2 `eb31dd9` 已推送；Phase 13 历史 Manifest 闭包修复已通过回归
+最近命令与结果: Task 4/Task 3/Task 2 专项 `21 passed`；全量 unit `1341 passed, 4 warnings`；全量 integration `152 passed, 3 deselected, 5 warnings`；Task 3 `9f9d835` 已推送；PostgreSQL 预算/Release Store 与迁移 dry-run 通过
 错误与尝试次数: 本 Task 尚未运行真实模型或写入数据库；用户既有脏文件保持原状
 设计偏差与决策编号: 沿用 D-123 至 D-132；Task 2 活跃清单固定 48 例，Phase 13 240 例只做归档 Manifest 完整性校验
-下一条精确操作: 运行 Task 3 目标文件严格 UTF-8/LF、敏感扫描、compileall 和 git diff 检查；通过后只暂存 Task 3 文件，提交并推送
+下一条精确操作: 运行 Task 4 目标文件严格 UTF-8/LF、敏感扫描、compileall、迁移 dry-run 和 git diff 检查；通过后只暂存 Task 4 文件，提交并推送
 模型费用累计: 0.042344 元
 ```
 

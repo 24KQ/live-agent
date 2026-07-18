@@ -791,3 +791,19 @@
 - 规则优先门禁已覆盖 Skill 精确版本/权限、Schema、EvidenceRef、Plan/Event 状态、CAS/fencing、幂等、敏感输出、预算、调用次数和 no-fallback；Subject 异常固定为 `BLOCKED`。
 - 为保持 Phase 13 历史资产不可变，源码 digest/Generator/测试均排除后续 `src/release_gates`；v2/v3 生成器回归通过。
 - 当前状态改为 `PHASE_15_TASK_3_READY_TO_PUSH`；下一步严格编码、敏感扫描、编译、差异检查、暂存、提交和推送。
+
+# 2026-07-18 Phase 15 Task 3 COMMIT/PUSH
+
+- Task 3 已提交并推送：`9f9d835 feat: enforce release subject rules`，`origin/main=9f9d835`。
+- 规则 Runner 的严重门禁、五类 Subject 域绑定、历史 Phase 13 闭包隔离和完整 unit/integration 证据均已落档。
+
+# 2026-07-18 Phase 15 Task 4 RED
+
+- 连续游标切换到 Task 4：Release Store、双轨结论与 Phase 15 预算。
+- RED 将先证明缺少 ReleaseRun/CaseResult 唯一性、双轨结论状态机、digest 完整性和 `PHASE15_COPILOT_SMOKE=0.60` 元隔离。
+# 2026-07-18 Phase 15 Task 4 GREEN/VERIFY
+
+- Release Store、双轨结论和独立 Phase 15 预算已完成；PostgreSQL 事实重放、唯一键、并发预算边界和迁移 dry-run 通过。
+- 全量 unit `1341 passed, 4 warnings`；全量 integration `152 passed, 3 deselected, 5 warnings`；真实模型/真人采集/外部服务费用保持 `0`。
+- 预算从共享账本调整为 Phase 15 自有模块和表，避免改变 Phase 13 历史 Manifest code digest；Phase 13 数据稳定性回归恢复通过。
+- 阶段状态改为 `PHASE_15_TASK_4_READY_TO_PUSH`；下一步严格编码/敏感扫描、差异检查、暂存、提交和推送。

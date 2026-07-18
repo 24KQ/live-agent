@@ -623,3 +623,21 @@
 - 严重规则码直接产生 `FAIL`；Subject 异常不回显异常文本并归一化为 `BLOCKED`；敏感输出不会写入结果 artifact；Subject 身份和 case 结果均绑定 SHA-256 摘要。
 - 规格与质量审查未发现 Critical/Important；历史 Phase 13 源码闭包已明确排除后续 `src/release_gates`，v2/v3 重新生成并保持历史测试通过。
 - Task 3/Task 2 聚合 `15 passed`；全量 unit `1337 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`；真实模型和外部服务未调用。
+
+## 2026-07-18 Phase 15 Task 3 COMMIT/PUSH
+
+- Task 3 已以 `9f9d835 feat: enforce release subject rules` 提交并推送，`origin/main=9f9d835`。
+- 提交仅包含 Subject 模型、规则 Runner、历史 Phase 13 闭包隔离、Task 3 测试和阶段留痕；用户已有脏文件未纳入。
+
+## 2026-07-18 Phase 15 Task 4 RED
+
+- Task 4 进入 RED，目标是 ReleaseRun/CaseResult 持久化、Technical/Promotion 双轨结论和 Phase 15 `0.60` 元预算隔离。
+- 真实模型、真人采集、数据库写入和外部服务仍禁止调用；先复用现有 Store/Budget 的幂等与重启语义建立本地红灯。
+
+## 2026-07-18 Phase 15 Task 4 GREEN/REVIEW/VERIFY
+
+- 新增 ReleaseRun/ReleaseCaseResult、Technical/Promotion/Final 三轨状态模型，以及内存/PostgreSQL Release Store；重复事实幂等，身份/digest/case 冲突和缺 case fail-closed。
+- 技术 PASS 不能覆盖 Promotion `BLOCKED`；最终状态严格映射为 `RELEASED_DECISION_SUPPORT_ENABLED`、`RELEASED_DECISION_SUPPORT_DISABLED` 或 `NOT_RELEASED`。
+- Phase 15 预算调整为独立 `src/release_gates/budget.py` 与独立 PostgreSQL 表，固定 0.60 元；未修改 Phase 13/14 共享预算模块，保证历史 code digest 不被后续阶段污染。
+- 内存专项 `4 passed`、PostgreSQL Release Store `1 passed`、独立预算 PostgreSQL `1 passed`、既有预算/Runner 聚合 `85 passed`；全量 unit `1341 passed, 4 warnings`，integration `152 passed, 3 deselected, 5 warnings`。
+- 复审修复 PostgreSQL 决策快照重启读取错误；未发现 Critical/Important 阻断，真实模型未调用。

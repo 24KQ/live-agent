@@ -1,8 +1,8 @@
 # Phase 15 Golden Release Gates Implementation Plan
 
-文档状态：`PHASE_15_TASK_3_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_4_READY_TO_PUSH`
 
-本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1-2 已推送，Task 3 已完成实现、审查和验证，待提交推送。
+本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1-3 已推送，Task 4 已完成实现、审查和验证，待提交推送。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` for isolated implementation and review tasks; otherwise use `executing-plans` task-by-task. Steps use the repository RED, GREEN, REFACTOR, REVIEW, VERIFY, DOCS, COMMIT, PUSH protocol.
 
@@ -56,7 +56,7 @@
 
 - RED：覆盖 ReleaseRun 幂等、case 结果唯一性、并发聚合、缺 case、digest 不匹配、Technical/Promotion 双结论和预算超限。
 - GREEN：实现内存/PostgreSQL Store、`TechnicalReleaseDecision`、`DecisionSupportPromotionDecision`、`FinalReleaseStatus`；预算账本新增 `PHASE15_COPILOT_SMOKE=0.60` 且禁止借用 Phase 13/14。
-- VERIFY：真实 PostgreSQL 重启、并发写入、重复运行和预算边界测试。
+- VERIFY：内存/PostgreSQL 重启、并发写入、重复运行、缺 case、digest 冲突和 Phase 15 独立预算边界测试通过。
 - COMMIT/PUSH：`feat: persist dual release decisions`。
 
 ## Task 5：真人交叉对照采集器
