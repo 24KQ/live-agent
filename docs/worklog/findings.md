@@ -706,3 +706,19 @@
 - 只读审查发现 Release 默认路径未自动要求 PostgreSQL、覆盖率和 GitHub Actions 证据，且 PR/Nightly 错误包含 holdout；另发现 Manifest/Dataset 身份绑定、EvidenceRef 保留和证据敏感回显缺口。
 - 已修复：Release 强制三类外部门禁并把 gate facts 纳入 artifact；PR/Nightly 固定 36 个非 holdout，Release 固定 48 个；Subject Manifest/Dataset 绑定冻结摘要；ReleaseCaseResult 保留 EvidenceRef；Actions 读取器严格验证身份/摘要并只输出白名单；预算/覆盖率拒绝 NaN/非有限数。
 - 审查没有放宽任何安全、预算或 Promotion 门槛；真实模型、GitHub API 和生产数据库仍未调用。
+
+## 2026-07-18 Phase 15 Task 8 COMMIT/PUSH 与 Task 9 RED
+
+- Task 8 已以 `d2d4c89 build: add local phase 15 release gates` 推送；PR/Nightly/Release 本地门禁入口已可复跑。
+- Task 9 当前尚无 `.github/workflows/agent-runtime-pr.yml`、`agent-runtime-nightly.yml` 和 `.github/workflows/agent-runtime-release.yml`；RED 将固定 Python 3.12、PostgreSQL 15、36/48 case split、secret/trigger/artifact retention 边界。
+
+## 2026-07-18 Phase 15 Task 9 REVIEW 整改
+
+- 只读审查发现 Release workflow 未生成 coverage、未传 DSN/evidence，Nightly/Release 缺少 Kafka readiness 和 PostgresSaver 显式入口，三层权限/触发器测试不完整；这些问题均已修复。
+- Release 现在通过受保护 environment secrets 注入 evidence JSON 与身份字段，调用 `fetch_github_actions_evidence.py --require-evidence` 后再调用 Release CLI；缺失 evidence 仍稳定阻断。
+- `phase15-release-*` tag ruleset 的创建权限属于 GitHub 仓库外部配置，当前只记录为待真实 Actions/仓库设置验收的外部门禁，不伪造代码内强制能力。
+
+## 2026-07-18 Phase 15 Task 9 VERIFY
+
+- workflow contract `3 passed`，完整 unit `1375 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`；目标 YAML 编码、敏感扫描、迁移 dry-run 和 diff check 通过。
+- 真实托管 Actions、protected environment secrets 和 tag ruleset 没有在本地伪造；它们是后续真实 Release 验收所需的外部证据。

@@ -869,3 +869,19 @@
 - 统一 CLI、覆盖率门禁、Actions evidence 读取和 Demo 已完成；初轮专项 `13 passed`。
 - 独立只读审查发现 Release 强制证据、36/48 split、冻结身份和 EvidenceRef 的 Important/Critical 缺口，已逐项修复并复跑相关聚合 `20 passed`。
 - 当前报告事实：PR 48 -> 36 个非 holdout，技术 PASS、Promotion BLOCKED；Release 缺数据库/覆盖率/Actions 时技术 BLOCKED、最终 NOT_RELEASED；真实模型/网络调用仍为 0。
+
+# 2026-07-18 Phase 15 Task 8 COMMIT/PUSH 与 Task 9 RED
+
+- Task 8 已提交并推送：`d2d4c89 build: add local phase 15 release gates`。
+- Task 9 开始：先为三层 GitHub Actions workflow 建立契约红灯；不执行外部 Actions，不伪造托管 run evidence。
+
+# 2026-07-18 Phase 15 Task 9 GREEN / REVIEW
+
+- 新增 PR/Nightly/Release 三层 workflow；workflow contract `3 passed`，静态 YAML、敏感扫描、目标编码和 diff 检查通过。
+- 审查整改已补齐 Release coverage/DSN/受保护 evidence 校验、Kafka/Zookeeper 探活、PostgresSaver 专项入口和三层顶层/job 权限与 trigger 断言。
+- 真实 GitHub Actions run、仓库 tag ruleset 和 protected environment 实际配置仍未取得；这些外部事实保持 `BLOCKED`，没有伪造绿色 evidence。
+
+# 2026-07-18 Phase 15 Task 9 VERIFY
+
+- workflow contract `3 passed`；完整 unit `1375 passed, 4 warnings`；integration `155 passed, 3 deselected, 5 warnings`；目标 YAML 解析、敏感扫描、迁移 dry-run、编码和 diff 检查通过。
+- 真实 Actions run、protected environment secrets 和 tag ruleset 仍是外部 `BLOCKED` 证据，不影响 workflow 代码契约完成；下一步只提交并推送 Task 9。

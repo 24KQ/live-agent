@@ -1,0 +1,98 @@
+name: Agent Runtime Nightly Gate
+
+# Nightly 验证完整基础设施和 36 个非 holdout case，真实模型保持关闭。
+"on":
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly-gate:
+    name: infrastructure nightly gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: phase15-local
+          POSTGRES_DB: live_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d live_agent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      zookeeper:
+        image: confluentinc/cp-zookeeper:7.6.0
+        env:
+          ZOOKEEPER_CLIENT_PORT: 2181
+          ZOOKEEPER_TICK_TIME: 2000
+        ports:
+          - 2181:2181
+      kafka:
+        image: confluentinc/cp-kafka:7.6.0
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        ports:
+          - 9092:9092
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: phase15-local
+      POSTGRES_DB: live_agent
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
+      PHASE15_REAL_MODEL: "0"
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run migrations and full infrastructure tests
+        run: |
+          python scripts/run_db_migrations.py
+          python - <<'PY'
+          import socket
+          import sys
+          import time
+          for host, port in (("localhost", 2181), ("localhost", 9092)):
+              for _ in range(30):
+                  try:
+                      with socket.create_connection((host, port), timeout=1):
+                          break
+                  except OSError:
+                      time.sleep(2)
+              else:
+                  print(f"service unavailable: {host}:{port}", file=sys.stderr)
+                  raise SystemExit(3)
+          PY
+          # 该专项通过官方 PostgresSaver 连接路径验证 checkpoint 恢复。
+          python -m pytest tests/integration/test_phase12a_plan_checkpoint_consistency.py -q
+          python -m pytest tests/unit -q
+          python -m pytest tests/integration -q
+      - name: Run 36 non-holdout nightly cases with REAL_MODEL=0
+        run: |
+          echo "REAL_MODEL=0; no real model in nightly"
+          python scripts/run_release_gate.py --mode nightly --output-dir artifacts/nightly-36-non-holdout
+      - name: Upload nightly gate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase15-nightly-gate
+          path: artifacts/nightly-36-non-holdout
+          if-no-files-found: error
+          retention-days: 30

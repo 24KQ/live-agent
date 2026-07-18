@@ -1,0 +1,70 @@
+name: Agent Runtime PR Gate
+
+# PR 只验证非 holdout 的 36 个 case，禁止把模型密钥带入不受保护的执行环境。
+"on":
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-gate:
+    name: deterministic PR gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: phase15-local
+          POSTGRES_DB: live_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d live_agent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: phase15-local
+      POSTGRES_DB: live_agent
+      PHASE15_REAL_MODEL: "0"
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run database migrations
+        run: python scripts/run_db_migrations.py
+      - name: Run unit tests with branch coverage
+        run: coverage run --branch -m pytest tests/unit -q
+      - name: Run integration tests
+        run: python -m pytest tests/integration -q
+      - name: Check coverage gate
+        run: |
+          coverage json
+          python scripts/check_coverage_gate.py --coverage-file coverage.json --line 90 --branch 85
+      - name: Run 36 non-holdout release cases
+        run: python scripts/run_release_gate.py --mode pr --output-dir artifacts/pr-36-non-holdout
+      - name: Check tracked payloads and document encoding
+        run: |
+          python scripts/check_sensitive_payloads.py --tracked
+          python scripts/check_doc_encoding.py docs/project_guidance docs/worklog docs/superpowers/specs docs/superpowers/plans
+      - name: Upload PR gate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase15-pr-gate
+          path: artifacts/pr-36-non-holdout
+          if-no-files-found: error
+          retention-days: 14
