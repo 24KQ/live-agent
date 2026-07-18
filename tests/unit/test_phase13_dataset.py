@@ -329,11 +329,14 @@ def test_manifest_binds_every_artifact_and_official_price_snapshot() -> None:
             max_case_cost_cny=Decimal(profile["max_case_cost_cny"]),
         )
         assert runtime_profile.profile_id == profile["profile_id"]
-    # 源码闭包必须由目录发现得到精确全集；新增 Python 文件时不能依赖人工补名单。
+    # Phase 13 历史闭包由目录发现得到精确全集，但后续 Phase 15 Release Gate
+    # 必须使用独立 Manifest，不能因新增发布门禁源码反向改变历史摘要。
+    phase15_root = ROOT / "src" / "release_gates"
     expected_source_paths = {
         path.relative_to(ROOT).as_posix()
         for source_root in (ROOT / "src", EVALUATION_ROOT)
         for path in source_root.rglob("*.py")
+        if not path.is_relative_to(phase15_root)
     }
     assert set(manifest["source_artifact_digests"]) == expected_source_paths
     assert calculate_source_code_digest(ROOT) == manifest["code_digest"]

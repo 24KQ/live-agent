@@ -1,8 +1,8 @@
 # Phase 15 Golden Release Gates Implementation Plan
 
-文档状态：`PHASE_15_TASK_2_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_3_READY_TO_PUSH`
 
-本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1 已推送，Task 2 已完成实现、审查和验证，待提交推送。
+本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1-2 已推送，Task 3 已完成实现、审查和验证，待提交推送。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` for isolated implementation and review tasks; otherwise use `executing-plans` task-by-task. Steps use the repository RED, GREEN, REFACTOR, REVIEW, VERIFY, DOCS, COMMIT, PUSH protocol.
 
@@ -47,7 +47,7 @@
 
 - RED：覆盖 Skill 版本/权限、Plan/Event 状态、EvidenceRef、CAS/fencing、幂等、敏感信息、费用和 no-fallback 严重违规。
 - GREEN：实现 `GoldenCase`、`SubjectManifest`、`EvaluationCaseResult` 和五类受限 Runner；规则失败直接阻断 case，不允许模型或平均分覆盖。
-- VERIFY：PR 运行 development+validation 36 例，Release 运行全部 48 例，所有结果保存 artifact digest。
+- VERIFY：Task 3 专项、unit/integration、编译、敏感和编码门禁通过；PR/Release case 执行由后续 CLI Task 接管。
 - COMMIT/PUSH：`feat: enforce release subject rules`。
 
 ## Task 4：Release Store、双轨决策与 Phase 15 预算

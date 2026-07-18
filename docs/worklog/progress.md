@@ -774,3 +774,20 @@
 - 全量 integration 明确通过：`150 passed, 3 deselected, 5 warnings`；全量 unit 明确通过：`1329 passed, 4 warnings`；退出码均为 `0`。
 - Task 2 专项和 Phase 13/14 聚合回归共 `25 passed`，真实模型和外部服务费用保持 `0`。
 - 阶段状态改为 `PHASE_15_TASK_2_READY_TO_PUSH`；下一步只执行严格编码/敏感扫描、Manifest 双次生成、差异检查、暂存、提交和推送。
+
+# 2026-07-18 Phase 15 Task 2 COMMIT/PUSH
+
+- Task 2 已提交并推送：`eb31dd9 feat: version phase 15 golden dataset`，`origin/main=eb31dd9`。
+- 只提交 Golden/labels、Manifest/Schema、生成器、历史 Phase 13 闭包修复、Task 2 测试和阶段留痕；用户脏文件仍未暂存。
+
+# 2026-07-18 Phase 15 Task 3 RED
+
+- 连续游标切换到 Task 3：统一 Subject Runner 与规则门禁。
+- RED 将先证明当前仓库缺少 `GoldenCase`/`SubjectManifest`/`EvaluationCaseResult`、五类受限 Runner 和规则严重违规门禁。
+
+# 2026-07-18 Phase 15 Task 3 GREEN/VERIFY
+
+- Task 3 专项与 Task 2 聚合 `15 passed`；全量 unit `1337 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`。
+- 规则优先门禁已覆盖 Skill 精确版本/权限、Schema、EvidenceRef、Plan/Event 状态、CAS/fencing、幂等、敏感输出、预算、调用次数和 no-fallback；Subject 异常固定为 `BLOCKED`。
+- 为保持 Phase 13 历史资产不可变，源码 digest/Generator/测试均排除后续 `src/release_gates`；v2/v3 生成器回归通过。
+- 当前状态改为 `PHASE_15_TASK_3_READY_TO_PUSH`；下一步严格编码、敏感扫描、编译、差异检查、暂存、提交和推送。

@@ -22,18 +22,26 @@ def _normalized_source_bytes(path: Path) -> bytes:
     return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
 
 
-def calculate_source_code_digest(project_root: Path) -> str:
-    """重算全部产品源码与评估代码的保守闭包摘要。"""
+def _phase13_source_paths(root: Path) -> tuple[Path, ...]:
+    """返回 Phase 13 历史源码闭包，明确排除后续 Phase 15 Release Gate。"""
 
-    root = Path(project_root).resolve()
-    paths = tuple(
+    phase15_root = root / "src" / "release_gates"
+    return tuple(
         sorted(
             path
             for source_root in (root / "src", root / "evaluation")
             if source_root.exists()
             for path in source_root.rglob("*.py")
+            if not path.is_relative_to(phase15_root)
         )
     )
+
+
+def calculate_source_code_digest(project_root: Path) -> str:
+    """重算 Phase 13 产品源码与评估代码的历史闭包摘要。"""
+
+    root = Path(project_root).resolve()
+    paths = _phase13_source_paths(root)
     if not paths:
         raise ValueError("formal manifest source closure is empty")
     digests = {
@@ -53,6 +61,7 @@ def _assert_git_tracked_source_closure(root: Path) -> None:
     """拒绝 symlink、ignored 或 untracked Python 进入正式运行源码闭包。"""
 
     source_roots = (root / "src", root / "evaluation")
+    phase15_root = root / "src" / "release_gates"
     for source_root in source_roots:
         if source_root.is_symlink() or any(path.is_symlink() for path in source_root.rglob("*")):
             raise ValueError("formal manifest tracked source closure cannot contain symlinks")
@@ -61,6 +70,7 @@ def _assert_git_tracked_source_closure(root: Path) -> None:
         for source_root in source_roots
         if source_root.exists()
         for path in source_root.rglob("*.py")
+        if not path.is_relative_to(phase15_root)
     }
     tracked_output = subprocess.run(
         ["git", "ls-files", "--cached", "--", "src", "evaluation"],
@@ -73,6 +83,7 @@ def _assert_git_tracked_source_closure(root: Path) -> None:
         line.strip().replace("\\", "/")
         for line in tracked_output.splitlines()
         if line.strip().endswith(".py")
+        and not Path(root / line.strip()).is_relative_to(phase15_root)
     }
     if discovered_paths != tracked_paths:
         raise ValueError("formal manifest tracked source closure does not match disk")
@@ -91,7 +102,16 @@ def verify_formal_manifest_at_git_head(
     # 正式身份不能把未提交源码伪装成 HEAD；只检查参与 code_digest 的两个目录，
     # 文档或本地报告变更不会无关阻断模型评估。
     status = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all", "--", "src", "evaluation"],
+        [
+            "git",
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            "src",
+            "evaluation",
+            ":!src/release_gates",
+        ],
         cwd=root,
         check=True,
         capture_output=True,

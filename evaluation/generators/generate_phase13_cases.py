@@ -910,12 +910,15 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
         if key.startswith("cases/") or key.startswith("labels/")
     }
     project_root = Path(__file__).parents[2]
-    # 目录发现形成保守闭包：全部产品源码与评估运行代码都参与 LF 规范化摘要。
+    # 目录发现形成 Phase 13 自己的保守闭包。后续 Phase 15 Release Gate 使用
+    # 独立 Manifest；它的源码不能反向改变 Phase 13 历史证据的身份摘要。
+    phase15_root = project_root / "src" / "release_gates"
     source_paths = tuple(
         sorted(
             path.relative_to(project_root)
             for source_root in (project_root / "src", project_root / "evaluation")
             for path in source_root.rglob("*.py")
+            if not path.is_relative_to(phase15_root)
         )
     )
     source_artifact_digests = {

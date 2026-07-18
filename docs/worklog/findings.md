@@ -606,3 +606,20 @@
 - Task 2 专项 `5 passed`；全量 unit `1329 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`，退出码均为 `0`。
 - `compileall`、Phase 13/14 数据聚合 `25 passed` 和生成器连续运行字节稳定性通过；真实模型、数据库写入和外部服务均未调用。
 - 当前仅剩目标文件严格编码、敏感扫描、`git diff --check`、暂存边界、独立提交和推送；用户已有脏文件继续排除。
+
+## 2026-07-18 Phase 15 Task 2 COMMIT/PUSH
+
+- Task 2 已以 `eb31dd9 feat: version phase 15 golden dataset` 提交并推送，`origin/main=eb31dd9`。
+- 提交仅包含 48 例 Golden/labels、Schema、Manifest、生成器、Phase 13 历史闭包修复、Task 2 测试和阶段留痕；用户已有脏文件未纳入。
+
+## 2026-07-18 Phase 15 Task 3 RED
+
+- Task 3 进入 RED，目标是统一 Subject Runner 与规则门禁；真实模型、数据库写入和外部服务仍禁止调用。
+- 下一步覆盖 Skill 版本/权限、Plan/Event 状态、EvidenceRef、CAS/fencing、幂等、敏感信息、预算和 no-fallback 严重违规。
+
+## 2026-07-18 Phase 15 Task 3 GREEN/REVIEW/VERIFY
+
+- 新增 `SubjectManifest`、`SubjectObservation`、`EvaluationCaseResult` 和五类域绑定 Runner；规则优先检查精确 Skill 版本/权限、输出 Schema、EvidenceRef、Plan/Event 状态、CAS/fencing、幂等、敏感输出、预算、调用次数和 no-fallback。
+- 严重规则码直接产生 `FAIL`；Subject 异常不回显异常文本并归一化为 `BLOCKED`；敏感输出不会写入结果 artifact；Subject 身份和 case 结果均绑定 SHA-256 摘要。
+- 规格与质量审查未发现 Critical/Important；历史 Phase 13 源码闭包已明确排除后续 `src/release_gates`，v2/v3 重新生成并保持历史测试通过。
+- Task 3/Task 2 聚合 `15 passed`；全量 unit `1337 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`；真实模型和外部服务未调用。

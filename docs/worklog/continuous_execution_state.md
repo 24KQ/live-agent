@@ -1,6 +1,6 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`PHASE_15_TASK_2_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_3_READY_TO_PUSH`
 
 最后更新：2026-07-18
 
@@ -9,10 +9,10 @@
 | 字段 | 当前值 |
 |---|---|
 | 当前阶段 | Phase 15 Golden Release Gates Stage B |
-| 最近完成任务 | Task 1：发布入口、迁移清单与仓库事实（`2a88224` 已推送） |
-| 当前任务 | Task 2：48 例 Golden Dataset 与 Manifest |
-| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_2_READY_TO_PUSH` |
-| 当前子步骤 | 48 例、split、来源、脱敏、case digest、规则/源码摘要和双次生成契约均已转绿；专项、unit/integration 和历史 Manifest 回归已通过，待静态门禁与提交 |
+| 最近完成任务 | Task 2：48 例 Golden Dataset 与 Manifest（`eb31dd9` 已推送） |
+| 当前任务 | Task 3：统一 Subject Runner 与规则门禁 |
+| 当前任务状态 | `READY_TO_PUSH` / `PHASE_15_TASK_3_READY_TO_PUSH` |
+| 当前子步骤 | 五类受限 Runner、Skill/Plan/Event 权限、EvidenceRef、CAS/fencing、幂等、敏感信息、预算和 no-fallback 规则已转绿，完整回归通过，待静态门禁与提交 |
 | 当前分支 | `main` |
 | 当前业务基线 | Phase 14 Task 12 Acceptance；Stage A 文档提交以 `git log -1 --oneline --decorate` 解析 |
 | 远端状态 | `origin/main=2a88224`；用户脏文件保持 unstaged，恢复时必须核对本地/远端 HEAD |
@@ -30,17 +30,17 @@
 ## 3. 当前执行记录
 
 ```text
-Phase / Task: Phase 15 / Task 2
+Phase / Task: Phase 15 / Task 3
 状态: READY_TO_PUSH
-目标: 生成 48 例字节稳定 Golden Dataset、Schema 和不可变 Manifest
+目标: 实现统一 Subject Runner 与规则门禁
 禁止事项: 不调用真实模型；不伪造真人/托管 CI 证据；不修改用户脏文件；不把临时兼容脚本纳入提交
-当前 HEAD: `2a88224` 是最新远端提交；Task 2 仍在工作区，恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
-本 Task 文件: src/release_gates/dataset.py、evaluation/schemas/phase15_golden_manifest.schema.json、evaluation/generators/generate_phase15_cases.py、evaluation/manifests/phase15-runtime-v1.json、evaluation/cases/phase15-runtime-v1、evaluation/labels/phase15-runtime-v1、Task 2 测试
+当前 HEAD: `eb31dd9` 是最新远端提交；恢复时以 `git log -1 --oneline --decorate` 和 `git status --short` 读取精确值
+本 Task 文件: src/release_gates/models.py、src/release_gates/rules.py、src/release_gates/runner.py、Task 3 测试
 用户脏文件: 4 个既有修改文档、development_pitfalls.md、patch_run_all.py、tmp_gen_story.py
-最近命令与结果: Task 2 数据/Phase 13/14 回归 `25 passed`；全量 unit `1329 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`；Task 1 `2a88224` 已推送；Phase 13 历史 Manifest 闭包修复已通过回归
+最近命令与结果: Task 3/Task 2 专项 `15 passed`；全量 unit `1337 passed, 4 warnings`；全量 integration `150 passed, 3 deselected, 5 warnings`；Task 2 `eb31dd9` 已推送；Phase 13 历史 Manifest 闭包修复已通过回归
 错误与尝试次数: 本 Task 尚未运行真实模型或写入数据库；用户既有脏文件保持原状
 设计偏差与决策编号: 沿用 D-123 至 D-132；Task 2 活跃清单固定 48 例，Phase 13 240 例只做归档 Manifest 完整性校验
-下一条精确操作: 运行严格 UTF-8/LF、敏感扫描、Manifest 双次生成和 git diff 检查；通过后只暂存 Task 2 目标文件，提交并推送
+下一条精确操作: 运行 Task 3 目标文件严格 UTF-8/LF、敏感扫描、compileall 和 git diff 检查；通过后只暂存 Task 3 文件，提交并推送
 模型费用累计: 0.042344 元
 ```
 
