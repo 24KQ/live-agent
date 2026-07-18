@@ -178,7 +178,7 @@
   - [x] Task 11：真实模型 smoke 预检与严格结论（`6a79359` 已提交并推送）。
   - [x] Task 12：三场景 Demo、Phase 14 Acceptance 与 Phase 15 Gate（`c4124ce` 已提交并推送）。
 - [x] Phase 15 Stage A：Golden Dataset、发布门禁、双轨结论、真人证据、预算、CI、路由和 Final Acceptance Design/Plan 已审核持久化；D-123 至 D-132 已追加，旧 Discussion Baseline 已标记为历史输入。
-- [ ] Phase 15 Stage B：用户已授权，按 Task 1-12 连续执行；Task 1-5 已推送，当前进入 Task 6 RED。
+- [ ] Phase 15 Stage B：用户已授权，按 Task 1-12 连续执行；Task 1-9 已推送，Task 10 验证完成待提交。
   - [x] Task 1：发布入口、迁移清单与仓库事实（`2a88224` 已推送）。
   - [x] Task 2：48 例 Golden Dataset 与 Manifest（`eb31dd9` 已推送）。
   - [x] Task 3：统一 Subject Runner 与规则门禁（`9f9d835` 已推送）。
@@ -189,8 +189,8 @@
   - [x] Task 6：真实 Copilot Smoke 与 Promotion 证据。
   - [x] Task 7：PromotionDecision 与双轨 Acceptance。
   - [x] Task 8：统一 Release CLI 与报告（`d2d4c89` 已推送）。
-  - [ ] Task 9：GitHub Actions 三层门禁（已验证，待提交推送）。
-  - [ ] Task 10：ToolRegistry Facade 退役。
+  - [x] Task 9：GitHub Actions 三层门禁（`3a34381` 已推送）。
+  - [x] Task 10：ToolRegistry Facade 退役（验证完成，待提交推送）。
   - [ ] Task 11：显式 Release、默认路由与第二次 Release。
   - [ ] Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance；完成后停止。
 

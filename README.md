@@ -100,7 +100,7 @@ python scripts/run_all.py phase15-demo
 | 播后 | LLM 自然语言总结 | DeepSeek（不可用时降级到结构化模板） |
 | 评估 | 回放 + 规则评分 | AgentReplayService + AgentRuleEvaluator（7 维度） |
 | 评估 | LLM Judge（可选） | AgentLLMJudge（仅影响 10% 语义质量权重） |
-| 生产 | 工具安全门禁 | ToolRegistry + SecurityHook + LifecycleHook |
+| 生产 | 工具安全门禁 | Skill Catalog + SkillPolicyView + SecurityHook + LifecycleHook |
 | 生产 | 操作员鉴权 | Header token + 角色权限（operator/reviewer/admin） |
 | 生产 | 审批幂等/过期/锁定 | Idempotency Key + 10 分钟 TTL + Lock |
 | 生产 | LLM 调用健壮性 | 指数退避重试 + 异常细分 + Token 追踪 |
@@ -130,7 +130,7 @@ live-agent/
   src/core/      LangGraph Agent 编排层（Graph、Hook、Audit、Replay）
   src/gateway/   FastAPI 服务、Session Store、WebSocket、鉴权
   src/skills/    业务能力层（手卡、弹幕、复盘、LLM）
-  src/config/    配置与工具注册表（ToolRegistry）
+  src/config/    配置；能力事实源位于 src/skill_runtime/catalog.py
   src/state/     领域模型与状态定义
   src/audit/     审计记录存储
   src/memory/    记忆与信任评分
@@ -159,7 +159,7 @@ python scripts/run_all.py demo
 
 ## 开发说明
 
-- 新增工具必须在 `ToolRegistry` 注册，声明生命周期、风险等级、参数 Schema 和门禁策略
+- 新增 Skill 必须在 `Skill Catalog` 注册，并由 `SkillPolicyView` 投影生命周期、风险等级、参数 Schema 和门禁策略
 - 所有新增/修改代码使用 UTF-8 编码
 - 播前流程是 Workflow，不是 Agent；播中流程才是 LangGraph Agent
 - 高风险工具不自动执行，必须经过人审 interrupt

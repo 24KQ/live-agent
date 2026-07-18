@@ -94,7 +94,7 @@ _VERIFIED_EVENT_TOKEN = object()
 
 
 class SkillExecutionRoute(StrEnum):
-    """执行路由：LEGACY 走旧 ToolRegistry 路径，SKILL_RUNTIME 走新 Executor。"""
+    """执行路由：LEGACY 保留显式回滚路径，SKILL_RUNTIME 走新 Executor。"""
 
     LEGACY = "LEGACY"
     SKILL_RUNTIME = "SKILL_RUNTIME"

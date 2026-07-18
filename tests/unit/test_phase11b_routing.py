@@ -14,7 +14,6 @@ import pytest
 from pydantic import ValidationError
 
 from src.config.settings import Settings
-from src.config.tool_registry import get_default_tool_registry
 from src.core.agent_tool_executor import AgentToolExecutor
 from src.core.security_hooks import GateDecision, GateResult
 from src.skill_runtime.models import (
@@ -25,6 +24,7 @@ from src.skill_runtime.models import (
     SkillExecutionStatus,
     SkillErrorCode,
 )
+from src.skill_runtime.policy_view import get_default_skill_policy_view
 from src.skill_runtime.routing import RouteConfig, RoutePolicy, skill_batch_for
 from src.skills.product_catalog import CatalogProduct
 
@@ -133,7 +133,7 @@ def _executor(
     runtime = RecordingRuntimeExecutor(runtime_result)
     return (
         AgentToolExecutor(
-            registry=get_default_tool_registry(),
+            policy_view=get_default_skill_policy_view(),
             pre_live_service=legacy_service,
             skill_executor=runtime,
             route_policy=policy,
@@ -241,7 +241,7 @@ def test_default_runtime_adapter_installs_batch1_handlers() -> None:
     """未注入测试替身时，AgentToolExecutor 也必须能执行批次一 Runtime Handler。"""
     legacy = RecordingLegacyService()
     executor = AgentToolExecutor(
-        registry=get_default_tool_registry(),
+        policy_view=get_default_skill_policy_view(),
         pre_live_service=legacy,
         route_policy=RoutePolicy(batch1=RouteConfig.SKILL_RUNTIME),
     )
@@ -390,4 +390,37 @@ def test_batch3_legacy_route_does_not_dispatch_runtime() -> None:
 
     assert observation.status == "pending"
     assert runtime.calls == []
+    assert legacy.calls == []
+
+
+def test_batch2_runtime_moves_sold_out_idempotency_to_context() -> None:
+    """售罄 Runtime Skill 的幂等键不能进入 2.0.0 业务 Schema。"""
+    executor, legacy, runtime = _executor(
+        policy=RoutePolicy(batch2=RouteConfig.SKILL_RUNTIME),
+        runtime_result=SkillExecutionResult(
+            skill_id="handle_sold_out_event",
+            version="2.0.0",
+            status=SkillExecutionStatus.SUCCESS,
+            summary="sold out handled",
+        ),
+    )
+
+    observation = executor.execute(
+        "handle_sold_out_event",
+        {
+            "product_id": "p001",
+            "expected_version": 1,
+            "idempotency_key": "idem-sold-out-001",
+        },
+        "room-1",
+        "trace-sold-out-1",
+        lifecycle="ON_LIVE",
+    )
+
+    assert observation.status == "success"
+    assert len(runtime.calls) == 1
+    call = runtime.calls[0]
+    assert call.version == "2.0.0"
+    assert call.arguments == {"product_id": "p001", "expected_version": 1}
+    assert call.context.idempotency_key == "idem-sold-out-001"
     assert legacy.calls == []

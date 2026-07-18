@@ -5,10 +5,8 @@
 """
 
 import pytest
-from dataclasses import replace
 from decimal import Decimal
 
-from src.config.tool_registry import ToolRegistry, get_default_tool_registry
 from src.core.agent_decision import AgentToolCall
 from src.core.agent_tool_executor import AgentToolExecutor
 from src.core.security_hooks import GateDecision
@@ -138,33 +136,10 @@ class TestAgentToolExecutor:
                 pre_live_service=FakeService(),
             )
 
-    def test_legacy_registry_is_snapshotted_before_later_mutation(self):
-        """旧位置参数只能用于启动转换，后续可变集合不得改变执行权限。"""
-
-        default_registry = get_default_tool_registry()
-        registry = ToolRegistry(
-            [
-                replace(
-                    default_registry.get(skill_id),
-                    lifecycle=set(default_registry.get(skill_id).lifecycle),
-                )
-                for skill_id in default_registry.tool_names()
-            ]
-        )
-        executor = AgentToolExecutor(registry, FakeService())
-        registry.get("handle_sold_out_event").lifecycle.add(LifecycleStage.PRE_LIVE)
-
-        observation = executor.execute(
-            "handle_sold_out_event", {}, "room-001", "trace-registry-mutation"
-        )
-
-        assert observation.status == "error"
-
     def test_execute_whitelisted_tool_returns_success(self):
         """白名单内 query_products 应返回 success。"""
-        registry = get_default_tool_registry()
         service = FakeService()
-        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        executor = AgentToolExecutor(pre_live_service=service)
         obs = executor.execute(
             tool_name="query_products", arguments={"room_id": "room-001"},
             room_id="room-001", trace_id="trace-001",
@@ -174,9 +149,8 @@ class TestAgentToolExecutor:
 
     def test_execute_unknown_tool_returns_error(self):
         """未注册工具应返回 error。"""
-        registry = get_default_tool_registry()
         service = FakeService()
-        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        executor = AgentToolExecutor(pre_live_service=service)
         obs = executor.execute(
             tool_name="nonexistent_tool", arguments={},
             room_id="room-001", trace_id="trace-001",
@@ -186,9 +160,8 @@ class TestAgentToolExecutor:
 
     def test_execute_wrong_lifecycle_returns_error(self):
         """PRE_LIVE 阶段调用 ON_LIVE 工具应返回 error。"""
-        registry = get_default_tool_registry()
         service = FakeService()
-        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        executor = AgentToolExecutor(pre_live_service=service)
         obs = executor.execute(
             tool_name="handle_sold_out_event", arguments={},
             room_id="room-001", trace_id="trace-001",
@@ -198,10 +171,8 @@ class TestAgentToolExecutor:
 
     def test_generate_plan_returns_runtime_success(self):
         """generate_live_plan 应经统一 Runtime 执行并返回其稳定摘要。"""
-        registry = get_default_tool_registry()
         service = FakeService()
         executor = AgentToolExecutor(
-            registry=registry,
             pre_live_service=service,
             route_policy=_runtime_policy(),
         )
@@ -218,10 +189,8 @@ class TestParamValidation:
 
     def test_setup_without_approval_returns_pending(self):
         """兼容 setup 即使参数可补全，缺少可信审批也必须保持 pending。"""
-        registry = get_default_tool_registry()
         service = FakeService()
         executor = AgentToolExecutor(
-            registry=registry,
             pre_live_service=service,
             route_policy=_runtime_policy(),
         )
@@ -238,9 +207,8 @@ class TestParamValidation:
 
     def test_valid_params_passes_schema_check(self):
         """合法参数应通过校验。"""
-        registry = get_default_tool_registry()
         service = FakeService()
-        executor = AgentToolExecutor(registry=registry, pre_live_service=service)
+        executor = AgentToolExecutor(pre_live_service=service)
         obs = executor.execute(
             tool_name="query_products", arguments={"room_id": "room-001"},
             room_id="room-001", trace_id="trace-001",

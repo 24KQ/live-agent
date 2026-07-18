@@ -3,7 +3,7 @@
 17 个 SkillManifest 的唯一事实源。Catalog 在应用启动时统一校验所有 Manifest，
 非法 Schema、重复 ID 或空版本导致 Catalog 构建失败。
 
-ToolRegistry 通过本 Catalog 的只读投影生成，不再维护独立元数据。
+SkillPolicyView 通过本 Catalog 的只读投影生成，不再维护独立元数据。
 """
 
 from __future__ import annotations
@@ -406,6 +406,6 @@ def get_default_skill_catalog() -> Sequence[SkillManifest]:
     """返回不可变 Manifest 序列。
 
     调用方不得修改返回值。Catalog 是唯一事实源，
-    ToolRegistry 通过投影从本 Catalog 生成。
+    SkillPolicyView 通过投影从本 Catalog 生成。
     """
     return _MANIFESTS

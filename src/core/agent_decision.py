@@ -42,7 +42,7 @@ class AgentReplanRoute(StrEnum):
 class AgentToolCall(BaseModel):
     """LLM planner 选择的单个工具调用。
 
-    tool_name 必须在 ToolRegistry 白名单中, 由 ToolExecutor 校验。
+    tool_name 必须在 SkillPolicyView 白名单中，由 ToolExecutor 校验。
     arguments 是工具参数的泛型字典, 不做业务校验。
     """
 

@@ -19,7 +19,7 @@ from src.memory.memory_store import MemoryStore
 from src.memory.models import AnchorAction, BusinessResult, DecisionTraceRecord
 from src.memory.tool_mask_policy import ToolMaskPolicy
 from src.memory.trust_manager import TrustManager
-from src.config.tool_registry import get_default_tool_registry
+from src.skill_runtime.policy_view import get_default_skill_policy_view
 from src.skills.demo_data_seed import (
     DEMO_ANCHOR_ID,
     DEMO_ROOM_ID,
@@ -82,7 +82,7 @@ def main() -> int:
         products=products,
         trace_id=f"{trace_id}-second",
     )
-    visible_tools = ToolMaskPolicy(get_default_tool_registry()).visible_tools(
+    visible_tools = ToolMaskPolicy(get_default_skill_policy_view()).visible_tools(
         update.new_state.trust_score,
         LifecycleStage.PRE_LIVE,
     )

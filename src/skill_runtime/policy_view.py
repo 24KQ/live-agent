@@ -2,7 +2,7 @@
 
 该模块不维护独立元数据。它只把 ``SkillManifest`` 中执行治理需要的字段投影为
 不可变快照，供 Hook、Policy、Planner、Flow 和 Executor 在后续迁移任务中统一查询。
-ToolRegistry Facade 在 Phase 14 删除前仍可兼容旧调用，但新代码不得依赖它。
+该视图是生产消费者的唯一治理投影，不提供旧 Facade 兼容层。
 """
 
 from __future__ import annotations

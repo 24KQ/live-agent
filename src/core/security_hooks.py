@@ -33,7 +33,7 @@ class GateResult:
 class GatePolicy(Protocol):
     """安全门禁所需的最小只读策略契约。
 
-    Security Hook 不应依赖 ToolRegistry 或 SkillPolicy 的具体实现；只读取门禁枚举
+    Security Hook 不应依赖 SkillPolicyView 的具体实现；只读取门禁枚举
     可以让兼容 Facade 与新 Runtime 策略视图在迁移期间共享同一套 fail-closed 规则。
     """
 

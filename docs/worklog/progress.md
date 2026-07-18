@@ -885,3 +885,15 @@
 
 - workflow contract `3 passed`；完整 unit `1375 passed, 4 warnings`；integration `155 passed, 3 deselected, 5 warnings`；目标 YAML 解析、敏感扫描、迁移 dry-run、编码和 diff 检查通过。
 - 真实 Actions run、protected environment secrets 和 tag ruleset 仍是外部 `BLOCKED` 证据，不影响 workflow 代码契约完成；下一步只提交并推送 Task 9。
+
+# 2026-07-18 Phase 15 Task 10 GREEN
+
+- 删除 `src/config/tool_registry.py`，`AgentToolExecutor` 去除旧 `registry` 构造参数，生产消费者统一使用 Catalog/SkillPolicyView。
+- 迁移旧单元测试、Security Hook 最小 Fixture、Phase 11B 路由和 Phase 3A Demo；生产 `ToolRegistry/get_default_tool_registry/src.config.tool_registry` 命中 0。
+- Task 10 聚合 `104 passed`、无 warning；正在进行规格/质量审查和全量验证。
+
+# 2026-07-18 Phase 15 Task 10 VERIFY
+
+- 独立审查发现 0 Critical、4 Important；已修复售罄 Runtime 幂等键业务字段泄漏、Legacy 异常回显和 README 退役说明，PolicyView 同进程注入按 D-121 留痕处理。
+- Phase 13 v2/v3 与 Phase 15 Manifest 已按最终源码闭包重建，case/label、价格、Prompt、Schema 和历史评估事实未变化。
+- Task 10 专项 `21 passed`；完整 unit `1372 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；目标 compileall、生产 Facade 扫描和 `git diff --check` 通过；真实模型新增费用 `0`。

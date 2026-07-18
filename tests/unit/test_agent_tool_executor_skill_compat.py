@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from src.config.tool_registry import get_default_tool_registry
 from src.core.agent_rules_planner import AgentRulesPlanner
 from src.core.agent_tool_executor import AgentToolExecutor
 from src.skill_runtime.compatibility import CompatibilityArgumentNormalizer
@@ -22,6 +21,7 @@ from src.skill_runtime.models import (
     SkillExecutionStatus,
     SkillErrorCode,
 )
+from src.skill_runtime.policy_view import get_default_skill_policy_view
 from src.skill_runtime.routing import RouteConfig, RoutePolicy
 from src.skills.live_plan_generator import LivePlanDraft, LivePlanItem
 from src.skills.product_catalog import CatalogProduct
@@ -255,8 +255,8 @@ def test_rules_planner_card_call_enriches_first_planned_product_once() -> None:
     service = RecordingService()
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -411,7 +411,7 @@ def test_each_core_tool_calls_sync_skill_executor_exactly_once(
         ),
     )
     executor = AgentToolExecutor(
-        registry=get_default_tool_registry(),
+        policy_view=get_default_skill_policy_view(),
         pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
@@ -435,8 +435,8 @@ def test_setup_without_trusted_approval_stays_pending_even_when_legacy_flag_is_t
         audit_id=None,
     )
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -483,8 +483,8 @@ def test_core_compatibility_rejects_unknown_keys_before_enrichment_or_runtime(
     service = RecordingService()
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -550,8 +550,8 @@ def test_compatibility_input_errors_are_classified_and_sanitized(
     service = RecordingService()
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -578,8 +578,8 @@ def test_runtime_error_maps_status_summary_audit_and_stable_error_code() -> None
         audit_id="audit-error-001",
     )
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        RecordingService(),
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=RecordingService(),
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -598,8 +598,8 @@ def test_runtime_exception_does_not_fallback_to_legacy_core_dispatch() -> None:
     service = RecordingService()
     runtime = RaisingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -621,8 +621,8 @@ def test_compatibility_service_value_error_remains_sanitized_handler_failure() -
     """隐藏服务的非输入 ValueError 必须保留执行失败分类，且不得调用 Runtime。"""
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        RaisingService(),
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=RaisingService(),
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -663,8 +663,8 @@ def test_invalid_enrichment_data_returns_sanitized_handler_failure(
     """旧服务返回非法补全数据时固定映射执行失败，且 Runtime 必须保持零调用。"""
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -705,8 +705,8 @@ def test_planner_shape_card_enrichment_failures_are_sanitized(
     """缺省手卡的查询、计划、空结果和映射失败均应脱敏，且 Runtime 保持零调用。"""
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        service,
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=service,
         skill_executor=runtime,
         route_policy=_runtime_policy(),
     )
@@ -803,8 +803,8 @@ def test_every_non_core_skill_keeps_legacy_dispatch(
     """默认 Catalog 的九个非核心工具均保持既有门禁/派发语义且不调用 Runtime。"""
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        RecordingService(),
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=RecordingService(),
         skill_executor=runtime,
     )
 
@@ -825,13 +825,13 @@ def test_legacy_agent_executor_rejects_sold_out_without_versioned_event_schema()
     """旧 AgentToolExecutor 不能借 LEGACY 路径绕过售罄 2.0.0 的显式 CAS 输入。
 
     售罄写已经迁移为可信事件或人工批准才能执行的高风险能力。该兼容入口没有
-    可信事件构造职责，因此缺少 ``expected_version`` 时必须在 ToolRegistry Schema
+    可信事件构造职责，因此缺少 ``expected_version`` 时必须在 Catalog Schema
     校验处停止，也不得把旧参数改写为 Runtime 调用。
     """
     runtime = RecordingSkillExecutor()
     executor = AgentToolExecutor(
-        get_default_tool_registry(),
-        RecordingService(),
+        policy_view=get_default_skill_policy_view(),
+        pre_live_service=RecordingService(),
         skill_executor=runtime,
     )
 

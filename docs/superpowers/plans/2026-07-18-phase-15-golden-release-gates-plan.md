@@ -1,8 +1,8 @@
 # Phase 15 Golden Release Gates Implementation Plan
 
-文档状态：`PHASE_15_TASK_9_READY_TO_PUSH`
+文档状态：`PHASE_15_TASK_10_RED`
 
-本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1-9 已完成验证，准备提交推送。
+本文件已完成 Stage A 持久化；用户已授权 Stage B。Task 1-9 已推送，Task 10 正在 RED。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` for isolated implementation and review tasks; otherwise use `executing-plans` task-by-task. Steps use the repository RED, GREEN, REFACTOR, REVIEW, VERIFY, DOCS, COMMIT, PUSH protocol.
 
@@ -106,11 +106,11 @@
 
 ## Task 10：ToolRegistry Facade 退役
 
-**Files:** 删除 `src/config/tool_registry.py`，修改 `src/core/agent_tool_executor.py`、`src/skill_runtime/__init__.py`、旧测试和治理测试。
+**Files:** 删除 `src/config/tool_registry.py`，修改 `src/core/agent_tool_executor.py`、`src/skill_runtime/__init__.py`、README、Phase 13/15 Manifest 和旧测试/治理测试。
 
 - RED：证明生产导入已为零，但旧 Facade/兼容参数仍存在。
-- GREEN：删除公共 Facade、注册表兼容参数和只验证旧 API 的测试；统一使用 Catalog/SkillPolicyView，Legacy 只保留显式回滚路由。
-- VERIFY：`rg -n "ToolRegistry|get_default_tool_registry|src\.config\.tool_registry" src` 无命中；全量 Skill/Hook/Flow/Graph 回归通过。
+- GREEN：删除公共 Facade、注册表兼容参数和只验证旧 API 的测试；统一使用 Catalog/SkillPolicyView，所有要求幂等键的 Runtime Skill 将其放入 Context，Legacy 异常摘要固定脱敏，Legacy 只保留显式回滚路由。
+- VERIFY：`rg -n "ToolRegistry|get_default_tool_registry|src\.config\.tool_registry" src` 无命中；Phase 13/15 Manifest 源码闭包重建；Task 10 专项 `21 passed`，完整 unit `1372 passed, 4 warnings`，完整 integration `155 passed, 3 deselected, 5 warnings`。
 - COMMIT/PUSH：`refactor: retire tool registry facade`。
 
 ## Task 11：显式 Release、默认路由与第二次 Release

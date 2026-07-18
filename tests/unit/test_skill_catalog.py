@@ -2,7 +2,7 @@
 
 测试覆盖：默认 Catalog 包含 14 个 Skill、ID 唯一、版本固定、
 Schema 合法性、9 个未迁移工具严格一致、4 个核心工具的 Schema
-差异受控且记录 compatibility_note、ToolRegistry 兼容投影。
+差异受控且记录 compatibility_note、SkillPolicyView 治理投影。
 """
 
 from __future__ import annotations
@@ -165,15 +165,15 @@ def test_only_schema_migration_skills_have_compatibility_notes() -> None:
             )
 
 
-def test_tool_registry_contains_same_13_names() -> None:
-    """ToolRegistry 兼容投影必须返回相同的有序 13 个名称。"""
-    from src.config.tool_registry import get_default_tool_registry
+def test_policy_view_contains_same_catalog_names() -> None:
+    """SkillPolicyView 必须返回与 Catalog 相同的有序能力 ID。"""
+    from src.skill_runtime.policy_view import get_default_skill_policy_view
 
-    registry = get_default_tool_registry()
+    policy_view = get_default_skill_policy_view()
     catalog = get_default_skill_catalog()
-    registry_names = registry.tool_names()
+    policy_names = policy_view.skill_ids()
     catalog_ids = sorted(m.skill_id for m in catalog)
-    assert registry_names == catalog_ids
+    assert policy_names == tuple(catalog_ids)
 
 
 def test_core_skill_arguments_exclude_trusted_context_fields() -> None:

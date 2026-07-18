@@ -4,15 +4,30 @@
 block 四类策略，确保高风险动作不会绕过主播确认。
 """
 
-from src.config.tool_registry import ToolMetadata
+from dataclasses import dataclass
+from typing import Any
+
 from src.core.security_hooks import GateDecision, evaluate_tool_gate
 from src.state.models import LifecycleStage, RiskLevel
 
 
-def make_tool(name: str, gate: GateDecision, risk: RiskLevel = RiskLevel.LOW) -> ToolMetadata:
-    """构造测试工具元数据。"""
+@dataclass(frozen=True)
+class HookPolicyFixture:
+    """只为 Security Hook 提供最小属性协议，不重新引入生产注册表类型。"""
 
-    return ToolMetadata(
+    name: str
+    description: str
+    lifecycle: set[LifecycleStage]
+    risk_level: RiskLevel
+    parameter_schema: dict[str, Any]
+    gate_decision: GateDecision
+    requires_idempotency_key: bool
+
+
+def make_tool(name: str, gate: GateDecision, risk: RiskLevel = RiskLevel.LOW) -> HookPolicyFixture:
+    """构造最小治理策略对象，验证 Hook 不依赖 Facade 实现。"""
+
+    return HookPolicyFixture(
         name=name,
         description="测试工具",
         lifecycle={LifecycleStage.PRE_LIVE},

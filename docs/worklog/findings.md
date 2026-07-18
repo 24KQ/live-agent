@@ -722,3 +722,16 @@
 
 - workflow contract `3 passed`，完整 unit `1375 passed, 4 warnings`，integration `155 passed, 3 deselected, 5 warnings`；目标 YAML 编码、敏感扫描、迁移 dry-run 和 diff check 通过。
 - 真实托管 Actions、protected environment secrets 和 tag ruleset 没有在本地伪造；它们是后续真实 Release 验收所需的外部证据。
+
+## 2026-07-18 Phase 15 Task 10 RED/GREEN
+
+- RED 确认 Facade 文件、生产旧符号和 Executor `registry` 参数仍存在。
+- GREEN 删除 Facade，Executor 统一读取 `SkillPolicyView`，旧测试、Security Hook Fixture 和 Phase 3A Demo 均迁移；生产源码旧符号命中数为 0。
+- Task 10 专项 `104 passed`，下一步执行独立规格/安全复审与完整 unit/integration。
+
+## 2026-07-18 Phase 15 Task 10 REVIEW/VERIFY
+
+- 独立只读审查返回 0 Critical、4 Important：售罄幂等键未从业务参数移除、Legacy 异常回显、README 仍引用旧 Facade，以及旧 Flow 的同进程 PolicyView 注入边界。
+- 已修复前三项并补回归；所有声明 `requires_idempotency_key` 的非兼容 Runtime Skill 统一把幂等键放入 `SkillExecutionContext`，Legacy 错误改为固定脱敏摘要，README 改为 Catalog/SkillPolicyView。
+- PolicyView 注入不构成 HTTP/插件信任边界；按 D-121，生产 Runtime 装配的 `AgentToolExecutor` 与 `SkillExecutor` 已校验 Catalog/PolicyView 完整一致，旧 Flow 的 test-only 门禁快照保留用于零副作用回归，不新增生产 bypass。
+- Task 10 专项 `21 passed`；完整 unit `1372 passed, 4 warnings`；完整 integration `155 passed, 3 deselected, 5 warnings`；真实模型费用新增 `0`。

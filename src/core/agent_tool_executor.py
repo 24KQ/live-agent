@@ -50,7 +50,6 @@ class AgentToolExecutor:
 
     def __init__(
         self,
-        registry: Any | None = None,
         pre_live_service: Any | None = None,
         skill_executor: SyncSkillExecutorAdapter | None = None,
         route_policy: RoutePolicy | None = None,
@@ -62,9 +61,8 @@ class AgentToolExecutor:
         默认适配器使用与 legacy 入口相同的播前服务实例创建四个 Handler，确保货盘、
         审计和幂等存储保持一致；注入能力只用于隔离测试和上层显式装配。
         """
-        # ``registry`` 仅保留旧位置参数的启动转换兼容。转换完成后内部只保存冻结的
-        # SkillPolicyView，旧 Facade 中的可变集合不能在调用期间改变执行权限。
-        self._policy_view = self._resolve_policy_view(registry, policy_view)
+        # 治理入口只接受启动冻结的 SkillPolicyView；旧 Facade 不再参与装配或执行。
+        self._policy_view = policy_view or get_default_skill_policy_view()
         catalog = tuple(get_default_skill_catalog())
         assert_policy_view_matches_catalog(catalog, self._policy_view)
         if pre_live_service is None:
@@ -88,47 +86,6 @@ class AgentToolExecutor:
                 policy_view=self._policy_view,
             )
         )
-
-    @staticmethod
-    def _resolve_policy_view(
-        registry: Any | None,
-        policy_view: SkillPolicyView | None,
-    ) -> SkillPolicyView:
-        """把旧 Registry 参数校验后转换为默认冻结策略快照。
-
-        旧 Facade 缺少授权要求字段，不能直接重建完整 SkillPolicy。兼容调用只接受与
-        当前默认 Catalog 投影完全一致的 Registry；任何自定义差异都在启动时拒绝，
-        一致时丢弃旧对象并返回由 Catalog 新建的不可变策略视图。
-        """
-
-        if registry is not None and policy_view is not None:
-            raise ValueError("registry and policy_view cannot be provided together")
-        if policy_view is not None:
-            return policy_view
-
-        frozen_view = get_default_skill_policy_view()
-        if registry is None:
-            return frozen_view
-        try:
-            registry_names = tuple(sorted(registry.tool_names()))
-            if registry_names != frozen_view.skill_ids():
-                raise ValueError("legacy registry does not match Skill Catalog")
-            for skill_id in registry_names:
-                legacy = registry.get(skill_id)
-                policy = frozen_view.get(skill_id)
-                if (
-                    legacy.name != policy.skill_id
-                    or legacy.lifecycle != policy.lifecycle
-                    or legacy.risk_level != policy.risk_level
-                    or legacy.parameter_schema != policy.parameter_schema
-                    or legacy.gate_decision != policy.gate_decision
-                    or legacy.requires_idempotency_key
-                    != policy.requires_idempotency_key
-                ):
-                    raise ValueError("legacy registry does not match Skill Catalog")
-        except (AttributeError, TypeError) as exc:
-            raise TypeError("registry is not a compatible governance projection") from exc
-        return frozen_view
 
     def execute(
         self,
@@ -156,7 +113,7 @@ class AgentToolExecutor:
             return AgentObservation(
                 tool_name=tool_name,
                 status="error",
-                summary=f"tool {tool_name} not found in ToolRegistry",
+                summary=f"skill {tool_name} not found in SkillPolicyView",
                 audit_id=None,
             )
 
@@ -268,7 +225,7 @@ class AgentToolExecutor:
         """构造 Runtime SkillCall，并隔离四个旧核心工具的兼容规范化边界。"""
         version = self._skill_versions.get(tool_name)
         if version is None:
-            # execute() 已完成 ToolRegistry 校验；此分支防御 Catalog/Registry 装配漂移。
+            # execute() 已完成 SkillPolicyView 校验；此分支防御 Catalog 装配漂移。
             # 不猜测版本或回退 legacy，避免一个未治理调用绕开精确版本约束。
             raise ValueError("runtime skill version is not registered")
         if tool_name in CORE_SKILL_IDS:
@@ -286,9 +243,9 @@ class AgentToolExecutor:
             if isinstance(runtime_arguments.get("idempotency_key"), str)
             else None
         )
-        if tool_name == "set_product_price":
-            # 幂等键属于执行控制证据而非改价业务字段。仅批次三迁移该历史参数，
-            # 其余九个尚未迁移 Skill 维持现有 arguments 兼容形状，避免扩大范围。
+        if self._policy_view.get(tool_name).requires_idempotency_key:
+            # 幂等键属于执行控制证据而非业务字段。所有显式 Runtime Skill 都必须
+            # 通过冻结 Context 传递它，避免 Catalog Schema 因兼容参数而被放宽。
             runtime_arguments.pop("idempotency_key", None)
         return SkillCall(
             skill_id=tool_name,
@@ -298,8 +255,8 @@ class AgentToolExecutor:
                 trace_id=trace_id,
                 lifecycle=lifecycle,
                 execution_route=SkillExecutionRoute.SKILL_RUNTIME,
-                # 高风险改价的幂等键已从业务 arguments 搬入此可信 Context；其他非
-                # 核心 Skill 仍保持当前兼容入口语义，待各自迁移批次再逐项收紧。
+                # 由 Manifest 声明要求幂等键的 Skill 已从业务 arguments 搬入可信 Context；
+                # 没有该声明的 Skill 保持 None，不能由调用方任意伪造控制字段。
                 idempotency_key=idempotency_key,
             ),
             arguments=runtime_arguments,
@@ -494,10 +451,12 @@ class AgentToolExecutor:
                     summary=f"tool {tool_name} not dispatchable in executor",
                     audit_id=None,
                 )
-        except Exception as exc:
+        except Exception:
             return AgentObservation(
                 tool_name=tool_name,
                 status="error",
-                summary=f"execution failed: {exc}",
+                # Legacy 入口仍可能触碰数据库或平台适配器，不能把供应商异常、
+                # SQL 片段或内部路径直接回显给 Agent；详细异常只应进入内部日志。
+                summary="HANDLER_FAILED: legacy execution failed",
                 audit_id=None,
             )
