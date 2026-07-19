@@ -80,6 +80,12 @@ def test_phase15_pr_workflow_uses_python_312_pgvector_kafka_and_36_cases_without
     assert "DEEPSEEK_API_KEY" not in workflow.__repr__()
     upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
     assert upload["with"]["retention-days"] == 14
+    assert "coverage erase" in commands
+    assert "--append" in commands
+    assert "phase16-coverage-source-closure-v1.json" in commands
+    assert "--source-closure-file" in commands
+    assert "--source src" in commands
+    assert "coverage json --include" in commands
 
 
 def test_phase15_nightly_workflow_has_schedule_postgres_kafka_and_36_cases() -> None:

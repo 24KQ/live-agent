@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from types import MappingProxyType
 from pathlib import Path
 from decimal import Decimal
+
+import pytest
 
 from src.decision_support.multi_agent import (
     build_decision_planner_profile,
@@ -13,6 +17,10 @@ from src.decision_support.multi_agent_evaluation import (
     PHASE16_DATASET_ID,
     PHASE16_SOURCE_CLOSURE_PATHS,
     Phase16CaseKind,
+    Phase16EvaluationCase,
+    Phase16EvaluationLabel,
+    Phase16Manifest,
+    Phase16Script,
     generate_phase16_controlled_multi_agent_dataset,
     load_phase16_controlled_multi_agent_dataset,
     run_phase16_scripted_evaluation,
@@ -173,7 +181,97 @@ def test_runtime_rejects_mutated_loaded_case_before_any_model_path(tmp_path: Pat
     dataset = load_phase16_controlled_multi_agent_dataset(root)
     dataset.cases[0].input["scenario"] = "tampered"
 
-    import pytest
-
     with pytest.raises(ValueError, match="case digests"):
         run_phase16_scripted_evaluation(dataset)
+
+
+def test_phase16_case_label_and_script_shapes_fail_closed() -> None:
+    """模型可见 case、旁路 label 和脚本必须各自拒绝越界字段与未知枚举。"""
+
+    root = Path("evaluation") / "phase16_controlled_multi_agent"
+    dataset = load_phase16_controlled_multi_agent_dataset(root)
+    case = dataset.cases[0]
+
+    # 评分真值如果混入模型输入，会让离线评估失去盲测意义；该校验必须在
+    # 任何 Store 或 Coordinator 初始化前触发，而不是依赖后续运行时偶然失败。
+    labeled_input = case.model_dump(mode="json")
+    labeled_input["input"]["expected_route"] = "SINGLE_COPILOT"
+    with pytest.raises(ValueError, match="evaluation labels"):
+        Phase16EvaluationCase.model_validate(labeled_input)
+
+    # case_id 自带 split 是 holdout 解封边界的一部分，不能让正文中的 split
+    # 与身份后缀不一致，再由加载器把它误归入另一组样本。
+    mismatched_split = case.model_dump(mode="json")
+    mismatched_split["split"] = "holdout"
+    with pytest.raises(ValueError, match="case_id split"):
+        Phase16EvaluationCase.model_validate(mismatched_split)
+
+    label = dataset.labels[case.case_id].model_dump(mode="json")
+    label["split"] = "unknown"
+    with pytest.raises(ValueError):
+        Phase16EvaluationLabel.model_validate(label)
+
+    script = dataset.scripts[case.case_id].model_dump(mode="json")
+    script["analyst_mode"] = "UNTRUSTED_MODEL_MODE"
+    with pytest.raises(ValueError):
+        Phase16Script.model_validate(script)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    (
+        ("split_counts", "split counts"),
+        ("case_kind_counts", "case kind counts"),
+        ("duplicate_case", "exactly 48 unique cases"),
+        ("smoke_count", "exactly ten smoke"),
+        ("smoke_identity", "smoke eligible cases"),
+        ("profile_digest", "profile digests"),
+    ),
+)
+def test_phase16_manifest_rejects_frozen_shape_mutations(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    """Manifest 的数量、身份和 Profile 摘要变化必须阻止数据集重新解封。"""
+
+    manifest = generate_phase16_controlled_multi_agent_dataset(tmp_path / "dataset")
+    payload = manifest.model_dump(mode="json")
+
+    if mutation == "split_counts":
+        payload["split_counts"]["validation"] = 23
+    elif mutation == "case_kind_counts":
+        payload["case_kind_counts"]["HIGH_CONFLICT_PAIRED"] = 23
+    elif mutation == "duplicate_case":
+        development = payload["case_ids"]["development"]
+        development[1] = development[0]
+    elif mutation == "smoke_count":
+        payload["smoke_eligible_case_ids"] = payload["smoke_eligible_case_ids"][:-1]
+    elif mutation == "smoke_identity":
+        payload["smoke_eligible_case_ids"][0] = "phase16-not-in-dataset"
+    elif mutation == "profile_digest":
+        payload["profile_digests"]["evidence_analyst"] = "f" * 64
+    else:  # pragma: no cover - 参数表已闭合，防止未来扩展时静默漏测。
+        raise AssertionError(f"unknown manifest mutation: {mutation}")
+
+    with pytest.raises(ValueError, match=message):
+        Phase16Manifest.model_validate(payload)
+
+
+@pytest.mark.parametrize("missing_mapping", ("labels", "scripts"))
+def test_phase16_runtime_rejects_missing_label_or_script_identity(
+    tmp_path: Path, missing_mapping: str
+) -> None:
+    """执行前必须同时拥有每个 case 的 label 与脚本，缺一条也不能部分重算。"""
+
+    root = tmp_path / "dataset"
+    generate_phase16_controlled_multi_agent_dataset(root)
+    dataset = load_phase16_controlled_multi_agent_dataset(root)
+    case_id = dataset.cases[0].case_id
+    values = dict(getattr(dataset, missing_mapping))
+    values.pop(case_id)
+    changed = replace(
+        dataset,
+        **{missing_mapping: MappingProxyType(values)},
+    )
+
+    with pytest.raises(ValueError, match="labels and scripts"):
+        run_phase16_scripted_evaluation(changed)

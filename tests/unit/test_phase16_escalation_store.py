@@ -211,6 +211,62 @@ def test_escalation_analysis_and_outcome_append_with_cas_and_replay() -> None:
     assert store.get_multi_agent_outcome(outcome.outcome_id) == outcome
 
 
+def test_store_rejects_same_idempotency_key_with_new_payload_and_stale_cas() -> None:
+    """同键异载荷必须拒绝，新的 Analysis 也不能用旧 Workspace 版本绕过 CAS。"""
+
+    store = InMemoryDecisionSupportStore()
+    workspace, _lease, bundle = _seed_live_bundle(store)
+    escalation = _escalation(bundle)
+    after_escalation = store.append_escalation(
+        escalation, expected_workspace_version=workspace.version
+    )
+
+    # created_at 不是冲突选择器输入，但会改变事实摘要；保持相同幂等键可精确
+    # 证明 Store 拒绝重复消费，而不是被更早的 trigger 校验遮蔽。
+    changed_payload = EscalationRecord.model_validate(
+        {
+            **escalation.model_dump(mode="python"),
+            "created_at": escalation.created_at + timedelta(seconds=1),
+            "escalation_digest": "",
+        }
+    )
+    with pytest.raises(WorkspaceConflictError, match="idempotency"):
+        store.append_escalation(
+            changed_payload,
+            expected_workspace_version=999,
+        )
+
+    analysis = _analysis(escalation, bundle)
+    with pytest.raises(WorkspaceConflictError, match="version"):
+        store.append_conflict_analysis(
+            analysis,
+            expected_workspace_version=after_escalation.version - 1,
+        )
+
+
+def test_store_rejects_missing_bundle_parent_before_any_workspace_write() -> None:
+    """不存在的 EvidenceBundle 父事实不能生成升级，也不能推进 Workspace 版本。"""
+
+    store = InMemoryDecisionSupportStore()
+    workspace, _lease, bundle = _seed_live_bundle(store)
+    valid = _escalation(bundle)
+    missing_parent = EscalationRecord.model_validate(
+        {
+            **valid.model_dump(mode="python"),
+            "evidence_bundle_id": "phase16-missing-bundle",
+            "evidence_bundle_digest": "a" * 64,
+            "escalation_digest": "",
+        }
+    )
+
+    with pytest.raises(WorkspaceConflictError, match="bundle parent"):
+        store.append_escalation(
+            missing_parent,
+            expected_workspace_version=workspace.version,
+        )
+    assert store.get_workspace(workspace.live_session_id).version == workspace.version
+
+
 def test_escalation_requires_matching_bundle_parent_and_operator_fencing() -> None:
     """伪造 Bundle 摘要与过期操作员 fencing 都不得形成新的升级事实。"""
 

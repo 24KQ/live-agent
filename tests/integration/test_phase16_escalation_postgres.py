@@ -287,6 +287,21 @@ def test_postgres_escalation_facts_replay_and_restart() -> None:
         outcome, expected_workspace_version=999
     ) == after_outcome
 
+    # 重启后的同键异载荷必须仍然走数据库幂等账本冲突，而不能因为事实已经
+    # 存在就返回成功；这验证持久化恢复与内存 Store 的 fail-closed 语义一致。
+    conflicting = MultiAgentOutcome.model_validate(
+        {
+            **outcome.model_dump(mode="python"),
+            "fact_summary": "不同载荷不能被幂等重放。",
+            "outcome_digest": "",
+        }
+    )
+    with pytest.raises(WorkspaceConflictError, match="idempotency"):
+        restarted.append_multi_agent_outcome(
+            conflicting,
+            expected_workspace_version=999,
+        )
+
 
 def test_postgres_escalation_single_bundle_cas_and_operator_fencing() -> None:
     """并发同 Bundle 只能有一个升级；运营升级还必须验证当前 lease fencing。"""

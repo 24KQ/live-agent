@@ -1512,3 +1512,27 @@ def test_analyst_failure_persists_exactly_one_degraded_outcome_and_retries_witho
     assert retry.outcome == first.outcome
     assert len(store.list_multi_agent_outcomes(bundle.live_session_id)) == 1
     assert len(runner.calls) == 1
+
+
+def test_analyst_timeout_persists_one_timeout_outcome_and_never_retries() -> None:
+    """真实 wait_for 超时也必须闭合为唯一超时事实，重试只能读取而不能再次发送。"""
+
+    store, workspace, _lease, bundle = _seed_bundle(suffix="analyst-timeout")
+    runner = _BlockingAnalystRunner()
+    coordinator = HighConflictEscalationCoordinator(
+        store=store, analyst_runner=runner, clock=_now
+    )
+
+    first = asyncio.run(
+        coordinator.run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+    retry = asyncio.run(
+        coordinator.run_automatic(bundle, expected_workspace_version=workspace.version)
+    )
+
+    assert first.outcome is not None
+    assert first.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+    assert first.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    assert retry.outcome == first.outcome
+    assert len(store.list_multi_agent_outcomes(bundle.live_session_id)) == 1
+    assert len(runner.calls) == 1

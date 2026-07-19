@@ -12,6 +12,16 @@ from pathlib import Path
 from scripts.check_coverage_gate import main as coverage_main
 from scripts.fetch_github_actions_evidence import main as evidence_main
 from scripts.run_release_gate import main as release_main
+from scripts.coverage_source import load_source_closure, main as coverage_source_main
+from src.decision_support.multi_agent_evaluation import PHASE16_SOURCE_CLOSURE_PATHS
+
+
+SOURCE_CLOSURE_MANIFEST = (
+    Path(__file__).resolve().parents[2]
+    / "evaluation"
+    / "manifests"
+    / "phase16-coverage-source-closure-v1.json"
+)
 
 
 def test_release_cli_rejects_unknown_mode_with_stable_exit_code(capsys) -> None:
@@ -159,6 +169,67 @@ def test_coverage_gate_accepts_complete_totals(capsys, tmp_path: Path) -> None:
     )
     assert coverage_main(["--coverage-file", str(coverage)]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "PASS"
+
+
+def test_phase16_coverage_source_manifest_matches_evaluation_closure() -> None:
+    """coverage 闭包必须与 Phase 16 数据评估使用的源码闭包完全一致。"""
+
+    paths = load_source_closure(SOURCE_CLOSURE_MANIFEST)
+    assert paths == tuple(PHASE16_SOURCE_CLOSURE_PATHS)
+    assert paths == (
+        "src/decision_support/multi_agent.py",
+        "src/decision_support/multi_agent_evaluation.py",
+        "src/decision_support/evidence.py",
+        "src/decision_support/models.py",
+        "src/decision_support/proposal.py",
+        "src/decision_support/store.py",
+        "src/specialist_runtime/model_port.py",
+        "src/specialist_runtime/models.py",
+        "src/specialist_runtime/profiles.py",
+        "src/specialist_runtime/live_ops.py",
+        "src/specialist_runtime/scripted_model.py",
+    )
+
+
+def test_coverage_source_cli_emits_only_frozen_paths(capsys) -> None:
+    """CI 的 --source 参数只能由已验证的 Manifest 生成。"""
+
+    assert coverage_source_main(
+        ["--manifest", str(SOURCE_CLOSURE_MANIFEST), "--format", "include"]
+    ) == 0
+    output = capsys.readouterr().out.strip()
+    assert output.startswith("src/decision_support/multi_agent.py,")
+    assert "src/specialist_runtime/scripted_model.py" in output
+    assert coverage_source_main(
+        ["--manifest", str(SOURCE_CLOSURE_MANIFEST), "--format", "source-root"]
+    ) == 0
+    assert capsys.readouterr().out.strip() == "src"
+
+
+def test_coverage_gate_rejects_source_file_set_mismatch(tmp_path: Path, capsys) -> None:
+    """coverage 报告少记或多记源码时必须阻断，不能只相信 totals。"""
+
+    coverage = tmp_path / "coverage.json"
+    coverage.write_text(
+        json.dumps(
+            {
+                "totals": {"percent_covered": 99.0, "percent_branches_covered": 99.0},
+                "files": {
+                    "src/decision_support/multi_agent.py": {"summary": {}},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert coverage_main(
+        [
+            "--coverage-file",
+            str(coverage),
+            "--source-closure-file",
+            str(SOURCE_CLOSURE_MANIFEST),
+        ]
+    ) == 3
+    assert "COVERAGE_SOURCE_CLOSURE_MISMATCH" in capsys.readouterr().out
 
 
 def test_release_cli_rejects_non_finite_budget(capsys) -> None:

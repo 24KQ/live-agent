@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -145,6 +146,25 @@ class _AnalystSuccessPlannerNotSentPort:
             request_sent=False,
             latency_ms=Decimal("1"),
         )
+
+
+class _SequenceModelPort:
+    """按调用顺序返回固定结果，覆盖 smoke 两段模型调用的 fail-closed 分支。"""
+
+    def __init__(self, outcomes: list[Any]) -> None:
+        self._outcomes = list(outcomes)
+        self.requests = []
+
+    async def complete(self, request):
+        """记录请求；异常对象显式抛出，其余对象原样返回给 smoke Runner。"""
+
+        self.requests.append(request)
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if callable(outcome):
+            return outcome(request)
+        return outcome
 
 
 def test_preflight_blocks_every_missing_external_or_frozen_fact_before_model_send() -> None:
@@ -476,3 +496,137 @@ def test_memory_ledger_rejects_outcomes_not_representable_by_postgresql() -> Non
             "invalid-outcome-release",
             outcome_status=Phase16SmokeStatus.PASS,
         )
+
+
+def test_smoke_unknown_response_or_identity_mismatch_is_inconclusive_and_settles_reservation() -> None:
+    """未知结果、request_id 漂移和 model_id 漂移都不能继续 Planner，必须保守结算整例。"""
+
+    dataset = _dataset()
+    case_id = dataset.manifest.smoke_eligible_case_ids[0]
+    outcomes = [
+        lambda current: ModelSuccess(
+            request_id="foreign-request-id",
+            model_id=current.model_id,
+            output={},
+            usage=ModelUsage(input_tokens=10, output_tokens=10, total_tokens=20),
+            response_digest="b" * 64,
+            latency_ms=Decimal("1"),
+        ),
+        lambda current: ModelSuccess(
+            request_id=current.request_id,
+            model_id="foreign-model-id",
+            output={},
+            usage=ModelUsage(input_tokens=10, output_tokens=10, total_tokens=20),
+            response_digest="b" * 64,
+            latency_ms=Decimal("1"),
+        ),
+        object(),
+    ]
+
+    for outcome in outcomes:
+        port = _SequenceModelPort([outcome])
+        report = asyncio.run(
+            Phase16SmokeRunner(
+                config=_config(),
+                preflight=_preflight(),
+                budget_store=Phase16SmokeBudgetStore(),
+                model_port=port,
+            ).run((case_id,))
+        )
+
+        assert report.status is Phase16SmokeStatus.INCONCLUSIVE
+        assert report.reason_codes == ("MODEL_IDENTITY_OR_RESPONSE_MISMATCH",)
+        assert report.model_request_count == 1
+        assert report.unknown_usage_case_count == 1
+        assert len(port.requests) == 1
+
+
+def test_smoke_unsent_model_failure_releases_case_but_sent_failure_is_degraded_to_inconclusive() -> None:
+    """未发送失败可释放 reservation；已发送失败无法证明成本，必须保持 INCONCLUSIVE。"""
+
+    dataset = _dataset()
+    case_id = dataset.manifest.smoke_eligible_case_ids[0]
+    for request_sent, expected_status, expected_reason, expected_committed in (
+        (False, Phase16SmokeStatus.FAIL, "MODEL_REQUEST_NOT_SENT", Decimal("0")),
+        (True, Phase16SmokeStatus.INCONCLUSIVE, "MODEL_FAILURE_USAGE_UNKNOWN", Decimal("0.10")),
+    ):
+        port = _SequenceModelPort(
+            [
+                lambda request: ModelFailure(
+                    request_id=request.request_id,
+                    category=ModelFailureCategory.TRANSPORT_ERROR,
+                    request_sent=request_sent,
+                    latency_ms=Decimal("1"),
+                )
+            ]
+        )
+        store = Phase16SmokeBudgetStore()
+        report = asyncio.run(
+            Phase16SmokeRunner(
+                config=_config(),
+                preflight=_preflight(),
+                budget_store=store,
+                model_port=port,
+            ).run((case_id,))
+        )
+
+        assert report.status is expected_status
+        assert report.reason_codes == (expected_reason,)
+        assert report.settled_cost_cny == expected_committed
+
+
+def test_smoke_model_port_exception_and_usage_overrun_are_conservatively_degraded() -> None:
+    """Port 异常或 usage 超出 case reservation 时，不能释放或继续第二个模型。"""
+
+    dataset = _dataset()
+    case_id = dataset.manifest.smoke_eligible_case_ids[0]
+    for outcome, expected_reason in (
+        (RuntimeError("transport unavailable"), "MODEL_PORT_EXCEPTION_USAGE_UNKNOWN"),
+        (asyncio.TimeoutError(), "MODEL_PORT_EXCEPTION_USAGE_UNKNOWN"),
+        (
+            lambda request: ModelSuccess(
+                request_id=request.request_id,
+                model_id=request.model_id,
+                output={},
+                usage=ModelUsage(input_tokens=100_000, output_tokens=0, total_tokens=100_000),
+                response_digest="b" * 64,
+                latency_ms=Decimal("1"),
+            ),
+            "USAGE_EXCEEDS_CASE_RESERVATION",
+        ),
+    ):
+        port = _SequenceModelPort([outcome])
+        report = asyncio.run(
+            Phase16SmokeRunner(
+                config=_config(),
+                preflight=_preflight(),
+                budget_store=Phase16SmokeBudgetStore(),
+                model_port=port,
+            ).run((case_id,))
+        )
+
+        assert report.status is Phase16SmokeStatus.INCONCLUSIVE
+        assert report.reason_codes == (expected_reason,)
+        assert report.model_request_count == 1
+        assert len(port.requests) == 1
+
+
+def test_smoke_cancellation_propagates_and_keeps_pending_reservation_for_recovery() -> None:
+    """调用方取消不能伪造失败或释放费用，未决 reservation 留给恢复扫描处理。"""
+
+    dataset = _dataset()
+    case_id = dataset.manifest.smoke_eligible_case_ids[0]
+    store = Phase16SmokeBudgetStore()
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            Phase16SmokeRunner(
+                config=_config(),
+                preflight=_preflight(),
+                budget_store=store,
+                model_port=_SequenceModelPort([asyncio.CancelledError()]),
+            ).run((case_id,))
+        )
+
+    assert store.snapshot().reserved_cny == Decimal("0.10")
+    assert store.snapshot().committed_cny == Decimal("0")

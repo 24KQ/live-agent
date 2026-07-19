@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from src.decision_support.evidence import (
     AnchorRhythmPayload,
+    AssembledEvidenceBundle,
     DanmakuAggregatePayload,
     DanmakuNoiseLevel,
     DanmakuTopicEvidence,
@@ -953,3 +954,572 @@ def test_waiting_reconciliation_is_preserved_as_ineligible_bundle() -> None:
 
     assert snapshot.proposal_eligible is False
     assert snapshot.blocking_reasons == ("WAITING_RECONCILIATION",)
+
+
+def test_evidence_protocol_rejects_constructor_resolver_and_freshness_edges() -> None:
+    """覆盖只读能力、父事实、TTL 和引用白名单的 fail-closed 分支。"""
+
+    with pytest.raises(TypeError, match="issued by governed"):
+        AssembledEvidenceBundle()
+
+    context = GovernedEvidenceContextResolver(
+        workspace_loader=lambda _identifier: _workspace(),
+        incident_loader=lambda _identifier: _incident(),
+    )
+    with pytest.raises(TypeError, match="startup-frozen"):
+        context._workspace_loader = lambda _identifier: _workspace()
+    with pytest.raises(EvidenceAssemblyError, match="unavailable"):
+        GovernedEvidenceContextResolver(
+            workspace_loader=lambda _identifier: (_ for _ in ()).throw(RuntimeError("gone")),
+            incident_loader=lambda _identifier: _incident(),
+        ).resolve("live-session-p001-sold-out-v1", "incident-phase14")
+
+    _, request, _ = _assembly()
+    request_data = request.model_dump(mode="json")
+    request_data["references"] = request_data["references"][:-1]
+    with pytest.raises(ValidationError, match="exact evidence role whitelist"):
+        EvidenceAssemblyRequest.model_validate(request_data)
+
+    policy = EvidenceFreshnessPolicy.default()
+    with pytest.raises(ValidationError, match="exact evidence roles"):
+        EvidenceFreshnessPolicy(ttl_seconds={})
+    with pytest.raises(ValidationError, match="positive integer"):
+        EvidenceFreshnessPolicy(
+            ttl_seconds={role: 0 for role in EvidenceRole}
+        )
+    with pytest.raises(ValidationError, match="startup-frozen"):
+        EvidenceFreshnessPolicy(
+            ttl_seconds={role: (policy.ttl(role) + 1) for role in EvidenceRole}
+        )
+
+    component = _component(EvidenceRole.RHYTHM_SIGNAL)
+    with pytest.raises(ValidationError, match="evidence role"):
+        RoleEvidenceReference(
+            role=EvidenceRole.VERIFIED_EVENT,
+            reference=component.reference,
+        )
+
+    with pytest.raises(TypeError, match="loader"):
+        GovernedReadOnlyEvidenceResolver(
+            resolver_id="phase14-invalid",
+            resolver_version="1.0.0",
+            role=EvidenceRole.RHYTHM_SIGNAL,
+            loader=None,
+        )
+    with pytest.raises(ValueError, match="non-blank"):
+        GovernedReadOnlyEvidenceResolver(
+            resolver_id=" bad ",
+            resolver_version="1.0.0",
+            role=EvidenceRole.RHYTHM_SIGNAL,
+            loader=lambda _identifier: component,
+        )
+    with pytest.raises(ValueError, match="semantic version"):
+        GovernedReadOnlyEvidenceResolver(
+            resolver_id="phase14-invalid",
+            resolver_version="v1",
+            role=EvidenceRole.RHYTHM_SIGNAL,
+            loader=lambda _identifier: component,
+        )
+    resolver = GovernedReadOnlyEvidenceResolver(
+        resolver_id="phase14-invalid",
+        resolver_version="1.0.0",
+        role=EvidenceRole.RHYTHM_SIGNAL,
+        loader=lambda _identifier: None,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="not found"):
+        resolver.resolve(component.reference, context=_scope())
+    with pytest.raises(TypeError, match="identity is frozen"):
+        resolver.role = EvidenceRole.DANMAKU_AGGREGATE
+
+
+def test_snapshot_and_resolver_reject_each_closed_identity_variant() -> None:
+    """Resolver 和 Snapshot 不能被角色顺序、未来时间或重算摘要绕过。"""
+
+    assembler, request, loaders = _assembly()
+    bundle = assembler.assemble(request).bundle
+    snapshot = bundle.model_dump(mode="json")["snapshot"]
+
+    def validate_snapshot(data: dict) -> None:
+        unsigned = dict(data)
+        unsigned.pop("bundle_digest", None)
+        data["bundle_digest"] = canonical_json_sha256(unsigned)
+        EvidenceBundleSnapshot.model_validate(data)
+
+    reversed_data = dict(snapshot)
+    reversed_data["components"] = list(reversed(reversed_data["components"]))
+    with pytest.raises(ValidationError, match="canonical role order"):
+        validate_snapshot(reversed_data)
+
+    future_data = dict(snapshot)
+    future_component = _component(EvidenceRole.VERIFIED_EVENT)
+    future_observed = NOW + timedelta(days=1)
+    future_received = NOW + timedelta(days=1, seconds=1)
+    future_digest = governed_evidence_digest(
+        role=future_component.role,
+        scope=future_component.scope,
+        evidence_id=future_component.reference.evidence_id,
+        source_version=future_component.reference.source_version,
+        observed_version=future_component.observed_version,
+        observed_at=future_observed,
+        received_at=future_received,
+        payload=future_component.payload,
+    )
+    future_reference = EvidenceRef.model_validate(
+        future_component.reference.model_dump(mode="json") | {"digest": future_digest}
+    )
+    future_component = GovernedEvidenceComponent.model_construct(
+        role=future_component.role,
+        reference=future_reference,
+        scope=future_component.scope,
+        observed_version=future_component.observed_version,
+        observed_at=future_observed,
+        received_at=future_received,
+        payload=future_component.payload,
+    )
+    future_data["components"] = [
+        future_component.model_dump(mode="json"),
+        *snapshot["components"][1:],
+    ]
+    with pytest.raises(ValidationError, match="future"):
+        validate_snapshot(future_data)
+
+    eligibility_data = dict(snapshot)
+    eligibility_data["proposal_eligible"] = False
+    with pytest.raises(ValidationError, match="eligibility"):
+        validate_snapshot(eligibility_data)
+
+    loaders[EvidenceRole.RHYTHM_SIGNAL].component = None
+    with pytest.raises(EvidenceAssemblyError, match="evidence_id not found"):
+        assembler._registry.resolve_all(
+            request.references,
+            context=_scope(),
+        )
+
+    valid = _component(EvidenceRole.RHYTHM_SIGNAL)
+    wrong_role = _component(EvidenceRole.DANMAKU_AGGREGATE)
+    loaders[EvidenceRole.RHYTHM_SIGNAL].component = wrong_role
+    with pytest.raises(EvidenceAssemblyError, match="mismatched role"):
+        assembler._registry.resolve_all(request.references, context=_scope())
+
+
+def test_evidence_static_validators_cover_invalid_payload_and_lineage_shapes() -> None:
+    """直接调用私有领域校验器也必须覆盖异常输入，确保单元证据不依赖 Store 旁路。"""
+
+    event = _component(EvidenceRole.VERIFIED_EVENT)
+    inventory = _component(EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT)
+    root = _component(EvidenceRole.ROOT_PLAN_SNAPSHOT)
+    emergency = _component(EvidenceRole.EMERGENCY_PLAN_SNAPSHOT)
+    danmaku = _component(EvidenceRole.DANMAKU_AGGREGATE)
+    rhythm = _component(EvidenceRole.RHYTHM_SIGNAL)
+
+    invalid_event = event.model_construct(
+        role=event.role,
+        reference=event.reference,
+        scope=event.scope,
+        observed_version=event.observed_version,
+        observed_at=event.observed_at,
+        received_at=event.received_at,
+        payload=inventory.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="payload type"):
+        EvidenceBundleAssembler._validate_event(_workspace(), _incident(), invalid_event)
+    no_lineage = _event_payload(emergency_plan_run_id=None)
+    no_lineage_component = _component(EvidenceRole.VERIFIED_EVENT, payload=no_lineage)
+    with pytest.raises(EvidenceAssemblyError, match="lineage"):
+        EvidenceBundleAssembler._validate_event(_workspace(), _incident(), no_lineage_component)
+
+    invalid_inventory = inventory.model_construct(
+        role=inventory.role,
+        reference=inventory.reference,
+        scope=inventory.scope,
+        observed_version=inventory.observed_version,
+        observed_at=inventory.observed_at,
+        received_at=inventory.received_at,
+        payload=root.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="payload type"):
+        EvidenceBundleAssembler._validate_inventory(event.payload, invalid_inventory)
+    bad_backup = _product_payload(
+        backup_products=(
+            ProductSnapshotEvidence(
+                product_id="p002",
+                name="备品",
+                price="35.90",
+                inventory=0,
+                version=4,
+                is_active=False,
+            ),
+        )
+    )
+    bad_backup_component = _component(
+        EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT, payload=bad_backup
+    )
+    with pytest.raises(EvidenceAssemblyError, match="backup product"):
+        EvidenceBundleAssembler._validate_inventory(event.payload, bad_backup_component)
+
+    invalid_plan = root.model_construct(
+        role=root.role,
+        reference=root.reference,
+        scope=root.scope,
+        observed_version=root.observed_version,
+        observed_at=root.observed_at,
+        received_at=root.received_at,
+        payload=inventory.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="plan payload"):
+        EvidenceBundleAssembler._validate_plans(_workspace(), event.payload, invalid_plan, emergency)
+    with pytest.raises(EvidenceAssemblyError, match="source time"):
+        shifted_root = root.model_construct(
+            role=root.role,
+            reference=root.reference,
+            scope=root.scope,
+            observed_version=root.observed_version,
+            observed_at=root.observed_at + timedelta(seconds=1),
+            received_at=root.received_at,
+            payload=root.payload,
+        )
+        EvidenceBundleAssembler._validate_plans(_workspace(), event.payload, shifted_root, emergency)
+
+    invalid_signal = danmaku.model_construct(
+        role=danmaku.role,
+        reference=danmaku.reference,
+        scope=danmaku.scope,
+        observed_version=danmaku.observed_version,
+        observed_at=danmaku.observed_at,
+        received_at=danmaku.received_at,
+        payload=rhythm.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="live signal payload"):
+        EvidenceBundleAssembler._validate_windows(invalid_signal, rhythm)
+    forged_signal = rhythm.model_construct(
+        role=rhythm.role,
+        reference=rhythm.reference,
+        scope=rhythm.scope,
+        observed_version=rhythm.observed_version,
+        observed_at=rhythm.observed_at,
+        received_at=rhythm.received_at,
+        payload=_rhythm_payload(signal_id="other-rhythm"),
+    )
+    with pytest.raises(EvidenceAssemblyError, match="identity"):
+        EvidenceBundleAssembler._validate_windows(danmaku, forged_signal)
+
+
+def test_evidence_leaf_models_cover_text_hash_window_and_backup_rejections() -> None:
+    """叶子证据模型的边界拒绝必须有独立证据，不能只依赖上层 Assembler。"""
+
+    with pytest.raises(ValidationError, match="surrounding whitespace"):
+        ProductSnapshotEvidence(
+            product_id="p001",
+            name=" 主商品",
+            price="39.90",
+            inventory=1,
+            version=1,
+            is_active=True,
+        )
+    valid_product = _product_payload().backup_products[0]
+    with pytest.raises(ValidationError, match="unique"):
+        _product_payload(backup_products=(valid_product, valid_product))
+    with pytest.raises(ValidationError, match="SHA-256"):
+        _danmaku_payload(topics=(
+            DanmakuTopicEvidence(
+                category="OTHER",
+                summary="其他已聚合且无法归类的问题",
+                count=1,
+                sample_hashes=("invalid",),
+            ),
+        ))
+    topic = DanmakuTopicEvidence(
+        category="OTHER",
+        summary="其他已聚合且无法归类的问题",
+        count=1,
+        sample_hashes=("a" * 64,),
+    )
+    with pytest.raises(ValidationError, match="duplicates"):
+        DanmakuTopicEvidence(
+            category=topic.category,
+            summary=topic.summary,
+            count=1,
+            sample_hashes=("a" * 64, "a" * 64),
+        )
+    with pytest.raises(ValidationError, match="ordered"):
+        _danmaku_payload(window_end=NOW - timedelta(seconds=11))
+    with pytest.raises(ValidationError, match="ordered"):
+        _rhythm_payload(window_end=NOW - timedelta(seconds=11))
+
+
+def test_governed_component_identity_checks_are_not_digest_bypassable() -> None:
+    """组件先校验角色、作用域和时间，再计算 digest，伪造摘要不能跳过前置门禁。"""
+
+    base = _component(EvidenceRole.RHYTHM_SIGNAL)
+
+    def constructed(**updates):
+        values = {
+            "role": base.role,
+            "reference": base.reference,
+            "scope": base.scope,
+            "observed_version": base.observed_version,
+            "observed_at": base.observed_at,
+            "received_at": base.received_at,
+            "payload": base.payload,
+        }
+        values.update(updates)
+        return GovernedEvidenceComponent.model_construct(**values)
+
+    with pytest.raises(ValueError, match="payload type"):
+        constructed(payload=_danmaku_payload())._close_component_identity()
+    with pytest.raises(ValueError, match="EvidenceKind"):
+        constructed(
+            role=EvidenceRole.VERIFIED_EVENT,
+            payload=_event_payload(),
+        )._close_component_identity()
+    with pytest.raises(ValueError, match="room_id"):
+        constructed(scope=_scope(room_id="other-room"))._close_component_identity()
+    with pytest.raises(ValueError, match="anchor_id"):
+        constructed(scope=_scope(anchor_id="other-anchor"))._close_component_identity()
+    with pytest.raises(ValueError, match="precede"):
+        constructed(received_at=base.observed_at - timedelta(seconds=1))._close_component_identity()
+
+
+def test_context_snapshot_service_and_registry_error_edges_are_explicit() -> None:
+    """父事实、Snapshot 和应用门面错误必须在公开边界被分类。"""
+
+    with pytest.raises(EvidenceAssemblyError, match="workspace identity"):
+        GovernedEvidenceContextResolver(
+            workspace_loader=lambda _identifier: _workspace(live_session_id="other"),
+            incident_loader=lambda _identifier: _incident(),
+        ).resolve("live-session-p001-sold-out-v1", "incident-phase14")
+    with pytest.raises(EvidenceAssemblyError, match="incident identity"):
+        GovernedEvidenceContextResolver(
+            workspace_loader=lambda _identifier: _workspace(),
+            incident_loader=lambda _identifier: _incident(incident_id="other"),
+        ).resolve("live-session-p001-sold-out-v1", "incident-phase14")
+    with pytest.raises(EvidenceAssemblyError, match="does not belong"):
+        GovernedEvidenceContextResolver(
+            workspace_loader=lambda _identifier: _workspace(),
+            incident_loader=lambda _identifier: _incident(live_session_id="other"),
+        ).resolve("live-session-p001-sold-out-v1", "incident-phase14")
+
+    assembler, request, _ = _assembly()
+    bundle = assembler.assemble(request).bundle
+    stale = bundle.model_dump(mode="json")["snapshot"]
+    stale["valid_until"] = stale["assembled_at"]
+    with pytest.raises(ValidationError, match="already stale"):
+        EvidenceBundleSnapshot.model_validate(stale)
+    bad_digest = bundle.model_dump(mode="json")["snapshot"]
+    bad_digest["bundle_digest"] = "f" * 64
+    with pytest.raises(ValidationError, match="canonical snapshot"):
+        EvidenceBundleSnapshot.model_validate(bad_digest)
+
+    with pytest.raises(EvidenceAssemblyError, match="assembler"):
+        EvidenceBundleAssemblyService(assembler=object(), writer=object())
+    with pytest.raises(EvidenceAssemblyError, match="writer"):
+        EvidenceBundleAssemblyService(assembler=assembler, writer=object())
+    service = EvidenceBundleAssemblyService(
+        assembler=assembler,
+        writer=_RecordingEvidenceWriter(),
+    )
+    with pytest.raises(TypeError, match="startup-frozen"):
+        service._writer = _RecordingEvidenceWriter()
+
+
+def test_evidence_inventory_plan_window_and_registry_branches_are_exhaustive() -> None:
+    """覆盖 Resolver 返回角色错、引用错和六角色业务快照的剩余拒绝分支。"""
+
+    event = _component(EvidenceRole.VERIFIED_EVENT)
+    inventory = _component(EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT)
+    root = _component(EvidenceRole.ROOT_PLAN_SNAPSHOT)
+    emergency = _component(EvidenceRole.EMERGENCY_PLAN_SNAPSHOT)
+    danmaku = _component(EvidenceRole.DANMAKU_AGGREGATE)
+    rhythm = _component(EvidenceRole.RHYTHM_SIGNAL)
+
+    with pytest.raises(EvidenceAssemblyError, match="product identity"):
+        EvidenceBundleAssembler._validate_inventory(
+            event.payload,
+            _component(
+                EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT,
+                payload=_product_payload(sold_out_product_id="other-product"),
+            ),
+        )
+    source_shifted = inventory.model_construct(
+        role=inventory.role,
+        reference=inventory.reference,
+        scope=inventory.scope,
+        observed_version=inventory.observed_version,
+        observed_at=inventory.observed_at + timedelta(seconds=1),
+        received_at=inventory.received_at,
+        payload=inventory.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="source time"):
+        EvidenceBundleAssembler._validate_inventory(event.payload, source_shifted)
+    sold_out_forged = _product_payload(
+        current_product=ProductSnapshotEvidence(
+            product_id="p001", name="主商品", price="39.90", inventory=1, version=2, is_active=True
+        )
+    )
+    with pytest.raises(EvidenceAssemblyError, match="confirmed sold-out"):
+        EvidenceBundleAssembler._validate_inventory(
+            event.payload,
+            _component(EvidenceRole.PRODUCT_INVENTORY_SNAPSHOT, payload=sold_out_forged),
+        )
+
+    root_shifted = root.model_construct(
+        role=root.role,
+        reference=root.reference,
+        scope=root.scope,
+        observed_version=root.observed_version,
+        observed_at=root.observed_at + timedelta(seconds=1),
+        received_at=root.received_at,
+        payload=root.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="root plan source"):
+        EvidenceBundleAssembler._validate_plans(_workspace(), event.payload, root_shifted, emergency)
+    emergency_shifted = emergency.model_construct(
+        role=emergency.role,
+        reference=emergency.reference,
+        scope=emergency.scope,
+        observed_version=emergency.observed_version,
+        observed_at=emergency.observed_at + timedelta(seconds=1),
+        received_at=emergency.received_at,
+        payload=emergency.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="emergency plan source"):
+        EvidenceBundleAssembler._validate_plans(_workspace(), event.payload, root, emergency_shifted)
+    waiting_event = _component(
+        EvidenceRole.VERIFIED_EVENT,
+        payload=_event_payload(
+            inbox_state=EventInboxState.WAITING_HUMAN,
+            application_state=EventApplicationState.WAITING_RECONCILIATION,
+            side_effect_state=SideEffectState.UNKNOWN,
+            applied_plan_version=None,
+        ),
+    )
+    with pytest.raises(EvidenceAssemblyError, match="FROZEN"):
+        EvidenceBundleAssembler._validate_plans(
+            _workspace(), waiting_event.payload, root,
+            _component(EvidenceRole.EMERGENCY_PLAN_SNAPSHOT,
+                       payload=_emergency_plan_payload(plan_state=PlanRunState.SUCCEEDED)),
+        )
+
+    forged_danmaku_ref = EvidenceRef.model_construct(
+        **(danmaku.reference.model_dump(mode="python") | {"evidence_id": "other-danmaku"})
+    )
+    forged_danmaku = danmaku.model_construct(
+        role=danmaku.role,
+        reference=forged_danmaku_ref,
+        scope=danmaku.scope,
+        observed_version=danmaku.observed_version,
+        observed_at=danmaku.observed_at,
+        received_at=danmaku.received_at,
+        payload=danmaku.payload,
+    )
+    with pytest.raises(EvidenceAssemblyError, match="aggregate identity"):
+        EvidenceBundleAssembler._validate_windows(forged_danmaku, rhythm)
+    with pytest.raises(EvidenceAssemblyError, match="danmaku source"):
+        EvidenceBundleAssembler._validate_windows(
+            danmaku.model_construct(
+                role=danmaku.role, reference=danmaku.reference, scope=danmaku.scope,
+                observed_version=danmaku.observed_version,
+                observed_at=danmaku.observed_at + timedelta(seconds=1),
+                received_at=danmaku.received_at, payload=danmaku.payload,
+            ),
+            rhythm,
+        )
+    with pytest.raises(EvidenceAssemblyError, match="rhythm source"):
+        EvidenceBundleAssembler._validate_windows(
+            danmaku,
+            rhythm.model_construct(
+                role=rhythm.role, reference=rhythm.reference, scope=rhythm.scope,
+                observed_version=rhythm.observed_version,
+                observed_at=rhythm.observed_at + timedelta(seconds=1),
+                received_at=rhythm.received_at, payload=rhythm.payload,
+            ),
+        )
+
+    assembler, request, loaders = _assembly()
+    loaders[EvidenceRole.RHYTHM_SIGNAL].component = danmaku
+    with pytest.raises(EvidenceAssemblyError, match="mismatched role"):
+        assembler._registry.resolve_all(request.references, context=_scope())
+    loaders[EvidenceRole.RHYTHM_SIGNAL].component = rhythm
+    forged_reference = EvidenceRef.model_construct(
+        **(rhythm.reference.model_dump(mode="python") | {"evidence_id": "other-rhythm"})
+    )
+    forged_item = RoleEvidenceReference(
+        role=EvidenceRole.RHYTHM_SIGNAL, reference=forged_reference
+    )
+    with pytest.raises(EvidenceAssemblyError, match="does not match requested"):
+        assembler._registry.resolve_all(
+            tuple(item if item.role is not EvidenceRole.RHYTHM_SIGNAL else forged_item
+                  for item in request.references),
+            context=_scope(),
+        )
+
+    components = {role: _component(role) for role in EvidenceRole}
+    governed = {
+        role: GovernedReadOnlyEvidenceResolver(
+            resolver_id=f"phase14-edge-{role.value}",
+            resolver_version="1.0.0",
+            role=role,
+            loader=_Loader(component),
+        )
+        for role, component in components.items()
+    }
+    governed[EvidenceRole.RHYTHM_SIGNAL] = GovernedReadOnlyEvidenceResolver(
+        resolver_id="phase14-edge-wrong-role",
+        resolver_version="1.0.0",
+        role=EvidenceRole.DANMAKU_AGGREGATE,
+        loader=_Loader(components[EvidenceRole.RHYTHM_SIGNAL]),
+    )
+    with pytest.raises(EvidenceAssemblyError, match="role does not match registry key"):
+        LiveEvidenceResolverRegistry(governed)
+    governed = dict(governed)
+    governed[EvidenceRole.RHYTHM_SIGNAL] = GovernedReadOnlyEvidenceResolver(
+        resolver_id="phase14-edge-VERIFIED_EVENT",
+        resolver_version="1.0.0",
+        role=EvidenceRole.RHYTHM_SIGNAL,
+        loader=_Loader(components[EvidenceRole.RHYTHM_SIGNAL]),
+    )
+    with pytest.raises(EvidenceAssemblyError, match="identities"):
+        LiveEvidenceResolverRegistry(governed)
+
+    class _ReferenceWithSameFields:
+        """只为覆盖防御性分支：字段相同但对象相等性故意不可信。"""
+
+        kind = rhythm.reference.kind
+        evidence_id = rhythm.reference.evidence_id
+        source_version = rhythm.reference.source_version
+        digest = rhythm.reference.digest
+        room_id = rhythm.reference.room_id
+        anchor_id = rhythm.reference.anchor_id
+
+        def __eq__(self, _other):
+            return False
+
+    same_fields_item = RoleEvidenceReference.model_construct(
+        role=EvidenceRole.RHYTHM_SIGNAL,
+        reference=_ReferenceWithSameFields(),
+    )
+    assembler, request, _ = _assembly()
+    with pytest.raises(EvidenceAssemblyError, match="resolved reference does not match"):
+        assembler._registry.resolve_all(
+            tuple(
+                same_fields_item if item.role is EvidenceRole.RHYTHM_SIGNAL else item
+                for item in request.references
+            ),
+            context=_scope(),
+        )
+
+    with pytest.raises(EvidenceAssemblyError, match="root plan lineage"):
+        EvidenceBundleAssembler._validate_plans(
+            _workspace(), event.payload,
+            _component(
+                EvidenceRole.ROOT_PLAN_SNAPSHOT,
+                payload=_root_plan_payload(plan_run_id="other-root"),
+            ),
+            emergency,
+        )
+
+    failing_assembler, failing_request, _ = _assembly(
+        clock=lambda: (_ for _ in ()).throw(EvidenceAssemblyError("clock failed"))
+    )
+    with pytest.raises(EvidenceAssemblyError, match="clock failed"):
+        failing_assembler._assemble_bundle(failing_request)

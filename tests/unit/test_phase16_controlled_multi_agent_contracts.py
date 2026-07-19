@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -41,8 +42,21 @@ from src.specialist_runtime.evidence import (
     EvidenceResolverRegistry,
     ResolvedEvidence,
 )
-from src.specialist_runtime.model_port import ModelSuccess, ModelUsage
+from src.specialist_runtime.live_ops import (
+    LiveOpsAction,
+    LiveOpsAgentAdapter,
+    PriorityLiveOpsPolicy,
+    build_live_ops_profile,
+)
+from src.specialist_runtime.model_port import (
+    ModelMessage,
+    ModelRequest,
+    ModelSuccess,
+    ModelUsage,
+)
 from src.specialist_runtime.models import (
+    AgentFailure,
+    AgentResult,
     AgentTask,
     AgentResultStatus,
     EvidenceKind,
@@ -66,6 +80,8 @@ from src.skill_runtime.catalog import get_default_skill_catalog
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
 _BUNDLE_DIGEST = "a" * 64
 _ESCALATION_DIGEST = "b" * 64
+_MODEL_HASH_A = "a" * 64
+_MODEL_HASH_B = "b" * 64
 
 
 def _reference() -> EvidenceRef:
@@ -483,3 +499,245 @@ def test_phase16_task_kinds_fail_closed_until_dedicated_budget_exists(
 
     with pytest.raises(BudgetInvariantError, match="dedicated Phase 16 budget"):
         budget_candidate_for_task(task)
+
+
+def test_specialist_model_protocol_freezes_nested_input_and_rejects_invalid_totals() -> None:
+    """任务输入、失败详情和模型结果必须深度冻结，token 总数也必须可由明细重算。"""
+
+    task = AgentTask(
+        task_id="phase16-frozen-task",
+        task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+        profile_id="decision_planner",
+        profile_version="1.0.0",
+        room_id="room-001",
+        trace_id="trace-001",
+        objective="只验证协议冻结行为。",
+        input_snapshot={"nested": {"value": 1}},
+    )
+
+    assert task.input_snapshot["nested"]["value"] == 1
+    with pytest.raises(TypeError, match="FrozenDict|item assignment"):
+        task.input_snapshot["nested"]["value"] = 2
+    with pytest.raises(TypeError, match="model_copy"):
+        task.model_copy(update={"profile_id": "forged"})
+
+    with pytest.raises(ValidationError, match="total_tokens"):
+        ModelUsage(input_tokens=4, output_tokens=3, total_tokens=99)
+    with pytest.raises(ValidationError, match="requires structured failure"):
+        AgentResult(
+            task_id=task.task_id,
+            profile_id=task.profile_id,
+            profile_version=task.profile_version,
+            status=AgentResultStatus.MODEL_ERROR,
+            summary="缺少失败事实的非法结果。",
+        )
+
+
+def test_model_request_and_profile_reject_identity_or_schema_drift() -> None:
+    """端点、模型、温度、Profile 哈希和 Skill 版本任一漂移都必须在发送前失败。"""
+
+    request = ModelRequest(
+        request_id="phase16-request-001",
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-flash",
+        temperature=Decimal("0"),
+        prompt_hash=_MODEL_HASH_A,
+        result_schema_hash=_MODEL_HASH_B,
+        messages=(ModelMessage(role="system", content="只输出 JSON"),),
+        max_output_tokens=100,
+        deadline_at=NOW + timedelta(seconds=2),
+    )
+    for field, value, marker in (
+        ("endpoint_host", "evil.example", "endpoint_host"),
+        ("model_id", "other-model", "model_id"),
+        ("temperature", Decimal("0.2"), "temperature"),
+    ):
+        with pytest.raises(ValidationError, match=marker):
+            ModelRequest.model_validate({**request.model_dump(mode="json"), field: value})
+
+    profile = build_evidence_analyst_profile()
+    profile_payload = profile.model_dump(mode="json")
+    profile_payload["prompt_text"] = "被篡改的 Prompt"
+    with pytest.raises(ValidationError, match="prompt_hash"):
+        SpecialistProfile.model_validate(profile_payload)
+
+    profile_payload = profile.model_dump(mode="json")
+    profile_payload["skill_versions"] = {"unapproved-skill": "1.0.0"}
+    with pytest.raises(ValidationError, match="skill_versions"):
+        SpecialistProfile.model_validate(profile_payload)
+
+    profile_payload = profile.model_dump(mode="json")
+    profile_payload["result_schema_hash"] = _MODEL_HASH_B
+    with pytest.raises(ValidationError, match="result_schema_hash"):
+        SpecialistProfile.model_validate(profile_payload)
+
+
+def test_scripted_model_rejects_unknown_request_and_mismatched_script_identity() -> None:
+    """ScriptedModel 只消费精确 request_id 的脚本，未知或错绑结果不能静默回放。"""
+
+    request = ModelRequest(
+        request_id="phase16-script-request",
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-flash",
+        temperature=Decimal("0"),
+        prompt_hash=_MODEL_HASH_A,
+        result_schema_hash=_MODEL_HASH_B,
+        messages=(ModelMessage(role="user", content="test"),),
+        max_output_tokens=100,
+        deadline_at=NOW + timedelta(seconds=2),
+    )
+    scripted = ScriptedAgentModel(
+        outcomes={
+            request.request_id: (
+                ModelSuccess(
+                    request_id="wrong-request-id",
+                    model_id=request.model_id,
+                    output={},
+                    usage=None,
+                    response_digest=_MODEL_HASH_A,
+                    latency_ms=Decimal("1"),
+                ),
+            )
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="request_id"):
+        asyncio.run(scripted.complete(request))
+    assert scripted.call_count == 0
+    unknown_request = ModelRequest.model_validate(
+        {**request.model_dump(mode="json"), "request_id": "unknown-request"}
+    )
+    with pytest.raises(RuntimeError, match="exhausted"):
+        asyncio.run(scripted.complete(unknown_request))
+
+
+@pytest.mark.parametrize(
+    ("alert", "danmaku", "expected_action"),
+    (
+        (
+            {"risk_open": True, "backup_available": True},
+            {"question_count": 0},
+            LiveOpsAction.SWITCH_PRODUCT_SUGGESTION,
+        ),
+        (
+            {"risk_open": True, "backup_available": False},
+            {"question_count": 0},
+            LiveOpsAction.HUMAN_ATTENTION,
+        ),
+        (
+            {"risk_open": False, "backup_available": False},
+            {"question_count": 10},
+            LiveOpsAction.DANMAKU_REPLY_SUGGESTION,
+        ),
+        (
+            {"risk_open": False, "backup_available": False},
+            {"question_count": 9},
+            LiveOpsAction.NO_ACTION,
+        ),
+    ),
+)
+def test_priority_live_ops_policy_covers_all_closed_baseline_actions(
+    alert: dict[str, bool], danmaku: dict[str, int], expected_action: LiveOpsAction
+) -> None:
+    """播中 baseline 的四个确定性动作分支都必须只依赖输入快照和证据引用。"""
+
+    result = PriorityLiveOpsPolicy().decide(
+        {
+            "inventory_alert": alert,
+            "danmaku": danmaku,
+            "evidence_refs": [_reference().model_dump(mode="json")],
+        }
+    )
+
+    assert result.action is expected_action
+    assert result.evidence_refs == (_reference(),)
+
+
+def _live_ops_case() -> dict:
+    """构造不含控制字段的最小 LiveOps 评估 case，Runner 仍负责注入执行边界。"""
+
+    return {
+        "candidate": "live_ops",
+        "case_id": "phase16-live-ops-adapter-001",
+        "input": {
+            "room_id": "room-001",
+            "trace_id": "trace-001",
+            "evidence_refs": [_reference().model_dump(mode="json")],
+        },
+    }
+
+
+class _FixedLiveOpsRunner:
+    """按测试需要返回固定结果，确认 Adapter 不会替 Runner 偷改身份或状态。"""
+
+    def __init__(self, result: AgentResult) -> None:
+        self.result = result
+        self.tasks: list[AgentTask] = []
+
+    async def run(self, task: AgentTask) -> AgentResult:
+        """记录传入任务并返回预先构造的结果，不创建模型或 Skill 调用。"""
+
+        self.tasks.append(task)
+        return self.result
+
+
+def test_live_ops_adapter_rejects_wrong_case_identity_failed_result_and_bad_output() -> None:
+    """LiveOps adapter 必须拒绝错投 case、Runner 身份漂移、失败结果和非严格建议。"""
+
+    root = Path(__file__).resolve().parents[2] / "evaluation"
+    profile = build_live_ops_profile(root)
+    case = _live_ops_case()
+    task = LiveOpsAgentAdapter(runner=object(), profile=profile).build_task(case)
+
+    success = AgentResult(
+        task_id=task.task_id,
+        profile_id=task.profile_id,
+        profile_version=task.profile_version,
+        status=AgentResultStatus.SUCCEEDED,
+        output={
+            "action": "NO_ACTION",
+            "reason_code": "NO_OPEN_INCIDENT",
+            "suggestion": "NO_ACTION_REQUIRED",
+            "evidence_refs": [_reference().model_dump(mode="json")],
+        },
+        summary="受限 LiveOps 建议。",
+    )
+    adapter = LiveOpsAgentAdapter(runner=_FixedLiveOpsRunner(success), profile=profile)
+    suggestion = asyncio.run(adapter.suggestion_for_case(case))
+    assert suggestion.action is LiveOpsAction.NO_ACTION
+
+    with pytest.raises(ValueError, match="requires live_ops"):
+        adapter.build_task({**case, "candidate": "planner"})
+
+    mismatch = success.model_dump(mode="json")
+    mismatch["task_id"] = "foreign-task"
+    mismatch_result = AgentResult.model_validate(mismatch)
+    with pytest.raises(ValueError, match="mismatched task identity"):
+        asyncio.run(
+            LiveOpsAgentAdapter(
+                runner=_FixedLiveOpsRunner(mismatch_result), profile=profile
+            ).run_case(case)
+        )
+
+    failed = AgentResult(
+        task_id=task.task_id,
+        profile_id=task.profile_id,
+        profile_version=task.profile_version,
+        status=AgentResultStatus.MODEL_ERROR,
+        failure=AgentFailure(code="MODEL_ERROR"),
+        summary="模型失败。",
+    )
+    with pytest.raises(ValueError, match="did not produce"):
+        asyncio.run(
+            LiveOpsAgentAdapter(runner=_FixedLiveOpsRunner(failed), profile=profile).suggestion_for_case(case)
+        )
+
+    invalid_payload = success.model_dump(mode="json")
+    invalid_payload["output"]["unexpected"] = True
+    invalid_result = AgentResult.model_validate(invalid_payload)
+    with pytest.raises(ValueError, match="strict suggestion"):
+        asyncio.run(
+            LiveOpsAgentAdapter(
+                runner=_FixedLiveOpsRunner(invalid_result), profile=profile
+            ).suggestion_for_case(case)
+        )

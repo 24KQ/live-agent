@@ -12,7 +12,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from src.decision_support.models import WorkspaceView
 from src.decision_support.multi_agent import HighConflictCoordinationResult
-from src.decision_support.store import WorkspaceConflictError, WorkspaceLeaseError
+from src.decision_support.store import (
+    WorkspaceConflictError,
+    WorkspaceLeaseError,
+    WorkspaceNotFoundError,
+)
 from src.gateway import api_server
 from src.gateway.decision_support_service import (
     DecisionSupportService,
@@ -602,6 +606,106 @@ def test_manual_escalation_endpoint_maps_lease_conflict_to_fail_closed_response(
     )
 
     assert response.status_code == 409
+
+
+def test_manual_escalation_endpoint_maps_missing_authoritative_bundle_to_not_found(
+    client: tuple[TestClient, _RecordingEscalationService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """服务端事实不存在时返回 404，不能把缺失 Bundle 误报为已接受升级。"""
+
+    class _MissingFactService(_RecordingEscalationService):
+        async def request_multi_agent_escalation(self, **_kwargs: Any) -> dict[str, Any]:
+            """模拟 Store 找不到 Workspace/Bundle 的权威读取失败。"""
+
+            raise WorkspaceNotFoundError("workspace or bundle not found")
+
+    test_client, _ = client
+    api_server.set_decision_support_service(_MissingFactService())
+    _operator(monkeypatch)
+
+    response = test_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/multi-agent-escalations",
+        headers={
+            "x-operator-id": "operator-phase16-api",
+            "x-idempotency-key": IDEMPOTENCY_KEY,
+        },
+        json={
+            "evidence_bundle_id": BUNDLE_ID,
+            "expected_workspace_version": 7,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"error": "workspace or bundle not found"}
+
+
+def test_manual_escalation_endpoint_maps_server_cas_conflict_without_retrying_coordinator(
+    client: tuple[TestClient, _RecordingEscalationService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Store 的 CAS 冲突必须稳定返回 409，HTTP 层不能重试或伪造升级成功。"""
+
+    class _CasConflictService(_RecordingEscalationService):
+        async def request_multi_agent_escalation(self, **_kwargs: Any) -> dict[str, Any]:
+            """模拟工作区版本已被另一写入者推进。"""
+
+            raise WorkspaceConflictError("workspace version conflict")
+
+    test_client, _ = client
+    conflict_service = _CasConflictService()
+    api_server.set_decision_support_service(conflict_service)
+    _operator(monkeypatch)
+
+    response = test_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/multi-agent-escalations",
+        headers={
+            "x-operator-id": "operator-phase16-api",
+            "x-idempotency-key": IDEMPOTENCY_KEY,
+        },
+        json={
+            "evidence_bundle_id": BUNDLE_ID,
+            "expected_workspace_version": 7,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"error": "workspace version conflict"}
+    assert conflict_service.calls == []
+
+
+def test_manual_escalation_endpoint_maps_unavailable_service_to_503(
+    client: tuple[TestClient, _RecordingEscalationService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """默认路由未装配 Coordinator 时必须返回 503，不能把不可用伪装成已接受。"""
+
+    class _UnavailableService(_RecordingEscalationService):
+        async def request_multi_agent_escalation(self, **_kwargs: Any) -> dict[str, Any]:
+            """模拟安全默认路由没有启用 Phase 16 Coordinator。"""
+
+            raise DecisionSupportServiceUnavailable("multi-agent coordinator is not configured")
+
+    test_client, _ = client
+    unavailable_service = _UnavailableService()
+    api_server.set_decision_support_service(unavailable_service)
+    _operator(monkeypatch)
+
+    response = test_client.post(
+        f"/api/decision-support/workspaces/{SESSION_ID}/multi-agent-escalations",
+        headers={
+            "x-operator-id": "operator-phase16-api",
+            "x-idempotency-key": IDEMPOTENCY_KEY,
+        },
+        json={
+            "evidence_bundle_id": BUNDLE_ID,
+            "expected_workspace_version": 7,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "multi-agent coordinator is not configured"}
+    assert unavailable_service.calls == []
 
 
 def test_workspace_payload_projects_all_phase16_append_only_facts() -> None:
