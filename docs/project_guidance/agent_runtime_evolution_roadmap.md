@@ -269,7 +269,9 @@ docs/worklog/continuous_execution_state.md
   `DEGRADED`；默认路由保持 `DETERMINISTIC_ONLY`；真实 smoke 不超过 1.00 CNY。
 - **退出条件**：技术证据通过时可记录 `PASS`，真实模型证据不足时保持
   `INCONCLUSIVE`；两者都不自动开启默认路由。
-- **当前状态**：`PHASE_16_COMPLETE_AWAITING_PHASE_17_GATE`；Task 1-11 已完成。`live-session-p001-sold-out-v2`
+- **当前状态**：`PHASE_16_COMPLETE_AWAITING_PHASE_17_GATE`；Task 1-11 与 PR coverage 整改已完成，PR Gate 的冻结
+  source closure、联合 unit/integration 采样和 `90/85` 门槛已通过；PR #1 合并后仍保持该状态，不自动进入 Phase 17。
+  `live-session-p001-sold-out-v2`
   Demo 通过真实 Phase 12B 保护、受控双 Agent、完整 append-only 谱系、人工 MODIFY 编译但不提交、以及新
   Store 的 lease/dispatch claim 重放形成可重复本地证据。真实 endpoint/usage 合同与模型回执缺失，故
   Acceptance 保持 `INCONCLUSIVE`，默认路由仍为 `DETERMINISTIC_ONLY`。

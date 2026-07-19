@@ -67,3 +67,20 @@
   - `USAGE_CONTRACT_UNAVAILABLE`
 
 真实 endpoint、usage 合同和真实模型回执未提供，因此 Phase 16 结论保持 INCONCLUSIVE；默认路由继续为 DETERMINISTIC_ONLY。Phase 16 完成后不自动实施 Phase 17，当前状态固定为 AWAITING_PHASE_17_GATE。
+
+## PR Coverage Remediation
+
+首次 PR coverage 报告曾为 `BLOCKED`，line `82.85%`、branch `67.96%`；该历史事实保留，不把它改写成业务失败或删除。
+整改新增版本化 Manifest：`evaluation/manifests/phase16-coverage-source-closure-v1.json`，固定 11 个源码文件作为
+coverage 分母，并由 `scripts/coverage_source.py` 校验存在、Git 跟踪、非 symlink、UTF-8/LF 和源码摘要。整改后的 PR
+采样使用同一 coverage 数据库联合运行 unit/integration，并在报告生成后校验文件集合与 Manifest 完全一致；line/branch
+门槛仍为 `90/85`，未使用排除代码或降低阈值。干净证据为：
+
+- unit：`1555 passed, 1 warning`
+- integration：`185 passed, 7 deselected, 5 warnings`
+- coverage：line `92.035%`、branch `85.081%`
+- Gate：`PASS`
+- 真实模型调用/费用：`0 / 0.000000 CNY`
+
+本节只证明 PR coverage 技术门禁已通过；真实 endpoint、usage 合同和模型回执仍缺失，所以 Acceptance 总结继续为
+`INCONCLUSIVE`，默认路由不改变。整改提交为 `599c98e`（测试）和 `6216f9f`（CI/source closure）。

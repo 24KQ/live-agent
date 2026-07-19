@@ -16,6 +16,9 @@
 - [x] Task 11：生成 `live-session-p001-sold-out-v2` Demo、Acceptance，并停止在 Phase 17 Gate。Demo 使用权威
   Phase 12B 保护、完整多 Agent 谱系、PlanStore 命令账本和新 Store 的 lease/dispatch claim 重放；Acceptance
   为 `INCONCLUSIVE`，默认路由保持 `DETERMINISTIC_ONLY`，当前为 `AWAITING_PHASE_17_GATE`。
+- [x] Phase 16 PR coverage remediation：新增冻结 11 文件 source-closure Manifest，unit/integration 联合采样，补齐
+  测试分支，line/branch `92.035%/85.081%` 达到不变的 `90/85` 门槛；测试提交 `599c98e`、CI 提交 `6216f9f` 已推送，
+  等待 PR Gate 查询与 merge commit。真实模型证据仍为 `INCONCLUSIVE`，不自动进入 Phase 17。
 
 所有 Task 使用 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> DOCS -> COMMIT -> PUSH；
 Task 10 前不访问真实模型，任何严重安全违规、预算风险或强制基础设施阻塞均停止当前 Task。

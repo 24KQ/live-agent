@@ -874,4 +874,23 @@ Phase / Task: Phase 16 / COMPLETE
 Acceptance: INCONCLUSIVE；真实 smoke BLOCKED（ENDPOINT_UNAVAILABLE、USAGE_CONTRACT_UNAVAILABLE、REAL_MODEL_SMOKE_NOT_RUN），真实模型调用 0，费用 0.000000 CNY，默认 DETERMINISTIC_ONLY。
 审查: 两个只读 Task 11 sub-agent 均为 0 Critical；2 个规格 Important 与 5 个质量/安全 Important 已 RED/GREEN 修复。所有 sub-agent 已关闭，无运行中的 sub-agent。
 下一条精确操作: 仅暂存 Task 11 文件，提交 docs: accept phase 16 controlled multi-agent，推送当前隔离分支；不得自动开始 Phase 17。
+
+## 2026-07-19 Phase 16 PR COVERAGE REMEDIATION COMPLETE / READY TO MERGE
+
+```text
+Phase / Task: Phase 16 / PR coverage remediation
+状态: VERIFY -> READY_TO_MERGE
+目标: 固定 11 文件 source closure，补齐 branch evidence，并保持 90/85 门槛
+禁止事项: 不降低门槛、不排除未测生产代码、不调用真实模型、不自动开始 Phase 17
+当前 HEAD: 6216f9f ci: bind phase16 coverage source closure
+本 Task 文件: coverage Manifest、coverage helper、PR workflow、Phase 16/相关 unit 与 PostgreSQL tests
+用户脏文件: 无关用户修改未暂存；本轮仅暂存测试、CI 和 Manifest
+最近命令与结果: unit 1555 passed；integration 185 passed, 7 deselected；coverage line 92.035%, branch 85.081%；Gate PASS；compileall、敏感扫描、git diff --check 通过
+错误与尝试次数: 首次全量 unit 曾因未注入本机 PostgreSQL 密码和旧环境错误；设定可信本机环境后重新执行为 1555 passed。历史编码扫描 4 errors/既有 warnings 未归因于本轮
+设计偏差与决策编号: D-167；Release/Nightly coverage 语义未改变；真实模型费用 0.000000 CNY
+下一条精确操作: 提交文档留痕，推送后查询 PR #1 required checks/mergeability；仅在 Gate 全绿时用 merge commit 合并到 main
+模型费用累计: Phase 16 0.000000 CNY
+```
+
+Sub-agent 状态：本轮两个 coverage 子任务均未在约定范围产生可验证增量，已按监控协议 STOPPED；主模型接管并完成测试整改。无运行中的 sub-agent。
 ```

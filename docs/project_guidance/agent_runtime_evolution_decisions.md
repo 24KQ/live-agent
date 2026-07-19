@@ -2227,3 +2227,26 @@
   该事实只服务 smoke 技术审计，不进入 Proposal、OperatorDecision、命令编译、业务执行或默认路由。
 - **重新评估条件**：若以后需要保存签名的供应商 receipt、分阶段 response 摘要或跨服务结果，必须设计独立
   append-only receipt 表与密钥边界；在此之前不得把自由模型正文写入预算 ledger。
+
+## D-167：Phase 16 PR coverage 使用冻结 source closure，联合采样且门槛不变
+
+- **状态**：`ACCEPTED`
+- **背景**：首次 PR Gate 将测试运行结果与 coverage 分母交给默认 CI 采样，导致 Phase 16 11 个冻结源码文件的
+  实际闭包、旧 Phase 13 评估代码和测试文件边界不够显式；首次报告为 `BLOCKED`，不能把它解释为业务实现失败。
+- **候选方案**：降低 line/branch 门槛；用 `pragma: no cover` 排除防御代码；分别运行 unit/integration 并拼接报告；或
+  版本化 source-closure Manifest，并让同一 coverage 数据库联合采样两套测试后按精确文件集合判定。
+- **最终选择**：新增 `phase16-coverage-source-closure-v1` Manifest，固定 11 个已跟踪、非 symlink、位于 `src/`
+  的源码文件，并用规范 UTF-8/LF 内容摘要绑定身份。PR workflow 先 `coverage erase`，unit 使用 `coverage run --branch`，
+  integration 使用 `coverage run --append --branch`，`coverage json --include` 只输出 Manifest 文件；Gate 校验报告
+  文件集合必须与 Manifest 完全一致，line `>=90`、branch `>=85` 门槛保持不变。
+- **选择理由**：联合采样保留跨 unit/integration 的真实路径证据，固定分母避免 CI 导入顺序或新目录悄然改变门槛，且不把
+  测试文件、旧评估闭包或 UI 演示代码混入 Phase 16 证据。
+- **未选理由**：排除未测代码和降低阈值会掩盖风险；分开报告会丢失跨层路径；让 coverage 工具自动发现源码会使门禁
+  身份随仓库结构漂移。
+- **验证证据**：整改新增真实异常、恢复、身份、资产完整性和 Store/Coordinator 边界测试；干净联合采样为 unit
+  `1555 passed, 1 warning`、integration `185 passed, 7 deselected, 5 warnings`，line `92.035%`、branch `85.081%`，
+  source-closure 文件集合校验通过。测试费用和真实模型调用均为 `0`。
+- **影响**：PR 分支的 coverage Gate 现在对闭包漂移 fail-closed；Release/Nightly 的既有 coverage 语义不在本决策中
+  改变。Phase 16 Acceptance 的真实模型证据仍按原规则保持 `INCONCLUSIVE`，默认路由继续 `DETERMINISTIC_ONLY`。
+- **重新评估条件**：若新增 Phase 16 生产源码、改变 Release/Nightly 分母或迁移 coverage 工具，必须先更新版本化 Manifest、
+  决策和联合回归证据，不得在 workflow 中临时扩大或缩小统计范围。

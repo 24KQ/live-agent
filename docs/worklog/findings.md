@@ -965,3 +965,10 @@
   Task 11 只负责将其与单一事故的真实保护、人工命令和恢复审计连接，不把轻量 Demo runner 冒充为共享生产 Runner。
 - 真实 smoke 仍缺 endpoint、usage 合同和回执：不发送请求，费用保持 `0.000000 CNY`，Acceptance 必须为
   `INCONCLUSIVE`，默认路由不改变。
+
+## 2026-07-19 Phase 16 PR Coverage Remediation
+
+- 首次 PR coverage 的 `82.85% line / 67.96% branch` 暴露了两个独立问题：冻结源码闭包没有成为版本化事实源，以及 coverage 没有明确使用同一数据库联合采样 unit/integration。两者都不能通过降低门槛或排除生产代码解决。
+- D-167 固定 11 个 Phase 16 源码文件、源码规范摘要和报告文件集合校验；`coverage erase` 后 unit 使用 `run`，integration 使用 `append`。新增测试覆盖 Evidence/Store/Coordinator/评估资产和冻结协议的真实拒绝、恢复与身份分支。
+- 干净验证为 unit `1555 passed, 1 warning`、integration `185 passed, 7 deselected, 5 warnings`、line `92.035%`、branch `85.081%`，Gate `PASS`。历史编码扫描的 4 个 error 来自扫描器自测 replacement-character 样例，未混入本轮通过结论；目标文件编码和 diff 检查通过。
+- `599c98e`、`6216f9f` 已推送；文档完成后等待 PR #1 required checks 和 mergeability，合并只使用 merge commit，Phase 17 不自动启动。

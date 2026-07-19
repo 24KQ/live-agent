@@ -1242,3 +1242,11 @@
 - Demo 报告固定为 `INCONCLUSIVE`：真实 smoke 为 `BLOCKED`，真实模型调用/费用为 `0/0.000000 CNY`，默认
   `DETERMINISTIC_ONLY`，阶段状态为 `AWAITING_PHASE_17_GATE`。最终根回归、PostgreSQL、迁移和编码检查正在
   收口；所有 sub-agent 已关闭且未修改文件。
+
+## 2026-07-19 Phase 16 PR Coverage Remediation COMPLETE
+
+- 首次 PR Gate 的 coverage `82.85% line / 67.96% branch` 保留为历史 `BLOCKED` 证据；没有通过降低阈值、排除代码或伪造报告处理。
+- 新增 `phase16-coverage-source-closure-v1`，固定 11 个 Phase 16 源码文件；workflow 由同一 coverage 数据库联合采样 unit 与 integration，Gate 同时校验报告文件集合与 Manifest 一致。
+- 主模型接管两个不收敛的只读 coverage 子任务，补齐测试分支和真实 Store/Coordinator/Evidence/评估资产错误路径；无业务代码改变，无真实模型调用。
+- 干净最终证据：unit `1555 passed, 1 warning`；integration `185 passed, 7 deselected, 5 warnings`；coverage line `92.035%`、branch `85.081%`；coverage Gate `PASS`；compileall、敏感扫描和 `git diff --check` 通过。
+- `599c98e test: close phase16 coverage gaps` 与 `6216f9f ci: bind phase16 coverage source closure` 已推送。当前进入文档提交和 PR #1 required checks/mergeability 查询；merge 后状态仍为 `AWAITING_PHASE_17_GATE`。
