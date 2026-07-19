@@ -86,13 +86,16 @@ def _evidence(*, reconciliation_required: bool = False) -> AssembledEvidenceBund
 
 
 def _seed_live_bundle(
-    store: InMemoryDecisionSupportStore, *, reconciliation_required: bool = False
+    store: InMemoryDecisionSupportStore,
+    *,
+    reconciliation_required: bool = False,
+    now: datetime = NOW,
 ):
     """按既有状态机进入 LIVE 后写入 Incident 与受控 Bundle。"""
 
     workspace = store.create_workspace(_workspace())
     lease = store.acquire_operator_lock(
-        workspace.live_session_id, "operator-phase16", 60, now=NOW
+        workspace.live_session_id, "operator-phase16", 60, now=now
     )
     workspace = store.advance_view(
         workspace.live_session_id,
@@ -100,7 +103,7 @@ def _seed_live_bundle(
         expected_version=workspace.version,
         operator_id=lease.operator_id,
         fencing_token=lease.fencing_token,
-        now=NOW,
+        now=now,
     )
     workspace = store.append_incident(_incident(), expected_workspace_version=workspace.version)
     evidence = _evidence(reconciliation_required=reconciliation_required)
@@ -503,7 +506,8 @@ def test_review_can_only_close_claim_with_unlinked_degraded_outcome() -> None:
 
     instant = datetime.now(timezone.utc)
     store = InMemoryDecisionSupportStore(clock=lambda: instant)
-    workspace, lease, bundle = _seed_live_bundle(store)
+    # Workspace 初始 lease 与 Store 时钟必须同源，才只让后续三秒推进过期 Analyst claim。
+    workspace, lease, bundle = _seed_live_bundle(store, now=instant)
     escalation = _escalation(bundle)
     after_escalation = store.append_escalation(
         escalation, expected_workspace_version=workspace.version
