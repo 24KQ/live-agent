@@ -19,9 +19,11 @@ def build_test_settings(**overrides) -> Settings:
     return Settings(_env_file=None, **overrides)
 
 
-def test_default_settings_load_without_real_env_file() -> None:
+def test_default_settings_load_without_real_env_file(monkeypatch) -> None:
     """没有本地 .env 时，也应使用公开模板一致的安全默认值。"""
 
+    # PR Gate 会为迁移注入 live_agent；本用例验证的是“无环境覆盖”的公开默认值。
+    monkeypatch.delenv("POSTGRES_DB", raising=False)
     settings = build_test_settings()
 
     assert settings.app_name == "LiveAgent"

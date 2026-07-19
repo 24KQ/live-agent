@@ -52,7 +52,7 @@ def _all_run_commands(job: dict[str, Any]) -> str:
     )
 
 
-def test_phase15_pr_workflow_uses_python_312_postgres_15_and_36_cases_without_secrets() -> None:
+def test_phase15_pr_workflow_uses_python_312_pgvector_kafka_and_36_cases_without_secrets() -> None:
     """PR 只跑非 holdout，且不能把模型 secret 暴露到不受保护的 PR。"""
 
     workflow = _load("agent-runtime-pr.yml")
@@ -62,11 +62,18 @@ def test_phase15_pr_workflow_uses_python_312_postgres_15_and_36_cases_without_se
     assert workflow["permissions"] == {"contents": "read"}
     job = _job(workflow)
     assert job["permissions"] == {"contents": "read"}
-    assert job["services"]["postgres"]["image"].startswith("postgres:15")
+    services = job["services"]
+    # 迁移会创建 pgvector 扩展，PR 容器必须与真实 schema 前提一致。
+    assert services["postgres"]["image"] == "pgvector/pgvector:pg16"
+    # 解析单测和 Kafka 集成回归都需要真实 broker，不能依赖开发机残留服务。
+    assert "zookeeper" in services
+    assert "kafka" in services
+    assert job["env"]["KAFKA_BOOTSTRAP_SERVERS"] == "localhost:9092"
     steps = job["steps"]
     setup = next(step for step in steps if step.get("uses", "").startswith("actions/setup-python@"))
     assert setup["with"]["python-version"] == "3.12"
     commands = _all_run_commands(job)
+    assert "socket.create_connection" in commands
     assert "--mode pr" in commands
     assert "36" in commands or "non-holdout" in commands
     assert "secrets." not in workflow.__repr__()
@@ -86,7 +93,7 @@ def test_phase15_nightly_workflow_has_schedule_postgres_kafka_and_36_cases() -> 
     job = _job(workflow)
     assert job["permissions"] == {"contents": "read"}
     services = job["services"]
-    assert services["postgres"]["image"].startswith("postgres:15")
+    assert services["postgres"]["image"] == "pgvector/pgvector:pg16"
     assert "kafka" in services
     commands = _all_run_commands(job)
     assert "--mode nightly" in commands
@@ -108,7 +115,7 @@ def test_phase15_release_workflow_is_tag_or_manual_only_48_cases_and_180_day_art
     assert workflow["permissions"] == {"contents": "read"}
     job = _job(workflow)
     assert job["environment"] == "phase15-release"
-    assert job["services"]["postgres"]["image"].startswith("postgres:15")
+    assert job["services"]["postgres"]["image"] == "pgvector/pgvector:pg16"
     commands = _all_run_commands(job)
     assert "--mode release" in commands
     assert "48" in commands or "full" in commands.lower()
