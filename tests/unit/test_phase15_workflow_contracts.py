@@ -86,6 +86,7 @@ def test_phase15_pr_workflow_uses_python_312_pgvector_kafka_and_36_cases_without
     assert "--source-closure-file" in commands
     assert "--source src" in commands
     assert "coverage json --include" in commands
+    assert "--docs-only" in commands
 
 
 def test_phase15_nightly_workflow_has_schedule_postgres_kafka_and_36_cases() -> None:

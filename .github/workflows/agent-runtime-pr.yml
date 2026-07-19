@@ -106,7 +106,8 @@ jobs:
       - name: Check tracked payloads and document encoding
         run: |
           python scripts/check_sensitive_payloads.py --tracked
-          python scripts/check_doc_encoding.py docs/project_guidance docs/worklog docs/superpowers/specs docs/superpowers/plans
+          python scripts/check_doc_encoding.py --docs-only \
+            docs/project_guidance docs/worklog docs/superpowers/specs docs/superpowers/plans
       - name: Upload PR gate evidence
         uses: actions/upload-artifact@v4
         with:

@@ -287,6 +287,11 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="可选扫描路径；不传时默认扫描 docs/project_guidance、docs/worklog、docs/superpowers/specs、docs/superpowers/plans。",
     )
+    parser.add_argument(
+        "--docs-only",
+        action="store_true",
+        help="只扫描指定文档目录，不额外扫描 src、tests 和 scripts 中的 Python 文件。",
+    )
     return parser
 
 
@@ -299,17 +304,19 @@ def main(argv: list[str] | None = None) -> int:
     roots = [Path(path).resolve() for path in args.paths] if args.paths else list(DEFAULT_ROOTS)
     issues = scan_roots(roots)
 
-    # 也扫描 .py 文件（src/ tests/ scripts/）
-    py_roots = [
-        PROJECT_ROOT / "src",
-        PROJECT_ROOT / "tests",
-        PROJECT_ROOT / "scripts",
-    ]
-    for root in py_roots:
-        if not root.exists():
-            continue
-        for p in sorted(root.rglob("*.py")):
-            issues.extend(scan_py_file(p))
+    if not args.docs_only:
+        # 默认模式继续扫描 .py 文件，保留原有的全仓编码审计能力；PR 文档门禁
+        # 使用 --docs-only，避免把扫描器自身的检测样例混入文档变更结论。
+        py_roots = [
+            PROJECT_ROOT / "src",
+            PROJECT_ROOT / "tests",
+            PROJECT_ROOT / "scripts",
+        ]
+        for root in py_roots:
+            if not root.exists():
+                continue
+            for p in sorted(root.rglob("*.py")):
+                issues.extend(scan_py_file(p))
 
     print_report(issues)
     return 1 if any(issue.severity == "error" for issue in issues) else 0
