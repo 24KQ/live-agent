@@ -83,13 +83,24 @@ jobs:
               raise SystemExit(3)
           PY
       - name: Run unit tests with branch coverage
-        run: coverage run --branch -m pytest tests/unit -q
+        run: |
+          coverage erase
+          coverage run --branch --source src -m pytest tests/unit -q
       - name: Run integration tests
-        run: python -m pytest tests/integration -q
+        run: |
+          coverage run --append --branch --source src \
+            -m pytest tests/integration -q
       - name: Check coverage gate
         run: |
-          coverage json
-          python scripts/check_coverage_gate.py --coverage-file coverage.json --line 90 --branch 85
+          COVERAGE_INCLUDE=$(python scripts/coverage_source.py \
+            --manifest evaluation/manifests/phase16-coverage-source-closure-v1.json \
+            --format include)
+          coverage json --include "$COVERAGE_INCLUDE"
+          python scripts/check_coverage_gate.py \
+            --coverage-file coverage.json \
+            --source-closure-file evaluation/manifests/phase16-coverage-source-closure-v1.json \
+            --line 90 \
+            --branch 85
       - name: Run 36 non-holdout release cases
         run: python scripts/run_release_gate.py --mode pr --output-dir artifacts/pr-36-non-holdout
       - name: Check tracked payloads and document encoding
