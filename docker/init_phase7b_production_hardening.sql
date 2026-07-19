@@ -1,4 +1,4 @@
-﻿-- Phase 7B 生产级 Agent 运行硬化：Harness Session 扩展 + 运维告警表。
+-- Phase 7B 生产级 Agent 运行硬化：Harness Session 扩展 + 运维告警表。
 -- 本脚本幂等，支持重复执行。
 -- 使用 pg_advisory_xact_lock 保证并发安全。
 
@@ -58,7 +58,7 @@ BEGIN
     END;
 END $$;
 
--- 重建 status CHECK 约束：删除旧的，添加包含 ''expired'' 和 ''locked'' 的新约束
+-- 重建 status CHECK 约束：删除旧的，添加包含 'expired' 和 'locked' 的新约束
 DO $$
 DECLARE
     old_conname TEXT;
@@ -66,32 +66,32 @@ BEGIN
     -- 查找旧约束名
     SELECT conname INTO old_conname
     FROM pg_constraint
-    WHERE conrelid = ''live_agent_harness_sessions''::regclass
-      AND contype = ''c''
-      AND pg_get_constraintdef(oid) LIKE ''%pending_human%'';
+    WHERE conrelid = 'live_agent_harness_sessions'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%pending_human%';
 
     -- 先删除旧约束（如果存在）
     IF old_conname IS NOT NULL THEN
-        EXECUTE format(''ALTER TABLE live_agent_harness_sessions DROP CONSTRAINT %I'', old_conname);
+        EXECUTE format('ALTER TABLE live_agent_harness_sessions DROP CONSTRAINT %I', old_conname);
     END IF;
 
     -- 添加新约束（幂等：检查是否已存在同义约束）
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-        WHERE conrelid = ''live_agent_harness_sessions''::regclass
-          AND contype = ''c''
-          AND pg_get_constraintdef(oid) LIKE ''%expired%''
+        WHERE conrelid = 'live_agent_harness_sessions'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%expired%'
     ) THEN
         ALTER TABLE live_agent_harness_sessions
             ADD CONSTRAINT ck_harness_sessions_status_v2
-            CHECK (status IN (''pending_human'', ''approved'', ''rejected'', ''completed'', ''error'', ''expired'', ''locked''));
+            CHECK (status IN ('pending_human', 'approved', 'rejected', 'completed', 'error', 'expired', 'locked'));
     END IF;
 END $$;
 
 -- 创建索引用于查询 expired/locked 会话
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_expiry
     ON live_agent_harness_sessions(status, approval_expires_at)
-    WHERE status = ''pending_human'';
+    WHERE status = 'pending_human';
 
 CREATE INDEX IF NOT EXISTS idx_harness_sessions_idempotency
     ON live_agent_harness_sessions(trace_id, idempotency_key)
@@ -104,26 +104,26 @@ CREATE INDEX IF NOT EXISTS idx_harness_sessions_idempotency
 CREATE TABLE IF NOT EXISTS live_agent_operational_alerts (
     alert_id TEXT PRIMARY KEY,
     alert_type TEXT NOT NULL CHECK (alert_type IN (
-        ''approval_expired'',
-        ''duplicate_approval'',
-        ''evaluation_retry_exhausted'',
-        ''audit_write_failure'',
-        ''replay_fidelity_degraded''
+        'approval_expired',
+        'duplicate_approval',
+        'evaluation_retry_exhausted',
+        'audit_write_failure',
+        'replay_fidelity_degraded'
     )),
-    severity TEXT NOT NULL CHECK (severity IN (''info'', ''warning'', ''error'', ''critical'')),
+    severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'error', 'critical')),
     source TEXT NOT NULL,
     trace_id TEXT,
     evaluation_id TEXT,
     message TEXT NOT NULL,
-    payload JSONB NOT NULL DEFAULT ''{}''::jsonb,
-    status TEXT NOT NULL DEFAULT ''open'' CHECK (status IN (''open'', ''acknowledged'', ''resolved'')),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'acknowledged', 'resolved')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_operational_alerts_open
     ON live_agent_operational_alerts(status, created_at DESC)
-    WHERE status = ''open'';
+    WHERE status = 'open';
 
 CREATE INDEX IF NOT EXISTS idx_operational_alerts_type
     ON live_agent_operational_alerts(alert_type, created_at DESC);

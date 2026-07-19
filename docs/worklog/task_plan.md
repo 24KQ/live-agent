@@ -1,5 +1,28 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-18 Phase 16 Controlled Multi-Agent Escalation
+
+- [x] Task 1：持久化已批准的 Design、Implementation Plan、D-134 至 D-140、路线图、总控和恢复入口；等待本 Task 验证、提交与推送。
+- [x] Task 2：修复根 pytest 的三处 Phase 14 PostgreSQL 测试模块同名收集冲突，并以 `.gitattributes` 固定 Python LF 检出消除冻结生成器伪漂移；根 collect、专项、完整 unit/integration 和最终审查已通过，`6ea5a57` 已提交并推送。
+- [x] Task 3：新增 `CONFLICT_ANALYSIS`、`LIVE_DECISION_PLANNING`、冻结 Profile 和不可变领域协议。Profile/lineage/预算/历史闭包/Prompt/展示安全整改、历史迁移/测试基线整改、双重复审、空库迁移和完整 unit/integration 均已通过，`ad0e185` 已独立提交并推送。
+- [x] Task 4：实现 escalation、analysis、outcome 的内存/PostgreSQL append-only Store。四轮审查整改和最终验证均已完成，`1ea229a` 已独立提交推送；D-145 固定数据库 CAS、LIVE 线性化复核与 Task 6 前 READY fail-closed。
+- [x] Task 5：实现三选二选择器、运营 lease 显式升级和 Analyst Coordinator 段。D-146/D-147 整改、专项 unit `25 passed`、PostgreSQL `20 passed`、完整 unit `1420 passed`、integration `172 passed` 均已通过，`b584808` 已独立提交并推送。
+- [x] Task 6：实现 Planner 段、整份 Validator 拒绝和受控 Proposal lineage。D-148 至 D-152、专项 `83 passed`、PostgreSQL `29 passed`、完整 unit `1440 passed`、integration `181 passed, 7 deselected` 与双重复审均已通过，`d42eab9` 已独立提交推送；不改变 OperatorDecision/Compiler 或经营执行。
+- [x] Task 7：接入 operator-authenticated HTTP、WebSocket 和 Workspace 投影。D-153 至 D-158 的窄请求、认证、Bundle/lease 装配、重试、投影与人工/自动所有权门禁已通过，`2f4b7ef` 已独立提交推送。
+- [x] Task 8：扩展本地三视图工作台的高冲突事故展示与交互。D-159 至 D-163 的 Bundle 白名单摘要、route/trigger/analysis/outcome 展示、READY/lineage 禁用、安全订阅/撤销和 UNAVAILABLE 状态已通过完整回归，`502b67c` 已独立提交推送。
+- [x] Task 9：生成独立冻结 48 例数据集及 ScriptedModel 配对评估。独立 48 例资产、实际 Coordinator/ScriptedModel 重放、
+  全新 PostgreSQL Store 恢复与完整回归已通过，`be6de97` 已独立提交并推送。
+- [x] Task 10：实现 10 例/1.00 CNY 真实 smoke 预检和独立预算账本。D-164 至 D-166、最终双重复审、专项/全量回归、迁移与编码验证已通过，`c6cb13a` 已独立提交并推送。
+- [x] Task 11：生成 `live-session-p001-sold-out-v2` Demo、Acceptance，并停止在 Phase 17 Gate。Demo 使用权威
+  Phase 12B 保护、完整多 Agent 谱系、PlanStore 命令账本和新 Store 的 lease/dispatch claim 重放；Acceptance
+  为 `INCONCLUSIVE`，默认路由保持 `DETERMINISTIC_ONLY`，当前为 `AWAITING_PHASE_17_GATE`。
+- [x] Phase 16 PR coverage remediation：新增冻结 11 文件 source-closure Manifest，unit/integration 联合采样，补齐
+  测试分支，line/branch `92.035%/85.081%` 达到不变的 `90/85` 门槛；测试提交 `599c98e`、CI 提交 `6216f9f` 已推送，
+  等待 PR Gate 查询与 merge commit。真实模型证据仍为 `INCONCLUSIVE`，不自动进入 Phase 17。
+
+所有 Task 使用 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> DOCS -> COMMIT -> PUSH；
+Task 10 前不访问真实模型，任何严重安全违规、预算风险或强制基础设施阻塞均停止当前 Task。
+
 ## 目标
 
 把 `docs/worklog/` 从本机临时记录升级为可追踪的项目工作日志，用于记录阶段计划、发现、进度和后续迭代方向。
@@ -213,3 +236,40 @@
 - [x] 跑全量测试、demo、编码扫描和 diff 检查。
 
 ---
+
+# 2026-07-18 Phase 16 Task 6 GREEN / REVIEW
+
+- RED 已确认：Task 5 Coordinator 不存在 Planner 段，无法形成完整多 Agent Proposal 或 READY Outcome。
+- GREEN 已实现同 Bundle/已验证 Analysis 的 Planner 输入、严格 Profile 身份、整份 Proposal Validator、
+  append-only Proposal/READY 父链、重启恢复和无 fallback 降级；OperatorDecision 继续是唯一经营恢复权限主体。
+- D-148 固定 Analyst `2s/1200/0.03`、Planner `2s/2800/0.07` 与 Coordinator
+  `5s/4000/0.10` 聚合预算，并规定 PostgreSQL 多 Agent Proposal/READY 必须经 Store 事务上下文。
+- 当前仅处于 REVIEW，尚未提交；真实模型费用为 `0.000000 CNY`。规格只读审查
+  `019f75d1-1c20-7b40-8b92-4bd1eadc3560` 已登记，主模型负责整改、全量验证、提交和推送。
+
+## 2026-07-18 Phase 16 Task 6 REVIEW 整改
+
+- 独立规格审查完成并关闭；三项 Important 均已按 D-149 收口：Planner 绑定 Analysis 的
+  持久化单次 claim、Proposal 已写而 READY 未写的恢复闭合、以及覆盖 Analyst 的 5 秒总预算。
+- 同时修复了历史普通 Proposal 被错误按多 Agent Schema 重载的回归。显式 `MULTI_AGENT` 才进入
+  Task 6 Validator，Phase 14 通用审计快照维持原有契约。
+- 新增内存并发/恢复/预算 RED-GREEN，以及 PostgreSQL claim 并发、跨 Store Coordinator 并发、
+  Proposal/READY 恢复和 direct SQL context 门禁。真实模型费用仍为 `0.000000 CNY`。
+
+## 2026-07-18 Phase 16 Task 6 REVIEW 整改二至四
+
+- [x] D-152：通用 Proposal 创建拒绝 `MULTI_AGENT`，仅 Coordinator 专用 Store/DDL context 可写入。
+- [x] D-152：多 Agent `APPROVE/MODIFY` 必须提供 Proposal/Analysis/Escalation 精确匹配的 READY Outcome。
+- [x] D-152：全局 deadline 限制 Planner 的 timeout 归类为 `COORDINATOR_TIMEOUT`，可按受限规则闭合。
+
+- [x] D-151：Analyst/Planner 的模型返回、验证和每个派生事实 append 前重检同一五秒 deadline。
+- [x] D-151：Planner 输入仅含 `evidence_bundle` 与 `analysis`，不传 Escalation 控制面字段。
+- [x] D-151：REVIEW 无父链闭合仅接受同 claim 的 `COORDINATOR_TIMEOUT`；内存、PostgreSQL Store 与
+  直接 SQL trigger 测试同构覆盖。
+
+- D-150 将五秒单调 deadline 前移到 `run_automatic`/`run_operator_requested` 入口，权威 Bundle
+  重载与选择器耗时不再获得新的模型预算。
+- Planner 已发送但 Proposal/READY 在 LIVE 内未闭合时，REVIEW 恢复只能追加无 Analysis/Proposal 的
+  `DEGRADED` 审计终态；没有 Planner claim 的历史 Analysis 保持原状。
+- 内存与 PostgreSQL Store/DDL 均收紧为 Analyst 无 Analysis 或 Planner 已发送两种受限闭合来源，
+  并新增对应 RED/GREEN。真实模型费用仍为 `0.000000 CNY`。

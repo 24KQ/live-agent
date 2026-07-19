@@ -19,7 +19,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:15
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: phase15-local

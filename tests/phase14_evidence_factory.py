@@ -50,9 +50,20 @@ def build_evidence_bundle(
     anchor_id: str = "anchor-phase14",
     root_plan_run_id: str | None = None,
     created_at: datetime = NOW,
+    reconciliation_required: bool = False,
+    side_effect_unknown: bool = False,
+    evidence_time: datetime | None = None,
+    include_availability_noise: bool = True,
+    pause_required: bool = True,
+    valid_backup_count: int = 1,
 ) -> AssembledEvidenceBundle:
     """通过真实受治理 Assembler 生成可写入 Store 的最小证据链。"""
 
+    if type(valid_backup_count) is not int or not 1 <= valid_backup_count <= 3:
+        raise ValueError("valid_backup_count must be an integer from 1 through 3")
+    # 默认固定时间维持历史测试字节稳定；需要验证数据库实时 freshness 的调用方显式
+    # 注入 UTC 时钟，避免通过修改全局 NOW 或手工伪造 receipt 改变被测安全边界。
+    reference_time = evidence_time or NOW
     resolved_room_id = room_id or f"room-{live_session_id}"
     resolved_root_plan_run_id = root_plan_run_id or f"plan-root-{live_session_id}"
     scope = EvidenceScope(
@@ -63,7 +74,7 @@ def build_evidence_bundle(
         anchor_id=anchor_id,
         root_plan_run_id=resolved_root_plan_run_id,
     )
-    occurred_at = NOW - timedelta(seconds=8)
+    occurred_at = reference_time - timedelta(seconds=8)
     event_id = f"event-{suffix}"
     event = InventoryFactEvent.create_sold_out(
         event_id=event_id,
@@ -79,7 +90,7 @@ def build_evidence_bundle(
         transport="KAFKA",
         topic="inventory-events",
         source=event.source,
-        received_at=NOW - timedelta(seconds=7),
+        received_at=reference_time - timedelta(seconds=7),
         payload_digest=event.payload_digest,
     )
     components = (
@@ -109,15 +120,26 @@ def build_evidence_bundle(
             kind=EvidenceKind.SKILL_ATTEMPT,
             source_version="2.0.0",
             observed_version=2,
-            observed_at=NOW - timedelta(seconds=5),
-            received_at=NOW - timedelta(seconds=4),
+            observed_at=reference_time - timedelta(seconds=5),
+            received_at=reference_time - timedelta(seconds=4),
             payload=ProductInventoryPayload(
-                captured_at=NOW - timedelta(seconds=5),
+                captured_at=reference_time - timedelta(seconds=5),
                 sold_out_product_id="p001",
                 expected_version=2,
                 planned_product=_product("p001", "39.90", 1, 10, True),
                 current_product=_product("p001", "39.90", 2, 0, False),
-                backup_products=(_product("p002", "35.90", 4, 18, True),),
+                # Task 5 需要覆盖三选二的每个组合；仍通过正式产品快照类型构造
+                # 多备品信号，避免测试直接覆盖 snapshot 而跳过证据摘要校验。
+                backup_products=tuple(
+                    _product(
+                        f"p{index + 2:03d}",
+                        "35.90",
+                        4,
+                        18,
+                        True,
+                    )
+                    for index in range(valid_backup_count)
+                ),
             ),
         ),
         _component(
@@ -127,17 +149,17 @@ def build_evidence_bundle(
             kind=EvidenceKind.PLAN,
             source_version="2.0.0",
             observed_version=2,
-            observed_at=NOW - timedelta(seconds=5),
-            received_at=NOW - timedelta(seconds=4),
+            observed_at=reference_time - timedelta(seconds=5),
+            received_at=reference_time - timedelta(seconds=4),
             payload=PlanEvidencePayload(
-                captured_at=NOW - timedelta(seconds=5),
+                captured_at=reference_time - timedelta(seconds=5),
                 plan_run_id=resolved_root_plan_run_id,
                 root_plan_run_id=resolved_root_plan_run_id,
                 plan_kind=PlanRunKind.CARD_BATCH,
                 plan_state=PlanRunState.FROZEN,
                 plan_version=2,
-                reconciliation_required=False,
-                side_effect_unknown=False,
+                reconciliation_required=reconciliation_required,
+                side_effect_unknown=side_effect_unknown,
             ),
         ),
         _component(
@@ -147,10 +169,10 @@ def build_evidence_bundle(
             kind=EvidenceKind.PLAN,
             source_version="1.0.0",
             observed_version=1,
-            observed_at=NOW - timedelta(seconds=5),
-            received_at=NOW - timedelta(seconds=4),
+            observed_at=reference_time - timedelta(seconds=5),
+            received_at=reference_time - timedelta(seconds=4),
             payload=PlanEvidencePayload(
-                captured_at=NOW - timedelta(seconds=5),
+                captured_at=reference_time - timedelta(seconds=5),
                 plan_run_id=f"plan-emergency-{suffix}",
                 root_plan_run_id=resolved_root_plan_run_id,
                 parent_plan_run_id=resolved_root_plan_run_id,
@@ -158,8 +180,8 @@ def build_evidence_bundle(
                 plan_kind=PlanRunKind.EMERGENCY_SOLD_OUT,
                 plan_state=PlanRunState.SUCCEEDED,
                 plan_version=1,
-                reconciliation_required=False,
-                side_effect_unknown=False,
+                reconciliation_required=reconciliation_required,
+                side_effect_unknown=side_effect_unknown,
             ),
         ),
         _component(
@@ -169,13 +191,20 @@ def build_evidence_bundle(
             kind=EvidenceKind.AUDIT,
             source_version="3.0.0",
             observed_version=3,
-            observed_at=NOW - timedelta(seconds=2),
-            received_at=NOW - timedelta(seconds=1),
+            observed_at=reference_time - timedelta(seconds=2),
+            received_at=reference_time - timedelta(seconds=1),
             payload=DanmakuAggregatePayload(
                 aggregate_id=f"danmaku-{suffix}",
-                window_start=NOW - timedelta(seconds=10),
-                window_end=NOW - timedelta(seconds=2),
-                noise_level=DanmakuNoiseLevel.HIGH,
+                window_start=reference_time - timedelta(seconds=10),
+                window_end=reference_time - timedelta(seconds=2),
+                # 默认继续构造高冲突售罄样本；Task 5 可显式关闭任一信号，复用
+                # 同一受治理装配链生成“正常但仍完整”的六角色 Bundle，不能用
+                # 手工篡改快照来测试选择器的未选中分支。
+                noise_level=(
+                    DanmakuNoiseLevel.HIGH
+                    if include_availability_noise
+                    else DanmakuNoiseLevel.LOW
+                ),
                 topics=(
                     DanmakuTopicEvidence(
                         category="PRODUCT_AVAILABILITY",
@@ -192,13 +221,17 @@ def build_evidence_bundle(
             kind=EvidenceKind.AUDIT,
             source_version="5.0.0",
             observed_version=5,
-            observed_at=NOW - timedelta(seconds=1),
-            received_at=NOW,
+            observed_at=reference_time - timedelta(seconds=1),
+            received_at=reference_time,
             payload=AnchorRhythmPayload(
                 signal_id=f"rhythm-{suffix}",
-                window_start=NOW - timedelta(seconds=9),
-                window_end=NOW - timedelta(seconds=1),
-                signal_kind=RhythmSignalKind.PAUSE_REQUIRED,
+                window_start=reference_time - timedelta(seconds=9),
+                window_end=reference_time - timedelta(seconds=1),
+                signal_kind=(
+                    RhythmSignalKind.PAUSE_REQUIRED
+                    if pause_required
+                    else RhythmSignalKind.STEADY
+                ),
                 pace_score=82,
             ),
         ),
@@ -255,7 +288,7 @@ def build_evidence_bundle(
         ),
         registry=registry,
         freshness_policy=EvidenceFreshnessPolicy.default(),
-        clock=lambda: NOW,
+        clock=lambda: reference_time,
     ).assemble(request)
 
 

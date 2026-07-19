@@ -909,30 +909,15 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
         for key, value in artifact_digests.items()
         if key.startswith("cases/") or key.startswith("labels/")
     }
-    project_root = Path(__file__).parents[2]
-    # 目录发现形成 Phase 13 自己的保守闭包。后续 Phase 15 Release Gate 使用
-    # 独立 Manifest；它的源码不能反向改变 Phase 13 历史证据的身份摘要。
-    # Phase 15 的业务实现集中在 release_gates，但它的保护 API 必须挂到旧
-    # api_server；两个目录/文件都属于后续阶段集成面，不能改变 Phase 13 历史摘要。
-    phase15_excluded_paths = (
-        project_root / "src" / "release_gates",
-        project_root / "src" / "gateway" / "api_server.py",
-    )
-    source_paths = tuple(
-        sorted(
-            path.relative_to(project_root)
-            for source_root in (project_root / "src", project_root / "evaluation")
-            for path in source_root.rglob("*.py")
-            if not any(path.is_relative_to(excluded) for excluded in phase15_excluded_paths)
-        )
-    )
-    source_artifact_digests = {
-        path.as_posix(): _digest_bytes(_normalized_source_bytes(project_root / path))
-        for path in source_paths
-    }
-    generator_digest = source_artifact_digests[
-        "evaluation/generators/generate_phase13_cases.py"
-    ]
+    # v2/v3 是历史数据集，不应让未来 Runtime 代码反向改变其 case/label/Manifest 字节。
+    # 因此生成器重放已提交 baseline 中的源码身份映射；当前源码身份只由正式评估的
+    # Git HEAD 预检另行计算。该文件缺失表示历史资产不完整，应直接拒绝生成。
+    baseline_manifest_path = Path(__file__).parents[1] / "manifests" / "phase13-v2.json"
+    frozen_baseline = json.loads(baseline_manifest_path.read_text(encoding="utf-8"))
+    if frozen_baseline.get("manifest_id") != "phase13-v2":
+        raise ValueError("phase13 frozen baseline manifest is unavailable")
+    source_artifact_digests = dict(frozen_baseline["source_artifact_digests"])
+    generator_digest = frozen_baseline["generator_digest"]
     task_kinds = {
         "live_ops": "LIVE_OPS_ADVICE",
         "planner": "PLAN_PROPOSAL",
@@ -985,7 +970,7 @@ def generate_phase13_dataset(root: Path, *, seed: int = SEED) -> dict[str, Any]:
         "pricing_source_digest": artifact_digests[
             "pricing/deepseek-v4-flash-2026-07-16.json"
         ],
-        "code_digest": _digest_json(source_artifact_digests),
+        "code_digest": frozen_baseline["code_digest"],
         "price_policy_digest": _digest_json(
             {"conversion_policy_version": PRICING["conversion_policy_version"], "pricing": PRICING}
         ),

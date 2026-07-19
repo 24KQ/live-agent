@@ -1,5 +1,65 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-18 Phase 16 Design Baseline
+
+- 项目定位扩展为生命周期感知、人机协同、受控多 Agent 决策 Runtime；这不意味着
+  PREPARE、LIVE、REVIEW 并发运行。Phase 16 只增加 LIVE 高冲突的串行双 Agent。
+- 现有 `EvidenceBundle` 已提供 proposal eligibility、备品集合、弹幕噪声和节奏信号；
+  可用作无需模型的三选二升级规则事实源。
+- 现有 `SpecialistProfile.deadline_seconds` 是整数。Phase 16 保持共享协议，采用两个
+  2 秒 Profile 和一个 5 秒 Coordinator，而不是扩大为小数秒公共契约。
+- Phase 15 的 48 例 Golden 与 `INCONCLUSIVE` Acceptance 是历史事实，不得为 Phase 16
+  直接改写。Phase 16 将使用独立 48 例 Manifest。
+- 根 `python -m pytest -q` 当前会因三处 unit/integration 同名 `test_phase14_*` 模块产生
+  import mismatch；文件重命名是行为无关的 Task 2 前置修复。
+- Task 2 验证确认根因是 tests 下无 `__init__.py` 时 pytest 使用顶级 basename 缓存模块。
+  三个 PostgreSQL 测试改为唯一 `*_postgres.py` 后，根 collect 从 3 errors 恢复为 0 errors。
+  隔离 worktree 不复制用户未跟踪 `.env`；需要真实 PostgreSQL 的测试只在子进程临时读取
+  主工作区已有凭据，不写入 worktree 或 Git。
+- 默认路由继续 `DETERMINISTIC_ONLY`。本阶段技术通过或 smoke 证据不足都不能自动开启
+  决策支持，更不能开启经营恢复自动执行。
+- Windows 工作树的 CRLF 会改变 `Path.read_bytes()` 生成器摘要，而冻结 Manifest 记录 Git
+  LF 内容摘要。D-141 通过 `.gitattributes` 强制 Python 源以 LF 检出，保留原始源码摘要的
+  严格代码变更语义并避免平台投影伪造 Manifest 漂移。
+- Task 2 全量证据：root collect `1537/1541`（3 external deselected、0 errors）；unit
+  `1382 passed, 4 warnings`；integration `155 passed, 3 deselected, 5 warnings`。Kafka/
+  FastAPI 的既有 deprecation warnings 未由本 Task 引入。
+- Task 2 已以 `6ea5a57` 推送。Task 3 的公共协议必须保持单向：Analysis 只能承接
+  EvidenceBundle，Planner 只能承接已验证的 Analysis，任何 Outcome 仍只可流向既有
+  OperatorDecision/Compiler 边界，不能形成 Agent 互调或经营写路径。
+- Task 3 双重复审的四项 Important 已确认为有效：两个 Profile digest 必须等于精确工厂
+  identity；多 Agent Proposal 必须以 origin、Bundle digest 和全量 EvidenceRef 闭合 lineage；
+  旧预算映射必须 fail-closed 而非抛 KeyError；Phase 13 历史源码闭包不能吸收新阶段模块。
+- Task 3 的最终质量复审继续暴露两项易漏边界，均已回归覆盖：Profile Prompt 必须声明
+  `AgentAction FINAL` 信封而非直接结果 JSON；Planner JSON Schema 必须在模型输出边界拒绝
+  备品条件冲突、非法 option ID、首尾空白和 ASCII 控制字符。完整 Unicode category C 仍由
+  领域 Pydantic 作为最终 fail-closed 门禁。
+- 干净 PostgreSQL 验证揭示既有 `init_phase7b_production_hardening.sql` 把独立 SQL 与
+  dollar-quoted PL/pgSQL 正文都错误地双写了字符串字面量；现已由 3 条 SQL 回归测试覆盖，
+  官方 17 步迁移可从空库完整执行。
+- 既有播后同步 unit/integration 测试依赖开发库中残留的固定 Trace；现改为由测试创建最小
+  脱敏货盘与真实不可变 Trace，并在播后集成测试中显式禁用外部 Embedding。
+- `test_semantic_retrieval_flow.py` 会真实调用 Embedding API，先前遗漏 `external` 标记；
+  现在默认回归正确排除它，受控凭证环境仍可显式用 `-m external` 执行。
+- Task 3 已以 `ad0e185` 推送。Task 4 的唯一持久化权威仍是 Decision Support Store：模型、
+  Coordinator 和 HTTP 将在后续 Task 读取其不可变事实，不能自行构造 escalation/analysis/outcome。
+- Task 4 审查确认：三类 Phase 16 事实必须由数据库 CAS trigger 推进 Workspace 版本，不能仅靠
+  append-only ledger；自动升级从 Bundle 重建完整三选二信号，人工升级不携带触发码；Task 6 前
+  `READY` Outcome 必须 fail-closed，防止未持久化的 Proposal digest 被误当作已验证父事实。
+- Task 4 最终复审还确认：CAS trigger 必须在持有根行锁后再次检查 `LIVE`，否则 payload 校验与
+  版本推进之间存在生命周期竞态；数据库直写的 `DEGRADED` Outcome 必须和领域模型一样带封闭
+  failure code、非空事实摘要且没有 Proposal lineage，避免 append-only 审计链写入不可重载行。
+- Task 5 最终复审以 D-147 修正 Task 4 的“人工升级不携带触发码”旧留痕：人工请求仍不能提交
+  任何触发码，但服务器必须从同一 Bundle 重建至少一项真实冲突，否则 `ConflictAnalysis` 的非空
+  finding 契约会使合法人工升级必然失败。自动路径继续要求至少两项。
+- dispatch claim 的两秒预算从持久化创建时开始。claim 到期后切到 `REVIEW` 只能写入绑定既有
+  claim、没有 Analysis/Proposal 的一次 `DEGRADED` 审计终态；不能补写 Analysis、READY、方案、
+  命令或经营恢复。默认 5432 实例认证失败是本机环境差异，专项和全量数据库验证临时使用隔离
+  `5434` 容器，不写入仓库配置。
+- PostgreSQL 无法可靠复刻 Python 的全部 Unicode category C 与 canonical JSON 哈希规则；D-147
+  把 Analysis 写入收束到同事务 Store 上下文，Store 的严格 Pydantic 重载仍为唯一 Schema/digest
+  权威。该标记防止可信服务内的意外裸 SQL，不声称能隔离已失陷服务进程。
+
 ## 2026-07-11 文档编码治理发现
 
 - 乱码问题需要区分两类：终端显示乱码，以及文件内容已经被写坏。
@@ -764,3 +824,151 @@
 
 - Task 12 已以 `c01a5da docs: accept agent runtime release` 提交并推送，远端与本地一致；用户脏文件未纳入。
 - Phase 15/Final Acceptance 已固定为 `INCONCLUSIVE`，Promotion `BLOCKED`，默认 `DETERMINISTIC_ONLY`；状态为 `PHASE_15_COMPLETE_INCONCLUSIVE`，不自动进入新阶段。
+
+## 2026-07-18 Phase 16 Task 5 时钟权威整改
+
+- PostgreSQL Analyst dispatch claim 的创建与过期由数据库事务时钟权威判定；Coordinator 若以 Worker 本地墙钟计算 `lease_until - now`，慢时钟会把两秒窗口错误放大，并采纳已过期的 Analyst 响应。
+- 新增真实 PostgreSQL 慢 Worker 时钟 RED：旧实现得到 `1 failed`，迟到响应被写为 Analysis。GREEN 后由 Store 计算权威剩余秒数，Coordinator 只接收不超过冻结两秒的预算，回归为 `1 passed`。
+- D-147 已同步为 Store/数据库权威剩余时间；不改变 at-most-once dispatch、`REVIEW` 闭合例外、默认 `DETERMINISTIC_ONLY` 或真实模型预算。
+
+## 2026-07-18 Phase 16 Task 5 VERIFY
+
+- D-147 的 `REVIEW` 例外必须同时要求既有 dispatch claim、`DEGRADED`、无 Analysis lineage 和无 Proposal lineage；只检查 claim 会把 LIVE 内 Planner/Validator 失败错误扩大到播后视图。
+- 新增内存和真实 PostgreSQL RED，各 `1 failed`；收紧 Store 与 CAS trigger 后分别转绿。Task 5 最终专项为 unit `25 passed`、PostgreSQL `20 passed`，全量为 unit `1420 passed, 4 warnings`、integration `172 passed, 7 deselected, 5 warnings`。
+
+## 2026-07-18 Phase 16 Task 6 VERIFY
+
+- D-148 至 D-151 将双 Agent 的总预算、单次 Planner dispatch、LIVE/REVIEW 恢复和迟到事实全部收束到同一不可重置的五秒窗口；Planner 只读取精确 EvidenceBundle 与已验证 ConflictAnalysis。
+- D-152 关闭了两条经营恢复旁路：通用 Proposal 写入/API 拒绝 `MULTI_AGENT`，Coordinator 是唯一写入入口；多 Agent `APPROVE/MODIFY` 必须精确绑定同一 Proposal、Analysis、Escalation 摘要的 `READY` Outcome。全局 deadline 耗尽也稳定归类为 `COORDINATOR_TIMEOUT`。
+- 最终证据：Task 6 聚合 `83 passed`、真实 PostgreSQL Task 6 套件 `29 passed`、direct-SQL coordinator-context 拒绝 `1 passed`、完整 unit `1440 passed, 4 warnings`、完整 integration `181 passed, 7 deselected, 5 warnings`。规格审查和质量/安全整改复审均为 PASS，真实模型费用 `0.000000 CNY`。
+
+## 2026-07-18 Phase 16 Task 7 GREEN / REVIEW
+
+- D-153 将人工升级 HTTP 收窄为 Bundle ID、Workspace CAS 和规范 header 幂等键；服务端重新加载权威 Bundle，并装配 operator lease/fencing，客户端不能传 Profile、trigger、scope、Bundle snapshot 或 fencing。
+- 首轮只读审查发现认证关闭时的默认管理员 Critical；D-154 令新端点在该配置下 `503` fail-closed，不复用旧本地兼容路径。审查还发现 lease 错误要映射 `409`、WebSocket 必须广播完整 Store 投影；均已补 RED/GREEN。
+- 当前专项 API/Service 与 Phase 14 回归 `21 passed`；隔离 PostgreSQL 上的 Service -> Coordinator -> READY -> Workspace projection 为 `1 passed`，真实模型费用 `0.000000 CNY`。
+
+## 2026-07-18 Phase 16 Task 7 D-155/D-156 整改
+
+- D-155 修复规范 key 的 response-loss replay：同 Bundle 既有人工 escalation 使用当前 Store 版本恢复，仍要求当前 lease，两个 Runner 不会第二次执行；WebSocket 保持 `data.workspace` 而其中内容为完整权威投影。
+- D-156 修复 Service 预读和 Coordinator 最终观察之间的自动升级竞态。`run_operator_requested` 只可恢复既有 `OPERATOR_REQUESTED` 事实；最终看到自动 escalation 时抛出冲突，零额外 Runner 调用。
+- 全量 integration 首次仅有 Kafka 用例失败，根因是 Producer 未指定 key，跨分区 poll 没有总序。测试夹具已固定四条序列消息的 partition key，不改生产 Kafka/EventStore 语义；单项回归通过。
+
+## 2026-07-18 Phase 16 Task 7 D-157 整改
+
+- FastAPI 类型化 body 会在端点内的认证配置门禁前返回 `422`。D-157 改为原始 Request 在 D-154/认证之后手动验证，认证关闭的有效与畸形 JSON 都返回 `503`，认证启用后的无效 JSON 保持脱敏 `422`。
+- Service HTTP 结果只返回 `accepted`、规范 key 与可选事实 ID；完整 Workspace/Agent 事实只在写后读取并按 `data.workspace` 广播。API/WebSocket 聚合 `31 passed`、PostgreSQL Service 集成 `1 passed`。
+
+## 2026-07-18 Phase 16 Task 7 D-158 整改与最终验证
+
+- 质量/安全复审发现自动调用会推进已有 pending `OPERATOR_REQUESTED` escalation。人工升级的单信号资格不能被自动三选二入口在失去当前 lease 后续跑；D-158 令自动入口只读恢复或返回 pending 身份。
+- 新 RED/GREEN 证明自动观察不会产生 Runner 调用、Analysis 或 Outcome。完整验证在隔离 PostgreSQL 上为 unit `1457 passed, 4 warnings`、integration `182 passed, 7 deselected, 5 warnings`；真实模型费用保持 `0.000000 CNY`。独立整改复审为 PASS。
+
+## 2026-07-18 Phase 16 Task 8 GREEN / REVIEW
+
+- D-159 让 Workspace 只投影可升级 Bundle 的六项白名单摘要，工作台不要求运营输入 ID，也不显示六角色原始证据正文。
+- D-160 至 D-163 依次修复浏览器认证头缺口、cookie browser binding、异步旧会话、同浏览器重新认证撤销、lineage 错配和客户端伪 DEGRADED。票据为 60 秒一次性、会话与 HttpOnly/SameSite binding 限定；Token 不进入 URL，票据不授予任何写权限。
+- 工作台展示 escalation route/trigger、Analysis 和 Outcome，`DEGRADED` 只来自服务端稳定失败码与事实摘要，读取/写入失败为不可执行 `UNAVAILABLE`/提交失败；当前 multi-Agent escalation 缺少同 lineage `READY` Outcome 时，运营决定不回退到无关 Proposal。Task 8 聚合 `44 passed, 1 warning`，完整 unit `1473 passed, 4 warnings`、integration `182 passed, 7 deselected, 5 warnings`；最终复审 PASS。
+
+## 2026-07-18 Phase 16 Task 9 RED
+
+- 评估必须运行真实 `HighConflictEscalationCoordinator` 与 `ScriptedAgentModel`，并通过 Store API 重建
+  Workspace、Incident 和 EvidenceBundle；测试专用 factory 不得进入生产/评估运行时。
+- 标签与预期评分只保留在冻结数据资产，绝不写入 `AgentTask.input_snapshot`。Bundle TTL 使用受控 UTC
+  时钟；每例独立 Store，防止短 TTL 与 append-only 幂等事实相互污染。
+- D-143 继续要求共享 Runner 对 Phase 16 fail-closed。Task 9 只能提供独立、显式的 Scripted 预算组合，
+  不得借用 Phase 14 的账本或运行真实 smoke。
+
+## 2026-07-18 Phase 16 Task 9 GREEN / REVIEW
+
+- `ScriptedAgentModel` 的输出会被协议冻结为只读 Mapping；传入 `AgentResult` 前必须经 Pydantic 的
+  JSON 序列化边界恢复普通容器，否则协调器会将结构正确的脚本结果错误归类为 `ANALYST_MODEL_ERROR`。
+- PostgreSQL 的 lease/freshness 使用事务时钟，评估不向其暴露内存 Store 专用 `now` 参数。陈旧 case
+  先装配新鲜 Bundle，再把 Coordinator 时钟推进到 TTL 外，从而验证真实选择器的模型前拒绝而非 Assembler 失败。
+- 评估只记录离线脚本合同成本，`real_model_calls` 固定为 0；该字段不能作为 Task 10 真实 smoke
+  预算账本或任何 Phase 13-15 费用的来源。
+
+## 2026-07-18 Phase 16 Task 9 REVIEW REMEDIATION
+
+- ScriptedModel 的每一次发送先预约对应冻结 Profile 的 case ceiling；即使返回 `request_sent=True`
+  的失败，也保守计入离线合同成本。24 READY 与 6 个发送后 DEGRADED 的合同合计为 `2.72 CNY`，但外部费用仍为 0。
+- 模型 user message 现在携带完整 `task_id`、kind、`input_snapshot` 和 EvidenceRef。Analyst 只接受
+  Bundle/trigger 输入，Planner 只接受 Bundle/validated Analysis；输出模板只能从已验证任务展开。
+- 评估对每例比对 escalation、analysis、proposal、outcome 的 Bundle ID/digest、父链和 outcome digest；
+  PostgreSQL 重放使用同 schema 的新 Store 实例，证明进程重建时不再发送 ScriptedModel。
+
+## 2026-07-18 Phase 16 Task 9 REVIEW REMEDIATION TWO
+
+- Manifest 源码闭包新增 `decision_support/store.py` 与 `proposal.py`；加载和执行前都重算 Generator
+  与闭包摘要，任何同进程嵌套 case 篡改、生成器或执行路径变更都会 fail-closed。
+- 24 条高冲突 case 先执行同一 Bundle 的确定性单 Copilot 基线，再运行双 Agent；基线不调用模型，
+  记录 logical case 与 Bundle ID/digest 并与 READY lineage 对照。
+- 运行时以 case ID 的 SHA-256 派生中性 Workspace/Incident/Evidence/request 身份，模型正文不含
+  case ID、split 或 kind。每次请求使用冻结 `prompt_text`，验证 ModelSuccess identity 与 JSON Schema。
+
+## 2026-07-18 Phase 16 Task 9 REVIEW REMEDIATION THREE
+
+- paired baseline 现在调用既有 `PriorityLiveOpsPolicy`，以同一 Bundle 的库存、备品、弹幕和 EvidenceRef
+  产生零模型调用的确定性建议，再与 controlled READY lineage 对照。
+- ScriptedModel 现在返回冻结 Profile 规定的 `AgentAction FINAL` 信封；评估先验证 action/evidence，再校验
+  `final_output` 的 JSON Schema，最后才构造 Coordinator 消费的 AgentResult。
+- 每例的备品库存与节奏分数进入真实 Evidence payload，使三组 split 的 48 个输入互不重复；闭包加入
+  Specialist `models.py`、`profiles.py`、`live_ops.py`，并在加载与执行前重新验证。
+
+## 2026-07-18 Phase 16 Task 10 RED
+
+- Task 10 的真实 smoke 不是默认回归能力：发送门必须在单次 `AgentModelPort` 调用前同时验证模型/endpoint、
+  官方价格和 usage、冻结 Prompt/Schema、Phase 16 Manifest/源码闭包与独立 reservation；任一证据缺失时只允许
+  `BLOCKED` 或 `INCONCLUSIVE`，不得探测网络。
+- Phase 16 账本必须有独立 scope、表和 1.00 CNY ceiling，不能借用 Phase 13、14 或 15 的余额；ScriptedModel
+  演练不产生真实预算消费，也不能被误作预检成功证据。
+
+## 2026-07-18 Phase 16 Task 10 GREEN / REVIEW
+
+- `PHASE16_MULTI_AGENT_SMOKE` 按业务 case 而非单个 Agent 请求预约：Analyst 与 Planner 共用 0.10 CNY，
+  十例总 exposure 永不超过 1.00 CNY。PostgreSQL 先锁 ledger 行再重算 exposure，重启后仍保持同一硬上限。
+- 预检缺少 endpoint、官方价格、usage 合同、Manifest/dataset/source closure、Profile Prompt/Schema 或 Task 10
+  runtime digest 时为 `BLOCKED` 且零发送。已经进入 Model Port 后 usage 不明、异常或身份不可信时为
+  `INCONCLUSIVE`，整例保守结算 0.10 CNY 并停止 Planner；这区分了发送门禁与外部证据不足。
+- `ModelUsage` 无 cache 命中字段，所有 input token 按公开 cache-miss 价格保守结算。Task 10 只证明真实发送
+  身份/成本门禁，Task 9 的 Coordinator/Validator ScriptedModel 重放仍是行为正确性的唯一离线证据。
+
+## 2026-07-18 Phase 16 Task 10 REVIEW REMEDIATION
+
+- scope 现为唯一精确 `PHASE16_MULTI_AGENT_SMOKE`。`RESERVED` 与 `SETTLED` 行都消费十例 slot，只有
+  Analyst 调用明确未发送时才能 `RELEASED`；低实际价格不会让第十一例重新获得发送资格。
+- Planner 未发送时会结算已经发生的 Analyst 可计价成本，不再错误 release 整例。内存与 PostgreSQL 都先
+  执行相同 slot/金额门禁；PostgreSQL 测试覆盖 10 条并发 reservation、低成本 settle、重启和第十一例拒绝。
+- 预检每次调用 `_validate_dataset_for_run`，重算 Task 9 的 generator、源码闭包、case 与 dataset digest；
+  嵌套 `input` 篡改在接触 Model Port 前失败。D-165 明确 endpoint/价格/usage 是 D-121 可信启动装配内部
+  事实，不存在 HTTP 预检端点，也不将 Python PrivateAttr 冒充插件隔离。
+
+## 2026-07-18 Phase 16 Task 10 FINAL REVIEW REMEDIATION
+
+- Reservation 现在持久化 `PASS | FAIL | INCONCLUSIVE` 终态和稳定 reason。重启重放只返回原结论：
+  `SETTLED/INCONCLUSIVE` 不会提升为 PASS，`RELEASED` 只允许未发送 Analyst 的 `FAIL`。
+- Task 9 generator/source closure/case/dataset 漂移包含文件丢失、编码错误和摘要不匹配，均在预检或每次
+  发送前转换为零发送 `TASK9_DATASET_INVALID`。直接 SQL 同样被 DDL 拒绝 `RELEASED/PASS`，内存和 PostgreSQL
+  状态机同构。
+- Task 10 最终验证完成：unit `12 passed`，PostgreSQL `2 passed`，完整 unit/integration 退出码均为 0，
+  18 步迁移实际执行无失败；真实模型费用保持 0。
+
+## 2026-07-18 Phase 16 Task 11 REVIEW REMEDIATION
+
+- 两个只读审查均为 0 Critical。规格审查发现 Demo 验收投影遗漏 `Analysis -> Escalation` 父边，且报告未
+  展示完整 escalation/analysis/proposal/outcome ID 与 digest；已添加 RED 用例、完整链校验和可独立复核的报告行。
+- 质量/安全审查要求验收不依赖常量伪造：`execution_command_submitted` 现在读取权威 PlanStore 命令账本；
+  `production_default_route` 由启动冻结 `DecisionSupportRoutePolicy.from_settings(Settings())` 读取并在非确定性
+  默认时 fail-closed；Demo 的 UUID 替换范围由进程锁串行化。
+- 新 Store 重放把 operator lease、Analyst/Planner dispatch claim 及其精确 task digest 纳入审计投影，并经
+  公开 Store API 重建后比较。Task 9 的 48 例评估仍是 `ScriptedAgentModel`/模型协议/预算路径的权威行为证据；
+  Task 11 只负责将其与单一事故的真实保护、人工命令和恢复审计连接，不把轻量 Demo runner 冒充为共享生产 Runner。
+- 真实 smoke 仍缺 endpoint、usage 合同和回执：不发送请求，费用保持 `0.000000 CNY`，Acceptance 必须为
+  `INCONCLUSIVE`，默认路由不改变。
+
+## 2026-07-19 Phase 16 PR Coverage Remediation
+
+- 首次 PR coverage 的 `82.85% line / 67.96% branch` 暴露了两个独立问题：冻结源码闭包没有成为版本化事实源，以及 coverage 没有明确使用同一数据库联合采样 unit/integration。两者都不能通过降低门槛或排除生产代码解决。
+- D-167 固定 11 个 Phase 16 源码文件、源码规范摘要和报告文件集合校验；`coverage erase` 后 unit 使用 `run`，integration 使用 `append`。新增测试覆盖 Evidence/Store/Coordinator/评估资产和冻结协议的真实拒绝、恢复与身份分支。
+- 干净验证为 unit `1555 passed, 1 warning`、integration `185 passed, 7 deselected, 5 warnings`、line `92.035%`、branch `85.081%`，Gate `PASS`。历史编码扫描的 4 个 error 来自扫描器自测 replacement-character 样例，未混入本轮通过结论；目标文件编码和 diff 检查通过。
+- `599c98e`、`6216f9f` 已推送；文档完成后等待 PR #1 required checks 和 mergeability，合并只使用 merge commit，Phase 17 不自动启动。

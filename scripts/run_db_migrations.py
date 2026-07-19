@@ -139,6 +139,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 15 Golden Release 与双轨结论基础事实",
     ),
+    MigrationStep(
+        phase="phase16_smoke",
+        sql_file="init_phase16_smoke.sql",
+        required=True,
+        description="Phase 16 受控多 Agent smoke 独立预算预约事实",
+    ),
 ]
 
 

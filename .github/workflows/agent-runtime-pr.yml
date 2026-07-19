@@ -16,7 +16,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:15
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: phase15-local
@@ -28,12 +28,30 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # PR 会执行真实 Kafka 集成用例；显式启动独立协调服务，避免依赖开发机 broker。
+      zookeeper:
+        image: confluentinc/cp-zookeeper:7.6.0
+        env:
+          ZOOKEEPER_CLIENT_PORT: 2181
+          ZOOKEEPER_TICK_TIME: 2000
+        ports:
+          - 2181:2181
+      kafka:
+        image: confluentinc/cp-kafka:7.6.0
+        env:
+          KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+          KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        ports:
+          - 9092:9092
     env:
       POSTGRES_HOST: localhost
       POSTGRES_PORT: "5432"
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: phase15-local
       POSTGRES_DB: live_agent
+      KAFKA_BOOTSTRAP_SERVERS: localhost:9092
       PHASE15_REAL_MODEL: "0"
     steps:
       - name: Checkout exact commit
@@ -45,22 +63,51 @@ jobs:
           cache: pip
       - name: Install project and test dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Run database migrations
-        run: python scripts/run_db_migrations.py
+      - name: Run database migrations and wait for Kafka
+        run: |
+          python scripts/run_db_migrations.py
+          python - <<'PY'
+          import socket
+          import sys
+          import time
+
+          # 服务容器的启动顺序不等于 broker 已可接收客户端连接；先探测端口再启动测试。
+          for _ in range(30):
+              try:
+                  with socket.create_connection(("localhost", 9092), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(2)
+          else:
+              print("Kafka service unavailable: localhost:9092", file=sys.stderr)
+              raise SystemExit(3)
+          PY
       - name: Run unit tests with branch coverage
-        run: coverage run --branch -m pytest tests/unit -q
+        run: |
+          coverage erase
+          coverage run --branch --source src -m pytest tests/unit -q
       - name: Run integration tests
-        run: python -m pytest tests/integration -q
+        run: |
+          coverage run --append --branch --source src \
+            -m pytest tests/integration -q
       - name: Check coverage gate
         run: |
-          coverage json
-          python scripts/check_coverage_gate.py --coverage-file coverage.json --line 90 --branch 85
+          COVERAGE_INCLUDE=$(python scripts/coverage_source.py \
+            --manifest evaluation/manifests/phase16-coverage-source-closure-v1.json \
+            --format include)
+          coverage json --include "$COVERAGE_INCLUDE"
+          python scripts/check_coverage_gate.py \
+            --coverage-file coverage.json \
+            --source-closure-file evaluation/manifests/phase16-coverage-source-closure-v1.json \
+            --line 90 \
+            --branch 85
       - name: Run 36 non-holdout release cases
         run: python scripts/run_release_gate.py --mode pr --output-dir artifacts/pr-36-non-holdout
       - name: Check tracked payloads and document encoding
         run: |
           python scripts/check_sensitive_payloads.py --tracked
-          python scripts/check_doc_encoding.py docs/project_guidance docs/worklog docs/superpowers/specs docs/superpowers/plans
+          python scripts/check_doc_encoding.py --docs-only \
+            docs/project_guidance docs/worklog docs/superpowers/specs docs/superpowers/plans
       - name: Upload PR gate evidence
         uses: actions/upload-artifact@v4
         with:

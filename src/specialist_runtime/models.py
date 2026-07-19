@@ -110,11 +110,14 @@ def canonical_json_sha256(value: Any) -> str:
 
 
 class SpecialistTaskKind(StrEnum):
-    """确定性 Orchestrator 支持的三个生命周期任务。"""
+    """确定性 Orchestrator 支持的生命周期与受控协作任务。"""
 
     LIVE_OPS_ADVICE = "LIVE_OPS_ADVICE"
     PLAN_PROPOSAL = "PLAN_PROPOSAL"
     POST_LIVE_REVIEW = "POST_LIVE_REVIEW"
+    # Phase 16 将分析和方案生成拆成两个精确协议，防止旧播中 Copilot 获得额外职责。
+    CONFLICT_ANALYSIS = "CONFLICT_ANALYSIS"
+    LIVE_DECISION_PLANNING = "LIVE_DECISION_PLANNING"
 
 
 class AgentActionKind(StrEnum):

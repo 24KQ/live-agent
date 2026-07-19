@@ -169,7 +169,7 @@
         <span id="prepare-status" class="status-pill">读取中</span>
       </div>
       <div class="grid prepare">
-        <section class="panel">
+           <section class="panel">
           <div class="panel-header"><h2>会话基线</h2><span id="prepare-session" class="muted">--</span></div>
           <div class="panel-body">
             <div class="metric-row">
@@ -214,8 +214,17 @@
               <div style="height:12px"></div>
               <div id="risk-list" class="risk-list"><div class="empty">暂无风险标记</div></div>
             </div>
-          </section>
-          <section id="presenter-readonly" class="panel" data-readonly="true">
+           </section>
+           <section id="multi-agent-escalation-panel" class="panel">
+             <div class="panel-header"><h2>高冲突复核</h2><span id="multi-agent-route" class="status-pill">未升级</span></div>
+             <div class="panel-body fact-list">
+               <div class="fact"><span class="fact-label">触发事实</span><span id="multi-agent-triggers" class="fact-value">等待权威 Bundle</span></div>
+               <div class="fact"><span class="fact-label">冲突分析</span><span id="multi-agent-analysis" class="fact-value">未生成</span></div>
+               <div class="fact"><span class="fact-label">协调结果</span><span id="multi-agent-outcome" class="fact-value">未生成</span></div>
+               <div class="button-row"><button id="multi-agent-escalation-request" class="button warn" type="button" onclick="requestMultiAgentEscalation()">请求双 Agent 复核</button></div>
+             </div>
+           </section>
+           <section id="presenter-readonly" class="panel" data-readonly="true">
             <div class="panel-header"><h2>主播提示</h2><span class="status-pill">只读</span></div>
             <div class="panel-body"><div id="presenter-copy" class="presenter-copy">等待运营确认后的精简提示</div></div>
           </section>
@@ -267,10 +276,13 @@ const DECISION_EVENT = "decision_support_workspace_update";
 const WORKSPACE_PATH = "/api/decision-support/workspaces/";
 const PROPOSAL_SUFFIX = "/proposals";
 const DECISION_SUFFIX = "/decisions";
+const MULTI_AGENT_ESCALATION_SUFFIX = "/multi-agent-escalations";
+const SUBSCRIPTION_TICKET_SUFFIX = "/subscription-ticket";
 const state = {
   workspace: null, view: "PREPARE", socket: null, socketSessionId: null,
   reconnectTimer: null, requestSequence: 0, lastSequence: 0, selectedOptionId: null,
-  connectionState: "CONNECTING", dataState: "LOADING"
+  connectionState: "CONNECTING", dataState: "LOADING", connectionGeneration: 0,
+  authRefreshTimer: null
 };
 
 function escapeHtml(value) {
@@ -329,12 +341,12 @@ async function loadWorkspace() {
     renderLive();
   } catch (error) {
     if (requestSequence !== state.requestSequence || requestedSessionId !== sessionId()) return;
-    state.dataState = "DEGRADED";
+    // HTTP/认证/网络读取失败不等于服务端 MultiAgentOutcome。保持页面不可执行并使用
+    // 独立状态表达基础设施不可用，只有 Workspace 投影中的 Outcome 才能标为 DEGRADED。
+    state.dataState = "UNAVAILABLE";
     state.workspace = null;
     setConnection(false, "Workspace 不可用");
     renderLive();
-    document.getElementById("live-state-banner").className = "state-banner degraded";
-    document.getElementById("live-state-banner").textContent = "DEGRADED：" + error.message;
     showToast(error.message);
   }
 }
@@ -355,8 +367,46 @@ function renderWorkspace(workspace) {
 }
 
 function currentProposal() {
-  const proposals = state.workspace && state.workspace.proposals || [];
-  return proposals[proposals.length - 1] || null;
+  const workspace = state.workspace || {};
+  const facts = currentMultiAgentState();
+  // 当前高冲突升级具有更高的安全优先级。它尚未形成同 lineage READY Outcome 时，
+  // 不能回退到最后一条单 Copilot Proposal 解锁经营决定；等待/降级必须保持 fail-closed。
+  if (facts.escalation) {
+    if (!facts.outcome || facts.outcome.status !== "READY") return null;
+    return facts.proposal;
+  }
+  const proposals = workspace.proposals || [];
+  return proposals.at(-1) || null;
+}
+function isMultiAgentProposal(proposal) {
+  const snapshot = proposal && proposal.snapshot || {};
+  return snapshot.proposal_origin === "MULTI_AGENT" || Boolean(snapshot.multi_agent_lineage);
+}
+function currentMultiAgentState() {
+  const workspace = state.workspace || {};
+  const escalation = (workspace.escalations || []).at(-1) || null;
+  const analysis = escalation && (workspace.conflict_analyses || []).find((item) => item.escalation_id === escalation.escalation_id) || null;
+  const outcome = escalation && (workspace.multi_agent_outcomes || []).find((item) => item.escalation_id === escalation.escalation_id) || null;
+  const proposal = escalation && (workspace.proposals || []).find((item) => {
+    const snapshot = item.snapshot || {};
+    const lineage = snapshot.multi_agent_lineage || {};
+    return lineage.escalation_id === escalation.escalation_id;
+  }) || null;
+  return { escalation, analysis, outcome, proposal };
+}
+function matchingReadyMultiAgentOutcome(proposal) {
+  if (!isMultiAgentProposal(proposal)) return null;
+  const snapshot = proposal.snapshot || {};
+  const proposalId = snapshot.proposal_id || proposal.proposal_id;
+  return (state.workspace && state.workspace.multi_agent_outcomes || []).find((outcome) => outcome.status === "READY" && outcome.proposal_id === proposalId) || null;
+}
+function hasDegradedMultiAgentOutcome() {
+  return (state.workspace && state.workspace.multi_agent_outcomes || []).some((outcome) => outcome.status === "DEGRADED");
+}
+function currentEligibleBundle() {
+  const workspace = state.workspace || {};
+  const escalatedIds = new Set((workspace.escalations || []).map((item) => item.evidence_bundle_id));
+  return (workspace.evidence_bundles || []).find((bundle) => bundle.proposal_eligible && !escalatedIds.has(bundle.evidence_bundle_id)) || null;
 }
 function reconciliationRequired() {
   return (state.workspace && state.workspace.incidents || []).some((item) => item.snapshot && item.snapshot.status === "WAITING_RECONCILIATION");
@@ -366,6 +416,8 @@ function decisionBlockReason(decisionKind = null) {
   if (!currentProposal()) return "暂无 Proposal";
   const snapshot = currentProposal().snapshot || {};
   if (!(snapshot.options || []).length && decisionKind !== "REJECT") return "暂无可批准方案";
+  if (isMultiAgentProposal(currentProposal()) && !matchingReadyMultiAgentOutcome(currentProposal())) return "Multi-Agent Proposal 尚未通过 READY 校验";
+  if (hasDegradedMultiAgentOutcome()) return "DEGRADED：仅展示确定性事实摘要";
   if (reconciliationRequired()) return "WAITING_RECONCILIATION：未知副作用必须先完成只读对账";
   if (state.dataState === "DEGRADED" || snapshot.status === "DEGRADED") return "DEGRADED：当前只能查看确定性事实摘要";
   if (state.connectionState === "RECONNECTING") return "RECONNECTING：实时事实尚未恢复";
@@ -383,21 +435,40 @@ function setDecisionControls() {
   if (proposalButton) {
     proposalButton.disabled = !currentProposal() || !hasOperatorToken() || state.dataState !== "READY" || state.connectionState !== "CONNECTED" || reconciliationRequired();
   }
+  const escalationButton = document.getElementById("multi-agent-escalation-request");
+  if (escalationButton) {
+    const reason = multiAgentEscalationBlockReason();
+    escalationButton.disabled = Boolean(reason);
+    escalationButton.title = reason || "请求受限双 Agent 复核";
+  }
+}
+function multiAgentEscalationBlockReason() {
+  const workspace = state.workspace;
+  if (!workspace) return "Workspace 尚未加载";
+  if (workspace.view !== "LIVE") return "仅 LIVE Workspace 可请求复核";
+  if (!currentEligibleBundle()) return "没有可升级的服务端 EvidenceBundle";
+  if (state.dataState !== "READY") return "Workspace 尚未就绪";
+  if (hasDegradedMultiAgentOutcome()) return "DEGRADED：当前只能查看确定性事实摘要";
+  if (reconciliationRequired()) return "WAITING_RECONCILIATION：未知副作用必须先完成只读对账";
+  if (state.connectionState !== "CONNECTED") return "实时连接尚未建立";
+  if (!hasOperatorToken()) return "需要操作员 Token 才能请求复核";
+  return "";
 }
 function renderLive() {
   const workspace = state.workspace || {};
   const proposal = currentProposal();
   const snapshot = proposal && proposal.snapshot || {};
   const status = snapshot.status || "WAITING";
-  const degraded = state.dataState === "DEGRADED" || status === "DEGRADED";
+  const unavailable = state.dataState === "UNAVAILABLE";
+  const degraded = status === "DEGRADED" || hasDegradedMultiAgentOutcome();
   const waiting = reconciliationRequired();
   const reconnecting = state.connectionState === "RECONNECTING";
   const notConnected = state.connectionState !== "CONNECTED";
-  const liveStatus = waiting ? "WAITING_RECONCILIATION" : (degraded ? "DEGRADED" : (reconnecting ? "RECONNECTING" : (notConnected ? "CONNECTING" : status)));
-  setPill("live-status", liveStatus, waiting ? "waiting" : (degraded ? "degraded" : (reconnecting ? "waiting" : "ready")));
+  const liveStatus = unavailable ? "WORKSPACE_UNAVAILABLE" : (waiting ? "WAITING_RECONCILIATION" : (degraded ? "DEGRADED" : (reconnecting ? "RECONNECTING" : (notConnected ? "CONNECTING" : status))));
+  setPill("live-status", liveStatus, unavailable ? "waiting" : (waiting ? "waiting" : (degraded ? "degraded" : (reconnecting ? "waiting" : "ready"))));
   const banner = document.getElementById("live-state-banner");
-  banner.className = "state-banner" + (waiting ? " waiting" : (degraded ? " degraded" : (reconnecting ? " reconnecting" : "")));
-  banner.textContent = waiting ? "WAITING_RECONCILIATION：未知副作用必须先完成只读对账" : (degraded ? "DEGRADED：仅展示确定性事实摘要，经营恢复仍需运营决定" : (reconnecting ? "RECONNECTING：实时事实恢复后才能提交决定" : (notConnected ? "实时连接建立后才能提交决定" : "事实已汇聚，运营决定不会被 Agent 自动执行")));
+  banner.className = "state-banner" + (unavailable ? " waiting" : (waiting ? " waiting" : (degraded ? " degraded" : (reconnecting ? " reconnecting" : ""))));
+  banner.textContent = unavailable ? "Workspace 读取失败：运营决定保持禁用，等待权威事实恢复" : (waiting ? "WAITING_RECONCILIATION：未知副作用必须先完成只读对账" : (degraded ? "DEGRADED：仅展示确定性事实摘要，经营恢复仍需运营决定" : (reconnecting ? "RECONNECTING：实时事实恢复后才能提交决定" : (notConnected ? "实时连接建立后才能提交决定" : "事实已汇聚，运营决定不会被 Agent 自动执行"))));
   const incidents = workspace.incidents || [];
   const incident = incidents[incidents.length - 1];
   document.getElementById("live-incident-id").textContent = incident && incident.incident_id || "--";
@@ -405,9 +476,27 @@ function renderLive() {
   document.getElementById("evidence-list").innerHTML = evidence.length ? evidence.map((ref) => '<div class="fact"><span class="fact-label">' + escapeHtml(ref.kind) + '</span><span class="fact-value">' + escapeHtml(ref.evidence_id) + '<br><span class="muted">digest ' + escapeHtml((ref.digest || "").slice(0, 12)) + '...</span></span></div>').join("") : '<div class="empty">暂无 EvidenceRef</div>';
   const risks = (snapshot.options || []).flatMap((option) => option.risk_flags || []).filter((value, index, list) => list.indexOf(value) === index);
   document.getElementById("risk-list").innerHTML = risks.length ? risks.map((risk) => '<div class="risk ' + (risk.includes("CONFLICT") ? "critical" : "") + '"><span class="tag warn">风险</span><span>' + escapeHtml(risk) + '</span></div>').join("") : '<div class="empty">暂无风险标记</div>';
+  renderMultiAgentEscalation();
   renderDecisionOptions(snapshot.options || []);
   const option = (snapshot.options || []).find((item) => item.option_id === state.selectedOptionId) || (snapshot.options || [])[0];
   document.getElementById("presenter-copy").textContent = option && option.host_prompt ? option.host_prompt : "等待运营确认后的精简提示";
+  setDecisionControls();
+}
+
+function renderMultiAgentEscalation() {
+  const facts = currentMultiAgentState();
+  const escalation = facts.escalation;
+  const analysis = facts.analysis;
+  const outcome = facts.outcome;
+  setPill("multi-agent-route", escalation ? escapeHtml(escalation.mode || "ESCALATED") : "未升级", outcome && outcome.status === "READY" ? "ready" : (outcome && outcome.status === "DEGRADED" ? "degraded" : ""));
+  document.getElementById("multi-agent-triggers").textContent = escalation ? (escalation.trigger_codes || []).join(" / ") || "无冻结触发码" : "等待可升级 Bundle";
+  document.getElementById("multi-agent-analysis").textContent = analysis ? [
+    (analysis.finding_codes || []).join(" / "),
+    (analysis.constraint_codes || []).join(" / "),
+    (analysis.risk_codes || []).join(" / "),
+    analysis.explanation || ""
+  ].filter(Boolean).join(" | ") : "未生成";
+  document.getElementById("multi-agent-outcome").textContent = outcome ? (outcome.status === "DEGRADED" ? "DEGRADED：" + (outcome.failure_code || "UNKNOWN") + " / " + (outcome.fact_summary || "仅展示确定性事实摘要") : "READY：等待运营决定") : "未生成";
   setDecisionControls();
 }
 
@@ -470,7 +559,9 @@ async function submitDecision(kind) {
     showToast("运营决定已记录");
     await loadWorkspace();
   } catch (error) {
-    document.getElementById("execution-status").textContent = "DEGRADED：" + error.message;
+    // 决定提交失败没有形成服务端 OperatorDecision/Outcome。保留既有权威 Workspace，
+    // 只提示基础设施或权限错误，不能把客户端异常伪装成模型业务 DEGRADED。
+    document.getElementById("execution-status").textContent = "提交失败：" + error.message;
     showToast(error.message);
   }
 }
@@ -493,42 +584,105 @@ async function appendCurrentProposal() {
   } catch (error) { showToast(error.message); }
 }
 
+async function requestMultiAgentEscalation() {
+  const blockedReason = multiAgentEscalationBlockReason();
+  if (blockedReason) { showToast(blockedReason); return; }
+  const workspace = state.workspace;
+  const bundle = currentEligibleBundle();
+  if (!workspace || !bundle) { showToast("没有可升级的服务端 EvidenceBundle"); return; }
+  const idempotencyKey = "phase16-escalation:operator_requested:" + bundle.evidence_bundle_id;
+  const body = {
+    evidence_bundle_id: bundle.evidence_bundle_id,
+    expected_workspace_version: workspace.version
+  };
+  try {
+    const response = await fetch(API + WORKSPACE_PATH + encodeURIComponent(sessionId()) + MULTI_AGENT_ESCALATION_SUFFIX, { method: "POST", headers: { ...authHeaders(), "X-Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "高冲突复核请求失败");
+    // HTTP 仅回传事实 ID；页面必须重新读取或等待 WebSocket 权威 Workspace，不能把
+    // 临时协调返回值当作可执行 Proposal 或跳过 READY/OperatorDecision 事实链。
+    showToast(payload.accepted ? "复核请求已记录，等待权威事实" : "复核未进入模型路径");
+    await loadWorkspace();
+  } catch (error) {
+    // 网络/权限失败不是服务端已持久化的 MultiAgentOutcome。页面只提示错误并等待
+    // REST/WebSocket 的权威 Workspace，不能把临时客户端异常伪装成 DEGRADED 事实。
+    showToast(error.message);
+  }
+}
+
 function closeDecisionSupportSocket() {
+  // 关闭或切换会话时立刻推进 generation。任何已经 await 的旧票据、onopen 或消息
+  // 回调都会因 generation 不匹配失效，不能把前一场直播的事实写到当前工作台。
+  state.connectionGeneration += 1;
   const socket = state.socket;
   state.socket = null;
   if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
   if (socket) { socket.intentionalClose = true; socket.close(); }
 }
 
-function connectDecisionSupportSocket() {
+async function requestDecisionSupportSubscriptionTicket(targetSession) {
+  const response = await fetch(API + WORKSPACE_PATH + encodeURIComponent(targetSession) + SUBSCRIPTION_TICKET_SUFFIX, { method: "POST", headers: authHeaders() });
+  const payload = await response.json();
+  if (!response.ok || !payload.ticket) throw new Error(payload.error || "实时订阅票据不可用");
+  return payload.ticket;
+}
+
+async function connectDecisionSupportSocket() {
   const targetSession = sessionId();
   if (state.socket && state.socket.readyState === WebSocket.OPEN && state.socketSessionId === targetSession) return;
   if (state.socket) closeDecisionSupportSocket();
+  const generation = ++state.connectionGeneration;
   state.socketSessionId = targetSession;
   state.connectionState = "CONNECTING";
   setConnection(false, "连接中");
+  let ticket;
+  try {
+    ticket = await requestDecisionSupportSubscriptionTicket(targetSession);
+  } catch (error) {
+    if (generation !== state.connectionGeneration || targetSession !== sessionId()) return;
+    setConnection(false, "订阅认证不可用");
+    renderLive();
+    showToast(error.message);
+    return;
+  }
+  if (generation !== state.connectionGeneration || targetSession !== sessionId()) return;
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(protocol + "//" + location.host + "/ws/decision-support?live_session_id=" + encodeURIComponent(targetSession));
+  const subprotocols = ["liveagent.ticket." + ticket];
+  const socket = new WebSocket(protocol + "//" + location.host + "/ws/decision-support?live_session_id=" + encodeURIComponent(targetSession), subprotocols);
   state.socket = socket;
-  socket.onopen = () => { if (socket !== state.socket) return; setConnection(true, "实时连接"); if (state.reconnectTimer) clearTimeout(state.reconnectTimer); state.reconnectTimer = null; renderLive(); };
+  socket.onopen = () => { if (socket !== state.socket || generation !== state.connectionGeneration || targetSession !== sessionId()) return; setConnection(true, "实时连接"); if (state.reconnectTimer) clearTimeout(state.reconnectTimer); state.reconnectTimer = null; renderLive(); };
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
-      if (socket !== state.socket || message.type !== DECISION_EVENT || !message.payload || message.payload.live_session_id !== targetSession) return;
+      if (socket !== state.socket || generation !== state.connectionGeneration || targetSession !== sessionId() || message.type !== DECISION_EVENT || !message.payload || message.payload.live_session_id !== targetSession) return;
       if (message.payload.sequence <= state.lastSequence) return;
       state.lastSequence = message.payload.sequence;
       if (message.payload.data) { state.dataState = "READY"; state.workspace = message.payload.data.workspace || state.workspace; renderWorkspace(state.workspace); }
     } catch (error) { console.error("decision support websocket parse error", error); }
   };
-  socket.onclose = () => { if (socket !== state.socket || socket.intentionalClose) return; setConnection(false, "RECONNECTING"); state.socket = null; renderLive(); if (!state.reconnectTimer) state.reconnectTimer = setTimeout(connectDecisionSupportSocket, 3000); };
-  socket.onerror = () => { if (socket === state.socket) { setConnection(false, "RECONNECTING"); renderLive(); } };
+  socket.onclose = () => { if (socket !== state.socket || socket.intentionalClose || generation !== state.connectionGeneration || targetSession !== sessionId()) return; setConnection(false, "RECONNECTING"); state.socket = null; renderLive(); if (!state.reconnectTimer) state.reconnectTimer = setTimeout(() => { void connectDecisionSupportSocket(); }, 3000); };
+  socket.onerror = () => { if (socket === state.socket && generation === state.connectionGeneration && targetSession === sessionId()) { setConnection(false, "RECONNECTING"); renderLive(); } };
 }
 
-document.getElementById("live-session-id").addEventListener("change", () => { state.requestSequence += 1; state.lastSequence = 0; state.selectedOptionId = null; state.dataState = "LOADING"; state.workspace = null; renderLive(); closeDecisionSupportSocket(); connectDecisionSupportSocket(); loadWorkspace(); });
-document.getElementById("token-input").addEventListener("input", setDecisionControls);
+function reconnectDecisionSupportWorkspace({ clearWorkspace = false } = {}) {
+  state.requestSequence += 1;
+  state.lastSequence = 0;
+  if (clearWorkspace) { state.selectedOptionId = null; state.dataState = "LOADING"; state.workspace = null; }
+  closeDecisionSupportSocket();
+  void connectDecisionSupportSocket();
+  void loadWorkspace();
+}
+
+document.getElementById("live-session-id").addEventListener("change", () => { renderLive(); reconnectDecisionSupportWorkspace({ clearWorkspace: true }); });
+document.getElementById("token-input").addEventListener("input", () => {
+  setDecisionControls();
+  if (state.authRefreshTimer) clearTimeout(state.authRefreshTimer);
+  state.authRefreshTimer = setTimeout(() => { state.authRefreshTimer = null; reconnectDecisionSupportWorkspace(); }, 250);
+});
+document.getElementById("operator-input").addEventListener("change", () => reconnectDecisionSupportWorkspace());
 switchView("PREPARE");
 loadWorkspace();
-connectDecisionSupportSocket();
+void connectDecisionSupportSocket();
 </script>
 </body>
 </html>

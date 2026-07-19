@@ -127,15 +127,25 @@ def test_real_kafka_duplicate_conflict_and_following_event_advance_offset() -> N
     store = PostgresEventStore(settings)
     event_id = f"phase12b-kafka-event-{suffix}"
     following_id = f"phase12b-kafka-following-{suffix}"
+    ordered_partition_key = f"phase12b-kafka-order-{suffix}".encode("ascii")
+    # 重复投递必须保留逐字段相同的可信事件快照；否则动态 occurred_at 会被 EventStore
+    # 正确识别为同一 event_id 的摘要冲突，掩盖本用例要验证的 duplicate 语义。
+    accepted_payload = _payload(event_id)
+    duplicate_payload = dict(accepted_payload)
+    # 冲突样本只改变业务版本，确保断言覆盖预期的单一冲突原因而不是时钟噪声。
+    conflicting_payload = {**accepted_payload, "observed_version": 4}
 
     producer = _producer(settings)
     try:
         metadata = [
-            producer.send(topic, _encoded(payload)).get(timeout=10)
+            # Kafka 只保证同一 partition 内的 offset 顺序。该用例断言 duplicate、
+            # conflict 与 following event 的完整消费序列，因此四条测试消息必须使用
+            # 同一 key 固定到同一 partition，不能把跨分区 poll 顺序误当成业务语义。
+            producer.send(topic, _encoded(payload), key=ordered_partition_key).get(timeout=10)
             for payload in (
-                _payload(event_id),
-                _payload(event_id),
-                _payload(event_id, observed_version=4),
+                accepted_payload,
+                duplicate_payload,
+                conflicting_payload,
                 _payload(following_id),
             )
         ]

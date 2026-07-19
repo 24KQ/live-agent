@@ -1477,3 +1477,776 @@
 - **未选理由**：一次性全局切换扩大故障面；只输出建议无法约束实际装配；独立环境变量可能把技术发布误变成 Copilot 开启。
 - **影响**：Settings 增加 profile/promotion 字段；Skill Runtime、PlanEngine 和 Decision Support 的 `from_settings` 统一读取 profile 并 fail-closed。Task 11 的第二次 Release 必须绑定 Verified Defaults，失败时使用新的 revert commit，不在同次调用中 fallback Legacy。
 - **重新评估条件**：引入新的执行类别、持久化发布状态或不同于当前三路的 Promotion 证据时，新增版本化 profile 和状态机决策。
+
+## D-134：Phase 16 采用 LIVE 高冲突受控双 Agent，而非生命周期并发 Agent
+
+- **状态**：`ACCEPTED`
+- **背景**：同一直播会话的 `PREPARE | LIVE | REVIEW` 是互斥生命周期视图；为了展示多
+  Agent 深度而让三类生命周期 Agent 同时运行，会制造不符合业务时间线的协作假象。
+- **候选方案**：三生命周期 Agent 并发；只保留单 Copilot；仅高冲突 LIVE 事件运行受控
+  双 Agent。
+- **最终选择**：普通 LIVE 事件保持单 Copilot，高冲突 LIVE 事件按
+  `EvidenceAnalystAgent -> DecisionPlannerAgent -> Validator -> OperatorDecision` 串行执行。
+- **选择理由**：职责切分对应真实冲突归因与方案生成的不同认知负荷，又不破坏单会话的
+  生命周期语义。
+- **未选理由**：生命周期并发不真实；永远单 Agent 无法验证受限多 Agent 的增益与代价。
+- **影响**：Phase 16 不新增自由 A2A、动态 handoff、共享 scratchpad 或 Agent 写路径。
+- **重新评估条件**：真实运营轨迹证明播前/播后需要在同一 LIVE 决策中并发参与时，重新
+  设计跨生命周期快照协议，不得直接复用本阶段链路。
+
+## D-135：高冲突由 Bundle 的确定性三选二规则或运营 lease 显式升级决定
+
+- **状态**：`ACCEPTED`
+- **背景**：让模型决定是否调用第二个模型会放大延迟、成本和不可解释性；但纯自动规则也
+  不能覆盖运营已经识别出的少数复杂事故。
+- **候选方案**：模型自主升级；任一信号升级；三选二规则加受控人工显式升级。
+- **最终选择**：只有 proposal-eligible Bundle 命中备品多选、商品可用性高噪声、节奏暂停
+  三项中的任意两项才自动升级。持有当前 Workspace lease 的运营可以显式升级，但请求不能
+  携带父事实、触发码或权限标记。
+- **选择理由**：路由可重放、可审计且控制双模型调用频率，同时保留运营对异常复杂度的
+  主观判断。
+- **未选理由**：模型路由不可复现；任一信号升级会把普通事件不必要地变慢。
+- **影响**：等待对账、陈旧证据、副作用未知或非 LIVE Bundle 一律不进入链路。
+- **重新评估条件**：冻结数据集表明三选二明显漏报或过度升级时，新增版本化规则与
+  Manifest，不就地改变历史阈值。
+
+## D-136：双 Agent 使用独立任务协议、零 Skill 权限和不可变中间事实
+
+- **状态**：`ACCEPTED`
+- **背景**：复用 `LIVE_OPS_ADVICE` 仅靠 Profile ID 区分角色，会模糊分析与规划职责，且
+  允许未来无意扩大旧 Copilot 的权限。
+- **候选方案**：复用单 Copilot 协议；分析 Agent 排序备品；新增精确任务类型与只读事实。
+- **最终选择**：新增 `CONFLICT_ANALYSIS` 与 `LIVE_DECISION_PLANNING`；两个 Profile 都只
+  接收 Bundle/Analysis 的冻结 JSON，`max_skill_calls=0`，不持有 Store、执行或网络扩展
+  能力。分析只输出封闭发现/约束/风险/证据，规划才输出方案。
+- **选择理由**：职责、权限、预算和评估身份可分别审计，且 Planner 不能把分析文本当作执行
+  授权。
+- **未选理由**：备品排序会把经营偏好前移到第一步模型；复用协议不利于独立审查。
+- **影响**：新增 append-only EscalationRecord、ConflictAnalysis、MultiAgentOutcome 与
+  Proposal lineage。
+- **重新评估条件**：将来确有经过评估的只读工具需求时，新增 Profile 版本和决策，不能
+  修改本阶段零 Skill Profile。
+
+## D-137：Validator 对多选项 Proposal 采用整份拒绝而非过滤
+
+- **状态**：`ACCEPTED`
+- **背景**：多 Agent Planner 可能返回混合合法/非法的多个方案；静默过滤会让 Validator
+  改变模型结果却不留下明确失败事实。
+- **候选方案**：过滤非法选项；标红后展示；任一选项违规即整份降级。
+- **最终选择**：任何 Schema、lineage、EvidenceRef、备品、版本、权限、风险码或时效违规
+  都使整份 Proposal 变为 `DEGRADED`，并持久化稳定失败码和事实摘要。
+- **选择理由**：运营只会看到完整通过确定性边界的方案，审计能准确定位模型不合规。
+- **未选理由**：过滤会隐藏模型质量问题；展示违规项增加误用概率。
+- **影响**：不回退单 Copilot，不展示局部分析或局部方案。
+- **重新评估条件**：存在经独立安全评估的可证明安全子集投影协议时，才可提出版本化
+  partial-result 设计。
+
+## D-138：采用 5 秒整数 Profile 预算和显式默认关闭路由
+
+- **状态**：`ACCEPTED`
+- **背景**：现有 SpecialistProfile 只支持整数秒 deadline，直播场景又不能容忍多 Agent
+  无界串行等待。
+- **候选方案**：将共享 Profile 改为小数秒；1 秒/3 秒切分；各 Agent 2 秒、Coordinator
+  5 秒并保留确定性收尾时间。
+- **最终选择**：Analyst 固定 `2s/1200/0.03`，Planner 固定 `2s/2800/0.07`，Coordinator
+  使用单调时钟限制 `5s/4000/0.10`。生产默认保持 `DETERMINISTIC_ONLY`，仅显式本地
+  Demo/Evaluation 组合启用该链路。
+- **选择理由**：不扩大成熟共享 Profile 的公开语义，并把验证、持久化和网络抖动留在
+  端到端预算内。
+- **未选理由**：小数秒扩大跨 Phase 回归面；1 秒分析在真实网络下过于脆弱；默认开启超出
+  当前证据边界。
+- **影响**：任一超时或预算失败写 `DEGRADED`，不得自动打开正式路由。
+- **重新评估条件**：有真实延迟分布、模型 SLA 和正式晋升证据后，再评估预算切分或路由
+  状态机。
+
+## D-139：Phase 16 使用独立 48 例配对数据集和最多十例 smoke
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 15 的 48 例是已接受的 Release 资产，不能为新增多 Agent 设计就地改写；
+  仅 ScriptedModel 也不能证明真实模型集成身份。
+- **候选方案**：修改旧 48 例；新增 24 例；新增独立 48 例并受限 smoke。
+- **最终选择**：新增 12 普通、24 高冲突配对、12 对抗/降级 case 的版本化 Manifest，保留
+  12/24/12 split 和十个 smoke 标记案例。完整回归只用 ScriptedModel；真实
+  `deepseek-v4-flash` 最多十例、预算 1.00 CNY，预检失败不发送。
+- **选择理由**：保留历史 Release 结论，同时为路由正确性、两 Agent 边界和失败语义提供
+  专用可重复证据。
+- **未选理由**：24 例统计与覆盖不足；改写历史 Manifest 会使既有 Acceptance 失去稳定性。
+- **影响**：真实模型证据不足时结论为 `INCONCLUSIVE`，不能把技术回归成功写成业务收益。
+- **重新评估条件**：获得真实运营回放或经批准的更大样本协议时，新增 Manifest 版本，不
+  修改本阶段数据。
+
+## D-140：Phase 16 用单人本地事故回放验收，并在 Phase 17 审计文档事实源
+
+- **状态**：`ACCEPTED`
+- **背景**：项目当前优先形成稳定、可讲解的本地业务闭环；远程多人研究和全仓文档同步
+  都不应阻塞受控多 Agent 的工程闭环。
+- **候选方案**：CLI 报告；单人交互式工作台回放；立即远程多人协作与广泛文档改写。
+- **最终选择**：以 `live-session-p001-sold-out-v2` 单运营本地工作台回放为 Demo，展示
+  保护、升级、分析、方案、人工决定和受控命令。Phase 16 完成后停止在 Phase 17 Gate，
+  再单独执行系统性文档事实同步。
+- **选择理由**：本地演示足以呈现人机权限边界与技术深度，不把问卷、远程部署或文档大扫除
+  混入高风险核心实现。
+- **未选理由**：CLI 不利于展示运营闭环；远程协作扩大身份/运维范围；提前大范围改文档会
+  在代码完成前制造重复工作。
+- **影响**：Phase 16 每 Task 仍持续更新实时状态和 worklog，但 README/历史文档全面审计
+  不是本阶段完成定义。
+- **重新评估条件**：本地 Demo 与 Acceptance 完成后，由用户授权重新审阅 Phase 17 的审计
+  范围、对外叙事和远程部署优先级。
+
+## D-141：冻结评估生成器摘要按 UTF-8 LF 规范字节计算
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 14 Manifest 将 `evaluation.py` 的 LF blob 摘要冻结为生成器身份，但
+  Windows 工作树把同一 Git 内容检出为 CRLF，原始 `read_bytes()` 会产生不同摘要并使
+  Scripted rehearsal 错误报告 `DATASET_MANIFEST_MISMATCH`。
+- **候选方案**：要求开发者手工设置 Git 换行配置；为每个平台重写 Manifest；在生成器内
+  忽略源码换行；由仓库属性强制 Python 工作树以 LF 检出。
+- **最终选择**：`.gitattributes` 为全部 `*.py` 声明 `eol=lf`，并保留生成器对原始源码字节
+  的严格哈希；冻结 Manifest、case、label 和历史结论保持字节不变。
+- **选择理由**：源码摘要仍能检测真实代码修改，同时版本控制在所有工作树提供相同 LF
+  字节，避免把操作系统投影误判为代码变更。
+- **未选理由**：手工 Git 配置不可审计且会再次漂移；重写历史 Manifest 会错误改动已接受
+  的 Phase 14 事实；生成器忽略换行会让代码改动后的摘要语义不够直接。
+- **影响**：Phase 16 Task 2 同时修复根 pytest 收集和跨平台生成器身份；正式评估仍会对
+  Prompt、Schema、数据和代码内容 fail-closed。
+- **重新评估条件**：未来源码摘要改为 Git blob object 或签名 artifact 时，新增决策说明
+  新身份算法并保留旧 Manifest 的验证兼容性。
+
+## D-142：历史 Phase 13 数据集复用冻结源码身份，正式 Manifest 重算当前源码身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 13 v2/v3 Manifest 是已验收的历史数据集基线，其旧生成器把可变的整个
+  `src` 目录发现结果写入数据集字节；任何后续阶段的正常代码演进都会在不改动 case、label、
+  Prompt 或 Schema 时伪造历史 `code_digest` 漂移。
+- **候选方案**：重写历史 Manifest；为每个后续文件不断追加排除项；历史数据集复用自身已经
+  冻结的源码身份映射，正式运行再按当前 Git HEAD 重算源码身份。
+- **最终选择**：Phase 13 v2/v3 数据集生成与静态测试复用已提交 Manifest 的
+  `source_artifact_digests` 与 `code_digest`，只验证其内部摘要和 case/label/Prompt/Schema
+  字节稳定；`FORMAL_EVALUATION` 继续由 `calculate_source_code_digest`、Git HEAD 与干净
+  当前源码闭包重新签发身份。Phase 16 Manifest 在 Task 9 独立绑定全部 Phase 16 代码。
+- **选择理由**：历史基线能够在未来阶段重复生成而不伪造漂移；新的正式评估仍对当前完整
+  代码、commit 和路径集合 fail-closed，不会借用历史摘要。
+- **未选理由**：重写历史事实会损害 Acceptance 可追溯性；按文件追加排除项不可扩展且容易
+  漏掉修改后的旧文件；让历史基线校验当前树会把无关未来开发误报为数据污染。
+- **影响**：Phase 13 历史 baseline 不再声称验证当前源码；任何当前真实模型或正式评估必须
+  使用派生 `FORMAL_EVALUATION` Manifest。后续阶段不得修改历史数据集字节。
+- **重新评估条件**：评估身份迁移为按 Git commit 的路径级签名清单时，可用签名 artifact
+  取代冻结映射，但迁移必须兼容验证现有历史 Manifest。
+
+## D-143：Phase 16 在专用账本就绪前拒绝通用 Phase 13/14 模型预算路径
+
+- **状态**：`ACCEPTED`
+- **背景**：共享 `BoundedSpecialistRunner` 原先只映射 Phase 13 候选和 Phase 14 Copilot；
+  新增 Phase 16 task kind 若直接索引映射会抛出 `KeyError`，若复用旧候选又会混用冻结预算池。
+- **候选方案**：复用 Phase 14 Copilot 预算；提前扩大旧账本为 Phase 16 正式账本；在专用
+  Phase 16 账本和 smoke 预检完成前明确拒绝。
+- **最终选择**：Task 3 令旧 Runner 对 `CONFLICT_ANALYSIS` 与 `LIVE_DECISION_PLANNING`
+  返回受控预算拒绝；Task 10 新建 `PHASE16_MULTI_AGENT_SMOKE` 独立账本后，才允许真实
+  模型预留和发送。Scripted rehearsal 的专用装配也必须显式提供 Phase 16 预算端口。
+- **选择理由**：避免未授权真实调用借用历史额度，同时把当前缺口从未捕获异常降为可审计、
+  fail-closed 的结果。
+- **未选理由**：复用旧预算会破坏阶段隔离；提前修改正式账本/DDL 超出 Task 3；保留
+  `KeyError` 会把安全边界退化为进程异常。
+- **影响**：Task 5/6 接入 Runner 时必须使用专用 Scripted budget 装配；Task 10 前所有
+  通用预算路径都不得发送真实模型。
+- **重新评估条件**：Phase 16 专用账本完成并通过 PostgreSQL、预算上限与 unknown usage
+  验收后，由新决策或 Task 10 留痕开放对应 Profile 的预检路径。
+
+## D-144：Phase 16 中间分析与终态使用独立 Workspace 幂等键
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 4 要求 `ConflictAnalysis` 与 `MultiAgentOutcome` 在内存和 PostgreSQL
+  Store 中与既有 Workspace 事实一样支持响应丢失后的幂等重放。但 Task 3 冻结领域模型只
+  定义了稳定事实 ID，未提供接入现有 `(live_session_id, idempotency_key)` 账本的写入身份。
+- **候选方案**：把 `analysis_id`/`outcome_id` 隐式当作幂等键；只在 Store 内部拼接键；为两个
+  事实显式增加 `idempotency_key` 并纳入不可变 digest。
+- **最终选择**：`ConflictAnalysis` 与 `MultiAgentOutcome` 都新增必填、不可变的
+  `idempotency_key`；Outcome 同时显式携带 `live_session_id`、`incident_id`，使其能被
+  Workspace 外键、作用域校验和统一账本直接约束。Store 继续使用统一 Workspace ledger：同键同
+  payload 重放原 Workspace 版本，同键异 payload、跨 fact kind 或跨会话一律 fail-closed。
+- **选择理由**：调用方可重试而不重复推进 Workspace 版本；内存与 PostgreSQL 共享同一
+  公开事实形状，重启恢复不依赖进程内推导规则。
+- **未选理由**：把业务 ID 兼作传输重试身份会令重发与身份冲突无法区分；内部拼接键会隐藏
+  协议并阻止 PostgreSQL 账本完整校验。
+- **影响**：Task 4 DDL、Store 和测试必须为两个新事实写入现有 idempotency ledger；Task 5+
+  Coordinator 必须在产生中间/终态事实时提供固定重试键。
+- **重新评估条件**：未来若改用独立 Command Ledger 或 broker 全局投递 ID，需新增兼容迁移，
+  不得修改历史事实的 digest 或重放语义。
+
+## D-145：Phase 16 事实由数据库 CAS 推进，READY Outcome 等待 Task 6 Proposal 父事实
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 4 审查发现，仅靠 append-only 事实和 idempotency ledger 无法阻止同一事务
+  用陈旧 Workspace 版本直写事实；同时当前 Phase 14 `Proposal` 关系模型尚未持久化
+  `LiveDecisionProposal` 的完整摘要，`READY` Outcome 的 `proposal_digest` 无法被验证。
+- **候选方案**：继续由应用在 INSERT 后推进版本并信任表级 ledger；让 Task 4 猜测或重算尚未
+  持久化的 Proposal digest；为三类新事实增加内部 CAS 列并在数据库推进版本，且在 Task 6
+  引入完整 Proposal 事实前拒绝 READY。
+- **最终选择**：`phase16_escalations`、`phase16_conflict_analyses` 与
+  `phase16_multi_agent_outcomes` 均持久化 `expected_workspace_version`；其 BEFORE INSERT
+  trigger 锁定根 Workspace、比较版本并原子推进一次，ledger 缺失时整个事务回滚。Store 对这三类
+  事实读取触发器结果而不再次加版本。Task 4 仅接受 `DEGRADED` Outcome；Task 6 必须先持久化并
+  校验完整 `LiveDecisionProposal`、摘要、Bundle 和 Analysis lineage，才可开放 `READY`。
+- **选择理由**：数据库和内存 Store 对 CAS 语义一致；响应丢失仍可通过 ledger 重放；不会把
+  调用方自报的 Proposal 摘要升级成不可变审计事实。
+- **未选理由**：应用层独占版本推进允许直写事实与版本脱钩；伪造或猜测摘要会破坏父链；提前
+  实现 Task 6 的 Proposal 存储会跨越已冻结任务边界。
+- **影响**：Task 4 DDL 重放需先解除依赖外键再重建候选索引；Task 5 只产生可解释的
+  `DEGRADED` 终态；Task 6 扩展 Outcome 写入前必须补齐 READY 的 Store/DDL/重启回归。
+- **重新评估条件**：若未来数据库接入独立受限写角色或安全定义 RPC，可将同进程直写威胁模型
+  从 D-121 的服务进程可信边界收紧；不得弱化现有 CAS、ledger 或父摘要校验。
+
+## D-146：Phase 16 Analyst 使用持久化单次 dispatch claim 与精确 Profile 绑定
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 5 复审发现，仅靠 Escalation/Analysis 的唯一事实约束无法阻止两个 Coordinator
+  在 Analysis 尚未写入时并发发送相同 Analyst Task；若外部响应已收到但进程在写入前失败，重试
+  也会错误地再次发送。另一个风险是同 ID/version 的错误 Runner Profile 可能被审计为冻结
+  `evidence_analyst` Profile，或直接 Store/SQL 写入绕过 trigger code/Profile 身份闭合。
+- **候选方案**：接受 at-least-once 模型调用并依赖唯一 Analysis；进程内锁；在外部发送前追加
+  持久化单次 dispatch claim，并强制 Runner Profile 与 Store/DDL 父事实匹配。
+- **最终选择**：每个 Escalation 在发送前原子创建一个 append-only Analyst dispatch claim，记录
+  冻结 task digest 与由 Store 权威时钟计算的两秒观察租约。活跃 claim 只返回 pending，不再发送；过期未闭合 claim
+  fail-closed 落为 `DEGRADED`，不重发模型。Coordinator 在 dispatch 前要求 Runner 解析出的
+  Profile 与启动冻结 Profile 的完整 digest 相同。Store 与 PostgreSQL trigger 同时要求
+  `ConflictAnalysis.finding_codes` 精确等于 Escalation trigger codes，并校验精确 Analyst
+  Profile 身份；Analysis 不得在已有终态后追加。claim 与 `LIVE -> REVIEW` 迁移锁定同一
+  Workspace 根行：新 claim 必须在 `LIVE` 且整个两秒窗口仍处于 Evidence freshness 内创建，
+  活跃 claim 会短暂阻断迁移；无 Analysis 的 `DEGRADED` 也不得在已持久化 Analysis 后追加。
+- **选择理由**：用保守的 at-most-once 外部发送语义防止直播现场重复模型成本和矛盾输出；
+  在响应状态不明时宁可降级交给运营，也不重复影响高风险决策链。数据库和应用层双重闭合保证
+  进程内调用或直写均不能伪造模型身份或事实含义。
+- **未选理由**：进程锁在多进程/重启后失效；只依赖 Analysis 唯一键仍允许重复外部调用；
+  无限租约会导致崩溃后无法恢复；允许过期后重发会把已发送但未记账的请求变成不可审计重复。
+- **影响**：Task 5 增加内存/PostgreSQL claim API、DDL 外键/append-only 约束、并发与
+  response-loss 测试。claim 不推进 Workspace 版本、不授予 Agent 写权限、不改变默认
+  `DETERMINISTIC_ONLY` 路由；PostgreSQL claim 还要求同一事务的 Store 写入上下文并以
+  数据库时钟判定活跃状态，但该标记只阻断意外直写、不构成同进程插件沙箱。Task 6 仍是
+  唯一可产生 READY Proposal 的阶段。续租仍是通用操作员 lease API，只接受正整数；固定两秒
+  约束仅属于 Analyst dispatch claim。两条 PostgreSQL 直写路径在 payload 触发器内先锁根行，
+  以防存在性检查与 CAS 之间形成跨连接终态竞态。
+- **重新评估条件**：若正式模型平台提供可验证的 server-side idempotency receipt，可在保留
+  事实审计的前提下以该 receipt 缩短未知状态窗口；不得移除单次 dispatch 或允许自动重发。
+
+## D-147：人工升级重建单项事实，过期 claim 只允许追加降级审计终态
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 5 最终复审发现两个关联缺口：人工升级记录空 `trigger_codes`，而冻结
+  `ConflictAnalysis` 至少要求一个 finding，导致任何合法人工请求都必然降级；同时 claim
+  的两秒窗口到期后，运营可以把 Workspace 切到 `REVIEW`，使已经发送的 Analyst 请求无法
+  落下成功 Analysis 或失败终态。另有 PostgreSQL 直写可构造不能被 Pydantic 重载的 Analysis
+  payload，风险是永久污染 append-only 审计链。
+- **候选方案**：人工请求携带自由触发码；允许空 finding 的特殊人工 Analysis；人工与自动
+  都要求三选二；在 `REVIEW` 拒绝所有后续事实；允许任意终态跨视图追加；或服务端重建事实、
+  以受 claim 约束的降级终态闭合审计，并将 Phase 16 fact 写入收束到 Store 验证边界。
+- **最终选择**：客户端继续不能提交 trigger code。服务端从同一冻结 Bundle 重建全部实际
+  信号：自动升级需要至少两项，持有当前 lease 的人工升级需要至少一项，二者写入的顺序化
+  trigger 集都必须精确等于 Bundle 派生事实。claim 创建后，Coordinator 的等待上限只能由
+  Store 的权威时钟计算：PostgreSQL 使用数据库 `clock_timestamp()` 返回剩余秒数，内存实现
+  使用自身受控时钟；Worker 本地业务墙钟绝不参与 `lease_until` 的差值计算，不能在两秒观察窗
+  外继续等待。若 claim 已发送而 Workspace 随后进入
+  `REVIEW`，只允许一次不含 Analysis/Proposal 的 `DEGRADED` Outcome 作为审计闭合，且必须
+  绑定同一 Escalation 的 claim；Analysis、READY、Proposal、命令和经营恢复仍严格要求
+  `LIVE`。PostgreSQL 对 Phase 16 Analysis 写入要求 Store 事务上下文，Store 的 Pydantic
+  重载仍是全量 Schema、展示文本与 canonical digest 的唯一权威验证；该上下文是 D-121 定义的
+  同进程完整性护栏，不是假装隔离恶意服务进程代码的沙箱。
+- **选择理由**：人工能在一个真实可解释冲突事实出现时请求更深分析，却不能凭空注入模型
+  发现；已发出的外部请求即使错过直播窗口也必须留下可恢复的失败审计，但绝不能在播后重新
+  激活分析、方案或执行。将完整 Python 契约收束到唯一 Store 写入路径避免 PostgreSQL JSONB
+  以不等价的 Unicode/canonical JSON 实现伪造摘要。
+- **未选理由**：自由触发码会把人工请求变成事实伪造入口；空 finding 会引入只供人工路径
+  使用的隐式分析语义；三选二会让人工升级没有实际价值；完全拒绝 `REVIEW` 后的终态会丢失
+  已发送请求的审计；允许任意事实跨视图会扩大经营权限；用 SQL 模拟全部 Python Unicode 和
+  canonical JSON 规则既不可靠也无法形成同一事实源。
+- **影响**：Task 5 更新 Escalation/Store/DDL 触发码规则、Store 权威 claim 剩余时间、`REVIEW`
+  下的受限 Outcome CAS 和 PostgreSQL Store 写入上下文；新增人工成功、claim 到期后视图切换、
+  慢 Worker 墙钟、单一降级恢复和直写负载拒绝回归。默认 `DETERMINISTIC_ONLY` 路由、无模型写权限、Task 6
+  前 READY fail-closed、预算和自动经营恢复边界均不变。
+- **重新评估条件**：若后续引入独立受限数据库角色、签名 RPC 或可验证模型服务端回执，可将
+  Store 写入上下文替换为更强的跨进程证明；在此之前不得允许自由 SQL 写事实、空 finding 或
+  `REVIEW` 下的 Analysis/READY/执行。
+
+## D-148：Planner 与 Coordinator 采用冻结聚合预算及 Store 写入上下文闭合
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 将第二个受限 Agent 接入同一高冲突售罄链路。若只依赖各 Agent 的独立 deadline，串行执行、验证与落库可能超过直播现场允许的总等待时间；若允许直接 SQL 写入 Proposal 或 `READY` Outcome，则可绕过 Bundle、Analysis、Profile 与 canonical digest 的完整父链校验。
+- **候选方案**：仅限制每个 Agent 的 deadline；把总预算放在调用方约定中；由 SQL trigger 复刻全部 JSON/Pydantic 校验；或由 Coordinator 注入单调时钟实施总预算，并让 Store 事务上下文成为多 Agent Proposal/READY 的唯一持久化入口。
+- **最终选择**：EvidenceAnalystAgent 固定 `2s/1200 tokens/0.03 CNY`，DecisionPlannerAgent 固定 `2s/2800 tokens/0.07 CNY`，Coordinator 在注入的单调时钟下对全链路强制 `5s/4000 tokens/0.10 CNY`。Planner 只读取同一冻结 Bundle 与已验证 Analysis；任一 Profile、身份、证据、备品、风险、时效或选项校验失败，整份 Proposal 降级。PostgreSQL 对多 Agent Proposal 和 `READY` Outcome 要求 Store 写入上下文，并复核可观察的 lineage、摘要与 CAS 父事实；该上下文仍是 D-121 的同进程完整性护栏，不构成恶意代码沙箱。
+- **选择理由**：总预算把两个模型段、确定性验证和持久化统一限制在可审计的直播延迟边界内；Store 保持 Python Schema、canonical digest 和 SQL 父事实校验的一致权威源，避免直接写入形成不完整或伪造的 `READY` 审计链。
+- **未选理由**：单段 deadline 不能阻止串行超时；调用方约定无法在重启或并发时证明；SQL 复刻 Unicode/canonical JSON/Pydantic 规则会与应用事实源漂移；直接 SQL 写入会绕过完整 Proposal 验证。
+- **影响**：Task 6 新增 Planner 段、完整 Proposal 事实、`READY` Outcome 与重启恢复测试；OperatorDecision 仍是唯一经营恢复授权主体，默认 `DETERMINISTIC_ONLY` 路由、无 fallback、真实模型禁令及 Phase 16 预算均不改变。
+- **重新评估条件**：获得真实模型延迟分布、服务端幂等回执和独立受限数据库写角色后，才可用新版本协议调整段预算或替换同进程写入上下文；不得降低总预算、放宽整份验证，或允许 Agent 直接执行经营恢复。
+
+## D-149：Planner 使用绑定 Analysis 的单次 dispatch claim，Proposal/READY 分步可恢复
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 规格复审发现 Planner 在已有 `ConflictAnalysis` 后直接发送，两个 Coordinator 或
+  进程重启可重复调用第二个模型；Proposal 写入成功但 `READY` Outcome 写入失败时，恢复逻辑也会
+  错过已持久化 Proposal。另一个缺口是 Coordinator 的五秒上限先前只约束 Planner 段，没有裁剪
+  Analyst claim 前和等待中的剩余时间。
+- **候选方案**：接受 Planner at-least-once 并依赖 Proposal 唯一键；用进程锁；把 Analyst claim
+  复用于 Planner；或为 Planner 追加绑定精确 Analysis 的独立持久化 claim，并从 Proposal 事实补写
+  READY Outcome，同时在两个 Agent 段都取 Profile、Store claim 与全局单调时钟的最小剩余窗口。
+- **最终选择**：Planner claim 以 `escalation_id` 唯一，持久化 `analysis_id`、`analysis_digest`、
+  `task_digest` 和固定两秒观察租约；内存与 PostgreSQL Store 在发送前原子创建并校验它。活跃 claim
+  只返回 pending，过期或未知响应只降级，不重发。恢复先读取唯一多 Agent Proposal：若没有 Outcome，
+  只补写同一 READY Outcome，绝不重发 Planner。Coordinator 在 Analyst 发送前、Analyst 等待和
+  Planner 等待均强制五秒总截止、两秒 Profile 与 Store 可信 claim 的最小值。
+- **选择理由**：两个模型段都获得可重放的 at-most-once 外部发送语义；Proposal 与 Outcome 可在
+  两次 append 的正常持久化边界上恢复；全链路延迟不再因确定性前置或 Analyst 等待而超过冻结上限。
+- **未选理由**：Proposal 唯一键只能阻止重复落库，不能阻止重复模型成本和相互矛盾输出；进程锁
+  在多进程/重启后失效；复用 Analyst claim 无法证明 Planner 输入绑定到哪个 Analysis；仅限制
+  Planner 仍会留下 Analyst 超时窗口。
+- **影响**：新增 `PlannerDispatchClaim`、`phase16_planner_dispatch_claims`、外键、触发器、
+  append-only/Store 上下文和跨 Store 并发测试；`LIVE -> REVIEW` 在任一活跃 dispatch claim 期间
+  保持阻断。普通 Phase 14 Proposal 继续是通用审计 JSON，只有显式 `MULTI_AGENT` 快照进入新
+  Schema 验证，避免破坏既有人工决定与命令链。
+- **重新评估条件**：模型平台提供可验证的服务端 idempotency receipt 且获得真实延迟分布后，才可
+  用新版本协议缩短未知响应窗口或调整 claim 结构；不得删除 Analysis 绑定、允许第二次 Planner
+  发送，或让 `READY` 绕过完整 Proposal 父链。
+
+## D-150：Coordinator 总预算从公共入口起算，REVIEW 只闭合已发送 Planner 的未知响应
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 整改规格复审发现五秒单调 deadline 在 `_coordinate` 内才创建，入口的权威
+  Bundle 重载、Store 查询和选择器时间没有被计入。另一个缺口是 Planner 已发送、Proposal 已写而
+  `READY` 未写时，claim 到期后运营切到 `REVIEW`，恢复会返回半成品 Proposal 而没有唯一终态。
+- **候选方案**：内部 Coordinator 开始时才记时；只限制两个 `wait_for`；在 REVIEW 补写 READY；
+  任意已有 Analysis 都可补无父链 DEGRADED；或在两个公共入口起算并传递不可重置的截止时间，且
+  仅对已持久化 Planner claim 的未知第二段响应在 REVIEW 追加无 Analysis/Proposal 的 DEGRADED。
+- **最终选择**：`run_automatic` 与 `run_operator_requested` 在任何权威读取前启动同一五秒单调
+  deadline，并传递到 Analyst/Planner 所有剩余时间计算。Proposal 无 Outcome 时，LIVE 只补同一
+  READY；REVIEW 只在 Planner claim 已存在时追加无父链 `COORDINATOR_TIMEOUT` DEGRADED。已有
+  Analysis 但没有 Planner claim 的历史/Task 5 路径保持原事实，不伪造失败。内存 Store、
+  PostgreSQL Store 和 DDL 均要求：无 Analysis 的 REVIEW 降级要么来自未产出 Analysis 的 Analyst
+  claim，要么来自已发送 Planner claim。
+- **选择理由**：端到端预算覆盖调用入口的真实等待，不能被内部函数边界重置；播后不继续生成
+  方案或恢复经营，但仍为已离开进程的 Planner 请求留下准确、最小化的审计闭合。
+- **未选理由**：仅限制模型等待忽略入口 I/O；在 REVIEW 补 READY 会把播中事实延长到播后；
+  任意 Analysis 都可降级会把成功的 Task 5 事实伪造成 Planner 失败；不写终态则无法解释已发请求。
+- **影响**：新增入口延迟和 Planner REVIEW 闭合的内存/PostgreSQL 回归，收紧 Outcome Store/DDL
+  的无父链允许条件。默认 `DETERMINISTIC_ONLY`、OperatorDecision 唯一经营授权、两秒单段预算、
+  一元真实 smoke 上限和真实模型禁令均不改变。
+- **重新评估条件**：获取正式延迟 SLO、服务端已接收回执和独立会话终态协议后，才可为播后回放
+  增加新版本的终态类型；在此之前不得重置 deadline、在 REVIEW 写 READY，或把成功 Analysis 当作
+  可自由关闭的失败事实。
+
+## D-151：模型派生事实写入前重检总预算，REVIEW 闭合仅记录协调器超时
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 最终规格复审发现 D-148/D-150 的总预算尚未覆盖 Analyst 返回后的输出验证与
+  `ConflictAnalysis` 写入；同时过期 Planner claim 的 LIVE->REVIEW 竞争未显式请求受限闭合，且
+  Store/DDL 接受任意 failure code 的无父链播后 `DEGRADED`，会把可明确分类的 Planner 错误伪装成
+  未知响应超时。Planner 输入还携带了超出冻结范围的 Escalation 正文。
+- **候选方案**：只在模型发送前检查预算；把所有 Planner 失败都允许播后闭合；只由 Python Store
+  判断超时代码；或在每个模型响应验证与模型派生事实写入前重检同一截止时间，并由内存 Store、
+  PostgreSQL Store 和触发器共同限制播后无父链闭合为 `COORDINATOR_TIMEOUT`。
+- **最终选择**：Coordinator 在 Analyst 与 Planner 的模型返回后、结构化验证后及每个派生事实
+  append 前重检不可重置的五秒单调 deadline；过期时不再产生新的 Analysis、Proposal 或 READY。
+  已过期 Planner claim 若在写终态时竞争进入 REVIEW，可显式走 D-150 的无父链超时闭合；没有该
+  claim 的成功 Analysis 仍不得播后终态化。`REVIEW` 的无 Analysis/Proposal `DEGRADED` 必须同时
+  绑定同一 Escalation 的合法 dispatch claim 且 `failure_code=COORDINATOR_TIMEOUT`，内存、
+  PostgreSQL Store 与 DDL trigger 同构执行。Planner input snapshot 只包含精确
+  `evidence_bundle` 与已验证 `analysis`，不传 Escalation、操作员或幂等正文。
+- **选择理由**：模型调用结束不代表结果仍可安全使用；将验证和持久化纳入同一延迟窗口才能阻断
+  迟到事实。播后审计只描述“外部响应状态未知”的事实，不能掩盖可分类模型、校验或系统错误。
+  最小化 Planner 输入降低身份与控制面字段被模型误用或回显的风险。
+- **未选理由**：只限制 `wait_for` 会让迟到结果在 CPU 验证或数据库写入时逃逸；任意失败码可闭合会
+  弱化失败诊断；只靠应用层检查允许同进程 SQL/Store 边界漂移；保留 Escalation 正文违反冻结的
+  Bundle + Analysis 最小输入合同。
+- **影响**：Task 6 新增 Analyst 返回/验证预算 RED、Planner claim 竞态 RED、内存/PostgreSQL
+  failure-code 拒绝回归和 Planner 输入键回归；不改变 Agent Profile、模型费用、OperatorDecision
+  权限、默认 `DETERMINISTIC_ONLY` 路由或真实模型禁令。
+- **重新评估条件**：若未来引入带签名的模型服务端 receipt、独立写角色和显式播后终态协议，可在
+  新版本 Schema 中增加可证明的失败类型；在此之前不得允许迟到模型事实、任意 failure code 的
+  REVIEW 闭合或额外 Planner 控制面输入。
+
+## D-152：多 Agent Proposal 仅由协调器持久化，经营批准必须绑定 READY Outcome
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 6 质量/安全审查发现 Phase 14 的通用 Proposal API 和 Store 可接受结构上合法的
+  `MULTI_AGENT` snapshot；Compiler 只检查 Proposal `READY`，未要求同一 Escalation 的 `READY`
+  Outcome。攻击者或错误装配可跳过 Planner dispatch、整份 Validator 和终态写入，直接提交
+  `APPROVE/MODIFY` 并编译经营恢复命令。另一个缺口是当全局五秒 deadline 而非 Planner profile/claim
+  是 `wait_for` 限制因素时，超时被错误记为 `PLANNER_MODEL_ERROR`，破坏 D-150 的播后审计闭合。
+- **候选方案**：继续允许通用 API 写多 Agent Proposal 并只由 Compiler 检查状态；让 Compiler
+  隐式扫描任意 Outcome；在通用 Store 中信任调用方 context；或为多 Agent Proposal 引入协调器专用
+  持久化入口、在 Store/DDL 双重拒绝通用入口，并由审批编译器验证精确 READY Outcome。
+- **最终选择**：通用 `append_proposal` 和 HTTP Proposal 创建路径拒绝所有 `MULTI_AGENT` snapshot；
+  只有 `HighConflictEscalationCoordinator` 可调用专用 `append_multi_agent_proposal`，其 PostgreSQL
+  写入需独立协调器 context。对 `MULTI_AGENT` Proposal，`APPROVE/MODIFY` 必须携带同一
+  Proposal ID/digest、Analysis ID/digest、Escalation ID/digest 的 `READY` Outcome；`REJECT` 仍可
+  记录人工拒绝，不会产生执行命令。Planner `wait_for` 捕获超时时重新检查全局 deadline：若已耗尽，
+  写 `COORDINATOR_TIMEOUT` 并允许既有 Planner claim 按 D-150/D-151 在 REVIEW 无父链闭合；否则才
+  记为 `PLANNER_MODEL_ERROR`。
+- **选择理由**：Proposal 结构合法不等于 Planner 已被受控执行或经营建议已获完整验证；将创建与
+  批准都绑定到不可变 Outcome 形成双重权限门。准确区分总预算与模型错误保留可解释、可恢复的超时
+  审计语义，避免把全球延迟上限误诊为模型质量问题。
+- **未选理由**：仅在 API 层拒绝会留下 Store/同进程消费者旁路；仅依赖 Proposal `READY` 无法证明
+  终态存在；扫描任意 Outcome 可能接纳另一 Proposal 的终态；把所有超时都当模型错误会阻断合法的
+  REVIEW 审计闭合。
+- **影响**：Task 6 增加专用 Store API、PostgreSQL context/trigger 门禁、Compiler/Service 的 READY
+  Outcome 绑定与预算超时分类 RED/GREEN。不会开放 Agent 执行权限、不会自动批准或恢复经营，默认
+  `DETERMINISTIC_ONLY`、模型预算和 Task 7 API 范围保持不变。
+- **重新评估条件**：若未来采用签名的独立 Planner receipt 和数据库受限写角色，可将协调器 context
+  升级为跨进程证明；在此之前不得让通用 Proposal 创建、缺失/不匹配 Outcome 的批准，或错误分类的
+  全局超时生成经营命令。
+
+## D-153：人工升级 HTTP 只接受规范 Bundle 请求，服务端持有租约与协调器身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 需要把高冲突人工升级投影到受认证 HTTP/WebSocket 边界。若 HTTP 接受
+  Profile、触发码、作用域、fencing token、自由 idempotency 或完整 Bundle 快照，调用方可以改变
+  双 Agent 路由身份、覆盖 Store 父事实，或将过期的操作员状态伪装为当前授权。
+- **候选方案**：复用通用 Proposal 创建 API；接受完整 Bundle 与客户端 fencing token；允许任意
+  HTTP idempotency key；或提供只含 Bundle ID/Workspace CAS 的独立端点，由服务端重建父事实、租约
+  与规范幂等身份。
+- **最终选择**：`POST /api/decision-support/workspaces/{live_session_id}/multi-agent-escalations`
+  的 JSON 体只接受 `evidence_bundle_id` 与 `expected_workspace_version`。必填
+  `X-Idempotency-Key` 必须等于服务端可重算的
+  `phase16-escalation:operator_requested:<evidence_bundle_id>`；Service 只从 Store 重载 Bundle 和
+  Workspace，并通过 Store 获取或续用认证操作员的当前 lease/fencing token 后调用启动冻结的
+  Coordinator。HTTP 不接收 Profile、trigger、scope、authorization、Bundle snapshot 或 fencing。
+  广播只投影 append-only Workspace、Escalation、Analysis、Proposal 与 Outcome 事实，仍不触发
+  OperatorDecision 或经营恢复。
+- **选择理由**：将外部输入降到最小可验证集合，既保留 HTTP 重试的稳定身份，也防止客户端把
+  业务事实或并发控制面带入模型协调链。Store 在真正 append 时再次执行 CAS/lease/父事实校验，
+  因此读取与写入之间的竞争保持 fail-closed。
+- **未选理由**：通用 Proposal API 受 D-152 限制且不能证明 Coordinator 已执行；完整 Bundle 和
+  客户端 fencing 会扩大伪造面；任意 key 无法与唯一 Bundle 升级事实绑定；单纯在 HTTP 层验证
+  不能替代 Store 的事务级约束。
+- **影响**：Task 7 新增严格请求 Schema、Coordinator 注入、服务端 Bundle/lease 装配和稳定
+  WebSocket 投影。默认 `DETERMINISTIC_ONLY`、自动保护、Agent 无直接经营写权限、OperatorDecision
+  唯一恢复授权、五秒总预算和真实模型禁令均不改变。
+- **重新评估条件**：若未来引入签名的浏览器会话、独立 lease 服务或跨进程协调器 RPC，可在新版本
+  协议中替换 HTTP 身份证明；在此之前不得接收自由 Profile、父事实、fencing 或绕过规范幂等键。
+
+## D-154：高冲突人工升级在认证关闭时拒绝，不继承本地默认管理员兼容行为
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 初审发现旧 `authenticate_request` 在 `OPERATOR_AUTH_ENABLED=false` 时会为无头
+  请求返回默认 `ADMIN`，便于旧本地演示但不满足 Phase 16 “已认证操作员才能请求双 Agent 升级”的
+  硬边界。若新写入口沿用该兼容行为，任意访问者都可能取得 Workspace lease 并增加模型协调负担。
+- **候选方案**：继承旧默认管理员；只在前端隐藏按钮；要求全局启用认证后再使用端点；或让新端点
+  在认证配置关闭时于调用 Service 前明确 fail-closed。
+- **最终选择**：高冲突升级 HTTP 端点在认证配置关闭时返回稳定 `503` 配置拒绝，不调用认证兼容
+  分支、Service、Store、Coordinator 或模型。已有历史 API 不在本 Task 反向收紧；本地演示应显式
+  配置操作员 token，或通过内存 Service 注入进行无网络测试。
+- **选择理由**：新入口从第一版就保持“认证是授权前置条件”，不会把历史演示便利误用为 Agent
+  经营控制权限；`503` 准确表达服务端未满足安全装配，而非把未认证请求误标为凭据错误。
+- **未选理由**：前端隐藏不构成服务器安全；全局改动会扩大 Phase 16 范围并破坏旧测试；继承默认
+  管理员直接违反冻结设计。
+- **影响**：Task 7 新增认证关闭 RED/GREEN、稳定 fail-closed 响应与工作日志。全局角色授权仍是
+  本地单运营演示边界；远程多运营的会话级授权、签名 session 和访问审计需要后续独立设计，不能
+  被当前全局 `OperatorRole` 误称为生产级多租户隔离。
+- **重新评估条件**：后续实现远程部署或多运营协作时，必须先设计会话级授权与签名 session；在此
+  之前不得因为本地演示方便而开启本端点的匿名默认管理员路径。
+
+## D-155：规范人工升级重试恢复既有事实，WebSocket 保持 `data.workspace` 兼容投影
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 双重复审发现首次人工升级成功后 Workspace 版本会递增，响应丢失时携带原始 CAS
+  的同 key 重试会在 Service 过早返回冲突，无法进入 Coordinator 的既有 Escalation 恢复路径。审查还
+  发现把完整 Workspace 直接放进广播 `data` 会破坏前端既有的 `data.workspace` 读取契约。
+- **候选方案**：对所有陈旧 CAS 直接拒绝；每次重试都重发 Coordinator；给 HTTP 加临时内存缓存；或仅在
+  Store 已存在同一 Bundle 的规范人工 Escalation 时，以当前权威版本恢复，并把完整投影保留在既有
+  `data.workspace` 包装内。
+- **最终选择**：Service 先验证 Bundle scope 并读取当前 Workspace；若已存在该 Bundle 的
+  `OPERATOR_REQUESTED` Escalation，同一规范 key 的重试使用当前权威版本进入 Coordinator 恢复，仍需
+  认证操作员持有当前 lease，且不得产生第二次 Runner 调用。不存在既有事实时继续严格要求原始 CAS。
+  WebSocket envelope 维持 `type -> payload -> {live_session_id, sequence, data: {workspace}}`，其中
+  `workspace` 是包含 Phase 16 事实的完整服务端投影；HTTP 响应继续返回窄操作结果。
+- **选择理由**：响应丢失是常见网络故障而非新业务请求；复用已持久化唯一事实可实现 at-most-once
+  模型语义，不需内存缓存。保留既有包裹避免破坏副屏消费者，同时让其读取唯一权威事实快照。
+- **未选理由**：直接拒绝使安全重试无意义；重发 Coordinator 可能重复模型成本；内存缓存不能跨进程
+  或重启；更换 WebSocket 根形状会造成静默 UI 失效。
+- **影响**：Task 7 新增 response-loss retry 与前端 envelope RED/GREEN。重试只放宽既有同 Bundle
+  事实的版本前置条件，不放宽认证、lease、Bundle scope、Profile、模型预算、OperatorDecision 或经营
+  恢复授权。
+- **重新评估条件**：若未来允许同一 Bundle 的新版本升级，必须引入显式版本化 Bundle 与新的幂等资源
+  身份；在此之前不得用不同 CAS/请求内容创建第二条人工 Escalation，或改变 `data.workspace` 协议。
+
+## D-156：Coordinator 在最终观察到自动升级时拒绝人工路径，封闭 D-155 的读写竞态
+
+- **状态**：`ACCEPTED`
+- **背景**：D-155 的 Service 先读同 Bundle escalation 再获取 lease，自动升级可在两者之间提交。
+  旧 `run_operator_requested` 随后看到新自动事实时会无条件进入其恢复路径，把人工请求错误接受为
+  自动 replay，并绕过原始 manual CAS 拒绝。
+- **候选方案**：把 Service 预读与 lease/升级做成新的大事务；在 Service 重新查询后赌没有竞争；或让
+  Coordinator 作为最终事实观察者明确拒绝任何非 `OPERATOR_REQUESTED` 的既有 escalation。
+- **最终选择**：`run_operator_requested` 在重载权威 Bundle 后若发现既有 escalation 的 mode 不是
+  `OPERATOR_REQUESTED`，立即返回 `WorkspaceConflictError`，不恢复、分析、写 Outcome 或调用 Runner。
+  Service 的早期检查仅优化常见路径，不能替代该最终 fail-closed 门禁。
+- **选择理由**：Coordinator 已在实际模型发送前读取 Store，因此可覆盖 Service 读写窗口，无需扩大为
+  跨层长事务或改变既有自动升级原子性。拒绝优于把人类请求语义偷换为自动路线。
+- **未选理由**：大事务会跨模型协调且扩大锁范围；Service 重读仍无法替代 Coordinator 最终观察；
+  接受自动 replay 会让 API 的 CAS/审计语义与用户动作不一致。
+- **影响**：Task 7 新增 automatic-vs-manual race RED/GREEN。D-155 的 manual response-loss 恢复仍
+  仅适用于同 Bundle 已有 manual escalation；认证、lease、模型 at-most-once 和经营恢复权限不变。
+- **重新评估条件**：未来若需要运营显式接管一个自动升级，必须定义新的受审计 Command/OperatorDecision
+  协议；在此之前不得把新 manual 请求转换成自动事实的隐式恢复。
+
+## D-157：认证配置门禁先于高冲突请求 JSON 校验，HTTP 结果只返回窄操作身份
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 最终规格复审发现 FastAPI 对类型化 body 的自动校验发生在端点内 D-154 配置门禁前，
+  因而认证关闭时畸形请求返回 `422` 而非稳定 `503`。复审还发现 Service 把完整 Workspace 与
+  escalation/analysis/proposal/outcome 正文原样返回 HTTP，违反 D-155 将完整事实限制在 WebSocket
+  `data.workspace` 的边界。
+- **候选方案**：接受校验顺序差异；通过全局异常处理改写 `422`；保留类型化 body 并在端点后检查；或让
+  新端点在配置/认证门禁后手动解析 JSON，并把 HTTP 返回收窄为稳定状态与事实 ID。
+- **最终选择**：高冲突端点只注入原始 `Request`；先执行 D-154 的认证配置拒绝、再认证/授权、最后使用
+  `MultiAgentEscalationRequest.model_validate` 校验 JSON，任何 JSON 形状在认证关闭时均为 `503`。认证
+  启用后格式错误仍为脱敏 `422`。Service HTTP 结果只包含 `accepted`、规范 key 和可选
+  escalation/analysis/proposal/outcome ID；完整 append-only Workspace 仅由写后 WebSocket 读取并发送到
+  既有 `data.workspace`。
+- **选择理由**：安全装配缺失应稳定优先于调用方负载细节，避免匿名扫描通过 JSON 错误探测端点行为。
+  窄返回降低事实正文在 HTTP 中的暴露与兼容负担，WebSocket 保持统一权威投影。
+- **未选理由**：全局改写 `422` 会影响旧 API；端点后检查无法改变 FastAPI 先校验的顺序；保留完整
+  HTTP 事实会和 D-155 的单一 Workspace 投影边界冲突。
+- **影响**：Task 7 新增认证关闭畸形 JSON RED/GREEN、窄 HTTP response RED/GREEN；不改变 Operator
+  认证本身、Store、Coordinator、模型预算、WebSocket envelope 或经营恢复权限。
+- **重新评估条件**：未来若需要客户端同步完整事实，必须设计版本化只读 snapshot endpoint 与 session
+  级授权；在此之前不得从高冲突写入响应泄漏完整 Workspace 或将认证关闭降级为 `422`。
+
+## D-158：自动入口只能观察人工升级事实，不得代替人工租约推进模型阶段
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 7 质量/安全复审发现 `run_automatic` 看到既有 `OPERATOR_REQUESTED` escalation 时，
+  会沿用自动调用上下文进入协调器。人工升级只要求至少一项真实冲突，而自动升级要求三选二；因此
+  自动轮询可能在操作员 lease 已失效后，为人工事实发送 Analyst 或 Planner，扩大模型预算并丢失有效
+  人工授权的可追溯性。
+- **候选方案**：允许自动入口继续既有人工升级；每次协调都从 escalation 中复用历史 operator 身份；
+  自动入口重新验证当前 lease 后继续；或自动入口只读恢复人工事实，任何 pending 推进仍由人工入口
+  持有当前 lease 发起。
+- **最终选择**：`run_automatic` 在最终 Store 观察到 `OPERATOR_REQUESTED` escalation 时，只读取已有
+  Analysis、Proposal 或 Outcome；若仍 pending，只返回该 escalation 身份，不创建 dispatch claim、不写
+  Outcome、不调用 Analyst/Planner。只有 `run_operator_requested` 可以在当前 lease/fencing 条件下推进
+  人工事实；自动 escalation 的既有恢复语义保持不变。
+- **选择理由**：将模型调用的责任与其授权来源保持一致，避免“自动事件”意外取得人工单信号升级的
+  续跑权限。只读恢复仍支持 WebSocket/UI 观察和网络重试，同时不会引入跨模型长事务或新的锁持有时间。
+- **未选理由**：复用历史 operator 身份不能证明 lease 仍有效；自动入口临时续租会把后台事件伪装成
+  人工操作；允许自动继续会违反 D-153/D-155 的当前 lease 边界；跨层大事务会把外部模型等待纳入锁范围。
+- **影响**：Task 7 新增 pending manual escalation 被自动入口观察的 RED/GREEN。自动路径不会消耗该
+  人工升级的模型预算，也不能追加其分析、方案或终态；D-156 的反向 automatic-to-manual 拒绝与 D-155
+  的同 key 人工恢复继续有效。
+- **重新评估条件**：若未来需要系统代表运营续跑人工请求，必须先设计独立的、可审计的 delegation
+  Command、显式时限和独立预算身份；在此之前不得从历史 escalation 隐式推导或延长人工 lease。
+
+## D-159：运营工作台读取最小 Bundle 摘要，而非让浏览器输入或接收完整证据快照
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 的人工升级端点只接受 `evidence_bundle_id` 与 Workspace CAS，但既有 Workspace
+  投影没有可选 Bundle 身份。让运营手工填写 ID 会形成易错、不可解释的控制输入；直接暴露六角色
+  Bundle snapshot 又会扩大原始事件和证据正文的浏览器暴露面。
+- **候选方案**：增加可编辑 Bundle ID 输入框；把完整 Bundle snapshot 放进 Workspace 投影；让前端
+  通过 Store/新自由查询 API 获取 Bundle；或在既有权威 Workspace 投影中追加固定白名单摘要。
+- **最终选择**：Workspace 投影新增只读 `evidence_bundles` 数组，每项只包含 `evidence_bundle_id`、
+  `incident_id`、`proposal_eligible`、`blocking_reasons`、`valid_until` 和 `bundle_digest`。前端只从该
+  摘要选择可升级 Bundle，并仍向 D-153 端点发送 ID、当前 Workspace 版本和规范幂等键；不接收或发送
+  六角色正文、Profile、trigger、lease、fencing 或模型输入。
+- **选择理由**：最小摘要同时满足可操作性和可审计性，浏览器可解释为何按钮可用/禁用，但无法伪造
+  证据内容或获得 Store 查询能力。服务端仍会在真正升级前完整重载并校验 Bundle。
+- **未选理由**：手填 ID 不能证明来源且易误操作；完整 snapshot 会扩大数据暴露；自由查询 API 会形成
+  另一个事实入口并削弱 Workspace 单一投影；前端直连 Store 不符合 HTTP 边界。
+- **影响**：Task 8 为 `get_workspace_payload` 增加安全 Bundle 摘要和对应契约测试；该字段只读、不改变
+  事实、权限、CAS、模型预算或经营恢复授权。
+- **重新评估条件**：若后续需要展示证据正文，必须定义字段级脱敏、会话级授权和版本化只读 Evidence
+  API；在此之前 Workspace 不得投影组件 payload、原始事件、外部凭据或自由查询结果。
+
+## D-160：浏览器订阅使用短时一次性 WebSocket 票据，不在 URL 或子协议中携带长期操作员 Token
+
+- **状态**：`ACCEPTED`
+- **背景**：浏览器原生 WebSocket 无法附带现有 `X-Operator-Id` 与 `X-Operator-Token`，旧页面在
+  认证启用时会被服务端稳定关闭。把长期 Token 放入 query string 会被浏览历史、代理和日志记录；直接
+  关闭认证又违反 D-154。
+- **候选方案**：关闭 WebSocket 鉴权；将长期 Token 放入 query string；长期 Token 放入
+  `Sec-WebSocket-Protocol`；只做无实时 REST 页面；或由已认证 REST 请求签发短时、一次性、绑定
+  `live_session_id` 与 operator 的不透明订阅票据，并只通过 WebSocket subprotocol 使用该票据。
+- **最终选择**：新增受 Operator 鉴权保护的订阅票据端点。服务端以内存票据注册表保存随机不透明值、
+  目标会话、操作员和 60 秒过期时间；浏览器以 `liveagent.ticket.<opaque>` subprotocol 建连，服务端在
+  accept 前原子消费、核对会话并回显同一 subprotocol。票据不授予经营写权限、不能重用、不能跨会话或
+  跨操作员使用，且不出现在 URL；页面断线时先以原认证 REST 刷新票据再重连。
+- **选择理由**：保留服务器端 Operator 鉴权，同时避免长寿命凭据进入 URL 或浏览器可见的请求参数。
+  短时单次票据只解决订阅握手，不替代 HTTP 写入口的 Token、lease、CAS、fencing 或 OperatorDecision。
+- **未选理由**：关闭鉴权直接违反安全边界；query string 泄漏风险不可接受；长期 Token 进入 subprotocol
+  仍会扩大长期凭据暴露；纯轮询会降级已冻结的实时工作台而不能证明 WebSocket 路由可用。
+- **影响**：Task 8 增加票据签发/消费及真实 WebSocket 契约测试；服务重启会丢弃未使用票据并要求浏览器
+  重新签发，属于安全 fail-closed。票据注册表不持久化业务事实，不改变默认路由或 Agent 权限。
+- **重新评估条件**：远程部署、多运营协作或多进程横向扩展前，必须设计签名/共享票据存储、TLS、
+  session 撤销和访问审计；在此之前不得把内存票据误称为生产多节点会话方案。
+
+## D-161：短时订阅票据还必须绑定签发浏览器的 HttpOnly 同源 cookie，并丢弃陈旧会话连接
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 双重复审发现两项遗漏：仅凭 subprotocol ticket 仍是可被其他浏览器使用的一次性
+  bearer 凭据；同时会话 A 的异步票据请求可能在用户切换到 B 后返回，建立旧 socket 并覆盖当前页面。
+  输入 Token 后旧页面也没有重新签发订阅票据。
+- **候选方案**：将票据维持为无额外绑定的 bearer；把长期 Token 回填到 WebSocket；用 query 参数传递
+  操作员；在原生 WebSocket 外引入自由客户端库；或将 ticket 与签发 REST 响应的 HttpOnly/SameSite
+  同源 cookie 绑定，并为前端连接维护单调 generation。
+- **最终选择**：签发端生成独立 browser binding，保存于票据记录并通过 `HttpOnly; SameSite=Strict`
+  cookie 仅发送给 `/ws/decision-support`。握手在 accept 前原子核对 ticket、Workspace 和 cookie binding；
+  缺失/不匹配即 `4401`。前端每次启动或认证变更递增 connection generation，await 票据返回、open、
+  message 和 close 回调均核对 generation 与当前 session，过时结果直接丢弃；请求失败只提示，不能伪造
+  `DEGRADED` Outcome。
+- **选择理由**：cookie 将票据限制在已认证签发的同源浏览器上下文，避免票据泄漏后被另一浏览器重放；
+  generation 将异步完成与当前 UI 状态绑定，防止跨会话事实污染。两者均不需要把长期 Token 交给 URL、
+  query、subprotocol 或模型。
+- **未选理由**：bearer-only 无法证明接收浏览器；重传长期 Token 会扩大泄漏面；query 参数不具备安全性；
+  外部客户端库扩大本地演示范围；仅靠 REST 轮询不能验证已冻结的实时 WebSocket 路由。
+- **影响**：Task 8 增加跨浏览器 cookie binding、陈旧连接 generation 和认证输入重连测试。票据仍不代表
+  经营权限，服务重启继续 fail-closed；服务端模型、PlanEngine、Store、CAS、lease、fencing 和
+  OperatorDecision 边界均不改变。
+- **重新评估条件**：若引入跨域前端、远程多节点或正式身份提供方，必须重新设计 Secure cookie、CSRF、
+  session 轮换、共享票据和撤销机制；在此之前票据只适用于同源单进程本地工作台。
+
+## D-162：重新认证撤销旧浏览器票据，当前升级只认同 lineage 的 READY Proposal
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 整改复审发现：同源浏览器切换操作员时，旧 binding 的未消费票据仍可能在 cookie
+  覆盖前被使用；同时 `currentProposal()` 总取最后一条 Proposal，当前高冲突 escalation pending 或
+  `DEGRADED` 时可能错误回退到无关单 Copilot Proposal。REST 读取错误也被局部 UI 伪装成业务
+  `DEGRADED`，混淆客户端不可用和服务端终态。
+- **候选方案**：依赖 cookie 覆盖的时序自然失效；让 WebSocket 重传长期操作员 Token；忽略当前
+  escalation 而继续取最后 Proposal；将读取失败统一称为 DEGRADED；或在新票据签发前撤销旧 binding
+  的未消费票据，当前 escalation 存在时只认其同 lineage `READY` Proposal，并建立独立 UNAVAILABLE
+  UI 状态。
+- **最终选择**：订阅票据服务提供原子 `revoke_browser_binding`，认证 REST 每次签发新 binding 前撤销
+  请求 cookie 对应的未消费票据；旧 ticket 立即 fail-closed。前端当前 escalation 存在时只使用其
+  `multi_agent_lineage` 匹配且具有同 Proposal ID `READY` Outcome 的 Proposal，pending/DEGRADED 不回退
+  到任何无关 Proposal。Workspace HTTP 读取失败进入不可执行的 `UNAVAILABLE`，只提示错误并等待权威
+  REST/WebSocket 恢复，只有服务端事实可显示业务 `DEGRADED`。
+- **选择理由**：显式撤销消除 cookie 覆盖和异步握手间的短窗口；lineage-first 选择确保 UI 不会将
+  高风险事件的经营权限错配给另一条建议；区分不可用和业务降级使运营审计保持诚实而不放宽 fail-closed。
+- **未选理由**：依赖浏览器时序不可证明；重传 Token 违反 D-160；最后 Proposal 规则忽略父事实；把
+  网络错误标记为业务终态会污染演示与评估证据。
+- **影响**：Task 8 新增同浏览器操作员切换、旧票据撤销、当前 escalation Proposal 选择和 UNAVAILABLE
+  视图 RED/GREEN。该调整不改变已消费连接的只读性质，也不增加 Agent、模型、Store 写、经营执行或
+  默认路由能力。
+- **重新评估条件**：若需要主动撤销已建立 WebSocket、跨标签精确身份切换或远程多节点会话，必须设计
+  连接级身份审计、集中撤销事件和共享 session 存储；在此之前本地单进程只保证未消费票据立即撤销。
+
+## D-163：绑定 cookie 覆盖签发与握手共同路径，客户端写失败不伪造业务降级
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 8 最终复审发现 binding cookie 的 Path 仅覆盖 WebSocket 路径，浏览器不会将旧 cookie
+  发送给 REST 签票端点，导致 D-162 的撤销调用拿到空值；旧握手若晚到仍可能成功。复审还发现运营决定
+  HTTP 写入失败被 UI 写为 `DEGRADED`，混淆客户端/权限失败和持久化 MultiAgentOutcome。
+- **候选方案**：维持窄 cookie Path 并接受撤销窗口；把 binding 放进请求体或 URL；将 cookie 设为同源根
+  路径；为签票另建不兼容路由；或继续把所有写失败显示为业务降级。
+- **最终选择**：binding 保持随机、短时、`HttpOnly; SameSite=Strict`，但 Path 设为 `/`，使同源 REST
+  签票与 WebSocket 握手都能读取；签发新 binding 前撤销请求 cookie 对应的未消费票据，晚到旧握手即使
+  显式携带旧 cookie 也被拒绝。运营决定 HTTP 失败只显示“提交失败”并保持现有 Workspace 事实，只有
+  服务端 Outcome 可以显示 `DEGRADED`。
+- **选择理由**：根路径不会暴露长期 Token，cookie 仍同源、HttpOnly、短时且不进入 URL；它消除了
+  重新认证时服务端无法读取旧 binding 的逻辑断点。分离提交失败与业务降级保留 fail-closed 同时保证
+  回放、评估和 UI 语义诚实。
+- **未选理由**：Path 过窄使撤销不可执行；请求体/URL 会把 binding 暴露给脚本或日志；新路由会扩大既有
+  API 面；将写失败称为 DEGRADED 会制造不存在的模型终态。
+- **影响**：Task 8 增加“旧握手晚到且携带旧 cookie”与“运营写失败不伪造 DEGRADED”的 RED/GREEN。
+  cookie 仅绑定订阅握手，不授权任何经营操作；模型、Store、lease、CAS、fencing 与 OperatorDecision
+  都不改变。
+- **重新评估条件**：跨域或正式多租户部署前必须重新缩小 cookie domain/path、引入 CSRF/session 管理和
+  集中撤销；在此之前同源本地工作台的根路径 cookie 是保证 REST 与 WebSocket 一致撤销的最小边界。
+
+## D-164：Phase 16 真实 smoke 使用独立 case 级 reservation 账本，预检不构成路由开启
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 允许最多十个高冲突 smoke case 的真实模型证据，但 Analyst 与 Planner 每例有两次
+  外部调用。若沿用 Phase 13-15 预算、按单次调用临时扣费，或把“端点可用”当成可以发送的充分条件，
+  就会混淆阶段成本、在第二个 Agent 前失去保守上限，或把 smoke 的外部证据错误升级为生产路由授权。
+- **候选方案**：复用 Phase 15 的 0.60 元 ledger；两个 Profile 各自独立 reservation；直接读取 API key
+  后发送并事后结算；或为 Phase 16 创建 case 级独立 ledger，在任一发送前预约完整 `0.03 + 0.07 = 0.10`
+  元上限。
+- **最终选择**：新增 `PHASE16_MULTI_AGENT_SMOKE` 独立内存/PostgreSQL ledger，硬上限为 10 case / 1.00
+  CNY。每个 smoke case 在 Analyst 调用前原子预约 0.10 CNY；仅当 Analyst 与 Planner 都返回可计价 usage
+  时按官方冻结价格结算实际成本。任一已发送请求 usage 不明、异常或总价超过 reservation 时，整例按 0.10
+  CNY 保守结算并阻止 Planner/后续发送；发送门禁仍为 `BLOCKED`，但这类已经发送后的外部证据不足在正式
+  smoke 报告中为 `INCONCLUSIVE`。预检还必须同时验证精确 model/endpoint、官方价格摘要、usage
+  协议、两个冻结 Profile 的 Prompt/Schema digest、Task 9 Manifest/dataset/source closure、Task 10 runtime
+  hash、端点可用性和 reservation。预检通过只允许显式 smoke 调用，不改变默认 `DETERMINISTIC_ONLY`。
+- **选择理由**：case 级 reservation 与用户可理解的十例预算完全一致，并能在两个 Agent 的部分失败中
+  保持硬上限。独立 scope 和表让 Phase 13-15 的历史评估账本不受新代码或新费用影响。将预检与路由
+  决策分离，避免“外部模型曾响应”被误解为自动经营或默认多 Agent 的许可。
+- **未选理由**：复用旧 ledger 会破坏阶段预算隔离和历史 code digest；逐 Agent 临时预留会让成功的
+  Analyst 占用后 Planner 无预算，不能表达一次业务 case 的保守上限；事后结算无法在并发时阻止超额；
+  将 smoke PASS 直接接到路由违反 Phase 16 人工授权和默认关闭边界。
+- **影响**：Task 10 新增独立 migration、Budget Store、可信预检和无网络单元/PostgreSQL 测试。真实
+  模型仍由显式 `AgentModelPort` 注入；默认测试只使用 ScriptedModel 或无网络 Port。Task 10 验证
+  transport identity、Profile Prompt/Schema、reservation 与 usage，不代替 Task 9 对实际 Coordinator/
+  Validator 行为的 ScriptedModel 重放。`ModelUsage` 未区分 cache 命中时，全部输入 token 按公开
+  cache-miss 输入价保守计费。Task 11 可把缺失 endpoint、价格或 usage 证据报告为 `INCONCLUSIVE`，但
+  不得以此打开默认路由。
+- **重新评估条件**：若后续引入并发多租户 smoke 或独立签名费用收据，必须设计租户/运行维度 scope 和
+  外部收据校验；在此之前不得扩大十例/一元上限、借用其他阶段余额，或让预检对象直接成为经营写授权。
+
+## D-165：真实 smoke 的外部就绪事实只在可信启动装配注入，唯一 scope 同时限制金额和 case 数
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 复审发现自定义 ledger scope 可产生额外一元池，低实际 token 成本会在金额余额中
+  回流而可能允许第十一例，且任意同进程 Python 调用可构造 endpoint/usage/价格值。把后者误称为插件
+  沙箱会违反 D-121 的服务进程威胁模型。
+- **候选方案**：允许每次 smoke 生成新 scope；只限制金额 exposure；把预检对象开放给 HTTP 调用方；或
+  固定唯一 `PHASE16_MULTI_AGENT_SMOKE` scope，以 reservation 行数和金额共同限流，并将外部就绪事实
+  限定在没有 HTTP/API 入口的可信启动装配。
+- **最终选择**：Phase 16 只有一个精确 scope，内存与 PostgreSQL 都拒绝后缀或任意 scope。`RESERVED` 与
+  `SETTLED` 行各占一个不可回收的十例 slot，`RELEASED` 仅适用于 Analyst 在 Model Port 明确
+  `request_sent=false` 前的零外部成本；Planner 未发送也必须结算已有 Analyst 成本。预检每次重算 Task 9
+  generator、源码闭包、case 与数据集摘要。endpoint 可用性、usage 协议和官方价格证据只由可信启动装配
+  传给无 HTTP 暴露的预检函数；任意可执行同进程 Python 的代码按 D-121 已等同服务进程失陷，不能靠
+  PrivateAttr 或类型对象伪装成不可信扩展隔离。Task 11 在没有真实、可验证外部证据时只能报告
+  `INCONCLUSIVE`，不会构造可发送的生产 composition。
+- **选择理由**：双重上限阻止“低成本多发”与并发超额，唯一 scope 让 1.00 CNY 可审计。明确可信启动边界
+  不会虚假宣称 Python 对内部调用方提供安全沙箱，同时保留 HTTP/外部边界零发送的 fail-closed 契约。
+- **未选理由**：suffix scope 会把一个阶段额度拆成无限多个池；只看价格不看 case 数违反十例约束；公开
+  预检端点会将外部事实注入面扩大到浏览器；PrivateAttr 不能抵御同进程代码。
+- **影响**：Task 10 新增 PostgreSQL 低成本结算后第十一例拒绝、唯一 scope、Planner 未发送不回滚 Analyst
+  成本及 Dataset 重验测试。真实 endpoint probe、价格文件签名或进程隔离如需对不可信扩展开放，必须另立
+  设计，不在当前本地演示范围内。
+- **重新评估条件**：若未来引入外部插件、远程多租户或独立 smoke 服务，必须以独立进程、签名 receipt 和
+  最小 RPC 重新定义预检 authority；在此之前不得把同进程调用者视为不可信安全主体或开放预检 HTTP 端点。
+
+## D-166：case 级 smoke 结论与 reason 必须随 reservation 持久化，发送前再次重验冻结资产
+
+- **状态**：`ACCEPTED`
+- **背景**：Task 10 质量复审发现仅凭 `SETTLED` 无法区分双 Agent 成功、usage 不明或 Planner 未发送；
+  进程重启会把保守失败错误重放为 PASS。预检后缓存可变 Dataset 引用也允许模型发送前的嵌套输入漂移。
+- **候选方案**：把任意 settled 行重放为 PASS；仅由 `usage_known` 猜测结果；只在内存保存 outcome；或在
+  reservation 上追加稳定 outcome/reason 并在每次发送前重算 Task 9 资产身份。
+- **最终选择**：`RESERVED` 行没有结论；`SETTLED` 与 `RELEASED` 行保存 `PASS | FAIL | INCONCLUSIVE`
+  和稳定 reason code。重放只能返回已持久化的同一结论，绝不重发或提升为 PASS。Analyst 未发送的
+  `RELEASED/FAIL` 不消费 slot；已发送后的 `SETTLED/INCONCLUSIVE` 和 Planner 未发送的 `SETTLED/FAIL`
+  保留 slot/成本。预检中的 Task 9 重验失败转换为可审计的零发送 `BLOCKED`；Runner 在每次准备发送前
+  重新验证缓存 Dataset，消除预检到 Port 的 TOCTOU 窗口。
+- **选择理由**：持久化结论使重启、重复运行和报告具有同一事实源，且不需要把模型自由文本写入 ledger。
+  重验成本很低，却将 source/case 资产漂移阻断在真实模型调用之前。
+- **未选理由**：将 settled 默认视作成功会掩盖外部证据不足；usage 布尔无法表达 Planner 未发送等技术失败；
+  仅在内存保存会在重启丢失；只在 preflight 验证仍留下可变嵌套对象窗口。
+- **影响**：Task 10 DDL、内存/PostgreSQL Store 和恢复测试追加结果字段；所有既有旧空表通过幂等列扩展。
+  该事实只服务 smoke 技术审计，不进入 Proposal、OperatorDecision、命令编译、业务执行或默认路由。
+- **重新评估条件**：若以后需要保存签名的供应商 receipt、分阶段 response 摘要或跨服务结果，必须设计独立
+  append-only receipt 表与密钥边界；在此之前不得把自由模型正文写入预算 ledger。
+
+## D-167：Phase 16 PR coverage 使用冻结 source closure，联合采样且门槛不变
+
+- **状态**：`ACCEPTED`
+- **背景**：首次 PR Gate 将测试运行结果与 coverage 分母交给默认 CI 采样，导致 Phase 16 11 个冻结源码文件的
+  实际闭包、旧 Phase 13 评估代码和测试文件边界不够显式；首次报告为 `BLOCKED`，不能把它解释为业务实现失败。
+- **候选方案**：降低 line/branch 门槛；用 `pragma: no cover` 排除防御代码；分别运行 unit/integration 并拼接报告；或
+  版本化 source-closure Manifest，并让同一 coverage 数据库联合采样两套测试后按精确文件集合判定。
+- **最终选择**：新增 `phase16-coverage-source-closure-v1` Manifest，固定 11 个已跟踪、非 symlink、位于 `src/`
+  的源码文件，并用规范 UTF-8/LF 内容摘要绑定身份。PR workflow 先 `coverage erase`，unit 使用 `coverage run --branch`，
+  integration 使用 `coverage run --append --branch`，`coverage json --include` 只输出 Manifest 文件；Gate 校验报告
+  文件集合必须与 Manifest 完全一致，line `>=90`、branch `>=85` 门槛保持不变。
+- **选择理由**：联合采样保留跨 unit/integration 的真实路径证据，固定分母避免 CI 导入顺序或新目录悄然改变门槛，且不把
+  测试文件、旧评估闭包或 UI 演示代码混入 Phase 16 证据。
+- **未选理由**：排除未测代码和降低阈值会掩盖风险；分开报告会丢失跨层路径；让 coverage 工具自动发现源码会使门禁
+  身份随仓库结构漂移。
+- **验证证据**：整改新增真实异常、恢复、身份、资产完整性和 Store/Coordinator 边界测试；干净联合采样为 unit
+  `1555 passed, 1 warning`、integration `185 passed, 7 deselected, 5 warnings`，line `92.035%`、branch `85.081%`，
+  source-closure 文件集合校验通过。测试费用和真实模型调用均为 `0`。
+- **影响**：PR 分支的 coverage Gate 现在对闭包漂移 fail-closed；Release/Nightly 的既有 coverage 语义不在本决策中
+  改变。Phase 16 Acceptance 的真实模型证据仍按原规则保持 `INCONCLUSIVE`，默认路由继续 `DETERMINISTIC_ONLY`。
+- **重新评估条件**：若新增 Phase 16 生产源码、改变 Release/Nightly 分母或迁移 coverage 工具，必须先更新版本化 Manifest、
+  决策和联合回归证据，不得在 workflow 中临时扩大或缩小统计范围。

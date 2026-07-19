@@ -1,6 +1,42 @@
 # LiveAgent 连续执行实时状态
 
-文档状态：`PHASE_15_COMPLETE_INCONCLUSIVE`
+## 2026-07-18 Phase 16 Task 1 DOCUMENTATION IN PROGRESS
+
+```text
+Phase / Task: Phase 16 / Task 1 - Approved Design and Implementation Plan persistence
+状态: PUSHED
+目标: 持久化受控双 Agent 设计、实施计划、D-134 至 D-140、路线图、总控和恢复入口。
+禁止事项: 不修改业务代码、数据库迁移、模型配置或 Phase 15 历史 Acceptance；不触碰用户脏文件。
+当前 HEAD: ee0de7c4e333e1b247a587c4be793c771abcb0e4
+本 Task 文件: Phase 16 Design/Plan、decisions、master plan、roadmap、recovery prompt、三个 worklog。
+用户脏文件: 主工作区的 context recovery/status 文档、Phase 11A 文档、development_pitfalls 与两个临时 scripts 均保持原状。
+最近命令与结果: 已读取 Phase 15 Acceptance、总控、路线图、决策日志、Store/Bundle/Copilot/API/前端基线；已建立隔离 worktree。
+错误与尝试次数: 根 pytest 已知三处 unit/integration 同名模块收集冲突，作为 Task 2 RED 修复目标，未归因于 Task 1。
+设计偏差与决策编号: 无设计偏差；D-134 至 D-140 冻结 Phase 16 拓扑、路由、权限、预算、评估和 Demo 边界。
+下一条精确操作: 运行 Task 1 文档一致性、编码与 diff 验证；只暂存目标文档并提交推送。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 未派发；本 Task 为串行事实源持久化。
+```
+
+## 2026-07-18 Phase 16 Task 2 GREEN / VERIFY
+
+```text
+Phase / Task: Phase 16 / Task 2 - Stabilize root pytest collection
+状态: PUSHED
+目标: 消除 unit/integration 同名模块导致的根 pytest import mismatch，不改变测试或业务行为。
+禁止事项: 不修改测试正文、业务代码、Pytest 运行语义或数据库配置；不复制或提交本机 .env。
+当前 HEAD: 6ea5a57b947d1f627f9da223ceec7db279b59613
+本 Task 文件: 三个 tests/integration/test_phase14_* 文件名，以及当前 Task 的 worklog 留痕。
+用户脏文件: 主工作区的既有 7 个用户文件保持不接触、不暂存。
+最近命令与结果: RED 根 collect 为 1509/1513 + 3 import mismatch；重命名后 collect 为 1537/1541、0 errors。加载主工作区 .env 到测试进程后，三组 unit/PostgreSQL 分别为 14、9、9 passed；完整 unit 为 1382 passed、4 warnings；完整 integration 为 155 passed、3 deselected、5 warnings，受控日志包装已捕获退出码 0。
+错误与尝试次数: 第一次专项与最终完整 unit 均仅因 worktree 缺失未跟踪 .env 而使用默认 change_me 认证失败；未改代码，第二次仅向测试进程加载已有凭据后 unit/integration 通过。`.env` 未复制、未写入 worktree、未加入 Git。
+设计偏差与决策编号: 发现 Windows CRLF 使 Phase 14 冻结生成器摘要漂移；新增 D-141，通过 .gitattributes 强制 Python LF 检出且不重写历史 Manifest。
+下一条精确操作: 已提交并推送 `6ea5a57 test: stabilize phase 14 postgres collection`；切换到 Task 3 RED。
+模型费用累计: Phase 16 0.000000 CNY；未访问外部模型。
+Sub-agent: `019f749a-05d0-7631-8e3d-addac444eba1` 已完成只读规格与质量审查；确认 `.gitattributes` 语义正确、三个测试均为 R100 纯重命名且根 collect 无错误。审查发现两项 Important 文档状态过早/冲突：本 Task 计划和全局状态已在本次提交前改正；未发现 Critical 或剩余代码、测试行为问题。
+```
+
+文档状态：`PHASE_16_TASK_2_READY_TO_COMMIT`
 
 最后更新：2026-07-18
 
@@ -8,24 +44,289 @@
 
 | 字段 | 当前值 |
 |---|---|
-| 当前阶段 | Phase 15 Golden Release Gates Stage B |
-| 最近完成任务 | Task 12：Demo、Phase 15 Acceptance 与 Final Acceptance |
-| 当前任务 | Phase 15 Acceptance 已完成，停止在阶段边界 |
-| 当前任务状态 | `COMPLETE` / `PHASE_15_COMPLETE_INCONCLUSIVE` |
-| 当前子步骤 | 三场景闭环、两次本地 Release、双轨结论和两份 Acceptance 已生成；外部证据保持 BLOCKED/INCONCLUSIVE，不自动进入下一阶段 |
-| 当前分支 | `main` |
-| 当前业务基线 | Phase 15 Task 12 Acceptance（代码 `c01a5da`，最终状态 `38413bc`） |
-| 远端状态 | 本地 `HEAD` 与 `origin/main` 一致；用户脏文件保持 unstaged，恢复时必须读取命令输出 |
-| 真实模型累计费用 | 0.042344 元；Phase 14 Task 4 新增 0 元 |
+| 当前阶段 | Phase 16 Controlled Multi-Agent Escalation |
+| 最近完成任务 | Phase 16 Task 4：升级、分析与 Outcome 的 append-only Store（`1ea229a` 已推送） |
+| 当前任务 | Task 5：高冲突选择与 EvidenceAnalystAgent 协调段 |
+| 当前任务状态 | `VERIFY` / `PHASE_16_TASK_5_FINAL_REMEDIATION_VERIFY` |
+| 当前子步骤 | 三选二选择、人工 lease、完整 Analyst 证据绑定、claim 生命周期、受限 REVIEW 审计闭合与 PostgreSQL 重启恢复已转绿；正在进行最终全量验证 |
+| 当前分支 | `codex/phase16-controlled-multi-agent` |
+| 当前业务基线 | Phase 15 Task 12 Acceptance（`c01a5da`）；历史结论保持 `INCONCLUSIVE` |
+| 远端状态 | `origin/codex/phase16-controlled-multi-agent=1ea229a`；Task 5 尚未提交，主工作区用户脏文件保持 unstaged，恢复时必须读取命令输出 |
+| 真实模型累计费用 | 历史累计 0.042344 元；Phase 16 新增 0.000000 元 |
+
+## 2026-07-18 Phase 16 Task 3 RED
+
+```text
+Phase / Task: Phase 16 / Task 3 - Add Runtime and Domain Contracts
+状态: PUSHED
+目标: 定义 CONFLICT_ANALYSIS、LIVE_DECISION_PLANNING、精确冻结 Profile、EscalationRecord、ConflictAnalysis、MultiAgentOutcome 与 Proposal lineage。
+禁止事项: 不调用真实模型；不接 Store、Coordinator、HTTP、WebSocket 或执行命令；不得给 Agent 增加 Skill、Store 或写权限。
+当前 HEAD: 6ea5a57b947d1f627f9da223ceec7db279b59613
+本 Task 文件: src/specialist_runtime/models.py、src/decision_support/models.py、src/decision_support/proposal.py、Phase 13 历史生成器、Phase 7B 迁移、受控多 Agent/迁移/播后测试与 worklog。
+用户脏文件: 主工作区既有 7 个用户文件保持不接触、不暂存。
+最近命令与结果: RED 因缺少 ConflictAnalysis 收集失败；最终专项聚合为 16 passed（含真实 BoundedSpecialistRunner + ScriptedAgentModel 的 FINAL 信封、Phase 7B 迁移与播后 Trace 基线），从空库执行 17 个官方迁移均 PASS，完整 unit 为 1395 passed、4 warnings，完整 integration 为 151 passed、7 deselected、5 warnings，compileall 与根 collect 1546/1554、8 deselected 均通过。
+错误与尝试次数: 首轮 GREEN 有 1 条测试同时缺少 analysis/proposal 两段 lineage，已缩小变量后转绿；首次完整 unit 为 2 failed（均为 Phase 13 历史 Manifest 闭包），根因已由重放与目录发现定位，未改写历史资产；临时数据库还暴露既有 Phase 7B SQL 的双重字面量转义、播后测试的隐式 Trace 依赖、真实 Embedding 集成测试遗漏 external 标记，均已单独 RED/GREEN 并重新全量验证。官方 seed 已确认至少 3 次 Embedding HTTP 请求在 401 认证前失败；其余此前捕获的测试输出没有成功响应、usage 或可计费模型输出。最终复核已为 unit/integration 均注入离线 Embedding，后续默认测试不再调用该路径。额外审查派发因线程配额拒绝，主模型按同一清单接管复核。
+设计偏差与决策编号: D-142 固定 Phase 13 历史闭包排除 Task 3 新模块并由 Phase 16 Manifest 自行绑定；D-143 固定通用旧预算路径对 Phase 16 fail-closed，直至 Task 10 专用账本完成。其余仍遵守 D-134 至 D-140。
+下一条精确操作: 已以 `ad0e185 feat: add controlled multi-agent contracts` 提交并推送；切换到 Task 4 RED。
+模型费用累计: Phase 16 0.000000 CNY；已确认的外部尝试均为 401 拒绝，未获得模型响应或 usage；Task 10 预检前禁止真实模型。
+Sub-agent: `019f74b2-5897-7183-8e37-26fdb77e796f` 与 `019f74b2-8f66-7ed2-9c3a-7ca1e76261df` 初审已完成且发现均已补 RED/GREEN；`019f74bf-52b1-77d2-9f38-0702adb9b02a` 最终规格复审 PASS；`019f74bf-a224-7a71-8854-35b66f3eb921` 最终质量复审的 Prompt/Schema Important 已补 RED/GREEN；`019f74ca-223d-7ad3-a534-09bb9ba0129c` 整改复审的展示安全 Important 已补 RED/GREEN。额外只读复审因线程配额拒绝而未启动，主模型完成正则、Pydantic、Runner、单 Copilot 和完整回归复核。全部已派发 Agent 均为 COMPLETED_REPORT_CONSUMED / STOPPED，无运行中 Agent。
+Sub-agent dispatch: STOPPED / Task 3 最终只读规格与安全审查因当前线程并发额度已满而未启动；原定文件边界为 Task 3 的 18 个暂存目标文件，禁止修改；预期交付物为 Critical/Important 发现及与冻结 Task 3 规范、零 Skill 权限、无真实模型、迁移可重复性的一致性结论。没有运行中或遗留 sub-agent，主模型已接管同一清单的最终复核。
+```
+
+## 2026-07-18 Phase 16 Task 4 COMMIT/PUSH
+
+```text
+Phase / Task: Phase 16 / Task 4 - Persist Escalation Facts
+状态: PUSHED
+目标: 在内存与 PostgreSQL Decision Support Store 中追加 EscalationRecord、ConflictAnalysis、MultiAgentOutcome，并保证父事实、CAS、fencing、唯一升级、幂等重放与重启恢复。
+禁止事项: 不实现升级选择器、Coordinator、Planner、HTTP、WebSocket、SkillCall、PlanCommand 或真实模型调用；不得修改既有 Workspace/Incident 事实。
+当前 HEAD: 1ea229a
+本 Task 文件: docker/init_phase14_decision_support.sql、src/decision_support/store.py、Task 4 unit/PostgreSQL 测试及本 Task worklog。
+用户脏文件: 主工作区既有 7 个用户文件保持不接触、不暂存。
+最近命令与结果: Task 4 单元 `7 passed`；隔离 PostgreSQL `9 passed`，覆盖重启重放、同 Bundle 并发 CAS、lease fencing、三类 deferred ledger、partial evidence refs、ineligible/expired Bundle、D-135 有序触发码、数据库 CAS、降级终态形状和 READY fail-closed。完整 unit `1402 passed, 4 warnings`；完整 integration `160 passed, 7 deselected, 5 warnings`。PostgreSQL DDL 双重初始化和目标 compileall 通过。测试进程临时使用专用 `liveagent-phase16-test-postgres` 的 5434 端口，未修改仓库配置或用户已有 5432 数据库。
+错误与尝试次数: 首次 PostgreSQL 测试因默认 5432 属于用户已有不同凭据实例而无法认证；定位专用 5434 测试容器后转为预期 API/表缺失 RED。首轮 GREEN 的重启测试暴露 DDL 先重建父索引、后解除 Phase 16 外键依赖的顺序错误，已以先 drop 子约束整改。四轮独立审查又发现 D-135 eligibility/freshness/顺序、READY/DEGRADED 形状、直接 SQL CAS 与 LIVE 线性化窗口；均已补 RED/GREEN 并重新全量验证。
+设计偏差与决策编号: D-144 补齐中间事实幂等键；D-145 固定数据库 CAS、LIVE 线性化复核和 Task 6 前 READY Outcome fail-closed。其余遵守 D-134 至 D-143，不扩大 Profile、预算或路由。
+下一条精确操作: 已以 `1ea229a feat: persist multi-agent escalation facts` 提交并推送；切换 Task 5 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 初审 `019f7511-a162-7c82-8b73-8054987bf119`（规格）与 `019f7511-b56f-7552-813e-56db44928aed`（质量/安全）、整改复审 `019f7524-3869-7703-997f-40b984eee830`/`019f7524-4dc8-7143-b070-69b614057e2f`，以及最终确认 `019f7535-71ef-7280-8954-f94277214c5f`/`019f753e-6638-7ab0-99fe-f067773876a5` 均已完成并关闭。全部 Critical 为 0；每个 Important 均有 RED/GREEN 与全量重跑证据。无运行中 sub-agent。
+
+Sub-agent dispatch:
+`019f7511-a162-7c82-8b73-8054987bf119` / Task 4 规格审查 / 只读 Store、DDL、Task 4 tests、D-144 / 已完成；发现 READY Proposal digest 与 ledger-backed 旁路 Important，已由 D-145、READY fail-closed、数据库 LIVE/全证据/CAS 验证整改。
+`019f7511-b56f-7552-813e-56db44928aed` / Task 4 质量与安全审查 / 只读 Store、DDL、Task 4 tests / 已完成；发现 D-135 触发码重建、DB 旁路与 READY lineage Important，已由 Bundle 重建、触发器和 D-145 整改。两条线程均未修改、暂存、提交或推送文件。
+`019f7524-3869-7703-997f-40b984eee830` / Task 4 整改规格复审 / 已完成并关闭；发现 eligibility 与有序触发码 Important，已补 Bundle eligibility/顺序 RED/GREEN。
+`019f7524-4dc8-7143-b070-69b614057e2f` / Task 4 整改质量复审 / 已完成并关闭；发现 freshness 与 lease 错误协议 Important，已补 valid_until 双端门禁和 lease 异常归一化。
+`019f7535-71ef-7280-8954-f94277214c5f` / Task 4 最终确认 / 已完成并关闭；发现 DEGRADED 形状旁路 Important，已增加 DDL 形状校验与 PostgreSQL RED/GREEN。
+`019f753e-6638-7ab0-99fe-f067773876a5` / Task 4 最终确认 / 已完成并关闭；发现 LIVE 检查与 CAS 锁之间的线性化窗口 Important，已在 CAS trigger 锁内重检 `current_view='LIVE'` 并重跑专项、DDL 与完整回归。所有 sub-agent 为只读，未修改、暂存、提交或推送文件。
+
+## 2026-07-18 Phase 16 Task 5 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 5 - Select and Analyze High Conflict
+状态: COMMIT
+目标: 实现确定性三选二高冲突选择、lease-bound 运营显式升级和 EvidenceAnalystAgent 协调段；失败只形成一个可解释 DEGRADED Outcome。
+禁止事项: 不实现 Planner、READY Proposal、HTTP/WebSocket、前端或自动经营恢复；不调用真实模型、Skill 或通用 Phase 13/14 预算路径。
+当前 HEAD: b584808（Task 5 已提交并推送）
+本 Task 文件: src/decision_support/multi_agent.py、src/decision_support/store.py、tests/phase14_evidence_factory.py、Task 5 unit/PostgreSQL 测试与本 Task worklog。
+用户脏文件: 主工作区既有用户文件保持不接触、不暂存。
+最近命令与结果: RED 因缺少 HighConflictEscalationCoordinator 收集失败。D-146/D-147 后 Task 5 selector/Store 聚合 `25 passed`，隔离 PostgreSQL 聚合 `20 passed`，目标 compileall 与 `git diff --check` 通过。最终全量 unit `1420 passed, 4 warnings`；完整 integration `172 passed, 7 deselected, 5 warnings`。本机 5432 是用户已有不同凭据实例；所有本 Task PostgreSQL 验证仅在 `liveagent-phase16-test-postgres:5434` 上临时覆盖环境变量，不修改仓库配置。真实模型费用为 `0.000000 CNY`。
+错误与尝试次数: 首轮 GREEN 将 AgentResult 的冻结 FrozenDict 误判为非 dict，专项失败 2 项；已按实际数据流改为只读 Mapping 本地复制。测试 Fixture 首次 anchor scope 不一致，Store 正确拒绝，已修正测试父事实而未削弱生产绑定。最终复审发现 13 项 Important：重复 dispatch、过期恢复、响应丢失、finding 旁路、Runner Profile 旁路、PostgreSQL Profile 旁路、普通 lease 契约漂移、claim 生命周期窗口、SQL 终态竞态、人工空 finding、跨 REVIEW 终态丢失、裸 SQL Analysis 旁路和慢 Worker 墙钟延长数据库 claim；均已按 D-146/D-147 完成 RED/GREEN。最终规格复核又发现 REVIEW 例外允许携带 Analysis 的 DEGRADED Outcome；新增内存/PostgreSQL RED 各 `1 failed`，收紧为同 claim 且无 Analysis/Proposal 后各转绿。
+设计偏差与决策编号: 遵守 D-134 至 D-145；将 Store 与协调器共用的三选二规则提升为 derive_automatic_escalation_codes，消除双实现漂移。D-146 固定发送前 append-only dispatch claim、未知响应 at-most-once 降级、实际 Runner Profile 绑定与根行线性化。D-147 固定人工单项服务端事实重建、仅由 Store/数据库权威时钟计算 claim 剩余等待、REVIEW 下仅 claim 绑定的无 Analysis/Proposal 降级审计闭合，以及 Store 作为完整 Analysis Pydantic/canonical 验证边界。Task 6 前 READY 继续 fail-closed。
+下一条精确操作: 已以 `b584808 feat: analyze high-conflict live evidence` 推送，切换 Phase 16 Task 6 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 规格 explorer `019f754b-dec4-7541-b647-0b322e14b243`、测试/并发 explorer `019f754b-f34e-7280-a908-c6e116f5d122`、质量/安全复审 `019f759f-33d4-7d40-bb8b-1a3b78a22158` 与最终规格复审 `019f759e-fd28-7e42-9beb-1e89f4b91d74` 均已完成并关闭；后续独立复审报告的 Important 已逐项由主模型复查、补 RED/GREEN 并重跑验证。所有 sub-agent 只读，未修改、暂存、提交或推送文件；当前无运行中 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 6 PUSHED
+
+```text
+Phase / Task: Phase 16 / Task 6 - Plan and Validate Whole Proposals
+状态: PUSHED
+目标: 在同一 Bundle/Analysis 父链上执行一次受限 DecisionPlannerAgent，持久化完整 Proposal，整份验证后才追加 READY Outcome。
+禁止事项: 不修改 OperatorDecision/Compiler 权限，不实现 HTTP/WebSocket/前端，不自动提交经营恢复，不调用真实模型或复用 Phase 13/14 预算账本。
+当前 HEAD: d42eab9
+本 Task 文件: src/decision_support/multi_agent.py、src/decision_support/proposal.py、src/decision_support/store.py、Task 6 unit/PostgreSQL 测试、DDL 与本 Task worklog。
+用户脏文件: 主工作区既有用户文件保持不接触、不暂存。
+最近命令与结果: D-151/D-152 的 RED/GREEN、D-147/D-150 正向回归和 Task 6 unit/Store/API 聚合为 `83 passed`；Task 6 PostgreSQL 套件为 `29 passed`，direct-SQL coordinator-context 拒绝为 `1 passed`。以隔离 `POSTGRES_PORT=5434` 运行的完整 unit 为 `1440 passed, 4 warnings`，完整 integration 为 `181 passed, 7 deselected, 5 warnings`。`compileall`、迁移 dry-run 与 `git diff --check` 均通过；目标文件严格 UTF-8/LF/BOM/replacement/trailing-whitespace 检查已含 commands/service 复跑通过。
+错误与尝试次数: 初轮完整 unit 暴露普通 Phase 14 Proposal 被错误按多 Agent Schema 强制重载；已用显式 `MULTI_AGENT` marker 分流且复跑历史 Store 测试。D-149/D-150 后最终规格复审又发现 Analyst 返回/验证预算、过期 Planner claim 竞态、REVIEW 非超时代码和 Planner 控制面输入四项 Important；D-151 已补最小代码与 RED/GREEN。DDL 首次把 failure_code 误读为顶层列，造成合法超时闭合被拒；已改为 `payload.failure_code` 并用直接 SQL trigger RED/GREEN 验证。未调用真实模型。
+设计偏差与决策编号: D-148 至 D-151 保持有效；D-152 将多 Agent Proposal 写入收束到 Coordinator 专用入口，并要求 `APPROVE/MODIFY` 绑定精确 READY Outcome，同时修正 Planner 全局预算超时分类。OperatorDecision 权限、默认路由和真实模型禁令均不变。
+下一条精确操作: 已以 `d42eab9 feat: validate multi-agent live proposals` 推送，`origin/codex/phase16-controlled-multi-agent` 与本地 HEAD 一致；切换到 Task 7 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 初审 `019f75d1-1c20-7b40-8b92-4bd1eadc3560` 与整改规格复审 `019f75e9-e35b-75b1-9c23-5b9167384440` 已完成并关闭，D-149/D-150 Important 均已补 RED/GREEN。最终规格复审 `019f75f8-26ed-7750-9ad8-7302eae010d0` 发现两项 Important，D-150 已整改。新最终规格复审 `019f7607-d575-70b2-b771-5adaac3aa51c` 对 D-147 至 D-151 PASS。独立质量/安全审查 `019f7620-5181-7ae0-8f11-b526f1f5dabf` 发现 D-152 的 Proposal/READY Outcome 旁路和 Planner timeout 误分类两项 Important；主模型已补 RED/GREEN，整改复审 PASS 且该线程已关闭。当前无运行中的 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 7 RED
+
+```text
+Phase / Task: Phase 16 / Task 7 - Governed API and WebSocket Projection
+状态: VERIFY / READY_TO_COMMIT
+目标: 提供只接受已认证操作员、当前 lease、精确 Bundle ID、Workspace CAS 与 idempotency 的窄 escalation API，并投影稳定的 Workspace/WebSocket 事实。
+禁止事项: 不提供客户端传入的 Profile、trigger code、scope 或授权；不新增自动批准、经营恢复、模型调用、自由 Agent 交互或前端实现。
+当前 HEAD: d42eab9
+本 Task 预期文件: src/gateway/api_server.py、src/gateway/decision_support_service.py、Task 7 unit/integration API/WebSocket 测试与本 Task worklog；按实际 RED 再收窄。
+最近命令与结果: D-153 至 D-157 的 RED/GREEN 已完成。质量复审新增 D-158 RED：自动入口会继续 pending 的 `OPERATOR_REQUESTED` escalation，并在无当前人工 lease 下发送 Analyst；现已改为只读事实恢复或 pending 投影，定向回归 `3 passed`。完整 unit 使用隔离 PostgreSQL 为 `1457 passed, 4 warnings`；完整 integration 为 `182 passed, 7 deselected, 5 warnings`；compileall、迁移 dry-run、D-001 至 D-158 审计和严格目标文件编码检查通过。未调用真实模型。
+错误与尝试次数: 七项预期 RED 均已修复；未配置隔离 PostgreSQL 的完整 unit 首次得到 `12 failed, 1 error`，根因是历史默认 `5432/change_me` 凭据，注入专用 `5434` 容器凭据后全绿。Kafka 跨分区顺序夹具已固定同一 key，不改生产语义。
+设计偏差与决策编号: D-153 至 D-157 保持窄 HTTP、认证、重试、WebSocket 和自动/人工竞态边界。D-158 新增自动入口不得代替人工 lease 推进 pending manual escalation 的所有权门禁；独立整改复审 PASS。其余遵守 D-134 至 D-152。
+下一条精确操作: 只暂存 Task 7 目标文件、独立提交并推送，再进入 Task 8 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: 规格审查 `019f7675-f8f5-79b0-baef-c6f8ca523d70` 已 PASS 并关闭；质量/安全审查 `019f7676-3385-72b1-b287-71da0c8a7e27` 发现 D-158 Important，主模型已补独立 RED/GREEN 并关闭该审查。整改复审 `019f7682-94d6-7a61-a780-822f61d31243` 已 PASS 并关闭；所有 Task 7 sub-agent 只读、未修改、暂存、提交或推送，当前无运行中 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 8 RED / GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 8 - Local Operations Workspace
+状态: VERIFY / READY_TO_COMMIT
+目标: 在三视图工作台中展示服务器投影的 route、trigger、analysis、outcome；只从安全 Bundle 摘要发起窄人工升级，并在无匹配 READY Proposal 时禁用经营决定。
+禁止事项: 不让浏览器构造 Bundle 快照、Profile、trigger、lease、fencing 或模型输入；不把长期操作员 Token 放进 URL/subprotocol；不提供自动恢复、自动批准或直接执行。
+当前 HEAD: 2f4b7ef69fbb35f7196efc29e4471ad189697ac0
+本 Task 文件: front/index.html、decision_support_service.py、api_server.py、decision_support_subscription.py、Task 8 unit/API/WebSocket 测试、决策与 worklog。
+最近命令与结果: RED 为缺少 Bundle 摘要、升级面板、窄请求、READY 禁用和浏览器安全订阅。D-159 至 D-163 已依次补最小摘要、短时单次票据、HttpOnly browser binding、generation、重新认证撤销、lineage-first Proposal 和 UNAVAILABLE。Task 8/API/旧 Dashboard 聚合 `44 passed, 1 warning`；完整 unit `1473 passed, 4 warnings`；完整 integration `182 passed, 7 deselected, 5 warnings`；前端 JavaScript 语法通过。
+错误与尝试次数: 三轮独立复审共发现七项 Critical/Important，均先 RED 后 GREEN。最终修复 cookie Path 使签票 REST 可读取并撤销旧 binding，晚到旧握手被拒绝；REST/运营写失败不再伪造 `DEGRADED`。未调用真实模型。
+设计偏差与决策编号: D-159 至 D-163 只补安全投影、浏览器订阅与诚实 UI 状态，不改变业务事实、模型权限、默认路由、CAS、lease、fencing 或 OperatorDecision。
+下一条精确操作: 运行严格编码、迁移 dry-run、D-001 至 D-163 审计和差异门禁；只暂存 Task 8 目标文件，独立提交推送，再进入 Task 9 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: `019f768c-26ec-76b3-983e-e92e2b1fb0b7` 的只读实现地图发现浏览器认证 Important；三轮独立规格/安全复审已发现并验证 D-160 至 D-163 整改。最终复审 `019f76ab-72a7-74c2-b967-853c81fb31ca` 为 PASS 并已关闭；所有 Task 8 sub-agent 只读、未修改、暂存、提交或推送，当前无运行中的 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 9 RED
+
+```text
+Phase / Task: Phase 16 / Task 9 - Frozen Pairwise Evaluation
+状态: RED
+目标: 建立独立、字节稳定的 48 例数据集，并经真实 HighConflictEscalationCoordinator 与 ScriptedModel 记录正常、双 Agent 与降级路径的配对评估证据。
+禁止事项: 不调用真实模型；不静态伪造 Coordinator 结果；不把标签写入 AgentTask.input_snapshot；不复用 Phase 14/15 模型预算或覆盖既有 Manifest。
+当前 HEAD: 502b67c238ddb74e4d576cc09143b6f231f53701
+本 Task 文件: decision_support/multi_agent_evaluation.py、Phase 16 evaluation assets/generator、Task 9 unit/PostgreSQL tests、路线图和 worklog。
+用户脏文件: 主工作区既有文档和临时脚本保持在隔离工作树之外；本工作树开始时干净。
+最近命令与结果: Task 8 已推送且 origin/codex/phase16-controlled-multi-agent 与本地 HEAD 都为 502b67c；Task 9 尚无专用数据集或评估运行时，下一步先写可验证的 RED。
+错误与尝试次数: 无；真实模型调用为 0。
+设计偏差与决策编号: 沿用 D-134 至 D-163；如需新增公共评估协议、持久化模型账本或变更安全边界，必须先新增决策并补测试。
+下一条精确操作: 添加 Task 9 失败测试，锁定 48/12-24-12/10 smoke eligibility、配对身份和真实 Coordinator/ScriptedModel 重放证据。
+模型费用累计: Phase 16 0.000000 CNY；Task 10 预检前禁止真实模型。
+Sub-agent: `019f76ba-41ca-7ec3-aae6-2531f007888d` / Task 9 规格与预算隔离只读审查，2026-07-18 派发，禁止改文件；预期交付为数据集/身份/预算风险清单，状态 RUNNING。`019f76ba-563d-7212-84c7-9cd642581c0d` / Task 9 评估数据架构只读分析，2026-07-18 派发，禁止改文件；预期交付为最小 Generator/Fixture 方案，状态 RUNNING。主模型将在首次回报、核心 GREEN 和提交前检查实际差异和测试。
+```
+
+## 2026-07-18 Phase 16 Task 9 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 9 - Frozen Pairwise Evaluation
+状态: VERIFY / READY_TO_COMMIT
+目标: 完成独立 48 例资产、真实 Coordinator/ScriptedModel 重放和 PostgreSQL 同构恢复证据。
+禁止事项: 不调用真实模型；不借用 Phase 13/14/15 账本；不把评估标签输入 AgentTask；不新增自动经营写路径。
+当前 HEAD: 502b67c238ddb74e4d576cc09143b6f231f53701
+本 Task 文件: decision_support/multi_agent_evaluation.py、evaluation/phase16_controlled_multi_agent、生成器、Task 9 unit/PostgreSQL tests、路线图和 worklog。
+用户脏文件: 主工作区既有文档和临时脚本保持在隔离工作树之外；当前暂未暂存任何文件。
+最近命令与结果: Task 9 RED 为缺少评估模块。最终专项 unit `7 passed`；隔离 PostgreSQL 新 Store 重放 `1 passed in 46.99s`；完整 unit `1480 passed, 4 warnings`；完整 integration `183 passed, 7 deselected, 5 warnings`，出口码均为 0。48 例为 12 normal、24 paired high-conflict、12 adversarial，split 为 12/24/12 且全部业务输入独立，smoke eligibility 为 10；重放报告为 Analyst 30、Planner 26、READY 24、DEGRADED 6、no-send 18、real-model 0。
+错误与尝试次数: 1) 主题摘要不匹配正式 Evidence 模板，已改用正式中文模板；2) 历史固定时钟被 Store 实时 freshness 拒绝，改为 Store 权威当前 UTC、保持数据/请求身份不变；3) ScriptedModel 冻结 Mapping 未规范化为 AgentResult JSON，已经 Pydantic JSON 边界恢复；4) PostgreSQL 不接受内存 Store 的 now 参数，改为统一依赖 Store 时钟；5) 首轮规格审查发现 sent failure 合同成本漏记、模型正文未带完整 task、lineage/restart 断言不足，均已先 RED 后 GREEN；6) 整改复审发现源码闭包遗漏 Store/Proposal、未执行 paired baseline、case/split 元数据泄漏、Profile 合同未真实执行、加载资产未重验摘要，均已先 RED 后 GREEN；7) 最终复审要求真实 PriorityLiveOpsPolicy 基线、AgentAction FINAL 信封、split 业务输入独立、Specialist 依赖纳入闭包，均已先 RED 后 GREEN。最新专项 unit `7 passed`；审查线程自身未注入隔离 5434 密码导致 PostgreSQL 认证失败，该外部环境问题不覆盖主模型已取得的通过证据。
+设计偏差与决策编号: 未改变 D-143 的共享 Runner fail-closed。Task 9 只提供独立 EvaluationScriptedRunner，逐次强制精确 Phase 16 Profile、单模型调用、零 Skill、ScriptedModel、case 级成本汇总和 no-fallback；Task 10 前仍不接入真实/共享模型账本。
+下一条精确操作: 运行最终严格 UTF-8/LF/BOM/空白、Manifest 重建、迁移 dry-run 和暂存差异门禁；仅暂存 Task 9 文件，独立提交推送 `test: add controlled multi-agent evaluation`，再切换到 Task 10 RED。
+模型费用累计: Phase 16 0.000000 CNY；Scripted 合同成本仅为离线报告字段，不是外部消费；Task 10 预检前禁止真实模型。
+Sub-agent: 所有 Task 9 sub-agent 均只读、未改文件、未暂存/提交/推送且已关闭。精简终审 `019f76fd-d10e-7e60-91e2-15cb6854e643` 为 PASS，确认 PriorityLiveOpsPolicy 基线、AgentAction FINAL、Profile 合同、独立输入/闭包和 fail-closed 资产加载；当前无运行中的 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 9 PUSHED / Task 10 RED
+
+```text
+Phase / Task: Phase 16 / Task 10 - Formal Smoke Preflight
+状态: RED
+目标: 在不改变默认 ScriptedModel 演练的前提下，建立独立 PHASE16_MULTI_AGENT_SMOKE 账本和真实 smoke 的 fail-closed 发送预检。
+禁止事项: 不在 endpoint、官方价格、usage、Profile Prompt/Schema、Manifest、代码哈希、可用 reservation 全部通过前访问真实模型；不借用 Phase 13/14/15 预算；不打开默认路由。
+当前 HEAD: be6de9784f16492408300c48d9186eee7c913bdf
+本 Task 文件: Phase 16 smoke preflight/ledger、对应 unit/PostgreSQL tests、Phase 16 worklog 和总控计划。
+用户脏文件: 主工作区既有文档和临时脚本仍保持在隔离工作树之外；当前工作树仅有本 Task 的未暂存留痕变更。
+最近命令与结果: Task 9 unit `7 passed`；Task 9 PostgreSQL 新 Store 重放已有通过证据；`be6de97 test: add controlled multi-agent evaluation` 已推送，远端与本地一致。
+错误与尝试次数: 无；真实模型调用为 0。
+设计偏差与决策编号: 沿用 D-134 至 D-163；若需要改变公开账本、真实模型身份或安全发送边界，必须先新增决策并补测试。
+下一条精确操作: 写失败测试，锁定缺少任何一项预检证据、超过 case/预算上限、账本重放或 usage 未知时均不向 Model Port 发送。
+模型费用累计: Phase 16 0.000000 CNY；本 Task 上限 1.000000 CNY。
+Sub-agent: `019f7708-38b8-7e33-b353-b292373b1cf8` / Task 10 预检与账本只读审查，2026-07-18 派发，禁止修改、暂存、提交、推送或真实网络；预期交付为复用边界和 fail-closed 风险清单，状态 RUNNING。主模型将在首次回报、核心 GREEN 和提交前检查实际差异和测试。
+```
+
+## 2026-07-18 Phase 16 Task 10 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 10 - Formal Smoke Preflight
+状态: VERIFY / READY_TO_COMMIT
+目标: 以独立 PHASE16_MULTI_AGENT_SMOKE case reservation 审计真实 smoke 的预检、发送和保守 usage 结算。
+禁止事项: 不调用真实模型；不把 smoke PASS 解释为默认路由开启或经营授权；不复用 Phase 13/14/15 账本。
+当前 HEAD: be6de9784f16492408300c48d9186eee7c913bdf
+本 Task 文件: decision_support/multi_agent_smoke.py、init_phase16_smoke.sql、统一迁移清单、Task 10 unit/PostgreSQL tests、D-164 和阶段 worklog。
+用户脏文件: 主工作区既有文档和临时脚本仍保持在隔离工作树之外；当前未提交差异只属于 Task 10。
+最近命令与结果: Task 10 RED 为缺少 smoke 模块与 DDL。最终专项 unit `12 passed`、PostgreSQL `2 passed`、Task 9/10 聚合 `15 passed`；完整 unit 和完整 integration 均使用隔离 `liveagent-phase16-test-postgres:5434` 并以退出码 0 完成。`compileall` 通过；迁移 dry-run 18 步且实际迁移为 `18 passed, 0 warnings, 0 failed`；真实模型调用为 0。
+错误与尝试次数: 首轮规格复审发现 4 个 Critical/2 个 Important；后续质量复审发现恢复 outcome、TOCTOU、文件资产错误和 DDL RELEASED/PASS 直写问题。均已先 RED 后 GREEN：预检缺证据为 BLOCKED、发送后外部证据不足为 INCONCLUSIVE，唯一 scope 同时限制 10 slot/1.00 CNY，Planner 未发送结算已有 Analyst 成本，Task 9 资产在预检和 Port 前重验，reservation 持久化 outcome/reason，DDL 与内存/PostgreSQL API 同构。最终规格复审和质量/安全复审均为 PASS。
+设计偏差与决策编号: D-164 新增独立 case 级 reservation、cache-miss 保守计价和“Task 10 transport/成本证据不代替 Task 9 Coordinator 正确性”的边界。D-165 固定唯一 scope、双重 slot/金额上限、重验资产与 D-121 同进程可信启动装配边界。D-166 固定恢复 outcome/reason 和发送前资产重验。Phase 16 的 1.00 CNY 是已批准的独立 scope，不借用 Phase 13/14/15 账本。
+下一条精确操作: 对 Task 10 目标文件执行严格 UTF-8/LF/尾随空白和 `git diff --check`，仅暂存本 Task 文件，独立提交推送 `feat: gate controlled multi-agent smoke`，再切换 Task 11 RED。
+模型费用累计: Phase 16 0.000000 CNY；脚本和无网络 Port 不构成真实费用。
+Sub-agent: `019f7708-38b8-7e33-b353-b292373b1cf8` 的预检审查已关闭；`019f7715-745d-7282-bd99-ecc62f9e9284` 的规格复审和复审整改均为 PASS；`019f7722-61a1-7b83-907b-d8e6150af30c` 的三轮质量/安全复审发现并验证 outcome/TOCTOU/DDL 整改，最终为 PASS。所有 sub-agent 均只读、未修改/暂存/提交/推送，当前无运行中的 sub-agent。
+```
+
+## 2026-07-18 Phase 16 Task 10 PUSHED / Task 11 RED
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: RED
+目标: 交付可重复的 live-session-p001-sold-out-v2 本地回放，证明保护优先、受控双 Agent、人工经营恢复、仅编译不自动提交和稳定重启审计；生成诚实的 Phase 16 Acceptance。
+禁止事项: 不调用真实模型或扩大真实 smoke；不把 Demo 结果当成默认路由开启；不自动提交经营恢复；不引入新业务写权限、自由 A2A 或用户无关文件。
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+本 Task 文件: Phase 16 Demo/Acceptance 生成器、专项 unit/PostgreSQL tests、Acceptance 文档和阶段 worklog。
+用户脏文件: 主工作区既有文档和临时脚本仍保持在隔离工作树之外；当前未提交变更仅为 Task 10 pushed/Task 11 RED 留痕。
+最近命令与结果: Task 10 `c6cb13a` 已推送；专项 unit `12 passed`、PostgreSQL `2 passed`、全量 unit/integration exit 0、迁移 `18 passed`，真实模型费用 0。
+错误与尝试次数: 无；Task 11 尚无 Demo/Acceptance 实现，下一步先写保护优先、人工审批、未自动提交和重启确定性的 RED。
+设计偏差与决策编号: 沿用 D-134 至 D-166；若需要新的公开 Demo/Acceptance Schema 或安全边界，先新增决策并补测试。
+下一条精确操作: 读取 Phase 14/15 既有 Demo/Acceptance 模式，添加 Task 11 失败测试并验证 RED。
+模型费用累计: Phase 16 0.000000 CNY；Task 11 不因 Acceptance 自动调用真实模型。
+Sub-agent: 无运行中的 sub-agent。若派发，只读分析必须在首报、核心 GREEN 和提交前由主模型复查；20 分钟无可验证进展或越界立即关闭。
+```
+
+## 2026-07-18 Phase 16 Task 11 GREEN / REVIEW
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: GREEN / REVIEW
+目标: 固定 live-session-p001-sold-out-v2 的本地业务回放已生成，正在进行规格与质量/安全双重复审。
+禁止事项: 不调用真实模型、不自动提交经营恢复、不启动 Phase 17；不修改用户已有脏文件。
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+本 Task 文件: Phase 16 Demo 脚本、专项测试、Acceptance、统一入口、README 与阶段留痕。
+最近命令与结果: RED 为缺失 Demo 模块；GREEN 专项 unit 3 passed，Task 9/10/11 聚合 22 passed，python scripts/run_all.py phase16-demo exit 0。Demo 使用真实 Coordinator/Store/Compiler，保护 APPLIED 先于 Analyst/Planner，READY lineage 完整，命令 persisted 但 submitted 为 false，重放无第二次 Agent 调用；真实 smoke BLOCKED，费用 0。
+错误与尝试次数: 3 次 GREEN 整改均为 Demo 装配错误：pace_score 类型、Assembler receipt、Store 真实 freshness/lease 时钟；均未改变业务契约，已由专项测试覆盖。
+设计偏差与决策编号: 无。远期固定演练时钟只为同时保留字节稳定审计与 Store 原有 freshness 校验，不放宽任何 TTL 或业务门禁。
+下一条精确操作: 接收两个只读复审结论；修复 Critical/Important 后运行 PostgreSQL、全量测试、迁移、编码和差异验证。
+模型费用累计: Phase 16 0.000000 CNY；真实 smoke 无 endpoint/usage 证据，必须维持 INCONCLUSIVE。
+Sub-agent: 规格审查与代码质量/安全审查在本记录后派发，均只读、文件边界为 Task 11 新增/修改文件与冻结 Plan/Design，禁止修改、提交、推送或访问真实模型；主模型将在首次回报、整改后和提交前核对实际差异/测试。
+```
+
+## 2026-07-18 Phase 16 Task 11 REVIEW REMEDIATION / VERIFY
+
+## 2026-07-18 Phase 16 Task 11 VERIFY COMPLETE / READY TO COMMIT
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: VERIFY COMPLETE / READY TO COMMIT
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+最终证据: 根 pytest 1684 passed, 8 deselected, 9 warnings；Phase 16 PostgreSQL 31 passed；Task 11/Phase 16 专项 39 passed；Demo CLI exit 0；目标 compileall exit 0；迁移 dry-run 18 个现有步骤。
+Acceptance: INCONCLUSIVE；真实 smoke BLOCKED（ENDPOINT_UNAVAILABLE、USAGE_CONTRACT_UNAVAILABLE、REAL_MODEL_SMOKE_NOT_RUN），真实模型调用 0，费用 0.000000 CNY，默认 DETERMINISTIC_ONLY。
+阶段结论: Task 1-11 技术实现与本地验收完成，当前状态固定 AWAITING_PHASE_17_GATE；不自动开始 Phase 17。
+Sub-agent: 两个 Task 11 只读审查 agent 已关闭；当前无运行中的 sub-agent，未产生文件修改或真实模型调用。
+下一条精确操作: 严格 UTF-8/LF/BOM/replacement/trailing whitespace、全仓文档扫描、git diff --check、暂存边界、提交和推送。
+```
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: VERIFY / DOCS
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+已完成: Task 11 Demo、Acceptance 和两轮只读审查整改；停止目标固定为 AWAITING_PHASE_17_GATE。
+审查结论: 两个审查均为 0 Critical。规格审查 2 个 Important 已以 RED/GREEN 修复（Analysis->Escalation 父边、报告完整谱系）；质量/安全审查 5 个 Important 已收口（claim/lease 重放、PlanStore 命令账本、启动冻结路由、UUID 作用域）。Task 9 的 48 例 ScriptedModel 评估继续作为共享模型协议路径的权威证据，Task 11 不冒充该 Runner。
+最新命令与结果: Task 11/Phase 16 聚合 pytest 39 passed；python scripts/run_phase16_controlled_multi_agent_demo.py exit 0；目标 compileall exit 0；根 pytest 正在重新运行，未将旧运行结果记为最终通过。
+真实模型/费用: smoke BLOCKED，真实调用 0，Phase 16 费用 0.000000 CNY；无 endpoint/usage 合同或真实回执，Acceptance 固定 INCONCLUSIVE，默认 DETERMINISTIC_ONLY。
+Sub-agent: 019f7773-cb08-7e21-844e-521d391fdb03（规格）与 019f7773-df6e-7d73-9dfb-4b7cd542261e（质量/安全）均只读，已关闭，未修改/提交/推送/访问真实模型；当前无运行中的 sub-agent。
+下一条精确操作: 等待根 pytest 明确退出码；成功后运行 PostgreSQL、迁移、严格编码/差异检查，更新最终验证证据并只暂存 Task 11 文件。
+```
+
+## 2026-07-18 Phase 16 Task 11 REVIEW DISPATCH
+
+```text
+Phase / Task: Phase 16 / Task 11 - Demo and Acceptance
+状态: REVIEW / VERIFY
+当前 HEAD: c6cb13a4f7136e07dfb3894ee4cc10b52177765b
+主模型当前工作: 在隔离工作树重新运行 Demo、Task 11/Phase 16 专项、根 pytest、编译、迁移 dry-run 和编码检查；任何失败先定位根因后整改。
+Sub-agent A / 角色: Task 11 规格符合性只读审查
+文件边界: 只读 scripts/run_phase16_controlled_multi_agent_demo.py、tests/unit/test_phase16_acceptance_demo.py、Acceptance 报告、Task 11 已修改入口/README，以及冻结 Phase 16 Design/Plan；不得修改、提交、推送、运行真实模型或访问外部 endpoint。
+预期交付物: 逐项核对保护优先、双 Agent 顺序/次数、完整谱系、人工 approve/modify/reject、未自动提交、重启重放、INCONCLUSIVE/默认路由和 Phase 17 停止边界；报告 Critical/Important/Minor 与文件行号。
+Sub-agent B / 角色: Task 11 代码质量与安全只读审查
+文件边界: 同上，另可只读 tests/unit/test_phase16_escalation_store.py；不得修改、提交、推送、运行真实模型或访问外部 endpoint。
+预期交付物: 检查时间/租约、确定性、不可变事实重放、命令提交边界、数据泄露、伪造外部证据和测试隔离；报告 Critical/Important/Minor 与文件行号。
+监控协议: 首次回报、整改后和提交前由主模型核验实际差异与测试；20 分钟无可验证进展、重复阻塞、越界或建议放宽门禁即关闭并由主模型接管。
+模型费用累计: Phase 16 0.000000 CNY；本次审查及本地验证不得产生真实模型费用。
+```
 
 ## 2. 当前授权边界
 
 - 已完成：Phase 12B Task 1-11 与 Acceptance。
 - 已审核：Phase 14 Human-Centered Decision Support Design/Plan、D-113 至 D-122；Phase 15 Design/Plan、D-123 至 D-132 和恢复协议。
-- 当前授权：Phase 15 Stage B Task 1-12 连续实施；Task 12 已完成，阶段停止。
-- 仍禁止：Task 6 预检前运行真实模型；伪造真人或 GitHub Actions 证据；修改用户脏文件；跳过 RED/REVIEW/VERIFY。
+- 当前授权：Phase 16 Task 1-11 连续实施；Task 1 文档持久化完成后不再等待额外批准。
+- 仍禁止：Task 10 预检前运行真实模型；伪造真人或 GitHub Actions 证据；修改用户脏文件；跳过 RED/REVIEW/VERIFY。
 - 调整边界：采用受控自主调整；设计范围内可自主修正，架构级变化先写决策日志，触及硬边界时暂停。
-- 当前禁止：提交红灯/半成品/已知失败代码、修改或提交用户脏文件、自动进入下一 Phase。
+- 当前禁止：提交红灯/半成品/已知失败代码、修改或提交用户脏文件、自动进入 Phase 17。
 
 ## 3. 当前执行记录
 
@@ -563,3 +864,33 @@ Task 9 审查整改摘要：
 - PR/Nightly 实际报告均为技术 `PASS`、36 个非 holdout case；Release 实际报告为 48 个 case、技术 `BLOCKED`、最终 `NOT_RELEASED`，原因包含数据库、覆盖率和 Actions evidence 缺失。
 - `compileall`、迁移 dry-run、敏感扫描、目标 13 文件严格 UTF-8/LF/BOM/replacement/trailing whitespace、`git diff --check` 均通过；仓库历史文档扫描为既有 4 errors/52 warnings，未归因于本 Task。
 - 当前只暂存本 Task 文件，保留用户已有脏文件和无关临时脚本；准备提交 `build: add local phase 15 release gates`。
+
+## 2026-07-18 Phase 16 COMPLETE / AWAITING PHASE 17 GATE
+
+```text
+Phase / Task: Phase 16 / COMPLETE
+状态: AWAITING_PHASE_17_GATE
+最终证据: 根 pytest 1684 passed, 8 deselected, 9 warnings；Phase 16 PostgreSQL 31 passed；Task 11/Phase 16 专项 39 passed；Demo CLI 与目标 compileall exit 0；迁移 dry-run 18 个现有步骤；目标文件严格 UTF-8/LF/BOM/replacement/trailing-whitespace 与 git diff --check 通过。
+Acceptance: INCONCLUSIVE；真实 smoke BLOCKED（ENDPOINT_UNAVAILABLE、USAGE_CONTRACT_UNAVAILABLE、REAL_MODEL_SMOKE_NOT_RUN），真实模型调用 0，费用 0.000000 CNY，默认 DETERMINISTIC_ONLY。
+审查: 两个只读 Task 11 sub-agent 均为 0 Critical；2 个规格 Important 与 5 个质量/安全 Important 已 RED/GREEN 修复。所有 sub-agent 已关闭，无运行中的 sub-agent。
+下一条精确操作: 仅暂存 Task 11 文件，提交 docs: accept phase 16 controlled multi-agent，推送当前隔离分支；不得自动开始 Phase 17。
+
+## 2026-07-19 Phase 16 PR COVERAGE REMEDIATION COMPLETE / READY TO MERGE
+
+```text
+Phase / Task: Phase 16 / PR coverage remediation
+状态: VERIFY -> READY_TO_MERGE
+目标: 固定 11 文件 source closure，补齐 branch evidence，并保持 90/85 门槛
+禁止事项: 不降低门槛、不排除未测生产代码、不调用真实模型、不自动开始 Phase 17
+当前 HEAD: 6216f9f ci: bind phase16 coverage source closure
+本 Task 文件: coverage Manifest、coverage helper、PR workflow、Phase 16/相关 unit 与 PostgreSQL tests
+用户脏文件: 无关用户修改未暂存；本轮仅暂存测试、CI 和 Manifest
+最近命令与结果: unit 1555 passed；integration 185 passed, 7 deselected；coverage line 92.035%, branch 85.081%；Gate PASS；compileall、敏感扫描、git diff --check 通过
+错误与尝试次数: 首次全量 unit 曾因未注入本机 PostgreSQL 密码和旧环境错误；设定可信本机环境后重新执行为 1555 passed。历史编码扫描 4 errors/既有 warnings 未归因于本轮
+设计偏差与决策编号: D-167；Release/Nightly coverage 语义未改变；真实模型费用 0.000000 CNY
+下一条精确操作: 提交文档留痕，推送后查询 PR #1 required checks/mergeability；仅在 Gate 全绿时用 merge commit 合并到 main
+模型费用累计: Phase 16 0.000000 CNY
+```
+
+Sub-agent 状态：本轮两个 coverage 子任务均未在约定范围产生可验证增量，已按监控协议 STOPPED；主模型接管并完成测试整改。无运行中的 sub-agent。
+```
