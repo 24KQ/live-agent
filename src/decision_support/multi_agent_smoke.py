@@ -53,8 +53,8 @@ PHASE16_CASE_RESERVATION_CNY = (
 )
 FORMAL_MODEL_ID = "deepseek-v4-flash"
 FORMAL_ENDPOINT_HOST = "api.deepseek.com"
-INPUT_PRICE_CNY_PER_MILLION = Decimal("1.008000")
-OUTPUT_PRICE_CNY_PER_MILLION = Decimal("2.016000")
+INPUT_PRICE_CNY_PER_MILLION = Decimal("1.000000")
+OUTPUT_PRICE_CNY_PER_MILLION = Decimal("2.000000")
 _HASH_PATTERN = r"^[0-9a-f]{64}$"
 
 
@@ -744,6 +744,7 @@ class Phase16SmokeRunner:
         self,
         *,
         config: Phase16SmokeConfig,
+        profile_deadline_seconds: int = 2,
         preflight: Phase16SmokePreflight,
         budget_store: Phase16SmokeBudgetStore | PostgresPhase16SmokeBudgetStore,
         model_port: AgentModelPort,
@@ -751,6 +752,7 @@ class Phase16SmokeRunner:
         self._config = config
         self._preflight = preflight
         self._budget = budget_store
+        self._profile_deadline_seconds = profile_deadline_seconds
         self._model_port = model_port
 
     async def run(self, case_ids: tuple[str, ...]) -> Phase16SmokeReport:
@@ -896,8 +898,8 @@ class Phase16SmokeRunner:
         accumulated_cost = Decimal("0")
         requests = 0
         for profile, stage in (
-            (build_evidence_analyst_profile(), "CONFLICT_ANALYSIS"),
-            (build_decision_planner_profile(), "LIVE_DECISION_PLANNING"),
+            (build_evidence_analyst_profile(deadline_seconds=self._profile_deadline_seconds), "CONFLICT_ANALYSIS"),
+            (build_decision_planner_profile(deadline_seconds=self._profile_deadline_seconds), "LIVE_DECISION_PLANNING"),
         ):
             request = self._request_for(profile, case, request_key, stage)
             requests += 1

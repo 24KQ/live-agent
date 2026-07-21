@@ -251,8 +251,9 @@ def _build_profile(
     result_schema: dict[str, object],
     max_total_tokens: int,
     max_case_cost_cny: Decimal,
+    deadline_seconds: int = 2,
 ) -> SpecialistProfile:
-    """统一构造温度零、单次调用、零 Skill 和两秒 deadline 的精确 Profile。"""
+    """统一构造温度零、单次调用、零 Skill 的精确 Profile。""",
 
     # Runner 先解析 AgentAction，再只对 FINAL 的 final_output 校验 result_schema；Prompt
     # 必须同时固定两层形状，否则模型即使遵守结果 Schema 也会被 Runner 判为 INVALID_ACTION。
@@ -279,13 +280,13 @@ def _build_profile(
         max_model_calls=1,
         max_skill_calls=0,
         max_total_tokens=max_total_tokens,
-        deadline_seconds=2,
+        deadline_seconds=deadline_seconds,
         max_case_cost_cny=max_case_cost_cny,
     )
 
 
-def build_evidence_analyst_profile() -> SpecialistProfile:
-    """返回只读 ConflictAnalysis Profile，预算固定为 2 秒、1200 token、0.03 CNY。"""
+def build_evidence_analyst_profile(deadline_seconds: int = 2, max_total_tokens: int = 1200) -> SpecialistProfile:
+    """返回只读 ConflictAnalysis Profile。"""
 
     return _build_profile(
         profile_id=EVIDENCE_ANALYST_PROFILE_ID,
@@ -295,13 +296,14 @@ def build_evidence_analyst_profile() -> SpecialistProfile:
             "Do not rank products, propose actions, call Skills, or claim authority."
         ),
         result_schema=_CONFLICT_ANALYSIS_RESULT_SCHEMA,
-        max_total_tokens=1200,
+        max_total_tokens=max_total_tokens,
         max_case_cost_cny=Decimal("0.030000"),
+        deadline_seconds=deadline_seconds,
     )
 
 
-def build_decision_planner_profile() -> SpecialistProfile:
-    """返回只读 Planner Profile，预算固定为 2 秒、2800 token、0.07 CNY。"""
+def build_decision_planner_profile(deadline_seconds: int = 2) -> SpecialistProfile:
+    """返回只读 Planner Profile。"""
 
     return _build_profile(
         profile_id=DECISION_PLANNER_PROFILE_ID,
@@ -313,6 +315,7 @@ def build_decision_planner_profile() -> SpecialistProfile:
         result_schema=_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
         max_total_tokens=2800,
         max_case_cost_cny=Decimal("0.070000"),
+        deadline_seconds=deadline_seconds,
     )
 
 

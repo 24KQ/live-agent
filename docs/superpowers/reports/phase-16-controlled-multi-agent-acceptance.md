@@ -48,8 +48,8 @@
 
 ## Frozen Scripted Evaluation
 
-- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `a5e6a599a55bca9303c6483014e122a20ccdd55e1bf686d2665fabc2e10b1ca3`
-- Source closure digest: `e3f4be5d7e5a5d47b97dc56d5485d6d6a72325e5292add26c53ac3a984d73640`
+- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `45950a3c77d1b1ebdcb6a471302d9db099efe935db4a289159737f4e6148a6d8`
+- Source closure digest: `283e30d1de39f8589450da6b369b1c4063be42a9b8bbc661cd80cf984d8791b4`
 - Profile digests: `{"decision_planner": "70d9a6c3cedd2d571b6794b31983b0e20d9bb1d6f7c5c97cbd4e95b3c64c9183", "evidence_analyst": "aeafd9bfcc519d17e05ab8361be3c65aa16e8b4eb6a506bb0fa3d258ff5026ef"}`
 - Cases / route-correct / paired identity: `48 / 48 / 24`
 - Analyst / Planner / READY / DEGRADED / no-send: `30 / 26 / 24 / 6 / 18`
@@ -57,28 +57,16 @@
 
 ## Real Smoke Evidence
 
-- Scope: `PHASE16_MULTI_AGENT_SMOKE` (10 high-conflict paired cases)
-- Smoke status: `DIRECT_MODE_PASS` (Phase16SmokeRunner path BLOCKED by source_code_digest mismatch after profile parameterization)
-- Real model calls / cost: `20 / 0.073220 CNY` (Analyst 10 + Planner 10)
-- Model: `deepseek-v4-flash` via `api.deepseek.com`
-- Price evidence: official DeepSeek V4 Flash pricing verified (input 1.0 CNY/million, output 2.0 CNY/million)
-- Budget utilization: `7.3%` of 1.00 CNY hard cap
-- Smoke case count: `10`
+- Scope: `PHASE16_MULTI_AGENT_SMOKE` (10 cases / 1.00 CNY hard cap)
+- Smoke status: `BLOCKED`
+- Real model calls / cost: `0 / 0.000000 CNY`
+- Blockers:
+  - `ENDPOINT_UNAVAILABLE`
+  - `PHASE16_SMOKE_PREFLIGHT_REQUIRED`
+  - `REAL_MODEL_SMOKE_NOT_RUN`
+  - `USAGE_CONTRACT_UNAVAILABLE`
 
-| Stage | Success | Failure | Min Output Tokens | Max Output Tokens | Min Latency | Max Latency |
-|-------|---------|---------|-------------------|-------------------|-------------|-------------|
-| EvidenceAnalystAgent | **7/10** | 3 INVALID_OUTPUT_JSON | 1576 | 2393 | 10.6s | 16.75s |
-| DecisionPlannerAgent | **10/10** | 0 | 1002 | 2301 | 7.2s | 16.36s |
-
-**Key findings:**
-- Analyst `max_total_tokens=1200` was insufficient: real outputs range 1576-2393 tokens. Added `max_total_tokens` parameter (default 1200, backward compatible) for smoke override to 2400.
-- Analyst `deadline_seconds=2` was insufficient: real latencies range 10-17 seconds. Extended to 60s via `profile_deadline_seconds` parameter.
-- 3/10 Analyst INVALID_OUTPUT_JSON failures indicate the model occasionally produces non-JSON responses with the current prompt/schema. This is a known reliability characteristic for smoke evidence, not a pipeline failure.
-- Planner 10/10 success with `max_total_tokens=2800` and default `deadline_seconds=2` is adequate.
-- Total real cost `0.073220 CNY` is within the 1.00 CNY budget.
-- Default route remains `DETERMINISTIC_ONLY`; the smoke proved integration works but does NOT authorize automatic production decisions.
-- Phase 16 real model evidence is now `PASS` (direct-mode). The Phase16SmokeRunner preflight path remains `BLOCKED` due to source_code_digest mismatch. This is a known frozen-asset constraint, not a reliability defect.
-
+真实 endpoint、usage 合同和真实模型回执未提供，因此 Phase 16 结论保持 INCONCLUSIVE；默认路由继续为 DETERMINISTIC_ONLY。Phase 16 完成后不自动实施 Phase 17，当前状态固定为 AWAITING_PHASE_17_GATE。
 
 ## PR Coverage Remediation
 

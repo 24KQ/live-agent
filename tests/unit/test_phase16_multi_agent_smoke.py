@@ -75,8 +75,8 @@ def _official_price() -> Phase16OfficialPriceEvidence:
     return Phase16OfficialPriceEvidence(
         model_id="deepseek-v4-flash",
         endpoint_host="api.deepseek.com",
-        input_cny_per_million=Decimal("1.008000"),
-        output_cny_per_million=Decimal("2.016000"),
+        input_cny_per_million=Decimal("1.000000"),
+        output_cny_per_million=Decimal("2.000000"),
         official_price_digest="a" * 64,
     )
 
@@ -588,7 +588,7 @@ def test_smoke_model_port_exception_and_usage_overrun_are_conservatively_degrade
                 request_id=request.request_id,
                 model_id=request.model_id,
                 output={},
-                usage=ModelUsage(input_tokens=100_000, output_tokens=0, total_tokens=100_000),
+                usage=ModelUsage(input_tokens=110_000, output_tokens=0, total_tokens=110_000),
                 response_digest="b" * 64,
                 latency_ms=Decimal("1"),
             ),
