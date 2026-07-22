@@ -1270,3 +1270,16 @@
 - 双连接 CAS、重复 claim/receipt 拒绝、Planner 必须等待 Analyst validation PASS、崩溃恢复只追加未知失败且绝不重发均由真实 PostgreSQL 覆盖。正式 PASS 必须通过两条 HMAC receipt 复验；schema contract 弱化也会在入口 fail-closed。
 - Task 2 聚合验证 `102 passed in 227.95s`；迁移 dry-run 为 19 步，`compileall`、敏感扫描、文档扫描（`0 errors`）和 `git diff --check` 通过。真实模型调用仍为 `0`，正式 run 费用仍为 `0.000000 CNY`。
 - 实现提交 `b2387e9 feat: add phase16 official smoke ledger`、测试提交 `469483e test: verify phase16 official smoke ledger`、留痕提交 `69af187 docs: record phase16 official smoke ledger` 均已推送；下一步进入 Task 3 RED，仍不得发送真实模型请求。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 GREEN / READY TO COMMIT
+
+- 正式 Smoke 已收口到唯一 `scripts/run_phase16_real_smoke.py`：默认 dry-run 不读 `.env`、
+  不连接 PostgreSQL、不创建 DeepSeek Adapter；只有显式 `--execute` 才会进入受控装配。
+- 每个冻结 slot 经 `BoundedSpecialistRunner` 运行 Analyst 后 Planner，二次消费 FINAL
+  AgentAction、JSON Schema 和精确六角色 EvidenceRef；非法动作、Schema 或伪造证据在
+  Planner 前追加失败事实并停止。
+- PostgreSQL 恢复先于任何新 dispatch。未知 attempt 产生 `FAILED` 并阻断新发送；已认证
+  PASS outcome 会被跳过，当前进程只执行未完成 slot。专项/关联集合为 `171 passed`，
+  `compileall`、迁移 dry-run、敏感载荷扫描和 `git diff --check` 均已执行。
+- 当前正式 Manifest 为 `d75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b`，
+  schema contract 为 `6b0da8095081fc5f44a1e8d956304bb6`；正式费用仍为 `0.000000 CNY`。

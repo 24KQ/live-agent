@@ -46,6 +46,8 @@ from src.gateway.decision_support_service import (
     canonical_multi_agent_escalation_idempotency_key,
 )
 from src.specialist_runtime.models import (
+    AgentAction,
+    AgentActionKind,
     AgentResult,
     AgentResultStatus,
     AgentTask,
@@ -1065,20 +1067,31 @@ class _PostgresScriptedAnalyst:
         """回显 Coordinator 已冻结的触发码和六个引用，模拟 Schema 合法的 FINAL 结果。"""
 
         self.calls.append(task)
+        output = {
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "多个冻结冲突信号需要运营确认。",
+            "evidence_refs": [
+                item.model_dump(mode="json") for item in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "多个冻结冲突信号需要运营确认。",
-                "evidence_refs": [
-                    item.model_dump(mode="json") for item in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # PostgreSQL 路径也必须回放共享 Runner 的唯一 FINAL；这样测试真实 Store
+            # 的同时不会绕过 Coordinator 对动作、输出和六角色 EvidenceRef 的二次校验。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_SCRIPTED_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_SCRIPTED_ANALYST_SUCCEEDED",
         )
@@ -1104,31 +1117,42 @@ class _PostgresScriptedPlanner:
     def _result(self, task: AgentTask) -> AgentResult:
         """按冻结 task 生成稳定合法 Planner 输出，供阻塞并发替身复用而不重复计数。"""
 
+        output = {
+            "options": [
+                {
+                    "option_id": "switch-backup",
+                    "product_strategy": "SWITCH_TO_BACKUP",
+                    "backup_product_id": "p002",
+                    "host_prompt": "主商品售罄，请等待运营确认后切换备品。",
+                    "timing": "AFTER_OPERATOR_CONFIRMATION",
+                    "risk_flags": [
+                        "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
+                        "HUMAN_CONFIRMATION_REQUIRED",
+                        "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+                    ],
+                    "evidence_refs": [
+                        item.model_dump(mode="json")
+                        for item in task.initial_evidence_refs
+                    ],
+                }
+            ]
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "options": [
-                    {
-                        "option_id": "switch-backup",
-                        "product_strategy": "SWITCH_TO_BACKUP",
-                        "backup_product_id": "p002",
-                        "host_prompt": "主商品售罄，请等待运营确认后切换备品。",
-                        "timing": "AFTER_OPERATOR_CONFIRMATION",
-                        "risk_flags": [
-                            "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
-                            "HUMAN_CONFIRMATION_REQUIRED",
-                            "INVENTORY_CONFLICT_REQUIRES_REVIEW",
-                        ],
-                        "evidence_refs": [
-                            item.model_dump(mode="json")
-                            for item in task.initial_evidence_refs
-                        ],
-                    }
-                ]
-            },
+            output=output,
+            # Planner 也不能仅凭 output 模拟成功；封闭 FINAL 让真实 PostgreSQL
+            # Proposal/Outcome 链继续受同一 AgentAction 与 EvidenceRef 不变量保护。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_SCRIPTED_PLANNER_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_SCRIPTED_PLANNER_SUCCEEDED",
         )
@@ -1188,20 +1212,31 @@ class _BlockingPostgresAnalyst(_PostgresScriptedAnalyst):
         if len(self.calls) == 1:
             self.entered.set()
             await self.release.wait()
+        output = {
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "多个冻结冲突信号需要运营确认。",
+            "evidence_refs": [
+                item.model_dump(mode="json") for item in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "多个冻结冲突信号需要运营确认。",
-                "evidence_refs": [
-                    item.model_dump(mode="json") for item in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # 阻塞并发替身返回后仍必须具有完整 Runner 信封，保证本用例观察的是
+            # PostgreSQL dispatch claim 的并发语义，而不是缺少 FINAL 的协议降级。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_BLOCKING_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_BLOCKING_ANALYST_SUCCEEDED",
         )
@@ -1226,20 +1261,31 @@ class _LatePostgresAnalyst(_PostgresScriptedAnalyst):
 
         self.calls.append(task)
         await asyncio.sleep(2.1)
+        output = {
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "迟到的冲突分析不得越过数据库租约。",
+            "evidence_refs": [
+                item.model_dump(mode="json") for item in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "迟到的冲突分析不得越过数据库租约。",
-                "evidence_refs": [
-                    item.model_dump(mode="json") for item in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # 即使该结果应因数据库租约过期而被拒绝，也应保持完整 FINAL 形状，
+            # 以避免测试把超时正确性和动作信封缺失两个失败原因混在一起。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_LATE_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_LATE_ANALYST_SUCCEEDED",
         )

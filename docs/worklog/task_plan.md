@@ -282,3 +282,14 @@ Task 10 前不访问真实模型，任何严重安全违规、预算风险或强
   `DEGRADED` 审计终态；没有 Planner claim 的历史 Analysis 保持原状。
 - 内存与 PostgreSQL Store/DDL 均收紧为 Analyst 无 Analysis 或 Planner 已发送两种受限闭合来源，
   并新增对应 RED/GREEN。真实模型费用仍为 `0.000000 CNY`。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3
+
+- [x] 以 Smoke-only Profile、六角色只读投影、专用账本预算适配器和 `BoundedSpecialistRunner`
+  装配正式路径；不写生产 Coordinator、Store、Proposal、Outcome 或经营命令。
+- [x] 唯一脚本默认 dry-run，只有 `--execute` 可装配网络依赖；旧 direct-mode 参数在读取
+  `.env` 或构造 Adapter 前硬失败。
+- [x] 账本重启恢复先于任何新 slot：未知已发送 intent 只会追加 `FAILED`，明确未发送为
+  `BLOCKED`，已认证 PASS slot 只读跳过且不重发。
+- [x] Task 3 专项/关联验证为 `171 passed`；正式 Manifest 重建预检为 `READY`，真实模型
+  调用仍为 `0`。等待本 Task 的独立提交与推送后才进入 Task 4 的全量门禁。

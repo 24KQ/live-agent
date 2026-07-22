@@ -56,10 +56,14 @@ class Phase16OfficialSmokeDispatchStage(StrEnum):
 
 
 class Phase16OfficialSmokeValidationVerdict(StrEnum):
-    """对已发送响应的最终结构校验结论；没有可重试的中间态。"""
+    """对固定 stage 的最终验证结论；没有可重试的中间态。"""
 
     PASS = "PASS"
     FAILED = "FAILED"
+    # ``begin_dispatch`` 为零重试先写入发送意图；若共享 Runner 在进入模型端口前
+    # deadline 耗尽，或端口明确 ``request_sent=False``，该 intent 必须可审计地闭合为
+    # BLOCKED。它不是模型失败，也不能携带 Provider receipt。
+    BLOCKED = "BLOCKED"
 
 
 class Phase16OfficialSmokeCaseOutcomeStatus(StrEnum):
@@ -67,6 +71,10 @@ class Phase16OfficialSmokeCaseOutcomeStatus(StrEnum):
 
     PASS = "PASS"
     FAILED = "FAILED"
+    # BLOCKED 只表示尚未产生失败响应的本地发送前阻断：允许零次 dispatch，或允许
+    # 已通过 Analyst receipt/validation 但 Planner 尚未创建 dispatch。它不能掩盖任一
+    # 已发送但未验证、失败或 Planner 阶段的调用，后者必须走 FAILED 恢复链。
+    BLOCKED = "BLOCKED"
 
 
 class Phase16OfficialSmokeReceiptAuthenticator:
@@ -728,6 +736,18 @@ class PostgresPhase16OfficialSmokeLedger:
                     )
                     if cursor.fetchone() is None:
                         raise Phase16OfficialSmokeLedgerError("validation PASS requires provider receipt")
+                if verdict is Phase16OfficialSmokeValidationVerdict.BLOCKED:
+                    # ``BLOCKED`` 只能表达“明确尚未发送”的本地事实。若已有 Provider
+                    # receipt，网络边界已经被跨越，不能再把外部失败粉饰为未发送阻断。
+                    cursor.execute(
+                        """SELECT attempt_id FROM phase16_official_smoke_provider_receipts
+                           WHERE attempt_id=%s::uuid;""",
+                        (attempt_id,),
+                    )
+                    if cursor.fetchone() is not None:
+                        raise Phase16OfficialSmokeLedgerError(
+                            "validation BLOCKED cannot carry provider receipt"
+                        )
                 cursor.execute(
                     """INSERT INTO phase16_official_smoke_validation_facts
                        (attempt_id, verdict, reason_code, validation_digest)
@@ -836,6 +856,28 @@ class PostgresPhase16OfficialSmokeLedger:
                                 claim_id=str(claim["claim_id"]),
                                 status=Phase16OfficialSmokeCaseOutcomeStatus.FAILED,
                                 reason_code=failed_validation["reason_code"],
+                            )
+                        )
+                        continue
+
+                    blocked_validation = next(
+                        (
+                            attempt
+                            for attempt in attempts
+                            if attempt["verdict"]
+                            == Phase16OfficialSmokeValidationVerdict.BLOCKED.value
+                        ),
+                        None,
+                    )
+                    if blocked_validation is not None:
+                        # 已经由同一进程明确记录为未发送的 attempt 不应在恢复时升级为
+                        # UNKNOWN/FAILED；恢复只补写唯一 BLOCKED outcome，仍绝不重发。
+                        recovered.append(
+                            self._close_case_in_cursor(
+                                cursor,
+                                claim_id=str(claim["claim_id"]),
+                                status=Phase16OfficialSmokeCaseOutcomeStatus.BLOCKED,
+                                reason_code=blocked_validation["reason_code"],
                             )
                         )
                         continue
@@ -1177,8 +1219,38 @@ class PostgresPhase16OfficialSmokeLedger:
             }:
                 raise Phase16OfficialSmokeLedgerError("formal PASS requires two validated provider receipts")
             self._assert_authenticated_pass_receipts_in_cursor(cursor, claim_id=claim_id)
-        elif not any(row["verdict"] == Phase16OfficialSmokeValidationVerdict.FAILED.value for row in evidence_rows):
-            raise Phase16OfficialSmokeLedgerError("formal FAILED outcome requires a failed validation fact")
+        elif status is Phase16OfficialSmokeCaseOutcomeStatus.BLOCKED:
+            # ``begin_dispatch`` 落库的是零重试 intent，不是 Provider 已确认发送。
+            # 因此只要 validation 明确为 BLOCKED 且没有 receipt，就可以闭合为本地
+            # 未发送；未知 attempt、FAILED validation、缺 receipt 的 PASS 或完整 PASS
+            # Planner 均仍必须拒绝，避免把任何已发送/未知外部行为伪装成 INCONCLUSIVE。
+            if any(
+                row["verdict"] is None
+                or row["verdict"] == Phase16OfficialSmokeValidationVerdict.FAILED.value
+                or (
+                    row["verdict"] == Phase16OfficialSmokeValidationVerdict.PASS.value
+                    and row["receipt_attempt_id"] is None
+                )
+                or (
+                    row["verdict"] == Phase16OfficialSmokeValidationVerdict.BLOCKED.value
+                    and row["receipt_attempt_id"] is not None
+                )
+                or (
+                    row["stage"] == Phase16OfficialSmokeDispatchStage.PLANNER.value
+                    and row["verdict"] == Phase16OfficialSmokeValidationVerdict.PASS.value
+                )
+                for row in evidence_rows
+            ):
+                raise Phase16OfficialSmokeLedgerError(
+                    "formal BLOCKED outcome cannot conceal sent or invalid dispatch"
+                )
+        elif not any(
+            row["verdict"] == Phase16OfficialSmokeValidationVerdict.FAILED.value
+            for row in evidence_rows
+        ):
+            raise Phase16OfficialSmokeLedgerError(
+                "formal FAILED outcome requires a failed validation fact"
+            )
         cursor.execute(
             """INSERT INTO phase16_official_smoke_case_outcomes
                (run_id, case_id, claim_id, status, reason_code, outcome_digest)

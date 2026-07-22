@@ -48,8 +48,8 @@ API adapter, pytest, existing Phase 16 evaluation assets.
 - [x] Record the two closed read-only architecture audits and the clean
   baseline: unit `1555 passed`; integration `185 passed, 7 deselected`.
 - [x] Run target-document encoding checks and `git diff --check`.
-- [ ] Commit only documentation as `docs: define phase16 official smoke evidence`.
-- [ ] Push the documentation commit before changing code, running migrations, or
+- [x] Commit only documentation as `docs: define phase16 official smoke evidence` (`a603159`).
+- [x] Push the documentation commit before changing code, running migrations, or
   calling the real model.
 
 ### Task 1: Freeze Profiles, Receipts, And Offline Preflight
@@ -60,23 +60,23 @@ API adapter, pytest, existing Phase 16 evaluation assets.
 - Test: isolated unit tests for profile identity, response receipt enforcement,
   official price, Manifest, and environment identity.
 
-- [ ] Write RED tests that prove LIVE builders reject public token/deadline
+- [x] Write RED tests that prove LIVE builders reject public token/deadline
   overrides, Smoke Profiles are excluded from production registries, formal
   receipts require both provider ID and finish reason, and a mismatched price or
   Manifest blocks before network send.
-- [ ] Add `max_output_tokens: int | None` to `SpecialistProfile` with legacy
+- [x] Add `max_output_tokens: int | None` to `SpecialistProfile` with legacy
   behavior unchanged when omitted; have the shared runner cap request output by
   both remaining budget and this field.
-- [ ] Restore fixed zero-argument LIVE Profile builders. Add a smoke-only
+- [x] Restore fixed zero-argument LIVE Profile builders. Add a smoke-only
   registry with `phase16_smoke_evidence_analyst@1.0.0` and
   `phase16_smoke_evidence_planner@1.0.0` using the fixed global values.
-- [ ] Extend `ModelSuccess` and parse OpenAI-compatible provider response ID and
+- [x] Extend `ModelSuccess` and parse OpenAI-compatible provider response ID and
   finish reason in the DeepSeek adapter. Do not relax general runtime behavior;
   formal smoke enforces non-empty values.
-- [ ] Create `phase16-official-smoke-evidence-v1` with fixed ten case
+- [x] Create `phase16-official-smoke-evidence-v1` with fixed ten case
   identities, original data Manifest digest, Profile digests, price digest,
   source closure, and runner digest.
-- [ ] Run targeted unit tests, the source/Manifest validation, encoding checks,
+- [x] Run targeted unit tests, the source/Manifest validation, encoding checks,
   and `git diff --check`; commit the isolated contract change.
 
 ### Task 2: Add Formal PostgreSQL Append-Only Ledger
@@ -86,19 +86,19 @@ API adapter, pytest, existing Phase 16 evaluation assets.
 - Modify: migration registry and smoke interfaces.
 - Test: dedicated unit and PostgreSQL integration tests.
 
-- [ ] Write PostgreSQL RED tests for one-time historic import, ten immutable
+- [x] Write PostgreSQL RED tests for one-time historic import, ten immutable
   slots, eleventh-slot rejection, `.073220 + 10 * .092000 = .993220` exposure,
   concurrent CAS single winner, duplicate receipt rejection, sensitive-field
   exclusion, restart recovery, and no resend of open attempts.
-- [ ] Add separate versioned tables for run, historical spend, fixed case slots,
+- [x] Add separate versioned tables for run, historical spend, fixed case slots,
   claims, attempts, provider receipts, validation facts, and terminal outcomes.
   Do not mutate the legacy `0.100000` smoke ledger.
-- [ ] Implement only narrowly named append operations: ensure/import, claim,
+- [x] Implement only narrowly named append operations: ensure/import, claim,
   begin dispatch, append receipt, append validation, close case, and recover
   open attempts. Use run-row locks and unique keys for fail-closed CAS.
-- [ ] Enforce that Planner starts only after the same case's Analyst validation
+- [x] Enforce that Planner starts only after the same case's Analyst validation
   is fully `PASS`; recovery appends a stable unknown failure rather than retrying.
-- [ ] Run migration dry-run and dedicated PostgreSQL recovery/concurrency tests;
+- [x] Run migration dry-run and dedicated PostgreSQL recovery/concurrency tests;
   review and commit the ledger implementation.
 
 ### Task 3: Connect Formal Runner And Sole CLI Entry
@@ -107,20 +107,20 @@ API adapter, pytest, existing Phase 16 evaluation assets.
 - Modify: `Phase16SmokeRunner`, a smoke-only coordinator/validator, command
   script, and their tests.
 
-- [ ] Write RED tests that prove the runner calls `BoundedSpecialistRunner`,
+- [x] Write RED tests that prove the runner calls `BoundedSpecialistRunner`,
   Analyst failure prevents Planner dispatch, labels/splits/expected routes stay
   out of model input, and invalid AgentAction/Schema/EvidenceRef cannot become
   a validation `PASS`.
-- [ ] Introduce a smoke-only budget port and evidence projection. Extract only
+- [x] Introduce a smoke-only budget port and evidence projection. Extract only
   pure result-validation functions from the production coordinator; retain
   separate smoke facts rather than production Analysis/Proposal/Outcome writes.
-- [ ] Make the existing script default to dry-run and require `--execute` for
+- [x] Make the existing script default to dry-run and require `--execute` for
   networking. Replace the old direct adapter path with a hard failure notice so
   it cannot bypass the formal ledger or runner.
-- [ ] Build each case from its frozen six-role Evidence and synthetic Workspace;
+- [x] Build each case from its frozen six-role Evidence and synthetic Workspace;
   permit Planner only after successful Analyst validation and require
   `MULTI_AGENT_READY`.
-- [ ] Run targeted unit/PostgreSQL tests, review, and commit the formal entry.
+- [x] Run targeted unit/PostgreSQL tests, review, and commit the formal entry.
 
 ### Task 4: Execute One Formal Smoke And Render Evidence
 

@@ -996,3 +996,17 @@
 - 扩展 Phase 16 聚合集 `102 passed`；迁移 dry-run、`compileall`、敏感载荷扫描、`git diff --check` 通过。两个慢 PostgreSQL 文件分别为 `109.35s` 与 `89.90s`，聚合总时长 `227.95s`，不是死锁或超时缺陷。
 - 文档扫描器原先把自身的 U+FFFD 检测样例报告为错误。以 RED/GREEN 改为运行时按码位构造样例后，全仓扫描为 `0 errors`（仍有目标外历史 BOM warning），实际文档与其他 Python 文件继续严格检查。
 - Task 2 的实现、测试和留痕提交 `b2387e9`、`469483e`、`69af187` 已推送至 `origin/codex/phase16-official-smoke-evidence`；下一步严格从 Task 3 RED 开始，仍不发送真实模型请求。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 发现
+
+- `begin_dispatch` 仅是不可重试的发送意图，不能等同于 Provider 已收包：共享 Runner 在
+  ModelPort 前失败或端口明确 `request_sent=False` 时，正式账本写 `BLOCKED` validation；
+  已发送、超时、异常或缺回执均保持 `FAILED`，不会被降级为 `INCONCLUSIVE`。
+- 每次 Runner 启动会先恢复未闭合 claim。未知 attempt 追加
+  `UNKNOWN_ATTEMPT_AFTER_RESTART` 并立即停止；两段已认证 PASS receipt 的 slot 只读复用，
+  不产生第二次 Analyst 或 Planner 请求。
+- Formal Runner 只把冻结 case 重建为合成 Workspace 和六角色 EvidenceRef；模型输入不包含
+  `case_id`、split、label 或期望 route。Analyst 的完整 FINAL/Schema/EvidenceRef 校验通过后，
+  Planner 才可运行并形成 `MULTI_AGENT_READY`。
+- 默认 CLI 的离线输出为 `BLOCKED + INCONCLUSIVE`，原因是它有意不读取 `.env`；使用已知的
+  非敏感环境身份重验时，冻结 Manifest 预检为 `READY`。真实模型调用仍为 `0`。

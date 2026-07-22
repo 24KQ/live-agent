@@ -143,6 +143,105 @@ def test_official_ledger_claims_each_frozen_case_once_under_concurrency(
         first.claim_case("phase16-forged-eleventh-case")
 
 
+def test_pre_send_blocked_case_closes_as_inconclusive_without_dispatch_attempt(
+    postgres_official_smoke_ledger_factory,
+) -> None:
+    """尚未写发送意图的本地阻断必须有 append-only BLOCKED 终态，而不是伪造模型失败。"""
+
+    manifest = _manifest()
+    ledger = postgres_official_smoke_ledger_factory()
+    ledger.ensure_run(manifest)
+    claim = ledger.claim_case(manifest.case_ids[0])
+
+    outcome = ledger.close_case(
+        claim_id=claim.claim_id,
+        status=Phase16OfficialSmokeCaseOutcomeStatus.BLOCKED,
+        reason_code="FORMAL_RUNNER_PRE_SEND_BLOCKED",
+    )
+
+    assert outcome.status is Phase16OfficialSmokeCaseOutcomeStatus.BLOCKED
+    assert outcome.reason_code == "FORMAL_RUNNER_PRE_SEND_BLOCKED"
+    assert ledger.recover_open_attempts() == ()
+    assert postgres_official_smoke_ledger_factory().get_case_outcome(
+        case_id=claim.case_id
+    ) == outcome
+
+
+def test_explicit_unsent_attempt_closes_blocked_and_restart_does_not_resend(
+    postgres_official_smoke_ledger_factory,
+) -> None:
+    """已写 intent 但端口明确未发送时，BLOCKED validation 必须闭合且重启不能升级为未知失败。"""
+
+    manifest = _manifest()
+    first = postgres_official_smoke_ledger_factory()
+    first.ensure_run(manifest)
+    claim = first.claim_case(manifest.case_ids[0])
+    analyst = first.begin_dispatch(
+        claim_id=claim.claim_id,
+        stage=Phase16OfficialSmokeDispatchStage.ANALYST,
+        profile_digest=manifest.profile_digests["analyst"],
+        internal_request_id=_internal_request_id("explicit-unsent-analyst"),
+    )
+    first.append_validation_fact(
+        attempt_id=analyst.attempt_id,
+        verdict=Phase16OfficialSmokeValidationVerdict.BLOCKED,
+        reason_code="MODEL_REQUEST_NOT_SENT",
+        validation_digest="a" * 64,
+    )
+
+    # 模拟在 validation 写入与 case outcome 写入之间崩溃；恢复只能补 BLOCKED，
+    # 不能把明确的零发送事实升级成 UNKNOWN_ATTEMPT_AFTER_RESTART 或再次 dispatch。
+    restarted = postgres_official_smoke_ledger_factory()
+    recovered = restarted.recover_open_attempts()
+
+    assert len(recovered) == 1
+    assert recovered[0].status is Phase16OfficialSmokeCaseOutcomeStatus.BLOCKED
+    assert recovered[0].reason_code == "MODEL_REQUEST_NOT_SENT"
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="attempt already exists"):
+        restarted.begin_dispatch(
+            claim_id=claim.claim_id,
+            stage=Phase16OfficialSmokeDispatchStage.ANALYST,
+            profile_digest=manifest.profile_digests["analyst"],
+            internal_request_id=_internal_request_id("explicit-unsent-resend"),
+        )
+
+
+def test_blocked_validation_rejects_provider_receipt(
+    postgres_official_smoke_ledger_factory,
+) -> None:
+    """已有 Provider receipt 说明网络边界已被跨越，不能被 BLOCKED 结论掩盖。"""
+
+    manifest = _manifest()
+    ledger = postgres_official_smoke_ledger_factory()
+    ledger.ensure_run(manifest)
+    claim = ledger.claim_case(manifest.case_ids[1])
+    analyst = ledger.begin_dispatch(
+        claim_id=claim.claim_id,
+        stage=Phase16OfficialSmokeDispatchStage.ANALYST,
+        profile_digest=manifest.profile_digests["analyst"],
+        internal_request_id=_internal_request_id("blocked-with-receipt"),
+    )
+    ledger.append_provider_receipt(
+        attempt_id=analyst.attempt_id,
+        provider_response_id="chatcmpl-blocked-with-receipt",
+        finish_reason="stop",
+        model_id="deepseek-v4-flash",
+        response_digest="b" * 64,
+        input_tokens=1,
+        output_tokens=1,
+        total_tokens=2,
+        latency_ms=Decimal("1.000"),
+    )
+
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="BLOCKED cannot carry provider receipt"):
+        ledger.append_validation_fact(
+            attempt_id=analyst.attempt_id,
+            verdict=Phase16OfficialSmokeValidationVerdict.BLOCKED,
+            reason_code="MODEL_REQUEST_NOT_SENT",
+            validation_digest="c" * 64,
+        )
+
+
 def test_planner_dispatch_requires_same_case_analyst_pass_and_receipt_is_append_only(
     postgres_official_smoke_ledger_factory,
 ) -> None:

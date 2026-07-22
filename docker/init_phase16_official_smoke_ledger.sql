@@ -93,7 +93,9 @@ CREATE TABLE IF NOT EXISTS phase16_official_smoke_provider_receipts (
 CREATE TABLE IF NOT EXISTS phase16_official_smoke_validation_facts (
     attempt_id UUID PRIMARY KEY
         REFERENCES phase16_official_smoke_dispatch_attempts(attempt_id) ON DELETE RESTRICT,
-    verdict TEXT NOT NULL CHECK (verdict IN ('PASS', 'FAILED')),
+    -- begin_dispatch 是发送意图而非 Provider 已确认收包。BLOCKED 仅用于共享 Runner
+    -- 明确尚未进入模型端口的本地终态，FAILED 仍只表示已发送或发送状态未知的失败。
+    verdict TEXT NOT NULL CHECK (verdict IN ('PASS', 'FAILED', 'BLOCKED')),
     reason_code TEXT NOT NULL CHECK (reason_code ~ '^[A-Z][A-Z0-9_]{0,63}$'),
     validation_digest TEXT NOT NULL CHECK (validation_digest ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -103,7 +105,9 @@ CREATE TABLE IF NOT EXISTS phase16_official_smoke_case_outcomes (
     run_id TEXT NOT NULL,
     case_id TEXT NOT NULL,
     claim_id UUID NOT NULL UNIQUE,
-    status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED')),
+    -- BLOCKED 是“没有失败响应可归因”的发送前不确定性终态；它不能代替 FAILED
+    -- 隐藏任意已发送且未验证、失败或 Planner 阶段的调用，触发器会继续精确限制。
+    status TEXT NOT NULL CHECK (status IN ('PASS', 'FAILED', 'BLOCKED')),
     reason_code TEXT NOT NULL CHECK (reason_code ~ '^[A-Z][A-Z0-9_]{0,63}$'),
     outcome_digest TEXT NOT NULL CHECK (outcome_digest ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -206,7 +210,7 @@ $$;
 CREATE OR REPLACE FUNCTION phase16_official_smoke_validate_frozen_run() RETURNS trigger AS $$
 BEGIN
     IF NEW.run_id <> 'phase16-official-smoke-v1'
-       OR NEW.manifest_digest <> 'd490b0868413323e4956b16b86f9f195abdd99f546057bc1221d44181ba7b3ff'
+       OR NEW.manifest_digest <> 'd75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b'
        OR NEW.analyst_profile_digest <> '415b331477a55c58bd61e0d632ec3b74aa3137a5c30f8fd1344ab19fb2875bee'
        OR NEW.planner_profile_digest <> '40423dd6f8d7a1618ff65623940fc417ce54771fa48391338ab34bf5f8dc34c0' THEN
         RAISE EXCEPTION 'phase16 official smoke frozen manifest identity conflicts with formal evidence';
@@ -353,13 +357,22 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'phase16 official smoke PASS validation requires provider receipt';
     END IF;
+    IF NEW.verdict='BLOCKED' AND EXISTS (
+        SELECT 1 FROM phase16_official_smoke_provider_receipts
+         WHERE attempt_id=NEW.attempt_id
+    ) THEN
+        RAISE EXCEPTION 'phase16 official smoke BLOCKED validation cannot carry provider receipt';
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- outcome 是正式报告的唯一 case 终态。即使某个同进程调用绕过 Python，也不能写入
 -- 没有完整 Analyst/Planner receipt 与 PASS validation 的“成功”，或没有失败验证的
--- “失败”。同时校验 claim 与 case 的联合 lineage，避免把一个合法 claim 挂到别的 slot。
+-- “失败”。BLOCKED 只允许零次 dispatch，或由无 receipt 的 BLOCKED validation 明确记录
+-- 未发送的当前 stage；也允许已经 PASS 的 Analyst 后 Planner 在进入端口前被阻断。它保留
+-- 发送前不确定性而不能掩盖任一已发送、未知或验证失败的调用。
+-- 同时校验 claim 与 case 的联合 lineage，避免把一个合法 claim 挂到别的 slot。
 CREATE OR REPLACE FUNCTION phase16_official_smoke_validate_outcome() RETURNS trigger AS $$
 DECLARE
     passed_stage_count INTEGER;
@@ -385,6 +398,27 @@ BEGIN
            AND attempt.stage IN ('ANALYST', 'PLANNER');
         IF passed_stage_count <> 2 THEN
             RAISE EXCEPTION 'phase16 official smoke PASS requires two validated provider receipts';
+        END IF;
+    ELSIF NEW.status='BLOCKED' THEN
+        IF EXISTS (
+            SELECT 1
+              FROM phase16_official_smoke_dispatch_attempts attempt
+              LEFT JOIN phase16_official_smoke_validation_facts validation
+                ON validation.attempt_id=attempt.attempt_id
+              LEFT JOIN phase16_official_smoke_provider_receipts receipt
+                ON receipt.attempt_id=attempt.attempt_id
+             WHERE attempt.claim_id=NEW.claim_id
+               AND (
+                    validation.verdict IS NULL
+                    OR validation.verdict='FAILED'
+                    OR (validation.verdict='PASS' AND receipt.attempt_id IS NULL)
+                    OR (validation.verdict='BLOCKED' AND receipt.attempt_id IS NOT NULL)
+                    -- Planner 已完整 PASS 时，run 只能作为 PASS 或 crash recovery 收口，
+                    -- 不能借 BLOCKED 隐藏一条已成功的第二阶段模型证据。
+                    OR (attempt.stage='PLANNER' AND validation.verdict='PASS')
+               )
+        ) THEN
+            RAISE EXCEPTION 'phase16 official smoke BLOCKED outcome cannot conceal sent or invalid dispatch';
         END IF;
     ELSIF NOT EXISTS (
         SELECT 1
@@ -613,7 +647,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := 'e9f9f0671d54f9906d3414c70507411c';
+    expected_contract_digest TEXT := '6b0da8095081fc5f44a1e8d956304bb6';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_schema_contract_digest();

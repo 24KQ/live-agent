@@ -39,6 +39,8 @@ from src.decision_support.store import (
     WorkspaceLeaseError,
 )
 from src.specialist_runtime.models import (
+    AgentAction,
+    AgentActionKind,
     AgentFailure,
     AgentResult,
     AgentResultStatus,
@@ -171,22 +173,33 @@ class _ScriptedAnalystRunner:
                 failure=AgentFailure(code="SCRIPTED_ANALYST_FAILURE", details={}),
                 summary="SCRIPTED_ANALYST_FAILURE",
             )
+        output = {
+            # Runner 只回显 Coordinator 提供的确定性触发事实，模拟正确模型
+            # 不可扩张 finding 的 FINAL 输出，而不是把某个测试组合硬编码在 Fake 中。
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "高噪声可用性冲突与暂停节奏同时出现，需要运营确认。",
+            "evidence_refs": [
+                reference.model_dump(mode="json") for reference in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                # Runner 只回显 Coordinator 提供的确定性触发事实，模拟正确模型
-                # 不可扩张 finding 的 FINAL 输出，而不是把某个测试组合硬编码在 Fake 中。
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "高噪声可用性冲突与暂停节奏同时出现，需要运营确认。",
-                "evidence_refs": [
-                    reference.model_dump(mode="json") for reference in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # 必须同步模拟 BoundedSpecialistRunner 的 FINAL 动作闭合：协调器现在会二次
+            # 校验动作、结果输出和六角色证据完全一致，不能让测试替身绕过正式协议。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="SCRIPTED_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="SCRIPTED_ANALYST_SUCCEEDED",
         )
@@ -240,14 +253,23 @@ class _ScriptedPlannerRunner:
                     for reference in task.initial_evidence_refs
                 ]
             normalized_options.append(normalized)
+        output = {"options": normalized_options}
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "options": normalized_options
-            },
+            output=output,
+            # Planner 替身同样生成唯一 FINAL，确保坏 option 仍由正式 Validator 拒绝，
+            # 而不是因为缺失动作信封而掩盖真正待验证的业务分支。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="SCRIPTED_PLANNER_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="SCRIPTED_PLANNER_SUCCEEDED",
         )

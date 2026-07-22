@@ -816,6 +816,67 @@ def test_runner_deducts_input_tokens_before_setting_output_limit() -> None:
     assert model.requests[0].max_output_tokens == 10
 
 
+def test_runner_allows_isolated_formal_budget_and_uuid_request_adapters() -> None:
+    """正式 smoke 可注入独立账本候选和 UUID 请求身份，历史默认路径不受此扩展影响。"""
+
+    class _FormalBudgetAdapter:
+        """用最小适配器观察 Runner 传入的候选和请求身份，不复用 Phase 13 预算账本。"""
+
+        def __init__(self) -> None:
+            self.reserved: list[tuple[str, object, Decimal]] = []
+            self.settled: list[tuple[str, Decimal | None]] = []
+
+        def reserve(self, request_id: str, candidate: object, amount_cny: Decimal):
+            """模拟正式账本在请求离开进程前创建唯一发送意图。"""
+
+            self.reserved.append((request_id, candidate, amount_cny))
+            return SimpleNamespace(created=True)
+
+        def settle(self, request_id: str, actual_cost_cny: Decimal | None):
+            """记录 Runner 已完成的本地结算，不在测试中产生外部费用。"""
+
+            self.settled.append((request_id, actual_cost_cny))
+            return SimpleNamespace()
+
+        def release(self, request_id: str):
+            """保留 Runner deadline 失败时所需的公开预算接口。"""
+
+            return SimpleNamespace(request_id=request_id)
+
+    formal_budget = _FormalBudgetAdapter()
+    runner, model, _skill = _runner(
+        [{"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}}]
+    )
+    profile = _profile()
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=model,
+        budget_store=formal_budget,
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+        budget_candidate_resolver=lambda _task: "PHASE16_OFFICIAL_ANALYST",
+        request_id_factory=lambda _task, _execution_id, _index: "00000000-0000-0000-0000-000000000001",
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.SUCCEEDED
+    assert model.requests[0].request_id == "00000000-0000-0000-0000-000000000001"
+    assert formal_budget.reserved == [
+        (
+            "00000000-0000-0000-0000-000000000001",
+            "PHASE16_OFFICIAL_ANALYST",
+            Decimal("0.01"),
+        )
+    ]
+    assert formal_budget.settled == [
+        ("00000000-0000-0000-0000-000000000001", Decimal("0.01"))
+    ]
+
+
 def test_runner_requires_trusted_anchor_and_passes_resolved_evidence_to_model() -> None:
     """可信 anchor 缺失时 fail-closed；成功解析的冻结事实必须进入模型上下文。"""
 

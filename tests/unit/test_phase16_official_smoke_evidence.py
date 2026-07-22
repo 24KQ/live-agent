@@ -241,11 +241,13 @@ def test_formal_smoke_receipt_requires_provider_id_and_finish_reason() -> None:
     )
 
 
-def test_formal_manifest_source_closure_includes_official_ledger() -> None:
-    """正式证据必须绑定账本源码，否则预算、恢复和回执规则可在不改变 Manifest 时漂移。"""
+def test_formal_manifest_source_closure_includes_ledger_and_runner() -> None:
+    """正式证据必须同时绑定账本与运行器源码，避免发送或验证语义在同一 Manifest 下漂移。"""
 
     ledger_path = "src/decision_support/official_smoke_ledger.py"
+    runner_path = "src/decision_support/official_smoke_runner.py"
     assert ledger_path in FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS
+    assert runner_path in FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS
 
     manifest = build_phase16_official_smoke_evidence_manifest(
         repository_root=_repository_root(),
@@ -253,3 +255,4 @@ def test_formal_manifest_source_closure_includes_official_ledger() -> None:
         official_price=_official_price(),
     )
     assert ledger_path in manifest.source_file_digests
+    assert runner_path in manifest.source_file_digests

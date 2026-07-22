@@ -120,6 +120,8 @@ from src.skill_runtime.models import (
     SkillExecutionStatus,
 )
 from src.specialist_runtime.models import (
+    AgentAction,
+    AgentActionKind,
     AgentResult,
     AgentResultStatus,
     AgentTask,
@@ -419,6 +421,16 @@ class _DeterministicDemoRunner:
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
             output=output,
+            # Demo 也必须准确模拟共享 Runner 的唯一 FINAL 信封；否则它会绕过当前
+            # Coordinator 对 AgentAction、输出 Schema 与六角色 EvidenceRef 的二次校验。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=references,
+                    reason_summary="SCRIPTED_PHASE16_DEMO_FINAL",
+                ),
+            ),
             evidence_refs=references,
             summary="SCRIPTED_PHASE16_DEMO_SUCCEEDED",
             model_calls=1,

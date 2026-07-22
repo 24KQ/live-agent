@@ -936,6 +936,136 @@ Sub-agent ID / 角色: 019f8a54-2746-7693-af7a-ac6f549e0bd6 / Runner、Coordinat
 
 当前无运行中的 sub-agent。
 
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 Recovery Re-review Dispatched
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 3
+状态: GREEN -> RECOVERY_REVIEW
+目标: 复核重启时未闭合 dispatch 的收口、既有 PASS slot 跳过、零新发送与唯一 CLI 边界；不运行真实模型
+主模型当前证据: Task 3 unit `20 passed`；official ledger/runner PostgreSQL `28 passed`；未知 attempt 恢复回归 `1 passed`
+当前冻结身份: official Manifest `d75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b`；DDL schema contract `6b0da8095081fc5f44a1e8d956304bb6`
+Sub-agent / 角色: 019f8bd2-b7f8-7e53-aae3-df6f7c7b48f9 / Task 3 恢复、账本与 CLI 只读安全复审
+文件边界: 只读 src/decision_support/official_smoke_runner.py、official_smoke_ledger.py、official_smoke_evidence.py、DDL、run_phase16_real_smoke.py 与对应 tests；禁止修改、数据库写入、读取 .env 或真实模型调用
+预期交付物与测试: 返回 Critical/Important/Minor 分级发现，明确是否可能重发、掩盖已发送失败或把历史 PASS 当作本轮 PASS；不得建议降低预算、阈值或安全边界
+监控规则: 首次回报、核心 GREEN、提交前各复核一次；20 分钟无可验证进展、连续两次同一阻塞、扩大范围或建议放宽边界时立即停止并由主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；本轮禁止真实发送
+```
+
+审查执行结果: `019f8bd2-b7f8-7e53-aae3-df6f7c7b48f9` 在读取项目文件前因本地 Codex review proxy 返回 HTTP 503 而终止；未产生可采纳结论、未修改文件、未读取 `.env`、未连接数据库或真实模型。主模型已关闭该 sub-agent，并接管同范围复审；当前无运行中的 sub-agent。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 VERIFY -> DOCS -> COMMIT
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 3
+状态: VERIFY -> DOCS -> COMMITTED_PENDING_PUSH
+实现: Formal Runner 使用 BoundedSpecialistRunner、Smoke-only Profile、冻结六角色投影和 PostgreSQL formal ledger；不写生产 Coordinator、Store、Proposal、Outcome 或经营命令
+恢复: run 初始化后先 recover_open_attempts；UNKNOWN attempt 为 FAILED 并停止，明确未发送为 BLOCKED，已认证 PASS slot 只读跳过且不重发
+CLI: 默认 dry-run 不读取 .env/不联网；只有 --execute 装配真实端口；legacy direct mode 在构造依赖前硬失败
+验证: Task 3 与受影响共享路径 `171 passed in 156.55s`；Manifest preflight READY；compileall、迁移 dry-run、敏感载荷扫描、文档扫描 0 errors 与 git diff --check 已完成
+冻结事实: Manifest d75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b；DDL schema contract 6b0da8095081fc5f44a1e8d956304bb6
+审查: 独立只读 sub-agent 启动前遭本地代理 503，未产生结论；主模型已复核恢复、receipt、Manifest/DDL、CLI 和不重发边界
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；本 Task 未读取 LLM API key，未发送真实请求
+当前无运行中的 sub-agent。
+提交: Task 3 formal runner 提交已创建；下一步仅推送此隔离分支，成功后才进入 Task 4 的全量本地门禁。
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 Regression Recovery Dispatched
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 3
+状态: GREEN 回归修复前的根因调查
+目标: 只定位 Coordinator 复用纯校验函数后导致的既有 Selector 回归；不得弱化 AgentAction、Schema 或 EvidenceRef 边界
+主模型当前工作: 终止遗留 pytest 进程，复现第一个失败断言，追踪旧 Coordinator 与新纯函数的语义差异；在确认根因前不修改生产代码
+Sub-agent A / 角色: 019f8ba4-6285-7a92-aedb-01b02b36cd51 / Selector fixture 与纯校验函数只读根因审查
+文件边界: 只读 src/decision_support/multi_agent.py、tests/unit/test_phase16_multi_agent_selector.py 及直接依赖；禁止修改、数据库连接、读取 .env 或真实模型调用
+预期交付物与测试: 指出第一个失败的精确数据流和最小保持生产保证的修复方向；不得提交代码
+Sub-agent B / 角色: 019f8ba4-774f-7861-a9c8-9b2361857213 / Task 3 正式 Runner 与 CLI 契约只读复审
+文件边界: 只读 official_smoke_runner.py、run_phase16_real_smoke.py、对应单测、Task 3 计划；禁止修改、数据库写入、读取 .env 或真实模型调用
+预期交付物与测试: 确认默认 dry-run、--execute 唯一联网、零重试、receipt/usage 与账本边界；返回 Critical/Important/Minor 结论
+监控规则: 首次回报、修复后 GREEN、提交前三次复核；20 分钟无可验证进展、连续两次同一阻塞、越界或建议降低安全/预算时立即停止并由主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；本轮禁止真实发送
+```
+
+审查回报与主模型复核：
+
+```text
+Sub-agent A 019f8ba4-6285-7a92-aedb-01b02b36cd51:
+- 根因确认：历史 Selector Analyst/Planner Fake 只返回 output/evidence_refs，缺少共享 Runner 的唯一 FINAL action；新纯校验函数正确拒绝该不完整协议。
+- 主模型整改：仅升级两类成功 Fake 为完整 FINAL 信封；首例 RED `1 failed` 转 GREEN，整个 Selector 聚合 `35 passed`。
+- 状态: COMPLETED_REPORT_CONSUMED / STOPPED。
+
+Sub-agent B 019f8ba4-774f-7861-a9c8-9b2361857213:
+- Critical: 0；Important: 2。其一是 begin_dispatch intent 被误当成已发送；其二是缺少非法 AgentAction/Schema/伪造 EvidenceRef 的正式 Runner 负向证明。
+- 主模型整改：新增 BLOCKED validation，明确 ``capture.request is None`` 或 ``request_sent=False`` 为零发送；异常/超时/未知仍 FAILED。新增五个 unit RED/GREEN 和两个真实 PostgreSQL RED/GREEN；非法动作、Schema、伪造证据均在 Analyst 后止步，Planner 零 dispatch。
+- 状态: COMPLETED_REPORT_CONSUMED / STOPPED。
+
+Task 3 当前证据:
+- Selector 全量 `35 passed`；正式 Runner 新增负向集 `5 passed`；正式 PostgreSQL账本新增 BLOCKED/恢复集 `2 passed`。
+- 官方 Manifest 已随源码闭包重新冻结为 `6459e5f54b0fccb1e66713d5f14aa06510eaa2fbdf47fd921ac06b6a4a161755`；DDL frozen manifest 同步，独立 schema contract digest 为 `f06b08f7147c4ea4fb7f7e0d28a77da0`。
+- 真实模型调用仍为 0，费用仍为 0.000000 CNY；默认路由仍为 DETERMINISTIC_ONLY。
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 Final Re-review Dispatched
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 3
+状态: GREEN -> FINAL_READ_ONLY_REVIEW
+目标: 复核 BLOCKED validation、未知 attempt、Provider receipt、零重试、FINAL 信封与唯一 CLI 的最终闭合；不运行真实模型
+主模型当前验证: unit 专项 `123 passed`；official ledger/runner PostgreSQL `27 passed`；完整 escalation PostgreSQL `31 passed`；compileall、迁移 dry-run、敏感扫描与 git diff --check 已通过
+Sub-agent / 角色: 019f8bc1-79bc-7af3-8273-4cac1d5a02c2 / Task 3 最终规格、代码质量与安全只读复审
+文件边界: 只读 src/decision_support/official_smoke_runner.py、official_smoke_ledger.py、multi_agent.py、runner.py、DDL、CLI、Manifest 与对应 tests；禁止修改、数据库写入、读取 .env 或真实模型调用
+预期交付物: 针对已整改 Important 的复核结论，按 Critical/Important/Minor 报告精确路径和行；不得以降低安全、预算或验收门槛为建议
+监控规则: 首次回报、提交前核对；20 分钟无可验证进展、连续两次同一阻塞、越界或降低边界建议时停止并由主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；本轮禁止真实发送
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 REVIEW DISPATCHED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 3
+状态: RED -> GREEN -> REVIEW
+目标: 审查正式 Runner、唯一 CLI 与共享 BoundedSpecialistRunner 的接线边界；不运行真实模型
+主模型当前工作: 复现正式 Runner 离线单测，修复 pre-send BLOCKED 与已发送 FAILED 的终态语义，并完成 PostgreSQL 集成测试
+Sub-agent ID / 角色: 019f8b62-d181-7661-92bc-32ee50d9bb81 / Task 3 正式 Runner 与 CLI 只读规格、安全审查
+派发时间: 2026-07-22 Asia/Shanghai
+只读或写入文件边界: 只读 src/decision_support/official_smoke_runner.py、src/decision_support/multi_agent.py、src/specialist_runtime/runner.py、scripts/run_phase16_real_smoke.py、对应 Task 3 测试和计划；禁止修改、禁止读取 .env、禁止数据库写入或真实模型调用
+预期交付物与测试: 复核唯一入口、零重试、Planner gate、Provider receipt/usage、标签不泄漏、账本 append-only 与默认 dry-run；返回 Critical/Important/Minor 分级发现和具体文件行
+监控规则: 首次回报、核心 GREEN、提交前各复核一次；20 分钟无可验证进展、连续两次同一阻塞、扩大范围或建议放宽安全/预算时立即停止并由主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；本 Task 禁止真实发送
+```
+
+审查首次回报: 1 Critical（旧 CLI 仍可直接联网并绕过正式账本/Runner）与 1 Important（发送前阻断会错误尝试写 FAILED 并遗留 claim）。
+状态: COMPLETED_REPORT_CONSUMED / STOPPED
+接管与整改: 主模型已独立复现 Manifest 闭包失配；将先用 RED/GREEN 锁定正式 Runner 的 `BLOCKED + INCONCLUSIVE` 终态和唯一 CLI 的默认 dry-run/显式 `--execute` 边界，再重建两个冻结 Manifest。所有真实发送继续禁止。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 READ-ONLY REVIEW CONSUMED
+
+```text
+Sub-agent ID / 角色: 019f8b4f-8eb9-7cf0-958a-dcbe7029f8ac / Task 3 Coordinator 纯结果校验边界只读审查
+首次回报: 旧 Phase16SmokeRunner 直接调用模型端口，不能证明 AgentAction、JSON Schema 或 EvidenceRef；旧 CLI 也没有 default dry-run / --execute 唯一联网边界
+可复用结论: BoundedSpecialistRunner 已提供完整 Envelope、Schema、EvidenceResolver 和预算验证；Formal Runner 必须通过隔离 Smoke Profile Registry 与只读六角色投影复用它，不能构造生产 LiveDecisionProposal、ConflictAnalysis 或写生产 Store
+审查发现: 1 Critical（正式 Runner/CLI 尚不存在）；2 Important（旧 smoke 使用 LIVE Profile，正式账本尚未绑定 Runner 结果）
+主模型整改: 新增 smoke-only formal runner、窄账本预算适配器、捕获 provider receipt、纯结果校验和唯一 CLI；所有行为先以 RED/GREEN 覆盖
+状态: COMPLETED_REPORT_CONSUMED / STOPPED
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 RED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 3
+状态: RED -> IMPLEMENTATION
+目标: 将唯一 CLI 收口到正式账本、冻结 Manifest、六角色只读投影与 BoundedSpecialistRunner；默认 dry-run，只有 --execute 才允许联网
+当前分支: codex/phase16-official-smoke-evidence
+已知 RED: 旧 scripts/run_phase16_real_smoke.py 直接读取 .env 并调用 DeepSeekAgentModelAdapter，绕过正式账本、Runner、AgentAction/Schema/EvidenceRef 和冻结输入边界
+主模型当前工作: 本地读取 Runner/Coordinator/正式账本接口并先写 RED；不得读取 API key、发送真实模型或修改生产 LIVE 路由
+Sub-agent ID / 角色: 019f8b4f-8eb9-7cf0-958a-dcbe7029f8ac / Task 3 Coordinator 纯结果校验边界只读审查
+派发时间: 2026-07-22 Asia/Shanghai
+只读或写入文件边界: 只读 src/decision_support/multi_agent.py、src/decision_support/multi_agent_smoke.py、src/decision_support/official_smoke_ledger.py、src/specialist_runtime/runner.py、相关 tests；禁止修改、数据库写入、读取 .env 或真实模型调用
+预期交付物与测试: 标出可提取为纯函数的 Analyst/Planner 结果校验、必须保留的 LIVE 身份边界，以及 Smoke-only 接口的最小可验证建议；不执行测试
+监控规则: 首次回报、核心 GREEN、提交前复查；20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽安全/预算时立即停止并主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；本 Task 仅离线 RED/GREEN，不提前执行 --execute
+```
+
 ## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 REVIEW DISPATCHED
 
 ```text

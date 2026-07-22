@@ -17,12 +17,7 @@ from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema.validators import Draft202012Validator
 from pydantic import ValidationError
 
-from src.specialist_runtime.budget import (
-    BudgetCandidate,
-    BudgetInvariantError,
-    BudgetLimitExceeded,
-    InMemoryModelBudgetStore,
-)
+from src.specialist_runtime.budget import BudgetCandidate, BudgetInvariantError, BudgetLimitExceeded
 from src.specialist_runtime.evidence import EvidenceResolutionError, EvidenceResolverRegistry
 from src.specialist_runtime.model_port import (
     AgentModelPort,
@@ -231,12 +226,14 @@ class BoundedSpecialistRunner:
         *,
         orchestrator: SpecialistOrchestrator,
         model_port: AgentModelPort,
-        budget_store: InMemoryModelBudgetStore,
+        budget_store: Any,
         evidence_registry: EvidenceResolverRegistry,
         skill_port: SpecialistSkillPort,
         skill_catalog: tuple[SkillManifest, ...] | list[SkillManifest] | Any,
         trusted_anchor_resolver: Callable[[AgentTask], str | None],
         pricing_policy: ModelPricingPolicy,
+        budget_candidate_resolver: Callable[[AgentTask], Any] | None = None,
+        request_id_factory: Callable[[AgentTask, str, int], str] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._orchestrator = orchestrator
@@ -252,6 +249,17 @@ class BoundedSpecialistRunner:
             raise ValueError("pricing policy digest must be SHA-256")
         self._pricing_policy = pricing_policy
         self._pricing_policy_digest = pricing_policy.policy_digest
+        # 正式 Smoke 使用独立 PostgreSQL 账本，不能伪装成 Phase 13/14 候选。
+        # 默认解析器必须在实例构造时读取全局名称，不能作为函数定义期默认参数提前
+        # 捕获；这既保留生产默认身份，也让受控 Scripted 测试可以显式验证专用映射。
+        self._budget_candidate_resolver = (
+            budget_candidate_for_task
+            if budget_candidate_resolver is None
+            else budget_candidate_resolver
+        )
+        # 默认请求 ID 必须逐字保留旧格式，避免既有账本幂等键或回放测试发生漂移。
+        # 正式 Smoke 则传入稳定 UUID 工厂，使 append-only receipt 表不会接收自由文本。
+        self._request_id_factory = request_id_factory or self._default_request_id
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def resolve_profile(self, task: AgentTask) -> SpecialistProfile:
@@ -307,8 +315,14 @@ class BoundedSpecialistRunner:
                 return self._failure(task, AgentResultStatus.MODEL_ERROR, "DEADLINE_EXCEEDED", audit)
             if remaining_tokens <= 0:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "TOKEN_BUDGET_EXCEEDED", audit)
+            try:
+                request_id = self._request_id_factory(task, execution_id, model_index)
+                if type(request_id) is not str or not request_id:
+                    raise ValueError("request ID factory returned an invalid value")
+            except Exception:
+                return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "REQUEST_ID_FACTORY_FAILED", audit)
             request = self._model_request(
-                task, profile, deadline_at, execution_id, model_index, actions,
+                task, profile, deadline_at, request_id, actions,
                 skill_outputs, resolved_evidence, remaining_tokens
             )
             try:
@@ -325,7 +339,7 @@ class BoundedSpecialistRunner:
             if max_output_tokens <= 0:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "TOKEN_BUDGET_EXCEEDED", audit)
             request = self._model_request(
-                task, profile, deadline_at, execution_id, model_index, actions,
+                task, profile, deadline_at, request_id, actions,
                 skill_outputs, resolved_evidence, max_output_tokens
             )
             remaining_case_cost = profile.max_case_cost_cny - audit.cost_cny
@@ -345,7 +359,9 @@ class BoundedSpecialistRunner:
                 )
             try:
                 claim = self._budget_store.reserve(
-                    request.request_id, budget_candidate_for_task(task), per_call_reservation
+                    request.request_id,
+                    self._budget_candidate_resolver(task),
+                    per_call_reservation,
                 )
                 # 执行 ID 应保证本次请求唯一；若仍命中旧记录，宁可拒绝也不能再次发送
                 # 一个账本无法区分的新外部付费请求。
@@ -672,12 +688,17 @@ class BoundedSpecialistRunner:
         return Decimal(str(elapsed * 1000)).quantize(Decimal("0.001"))
 
     @staticmethod
+    def _default_request_id(task: AgentTask, execution_id: str, model_index: int) -> str:
+        """复刻历史请求 ID，供未显式注入的生产和离线路径保持完全兼容。"""
+
+        return f"{task.task_id}:{execution_id}:model:{model_index + 1}"
+
+    @staticmethod
     def _model_request(
         task: AgentTask,
         profile: SpecialistProfile,
         deadline_at: datetime,
-        execution_id: str,
-        model_index: int,
+        request_id: str,
         actions: list[AgentAction],
         skill_outputs: list[dict[str, Any]],
         resolved_evidence: list[Any],
@@ -693,7 +714,7 @@ class BoundedSpecialistRunner:
             "resolved_evidence": [item.model_dump(mode="json") for item in resolved_evidence],
         }
         return ModelRequest(
-            request_id=f"{task.task_id}:{execution_id}:model:{model_index + 1}",
+            request_id=request_id,
             endpoint_host=profile.endpoint_host,
             model_id=profile.model_id,
             temperature=profile.temperature,
