@@ -58,12 +58,15 @@ def _response(
     content: str = '{"action":"NO_ACTION"}',
     usage: dict[str, int] | None = None,
     headers: dict[str, str] | None = None,
+    provider_response_id: str = "chatcmpl-test-001",
+    finish_reason: str = "stop",
 ) -> AsyncHttpResponse:
     """构造 OpenAI-compatible HTTP 响应，不依赖真实网络。"""
 
     body: dict[str, Any] = {
+        "id": provider_response_id,
         "model": model,
-        "choices": [{"message": {"content": content}}],
+        "choices": [{"message": {"content": content}, "finish_reason": finish_reason}],
     }
     if usage is not None:
         body["usage"] = usage
@@ -142,6 +145,8 @@ def test_adapter_makes_one_request_and_preserves_identity_usage() -> None:
     assert result.usage.input_tokens == 90
     assert result.usage.output_tokens == 10
     assert result.usage.total_tokens == 100
+    assert result.provider_response_id == "chatcmpl-test-001"
+    assert result.finish_reason == "stop"
     assert len(transport.calls) == 1
     assert transport.calls[0]["url"] == "https://api.deepseek.com/chat/completions"
     assert transport.calls[0]["payload"]["model"] == "deepseek-v4-flash"
@@ -271,6 +276,47 @@ def test_adapter_classifies_invalid_or_untrusted_responses(
     assert "chain_of_thought" not in serialized
     assert "secret" not in serialized
     assert len(transport.calls) == 1
+
+
+def test_adapter_classifies_non_object_choice_as_invalid_response() -> None:
+    """choices 首项不是对象时不能泄漏 AttributeError，也不能被当作可审计成功回执。"""
+
+    malformed = AsyncHttpResponse(
+        status_code=200,
+        headers={},
+        body=json.dumps(
+            {
+                "id": "chatcmpl-malformed-choice",
+                "model": "deepseek-v4-flash",
+                "choices": [[]],
+            }
+        ).encode("utf-8"),
+    )
+    result = asyncio.run(
+        DeepSeekAgentModelAdapter(
+            api_key="test-secret",
+            transport=_RecordingTransport(malformed),
+        ).complete(_request())
+    )
+
+    assert isinstance(result, ModelFailure)
+    assert result.category is ModelFailureCategory.INVALID_RESPONSE
+
+
+def test_adapter_rejects_blank_provider_receipt_fields() -> None:
+    """空白 Provider ID 或 finish reason 不能伪装成正式 smoke 的完整回执。"""
+
+    result = asyncio.run(
+        DeepSeekAgentModelAdapter(
+            api_key="test-secret",
+            transport=_RecordingTransport(
+                _response(provider_response_id=" ", finish_reason="\t")
+            ),
+        ).complete(_request())
+    )
+
+    assert isinstance(result, ModelFailure)
+    assert result.category is ModelFailureCategory.INVALID_RESPONSE
 
 
 def test_adapter_rejects_excessively_nested_output_without_exception_escape() -> None:

@@ -318,6 +318,10 @@ class BoundedSpecialistRunner:
             except Exception:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "TOKEN_PREFLIGHT_FAILED", audit)
             max_output_tokens = remaining_tokens - input_tokens
+            if profile.max_output_tokens is not None:
+                # Profile 的总 token 上限约束整次任务，独立输出上限约束单次请求。
+                # 两者都必须生效，防止 Smoke Profile 的长 deadline 被误解为可无限增大输出。
+                max_output_tokens = min(max_output_tokens, profile.max_output_tokens)
             if max_output_tokens <= 0:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "TOKEN_BUDGET_EXCEEDED", audit)
             request = self._model_request(
@@ -420,6 +424,15 @@ class BoundedSpecialistRunner:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "BUDGET_RECONCILIATION_REQUIRED", audit)
             if actual_cost > per_call_reservation:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "PRICE_RESERVATION_OVERRUN", audit)
+            if outcome.usage.output_tokens > request.max_output_tokens:
+                # 模型服务端可能忽略客户端的 max_tokens 参数。此时 usage 已完整返回，
+                # 费用必须按真实用量结算，但该输出不能继续作为受限 AgentAction 使用。
+                return self._failure(
+                    task,
+                    AgentResultStatus.BUDGET_EXCEEDED,
+                    "OUTPUT_TOKEN_LIMIT_EXCEEDED",
+                    audit,
+                )
             if self._clock() >= deadline_at:
                 return self._failure(task, AgentResultStatus.MODEL_ERROR, "DEADLINE_EXCEEDED", audit)
 

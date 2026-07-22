@@ -65,6 +65,8 @@ from src.specialist_runtime.profiles import (
 
 EVIDENCE_ANALYST_PROFILE_ID = "evidence_analyst"
 DECISION_PLANNER_PROFILE_ID = "decision_planner"
+PHASE16_SMOKE_EVIDENCE_ANALYST_PROFILE_ID = "phase16_smoke_evidence_analyst"
+PHASE16_SMOKE_EVIDENCE_PLANNER_PROFILE_ID = "phase16_smoke_evidence_planner"
 CONTROLLED_MULTI_AGENT_PROFILE_VERSION = "1.0.0"
 COORDINATOR_DEADLINE_SECONDS = 5
 COORDINATOR_MAX_TOTAL_TOKENS = 4000
@@ -251,7 +253,8 @@ def _build_profile(
     result_schema: dict[str, object],
     max_total_tokens: int,
     max_case_cost_cny: Decimal,
-    deadline_seconds: int = 2,
+    deadline_seconds: int,
+    max_output_tokens: int | None = None,
 ) -> SpecialistProfile:
     """统一构造温度零、单次调用、零 Skill 的精确 Profile。""",
 
@@ -280,13 +283,14 @@ def _build_profile(
         max_model_calls=1,
         max_skill_calls=0,
         max_total_tokens=max_total_tokens,
+        max_output_tokens=max_output_tokens,
         deadline_seconds=deadline_seconds,
         max_case_cost_cny=max_case_cost_cny,
     )
 
 
-def build_evidence_analyst_profile(deadline_seconds: int = 2, max_total_tokens: int = 1200) -> SpecialistProfile:
-    """返回只读 ConflictAnalysis Profile。"""
+def build_evidence_analyst_profile() -> SpecialistProfile:
+    """返回生产 LIVE 使用的固定只读 ConflictAnalysis Profile。"""
 
     return _build_profile(
         profile_id=EVIDENCE_ANALYST_PROFILE_ID,
@@ -296,14 +300,14 @@ def build_evidence_analyst_profile(deadline_seconds: int = 2, max_total_tokens: 
             "Do not rank products, propose actions, call Skills, or claim authority."
         ),
         result_schema=_CONFLICT_ANALYSIS_RESULT_SCHEMA,
-        max_total_tokens=max_total_tokens,
+        max_total_tokens=1200,
         max_case_cost_cny=Decimal("0.030000"),
-        deadline_seconds=deadline_seconds,
+        deadline_seconds=2,
     )
 
 
-def build_decision_planner_profile(deadline_seconds: int = 2) -> SpecialistProfile:
-    """返回只读 Planner Profile。"""
+def build_decision_planner_profile() -> SpecialistProfile:
+    """返回生产 LIVE 使用的固定只读 Planner Profile。"""
 
     return _build_profile(
         profile_id=DECISION_PLANNER_PROFILE_ID,
@@ -315,7 +319,43 @@ def build_decision_planner_profile(deadline_seconds: int = 2) -> SpecialistProfi
         result_schema=_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
         max_total_tokens=2800,
         max_case_cost_cny=Decimal("0.070000"),
-        deadline_seconds=deadline_seconds,
+        deadline_seconds=2,
+    )
+
+
+def build_phase16_smoke_evidence_analyst_profile() -> SpecialistProfile:
+    """返回仅正式 smoke 使用的 Analyst Profile，不可注册到生产 LIVE 路由。"""
+
+    return _build_profile(
+        profile_id=PHASE16_SMOKE_EVIDENCE_ANALYST_PROFILE_ID,
+        task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
+        prompt_prefix=(
+            "You are EvidenceAnalystAgent for an isolated formal smoke test. "
+            "Do not rank products, propose actions, call Skills, or claim authority."
+        ),
+        result_schema=_CONFLICT_ANALYSIS_RESULT_SCHEMA,
+        max_total_tokens=4000,
+        max_output_tokens=2800,
+        max_case_cost_cny=Decimal("0.040000"),
+        deadline_seconds=30,
+    )
+
+
+def build_phase16_smoke_evidence_planner_profile() -> SpecialistProfile:
+    """返回仅正式 smoke 使用的 Planner Profile，不可注册到生产 LIVE 路由。"""
+
+    return _build_profile(
+        profile_id=PHASE16_SMOKE_EVIDENCE_PLANNER_PROFILE_ID,
+        task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+        prompt_prefix=(
+            "You are DecisionPlannerAgent for an isolated formal smoke test. "
+            "Return options only; never call Skills, select a route, or execute a command."
+        ),
+        result_schema=_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
+        max_total_tokens=4000,
+        max_output_tokens=2800,
+        max_case_cost_cny=Decimal("0.052000"),
+        deadline_seconds=30,
     )
 
 

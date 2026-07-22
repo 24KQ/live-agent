@@ -198,7 +198,12 @@ class DeepSeekAgentModelAdapter:
             if not isinstance(envelope, dict):
                 raise ValueError("response envelope must be an object")
             response_model = envelope["model"]
-            content = envelope["choices"][0]["message"]["content"]
+            choice = envelope["choices"][0]
+            content = choice["message"]["content"]
+            # OpenAI-compatible 返回中的 id/finish_reason 对普通调用保持可选；
+            # Phase 16 正式 smoke 会在更窄的 receipt 门禁中把两者提升为必填。
+            provider_response_id = envelope.get("id")
+            finish_reason = choice.get("finish_reason")
         except (
             UnicodeDecodeError,
             json.JSONDecodeError,
@@ -252,6 +257,8 @@ class DeepSeekAgentModelAdapter:
                 model_id=response_model,
                 output=output,
                 usage=usage,
+                provider_response_id=provider_response_id,
+                finish_reason=finish_reason,
                 response_digest=response_digest,
                 latency_ms=self._latency_ms(started),
             )

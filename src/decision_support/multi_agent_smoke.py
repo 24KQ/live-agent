@@ -744,7 +744,6 @@ class Phase16SmokeRunner:
         self,
         *,
         config: Phase16SmokeConfig,
-        profile_deadline_seconds: int = 2,
         preflight: Phase16SmokePreflight,
         budget_store: Phase16SmokeBudgetStore | PostgresPhase16SmokeBudgetStore,
         model_port: AgentModelPort,
@@ -752,7 +751,6 @@ class Phase16SmokeRunner:
         self._config = config
         self._preflight = preflight
         self._budget = budget_store
-        self._profile_deadline_seconds = profile_deadline_seconds
         self._model_port = model_port
 
     async def run(self, case_ids: tuple[str, ...]) -> Phase16SmokeReport:
@@ -898,8 +896,10 @@ class Phase16SmokeRunner:
         accumulated_cost = Decimal("0")
         requests = 0
         for profile, stage in (
-            (build_evidence_analyst_profile(deadline_seconds=self._profile_deadline_seconds), "CONFLICT_ANALYSIS"),
-            (build_decision_planner_profile(deadline_seconds=self._profile_deadline_seconds), "LIVE_DECISION_PLANNING"),
+            # 历史 Task 10 smoke 也必须使用固定 LIVE Profile；正式 30 秒 Smoke Profile
+            # 仅由后续独立 Runner 装配，不能通过这里的公开参数越过 LIVE 身份边界。
+            (build_evidence_analyst_profile(), "CONFLICT_ANALYSIS"),
+            (build_decision_planner_profile(), "LIVE_DECISION_PLANNING"),
         ):
             request = self._request_for(profile, case, request_key, stage)
             requests += 1

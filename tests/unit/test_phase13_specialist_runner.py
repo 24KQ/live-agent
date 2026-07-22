@@ -57,6 +57,7 @@ def _profile(
     max_skill_calls: int = 1,
     result_schema: dict | None = None,
     skill_versions: dict[str, str] | None = None,
+    max_output_tokens: int | None = None,
 ) -> SpecialistProfile:
     schema = result_schema or {
         "type": "object",
@@ -91,6 +92,7 @@ def _profile(
         max_model_calls=max_model_calls,
         max_skill_calls=max_skill_calls,
         max_total_tokens=100,
+        max_output_tokens=max_output_tokens,
         deadline_seconds=5,
         max_case_cost_cny=Decimal("0.10"),
     )
@@ -183,6 +185,24 @@ class _MismatchedIdentityPort(_ScriptedPort):
             model_id=request.model_id,
             output={"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}},
             usage=ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+            response_digest=HASH_A,
+            latency_ms=Decimal("1"),
+        )
+
+
+class _OutputTokenOverrunPort(_ScriptedPort):
+    """模拟 Provider 忽略请求输出上限但仍返回可解析结构的越界回执。"""
+
+    async def complete(self, request):
+        """返回总 token 尚可通过、单次输出却超过冻结上限的成功响应。"""
+
+        self.requests.append(request)
+        self.calls += 1
+        return ModelSuccess(
+            request_id=request.request_id,
+            model_id=request.model_id,
+            output={"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}},
+            usage=ModelUsage(input_tokens=10, output_tokens=18, total_tokens=28),
             response_digest=HASH_A,
             latency_ms=Decimal("1"),
         )
@@ -352,9 +372,15 @@ def _runner(
     *,
     allowed_skills: tuple[str, ...] = (),
     cost_cny: Decimal = Decimal("0.01"),
+    max_output_tokens: int | None = None,
+    model_port: Any | None = None,
 ):
-    profile = _profile(allowed_skills=allowed_skills)
-    model = _ScriptedPort(model_outputs)
+    profile = _profile(
+        allowed_skills=allowed_skills,
+        max_output_tokens=max_output_tokens,
+    )
+    # 测试装配允许替换 Port 以模拟 Provider 回执边界；Runner 本身仍只依赖公开 Port 协议。
+    model = model_port or _ScriptedPort(model_outputs)
     skill = _SkillPort()
     runner = BoundedSpecialistRunner(
         orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
@@ -382,6 +408,37 @@ def test_runner_returns_success_for_schema_valid_final_action() -> None:
     assert result.output == {"decision": "NO_ACTION"}
     assert model.calls == 1
     assert model.requests[0].messages[0].content == PROMPT_TEXT
+
+
+def test_runner_caps_request_output_tokens_at_frozen_profile_limit() -> None:
+    """独立输出上限必须小于剩余总 token 时生效，不能只依赖总额度。"""
+
+    runner, model, _skill = _runner(
+        [{"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}}],
+        max_output_tokens=17,
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.SUCCEEDED
+    assert model.requests[0].max_output_tokens == 17
+
+
+def test_runner_rejects_provider_usage_that_exceeds_frozen_output_limit() -> None:
+    """Provider 即使返回成功也不能越过请求中的独立输出上限。"""
+
+    runner, overrun_port, _skill = _runner(
+        [{"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}}],
+        max_output_tokens=17,
+        model_port=_OutputTokenOverrunPort([]),
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.BUDGET_EXCEEDED
+    assert result.failure is not None
+    assert result.failure.code == "OUTPUT_TOKEN_LIMIT_EXCEEDED"
+    assert overrun_port.requests[0].max_output_tokens == 17
 
 
 def test_first_model_call_may_use_more_than_average_but_not_case_cap() -> None:

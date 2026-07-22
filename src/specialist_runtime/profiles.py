@@ -67,6 +67,7 @@ class SpecialistProfile(StrictFrozenModel):
     max_model_calls: int = Field(..., ge=1, strict=True)
     max_skill_calls: int = Field(..., ge=0, strict=True)
     max_total_tokens: int = Field(..., ge=1, strict=True)
+    max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
     deadline_seconds: int = Field(..., ge=1, strict=True)
     max_case_cost_cny: Decimal = Field(..., gt=Decimal("0"))
     profile_digest: str = ""
@@ -148,7 +149,19 @@ class SpecialistProfile(StrictFrozenModel):
         if self.result_schema_hash != calculated_schema_hash:
             raise ValueError("result_schema_hash does not match result_schema")
 
-        payload = self.model_dump(mode="json", exclude={"profile_digest"})
+        if (
+            self.max_output_tokens is not None
+            and self.max_output_tokens > self.max_total_tokens
+        ):
+            raise ValueError("max_output_tokens cannot exceed max_total_tokens")
+
+        # 旧 Profile 没有独立输出上限。为了使新增的可选字段不重签历史 Profile
+        # 身份，摘要显式排除值为 None 的字段；Smoke Profile 设置数值后则必然被摘要绑定。
+        payload = self.model_dump(
+            mode="json",
+            exclude={"profile_digest"},
+            exclude_none=True,
+        )
         calculated = canonical_json_sha256(payload)
         if self.profile_digest and self.profile_digest != calculated:
             raise ValueError("profile_digest does not match profile facts")
