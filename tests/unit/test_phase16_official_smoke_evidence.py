@@ -17,6 +17,7 @@ from src.decision_support.multi_agent import (
 )
 from src.decision_support.official_smoke_evidence import (
     FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH,
+    FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS,
     PHASE16_OFFICIAL_SMOKE_EVIDENCE_ANALYST_PROFILE_ID,
     PHASE16_OFFICIAL_SMOKE_EVIDENCE_PLANNER_PROFILE_ID,
     PHASE16_OFFICIAL_SMOKE_RUN_ID,
@@ -238,3 +239,17 @@ def test_formal_smoke_receipt_requires_provider_id_and_finish_reason() -> None:
             finish_reason="stop",
         )
     )
+
+
+def test_formal_manifest_source_closure_includes_official_ledger() -> None:
+    """正式证据必须绑定账本源码，否则预算、恢复和回执规则可在不改变 Manifest 时漂移。"""
+
+    ledger_path = "src/decision_support/official_smoke_ledger.py"
+    assert ledger_path in FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS
+
+    manifest = build_phase16_official_smoke_evidence_manifest(
+        repository_root=_repository_root(),
+        dataset=_dataset(),
+        official_price=_official_price(),
+    )
+    assert ledger_path in manifest.source_file_digests
