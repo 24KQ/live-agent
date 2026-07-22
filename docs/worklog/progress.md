@@ -1269,4 +1269,4 @@
 - 真实发送前的 attempt 使用 UUID，Provider ID、模型响应仅持久化 SHA-256 摘要；Prompt、API Key、模型正文、思维链和经营建议文本均不在表结构或账本 API 中。
 - 双连接 CAS、重复 claim/receipt 拒绝、Planner 必须等待 Analyst validation PASS、崩溃恢复只追加未知失败且绝不重发均由真实 PostgreSQL 覆盖。正式 PASS 必须通过两条 HMAC receipt 复验；schema contract 弱化也会在入口 fail-closed。
 - Task 2 聚合验证 `102 passed in 227.95s`；迁移 dry-run 为 19 步，`compileall`、敏感扫描、文档扫描（`0 errors`）和 `git diff --check` 通过。真实模型调用仍为 `0`，正式 run 费用仍为 `0.000000 CNY`。
-- 实现提交 `b2387e9 feat: add phase16 official smoke ledger`、测试提交 `469483e test: verify phase16 official smoke ledger` 已创建；下一步提交本段留痕并推送隔离分支，然后进入 Task 3 RED。
+- 实现提交 `b2387e9 feat: add phase16 official smoke ledger`、测试提交 `469483e test: verify phase16 official smoke ledger`、留痕提交 `69af187 docs: record phase16 official smoke ledger` 均已推送；下一步进入 Task 3 RED，仍不得发送真实模型请求。

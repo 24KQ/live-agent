@@ -995,3 +995,4 @@
 - DDL 自身也是安全边界：冻结 Manifest digest 为 `d490b0868413323e4956b16b86f9f195abdd99f546057bc1221d44181ba7b3ff`，完整表/约束/trigger/关键函数 contract digest 为 `e9f9f0671d54f9906d3414c70507411c`。移除 CHECK、lineage FK 或 append-only trigger 会在下一次 Ledger 操作前 fail-closed。
 - 扩展 Phase 16 聚合集 `102 passed`；迁移 dry-run、`compileall`、敏感载荷扫描、`git diff --check` 通过。两个慢 PostgreSQL 文件分别为 `109.35s` 与 `89.90s`，聚合总时长 `227.95s`，不是死锁或超时缺陷。
 - 文档扫描器原先把自身的 U+FFFD 检测样例报告为错误。以 RED/GREEN 改为运行时按码位构造样例后，全仓扫描为 `0 errors`（仍有目标外历史 BOM warning），实际文档与其他 Python 文件继续严格检查。
+- Task 2 的实现、测试和留痕提交 `b2387e9`、`469483e`、`69af187` 已推送至 `origin/codex/phase16-official-smoke-evidence`；下一步严格从 Task 3 RED 开始，仍不发送真实模型请求。

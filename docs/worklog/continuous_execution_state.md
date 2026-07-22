@@ -1011,15 +1011,15 @@ Sub-agent ID / 角色: 019f8b33-eac4-7210-8386-b05f9fb09592 / Task 2 closeout Po
 
 ```text
 Phase / Task: Phase 16 / Official real-model smoke evidence / Task 2
-状态: VERIFY -> DOCS -> COMMIT (PUSH_PENDING)
+状态: VERIFY -> DOCS -> COMMIT -> PUSHED
 目标: 完成正式 PostgreSQL append-only ledger，并把收到的真实模型回执与正式 PASS 证据分离于任意数据库直写
 实现事实: 独立 run `phase16-official-smoke-v1` 已绑定 `HISTORICAL_DIRECT_MODE=0.073220 CNY`、十个固定 slot、每例 `0.092000 CNY` reservation 与最大暴露 `0.993220 CNY`；旧 Phase 16 smoke 表未修改
 安全事实: 每个 PASS 同时要求 Analyst/Planner receipt、validation 与进程外 HMAC tag；schema contract 固定为 `e9f9f0671d54f9906d3414c70507411c`，移除 CHECK/FK/append-only trigger 均在正式 API 入口 fail-closed
 验证: 聚合 unit/PostgreSQL `102 passed in 227.95s`；迁移 dry-run 19 steps；`compileall`、敏感扫描、文档扫描 `0 errors`、`git diff --check` 均通过。慢集成文件已独立复现通过，不是死锁
 审查: 三轮既有只读审查的 Critical/Important 均已 RED/GREEN；第四轮代理因外部 503 未执行，主模型完成同范围 schema/HMAC/DDL 重放与敏感字段复审
-提交: `b2387e9 feat: add phase16 official smoke ledger`；`469483e test: verify phase16 official smoke ledger`；本次留痕提交待创建
+提交: `b2387e9 feat: add phase16 official smoke ledger`；`469483e test: verify phase16 official smoke ledger`；`69af187 docs: record phase16 official smoke ledger`，均已推送
 真实模型与费用: 未读取 LLM API key，未调用真实模型；正式 run 费用 `0.000000 CNY`，默认路由仍为 `DETERMINISTIC_ONLY`
-下一条精确操作: 仅提交 Task 2 留痕，推送 `codex/phase16-official-smoke-evidence`；成功后切换 Task 3 RED，不提前执行 `--execute`
+下一条精确操作: 切换 Task 3 RED，先证明唯一 CLI 尚未通过 `BoundedSpecialistRunner`、六角色只读投影和正式账本；不提前执行 `--execute`
 ```
 
 当前无运行中的 sub-agent。
