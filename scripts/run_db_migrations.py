@@ -145,6 +145,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 16 受控多 Agent smoke 独立预算预约事实",
     ),
+    MigrationStep(
+        phase="phase16_official_smoke_ledger",
+        sql_file="init_phase16_official_smoke_ledger.sql",
+        required=True,
+        description="Phase 16 正式真实模型 smoke append-only 审计账本",
+    ),
 ]
 
 

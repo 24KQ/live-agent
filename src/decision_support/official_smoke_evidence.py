@@ -42,6 +42,9 @@ FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH = Path(
 FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS = (
     "src/decision_support/multi_agent.py",
     "src/decision_support/official_smoke_evidence.py",
+    # 正式账本决定预算预约、回执去重和重启终态；不绑定它会使同一 Manifest 下的
+    # 成本或恢复语义发生漂移，因此它属于正式真实模型证据的源码闭包。
+    "src/decision_support/official_smoke_ledger.py",
     "src/specialist_runtime/deepseek_adapter.py",
     "src/specialist_runtime/model_port.py",
     "src/specialist_runtime/profiles.py",
