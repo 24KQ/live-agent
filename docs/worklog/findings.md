@@ -987,3 +987,11 @@
 - D-167 固定 11 个 Phase 16 源码文件、源码规范摘要和报告文件集合校验；`coverage erase` 后 unit 使用 `run`，integration 使用 `append`。新增测试覆盖 Evidence/Store/Coordinator/评估资产和冻结协议的真实拒绝、恢复与身份分支。
 - 干净验证为 unit `1555 passed, 1 warning`、integration `185 passed, 7 deselected, 5 warnings`、line `92.035%`、branch `85.081%`，Gate `PASS`。历史编码扫描的 4 个 error 来自扫描器自测 replacement-character 样例，未混入本轮通过结论；目标文件编码和 diff 检查通过。
 - `599c98e`、`6216f9f` 已推送；文档完成后等待 PR #1 required checks 和 mergeability，合并只使用 merge commit，Phase 17 不自动启动。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 发现
+
+- 正式真实模型证据不能复用旧 `phase16_smoke_*` 预算表：独立账本将历史直接模式 `0.073220 CNY`、十个不可扩展 case slot 与每例 `0.092000 CNY` reservation 绑定为单一 run，最大暴露固定为 `0.993220 CNY`。
+- 数据库行的格式正确不等于真实发送可信。正式 PASS 消费同时要求 Analyst/Planner 两条 receipt、两条 validation PASS 及进程外 HMAC tag；HMAC key 不写 PostgreSQL、日志或报告，故数据库直写的伪造 PASS 不能被读取为正式证据。
+- DDL 自身也是安全边界：冻结 Manifest digest 为 `d490b0868413323e4956b16b86f9f195abdd99f546057bc1221d44181ba7b3ff`，完整表/约束/trigger/关键函数 contract digest 为 `e9f9f0671d54f9906d3414c70507411c`。移除 CHECK、lineage FK 或 append-only trigger 会在下一次 Ledger 操作前 fail-closed。
+- 扩展 Phase 16 聚合集 `102 passed`；迁移 dry-run、`compileall`、敏感载荷扫描、`git diff --check` 通过。两个慢 PostgreSQL 文件分别为 `109.35s` 与 `89.90s`，聚合总时长 `227.95s`，不是死锁或超时缺陷。
+- 文档扫描器原先把自身的 U+FFFD 检测样例报告为错误。以 RED/GREEN 改为运行时按码位构造样例后，全仓扫描为 `0 errors`（仍有目标外历史 BOM warning），实际文档与其他 Python 文件继续严格检查。

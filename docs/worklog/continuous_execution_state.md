@@ -935,3 +935,91 @@ Sub-agent ID / 角色: 019f8a54-2746-7693-af7a-ac6f549e0bd6 / Runner、Coordinat
 ```
 
 当前无运行中的 sub-agent。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 REVIEW DISPATCHED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 2
+状态: GREEN -> REVIEW
+目标: 独立 PostgreSQL append-only 正式账本；导入历史 0.073220 CNY，固定十个 0.092000 CNY case slot，并禁止崩溃后重发
+当前分支: codex/phase16-official-smoke-evidence
+最近可验证证据: official ledger unit 6 passed；official/legacy PostgreSQL ledger 8 passed；迁移 dry-run 19 steps；compileall 与 git diff --check 通过
+真实模型与费用: 未读取 .env、未发送真实模型；正式 run 费用仍为 0.000000 CNY
+Sub-agent ID / 角色: 019f8ab0-6209-79c3-94ed-9f9fb85c7a44 / Task 2 PostgreSQL ledger 规格、并发与安全只读审查
+派发时间: 2026-07-22 Asia/Shanghai
+只读或写入文件边界: 只读 src/decision_support/official_smoke_ledger.py、docker/init_phase16_official_smoke_ledger.sql、scripts/run_db_migrations.py、tests/unit/test_phase16_official_smoke_ledger.py、tests/integration/test_phase16_official_smoke_ledger_postgres.py；禁止修改、迁移执行、数据库写入或真实模型调用
+预期交付物与测试: 审查 run/slot/claim/attempt/receipt/validation/outcome 的 append-only、CAS、Planner 依赖、恢复无重发、敏感字段排除及测试缺口；返回 Critical/Important/Minor 分级发现
+监控规则: 首次回报、GREEN 后、提交前复查；20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽安全/预算时立即停止并主模型接管
+首次回报: 1 Critical（未完整初始化即可直写 formal PASS）与 2 Important（TRUNCATE 可删除事实、自由文本字段可落库）
+状态: COMPLETED_REPORT_CONSUMED / STOPPED
+接管与整改: 主模型已逐项复核；将以 RED/GREEN 增加初始化完整性触发器、TRUNCATE 禁止触发器及 UUID/摘要化/枚举化审计字段，不接受降低安全边界的替代方案
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 REMEDIATION REVIEW DISPATCHED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 2
+状态: RED -> GREEN -> REVIEW
+目标: 完成 C1/C2/I1/I2 整改，仍未读取 .env、未发送真实模型
+已关闭首轮审查: 019f8ace-0eac-7c11-8c3a-2ed0559aedbd / Tesla；报告已消费并转化为五个 RED 回归
+整改内容: DDL 绑定冻结 Manifest/Profile/十个有序 case；Provider response ID 摘要全局唯一；恢复扫描所有未闭合 claim；Manifest 源码闭包包含 official_smoke_ledger.py
+最近可验证证据: official evidence unit `7 passed`；official PostgreSQL ledger `17 passed`；Manifest 重建摘要与冻结文件一致
+Sub-agent ID / 角色: 019f8adf-7b8a-74c3-b554-ef8aba9a5853 / Task 2 第二轮 PostgreSQL ledger 规格与安全只读审查
+派发时间: 2026-07-22 Asia/Shanghai
+只读或写入文件边界: 只读 official_smoke_ledger.py、official_smoke_evidence.py、DDL、冻结 Manifest、Task 2 测试与迁移登记；禁止修改、迁移执行、数据库写入或真实模型调用
+预期交付物与测试: 复核 C1/C2/I1/I2、直接 SQL PASS 伪造、Provider receipt 唯一性、未闭合 claim 恢复和迁移升级安全性
+监控规则: 20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽安全/预算时立即停止并主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；未发送任何真实请求
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 FINAL REVIEW DISPATCHED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 2
+状态: RED -> GREEN -> REVIEW
+目标: 对第二轮发现的数据库直写伪造与旧 schema 静默降级完成收口；尚未运行真实模型
+整改内容: 受控 Runner 的 HMAC receipt_auth_tag 不落库保存 key，正式报告使用 verify_case_outcome_receipts() 拒绝直写伪造行；旧 receipt 无标签、TEXT internal_request_id 等弱 schema 明确 fail-closed
+最近可验证证据: 直接 SQL 伪造链和 legacy schema RED 已转 GREEN；正式 PostgreSQL ledger `19 passed`；compileall 与 git diff --check 通过
+Sub-agent ID / 角色: 019f8afe-2a97-7c80-a16d-cc0ad67d4f97 / Task 2 最终 HMAC、迁移和正式证据只读审查
+派发时间: 2026-07-22 Asia/Shanghai
+只读或写入文件边界: 只读 official_smoke_ledger.py、official_smoke_evidence.py、DDL、Manifest、Task 2 测试与计划；禁止修改、数据库写入、迁移执行或真实模型调用
+预期交付物与测试: 复核 HMAC 边界、Pass 两条认证 receipt、无密钥持久化、schema fail-closed、冻结身份/预算/恢复未回归
+监控规则: 20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽安全/预算时立即停止并主模型接管
+真实模型与费用: 历史直接模式 0.073220 CNY；正式 run 0.000000 CNY；未发送任何真实请求
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 CLOSEOUT REVIEW DISPATCHED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 2
+状态: RED -> GREEN -> CLOSEOUT_REVIEW
+目标: 将 PASS receipt 的 HMAC 认证和完整数据库 schema contract 变为所有正式消费路径的不可绕过不变量
+根因与 RED: DDL 中的 schema 摘要占位允许弱化的 CHECK、lineage FK 与 append-only trigger 静默通过；针对三类弱化的回归为 3 failed，另有两条 HMAC 伪造路径已在同一组回归中验证
+GREEN 整改: 冻结 Manifest 更新为 d490b0868413323e4956b16b86f9f195abdd99f546057bc1221d44181ba7b3ff；DDL 绑定相同 digest，并将临时隔离 PostgreSQL schema 计算得到的完整 contract digest e9f9f0671d54f9906d3414c70507411c 设为无旁路期望值
+最近可验证证据: 5 个针对 HMAC PASS 链、恢复/close 伪造与 schema 弱化的 PostgreSQL 回归已转为 `5 passed`
+真实模型与费用: 未读取 LLM 凭据、未发送真实模型；正式 run 仍为 0.000000 CNY
+Sub-agent ID / 角色: 019f8b33-eac4-7210-8386-b05f9fb09592 / Task 2 closeout PostgreSQL、HMAC 与 schema contract 只读审查
+派发时间: 2026-07-22 Asia/Shanghai
+只读或写入文件边界: 只读 official_smoke ledger/DDL/Manifest/迁移登记及对应 unit/PostgreSQL tests；禁止修改、迁移写入、读取 .env 或真实模型调用
+预期交付物与测试: 审查 schema digest 可重复性、迁移重放、PASS receipt 认证、CAS/恢复及敏感字段边界；输出 Critical/Important/Minor 与可复核证据
+监控规则: 首次回报、完整回归后与提交前复核；20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽安全/预算时立即停止并主模型接管
+当前状态: STOPPED_EXTERNAL_503；本地 Codex review proxy 在代理初始化阶段返回 503，未读取或修改任何项目文件，也未产生可采纳结论；主模型接管同范围复审
+接管证据: 定向 Task 2 unit/PostgreSQL 回归为 `30 passed`；后续将由主模型逐项核对 schema digest、DDL 重放、Manifest/DDL 身份和 HMAC PASS 消费链，再进行全量门禁
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2 VERIFY -> DOCS -> COMMIT
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 2
+状态: VERIFY -> DOCS -> COMMIT (PUSH_PENDING)
+目标: 完成正式 PostgreSQL append-only ledger，并把收到的真实模型回执与正式 PASS 证据分离于任意数据库直写
+实现事实: 独立 run `phase16-official-smoke-v1` 已绑定 `HISTORICAL_DIRECT_MODE=0.073220 CNY`、十个固定 slot、每例 `0.092000 CNY` reservation 与最大暴露 `0.993220 CNY`；旧 Phase 16 smoke 表未修改
+安全事实: 每个 PASS 同时要求 Analyst/Planner receipt、validation 与进程外 HMAC tag；schema contract 固定为 `e9f9f0671d54f9906d3414c70507411c`，移除 CHECK/FK/append-only trigger 均在正式 API 入口 fail-closed
+验证: 聚合 unit/PostgreSQL `102 passed in 227.95s`；迁移 dry-run 19 steps；`compileall`、敏感扫描、文档扫描 `0 errors`、`git diff --check` 均通过。慢集成文件已独立复现通过，不是死锁
+审查: 三轮既有只读审查的 Critical/Important 均已 RED/GREEN；第四轮代理因外部 503 未执行，主模型完成同范围 schema/HMAC/DDL 重放与敏感字段复审
+提交: `b2387e9 feat: add phase16 official smoke ledger`；`469483e test: verify phase16 official smoke ledger`；本次留痕提交待创建
+真实模型与费用: 未读取 LLM API key，未调用真实模型；正式 run 费用 `0.000000 CNY`，默认路由仍为 `DETERMINISTIC_ONLY`
+下一条精确操作: 仅提交 Task 2 留痕，推送 `codex/phase16-official-smoke-evidence`；成功后切换 Task 3 RED，不提前执行 `--execute`
+```
+
+当前无运行中的 sub-agent。

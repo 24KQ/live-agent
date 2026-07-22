@@ -1262,3 +1262,11 @@
 - Task 0 仅持久化 Design、Plan、D-168 至 D-171 与状态事实。真实模型调用为 `0`，正式 run
   费用为 `0.000000 CNY`；历史 `0.073220 CNY` 只计入一元总预算。下一步是文档编码、差异检查、
   docs-only 提交和推送；在此之前不修改业务代码、不运行迁移、不发送网络请求。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 2
+
+- 新增独立 PostgreSQL append-only formal ledger：run、历史支出、固定 slot、claim、dispatch attempt、provider receipt、validation fact 与 terminal outcome 分表保存；旧 `phase16_smoke_*` 账本没有被修改。
+- 真实发送前的 attempt 使用 UUID，Provider ID、模型响应仅持久化 SHA-256 摘要；Prompt、API Key、模型正文、思维链和经营建议文本均不在表结构或账本 API 中。
+- 双连接 CAS、重复 claim/receipt 拒绝、Planner 必须等待 Analyst validation PASS、崩溃恢复只追加未知失败且绝不重发均由真实 PostgreSQL 覆盖。正式 PASS 必须通过两条 HMAC receipt 复验；schema contract 弱化也会在入口 fail-closed。
+- Task 2 聚合验证 `102 passed in 227.95s`；迁移 dry-run 为 19 步，`compileall`、敏感扫描、文档扫描（`0 errors`）和 `git diff --check` 通过。真实模型调用仍为 `0`，正式 run 费用仍为 `0.000000 CNY`。
+- 实现提交 `b2387e9 feat: add phase16 official smoke ledger`、测试提交 `469483e test: verify phase16 official smoke ledger` 已创建；下一步提交本段留痕并推送隔离分支，然后进入 Task 3 RED。

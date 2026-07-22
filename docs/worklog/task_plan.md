@@ -25,9 +25,9 @@ Task 10 前不访问真实模型，任何严重安全违规、预算风险或强
 
 ## 2026-07-22 Phase 16 Official Real-Model Smoke Evidence Closure
 
-- [-] Task 0：持久化正式真实模型 smoke 的 Design、Implementation Plan、D-168 至 D-171 和状态事实源；本 Task 只能编辑文档、执行编码/差异检查并独立提交推送。
-- [ ] Task 1：恢复固定 LIVE Profile，新增隔离 Smoke Profile/Manifest、provider receipt 合同和离线预检；不联网。
-- [ ] Task 2：新增版本化 PostgreSQL append-only formal ledger，导入 `0.073220 CNY` 历史事实并锁定十个 `.092000 CNY` slot；不改旧 `PHASE16_MULTI_AGENT_SMOKE` 表。
+- [x] Task 0：持久化正式真实模型 smoke 的 Design、Implementation Plan、D-168 至 D-171 和状态事实源；仅文档提交 `a603159` 已推送。
+- [x] Task 1：恢复固定 LIVE Profile，新增隔离 Smoke Profile/Manifest、provider receipt 合同和离线预检；不联网，`d032cda` 已推送。
+- [-] Task 2：新增版本化 PostgreSQL append-only formal ledger，导入 `0.073220 CNY` 历史事实并锁定十个 `.092000 CNY` slot；不改旧 `PHASE16_MULTI_AGENT_SMOKE` 表。实现/测试提交 `b2387e9`、`469483e` 已形成，等待本任务文档提交与分支推送。
 - [ ] Task 3：让唯一 CLI 通过 `BoundedSpecialistRunner`、smoke-only 预算端口和六角色只读投影运行；默认 dry-run，只有 `--execute` 能联网。
 - [ ] Task 4：在所有本地 Gate 通过后，最多执行一次严格 10/10 正式 smoke，读取脱敏 receipt 渲染报告和 Acceptance；任何已发送失败立即停止且不重试。
 - [ ] Task 5：完整验证、审查、PR 和 merge commit；无论外部结论如何都保持 `DETERMINISTIC_ONLY` 和 `AWAITING_PHASE_17_GATE`。
