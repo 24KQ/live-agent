@@ -894,3 +894,44 @@ Phase / Task: Phase 16 / PR coverage remediation
 
 Sub-agent 状态：本轮两个 coverage 子任务均未在约定范围产生可验证增量，已按监控协议 STOPPED；主模型接管并完成测试整改。无运行中的 sub-agent。
 ```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 0 IN PROGRESS
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 0
+状态: DOCUMENTATION -> VERIFY -> COMMIT -> PUSH
+目标: 先持久化设计、实施计划、D-168 至 D-171 和最新事实源；只有 docs-only 提交推送后才进入代码、迁移或真实模型发送
+当前分支: codex/phase16-official-smoke-evidence（隔离工作树；根目录 main 未修改）
+冻结运行: phase16-official-smoke-v1；正式 PASS 必须 10/10 case、20/20 call、完整 provider receipt/usage/AgentAction/Schema/EvidenceRef、全部 MULTI_AGENT_READY，且总成本不超过 1.000000 CNY
+预算: 历史 HISTORICAL_DIRECT_MODE 0.073220 CNY 计入总上限但不计成功证据；十个固定 slot 每例 0.092000 CNY，最大暴露 0.993220 CNY
+路由: 生产默认 DETERMINISTIC_ONLY；Smoke Profile 不能进入 LIVE Coordinator、生产 Store 或经营命令路径
+最近命令与结果: unit 1555 passed, 1 warning；integration 185 passed, 7 deselected, 5 warnings；未运行迁移、未发送真实模型
+前置基线说明（发生在 Task 0 文档任务开始前，不属于本 Task 执行）: 隔离 worktree 初始缺少被忽略的本机 PostgreSQL 配置，基线使用默认凭据失败；此前已完成本机忽略配置一致性核验，随后基线全绿。Task 0 本身只编辑文档、执行文档格式检查和 git 差异检查；无真实网络尝试
+设计偏差与决策编号: D-168 至 D-171；旧 0.100000 reservation 账本、旧直接模式脚本和生产 Coordinator 都不能充当正式证据路径
+下一条精确操作: 对 Task 0 文档执行 UTF-8/BOM/LF/replacement/trailing-whitespace 与 git diff --check，独立提交 docs: define phase16 official smoke evidence 并推送；推送成功前不得开始 Task 1
+模型费用累计: 历史直接模式 0.073220 CNY；本正式 run 0.000000 CNY；允许最大总暴露 0.993220 CNY
+```
+
+Sub-agent 监控留痕：
+
+```text
+Sub-agent ID / 角色: 019f8a53-ef92-71e3-ab24-f9478c0247a6 / PostgreSQL、DDL 与 formal ledger 只读审查
+派发时间: 2026-07-22
+只读或写入文件边界: 只读 docker/init_phase16_smoke.sql、multi_agent_smoke.py、迁移入口与 PostgreSQL 测试；禁止修改、迁移、数据库连接和真实模型调用
+预期交付物与测试: 找出旧账本与固定 10/10/不可变 receipt 的缺口，给出最小 DDL/API/恢复测试建议
+首次回报: 旧表固定 0.100000、没有 run/slot/历史/attempt/receipt/validation；建议新增版本化 append-only formal ledger，不改旧表
+最近可验证进展: 报告已被主模型复查并固化为 D-168、D-170、D-171 和 Task 0 Design/Plan
+状态: COMPLETED_REPORT_CONSUMED / STOPPED
+接管原因（如适用）: 只读任务已完成；主模型负责后续迁移、集成和最终验证
+
+Sub-agent ID / 角色: 019f8a54-2746-7693-af7a-ac6f549e0bd6 / Runner、Coordinator、Profile 兼容性只读审查
+派发时间: 2026-07-22
+只读或写入文件边界: 只读 specialist_runtime runner/model port、decision_support coordinator/smoke 与测试；禁止修改、真实模型和数据库调用
+预期交付物与测试: 识别如何复用 BoundedSpecialistRunner 且不污染生产 LIVE Profile/Coordinator 的最小边界
+首次回报: 生产领域事实拒绝 Smoke Profile，Runner 需要独立窄预算端口，当前 SmokeRunner/旧脚本绕过完整验证
+最近可验证进展: 报告已被主模型复查并固化为 D-169、D-170、D-171 和 Task 0 Design/Plan
+状态: COMPLETED_REPORT_CONSUMED / STOPPED
+接管原因（如适用）: 只读任务已完成；主模型负责后续实现、审查和提交
+```
+
+当前无运行中的 sub-agent。

@@ -2250,3 +2250,47 @@
   改变。Phase 16 Acceptance 的真实模型证据仍按原规则保持 `INCONCLUSIVE`，默认路由继续 `DETERMINISTIC_ONLY`。
 - **重新评估条件**：若新增 Phase 16 生产源码、改变 Release/Nightly 分母或迁移 coverage 工具，必须先更新版本化 Manifest、
   决策和联合回归证据，不得在 workflow 中临时扩大或缩小统计范围。
+
+## D-168：Phase 16 正式 smoke 将历史直接模式支出计入总预算，但不把它当作正式成功证据
+
+- **状态**：`ACCEPTED`
+- **背景**：Phase 16 完成后存在 `0.073220 CNY` 的历史直接模式真实调用记录。它既不经过正式 Runner、完整 AgentAction/Schema/EvidenceRef 校验，也没有固定十例和不可变逐调用回执。忽略它会错误扩大一元预算；把它计为成功则会虚构正式证据。
+- **候选方案**：忽略历史支出；把它改写为正式 reservation；或以独立不可变历史支出事实计入总上限。
+- **最终选择**：正式 run 固定为 `phase16-official-smoke-v1`，以 `HISTORICAL_DIRECT_MODE` 导入一次 `0.073220 CNY`。十个固定 case 每例只可预约 `0.092000 CNY`，总最大暴露为 `0.993220 CNY`。历史事实不可修改、不可释放 slot，且永不计入 `10/10` 或 `20/20` 正式成功证据。
+- **选择理由**：同时保持真实总成本上限和证据诚实性，避免低成本结算或历史脚本成为第十一例的旁路。
+- **未选理由**：忽略历史成本违反冻结一元上限；迁移为正式事实伪造了并不存在的验证链。
+- **影响**：新增版本化 formal ledger，而非改写旧 `PHASE16_MULTI_AGENT_SMOKE` 的 `0.100000` 语义。历史导入同值重放必须幂等、不同值必须失败。
+- **重新评估条件**：若未来有经签名且完整验证的历史数据，必须创建新 run，不能追写本 run 的正式证据。
+
+## D-169：正式 smoke 使用隔离 Profile、预算端口和验证投影，不改变生产 LIVE 架构
+
+- **状态**：`ACCEPTED`
+- **背景**：生产 `HighConflictEscalationCoordinator`、领域事实和 LIVE Profile 都绑定 2 秒/5 秒的生产预算、Workspace、Store、lease 和 OperatorDecision 边界。把 30 秒 Smoke Profile 注入这些路径会污染默认路由并放宽生产契约。
+- **候选方案**：公开参数化 LIVE Profile；将 Smoke Profile 注册进生产 Coordinator；或建立仅供 formal runner 使用的隔离 Profile/Registry/预算端口/证据投影。
+- **最终选择**：LIVE Profile 工厂恢复固定零参数身份。正式 smoke 独占 `phase16_smoke_evidence_analyst@1.0.0` 与 `phase16_smoke_evidence_planner@1.0.0`，均为零 Skill、temperature `0`、单次调用、`30s`、总 token `4000`、最大输出 `2800`。它们不能构造生产领域事实，不能进入生产 Registry、Coordinator、Store 或 LIVE 路由。
+- **选择理由**：保留 Phase 16 的生产安全边界，同时允许一次受控网络集成验证使用合理的外部 deadline。
+- **未选理由**：公开覆盖会让调用方暗中改变生产预算；复用生产 Coordinator 会把 smoke 事实与运营审计混合。
+- **影响**：formal runner 复用 `BoundedSpecialistRunner` 的 AgentAction、Schema 和 EvidenceRef 校验，但只使用窄的 smoke-only 语义验证和账本。
+- **重新评估条件**：若要把任何 Smoke Profile 提升为生产 Profile，必须另行设计、评估、审批和发布，不能由 smoke `PASS` 推导。
+
+## D-170：正式 run 采用零重试、首轮严格 10/10，并以已发送边界区分 BLOCKED 与 FAILED
+
+- **状态**：`ACCEPTED`
+- **背景**：真实模型输出的不确定性、网络错误和缺失 usage 容易诱导“再试一次”或本地修补文本，从而混淆外部证据、实际费用和稳定性。
+- **候选方案**：允许有限重试；失败后修补结构化文本；或以 first-send 为边界严格停止。
+- **最终选择**：预检未通过且尚未发送为 `BLOCKED + INCONCLUSIVE`。一旦已发送，缺 provider response ID、finish reason 或 usage，JSON/AgentAction/Schema/EvidenceRef 失败、路线错误、超时、网络异常或成本异常均为 `FAILED`，立即停止且绝不重发、补发或修补。`PASS` 必须是 10/10 case、20/20 call 全部成功。
+- **选择理由**：将一次正式 smoke 变成可复核的实验，而不是用重试数量或人工修补掩盖模型/适配器问题。
+- **未选理由**：重试会增加花费和选择性成功偏差；本地修补会把应用逻辑混入模型证据。
+- **影响**：attempt 在联网前 append，崩溃恢复把未闭合 sent attempt 记录为未知失败；Planner 只在 Analyst 全验证通过后发送。
+- **重新评估条件**：若未来要研究可靠性分布，可另建多轮实验协议和独立预算，不能更改本 run 的结论。
+
+## D-171：正式回执和报告必须 append-only、脱敏且不改变默认路由
+
+- **状态**：`ACCEPTED`
+- **背景**：真实 API 集成需要 provider identity、finish reason、usage 和成本证据；同时 Prompt、模型正文、思维链、API key 和经营建议都不应进入长期 PostgreSQL 审计库。
+- **候选方案**：保存完整响应；仅保存总成本；或保存最小回执和响应摘要并以不可变 validation fact 闭合。
+- **最终选择**：append-only attempt、receipt 和 validation fact 只保存内部 request ID、脱敏 provider ID、finish reason、模型、Profile/case 摘要、response digest、usage、延迟、成本和验证结论。报告从这些事实渲染汇总和 digest，不保存或输出敏感正文。无论 `PASS`、`BLOCKED` 或 `FAILED`，生产默认永久保持 `DETERMINISTIC_ONLY`。
+- **选择理由**：足以审计真实模型集成与费用，同时最小化敏感内容留存和错误传播面。
+- **未选理由**：全量保存响应扩大泄露面；只保存成本无法证明模型身份、usage 或结构化校验。
+- **影响**：DeepSeek Adapter 提供可选 provider response ID 和 finish reason；formal smoke 对二者严格必填。正式 CLI 默认 dry-run，只有 `--execute` 才允许网络。
+- **重新评估条件**：若要保留更丰富供应商证据，必须设计加密、访问控制、保留期与删除机制，不能直接扩大当前 ledger 字段。

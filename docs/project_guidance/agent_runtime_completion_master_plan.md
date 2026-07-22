@@ -1,12 +1,16 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_COMPLETE_AWAITING_PHASE_17_GATE`
+文档状态：`PHASE_16_OFFICIAL_SMOKE_EVIDENCE_TASK_0_IN_PROGRESS`
 
-最后更新：2026-07-18
+最后更新：2026-07-22
 
 当前授权边界：Phase 11A-15 的历史 Acceptance 保持原结论；Phase 15 与 Final Acceptance
 为 `INCONCLUSIVE`，默认路由保持 `DETERMINISTIC_ONLY`。用户已授权连续实施 Phase 16：先
 持久化本阶段 Design/Plan/决策/状态，再连续执行 Task 2-11；完成后停止在 Phase 17 Gate。
+
+2026-07-22 的补充授权只收口 Phase 16 的真实模型外部证据，不开始 Phase 17。它以独立分支和
+版本化正式账本执行一轮严格 10/10 DeepSeek smoke；正式 `PASS` 不改变生产默认
+`DETERMINISTIC_ONLY`，而 `BLOCKED` 或 `FAILED` 也不回写历史 Phase 16 本地技术验收。
 
 ## 1. 文档职责
 
@@ -99,6 +103,14 @@ Phase 16 Task 2-11 继续受冻结预算、真实证据、无 fallback 和用户
 - PostgreSQL、PostgresSaver、Kafka 或模型服务持续不可用，导致强制验收证据无法生成。
 - 需要扩大到真实淘宝 API、外部插件、热加载、自由 A2A、动态 handoff 或共享 scratchpad。
 - 需要降低 Agent 保留门槛、绕过失败测试或提交已知失败代码。
+
+### 4.1 Phase 16 正式真实模型证据收口
+
+该收口是已合并 Phase 16 的有限补充，不是新阶段：先提交 Design/Plan 和 D-168 至 D-171，再实现
+隔离 Smoke Profile、formal PostgreSQL append-only ledger、唯一 CLI 和报告。历史直接模式支出
+`0.073220 CNY` 计入一元总上限但不是成功证据；十个固定 slot 每例 `0.092000 CNY`，最大暴露
+`0.993220 CNY`。未发送预检阻断为 `BLOCKED + INCONCLUSIVE`，任何已发送失败为 `FAILED`；只有
+`10/10` case、`20/20` 调用和完整 receipt/usage/validation 才可把真实模型证据写为 `PASS`。
 
 ## 5. Phase 12A 剩余范围
 

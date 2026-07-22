@@ -1250,3 +1250,15 @@
 - 主模型接管两个不收敛的只读 coverage 子任务，补齐测试分支和真实 Store/Coordinator/Evidence/评估资产错误路径；无业务代码改变，无真实模型调用。
 - 干净最终证据：unit `1555 passed, 1 warning`；integration `185 passed, 7 deselected, 5 warnings`；coverage line `92.035%`、branch `85.081%`；coverage Gate `PASS`；compileall、敏感扫描和 `git diff --check` 通过。
 - `599c98e test: close phase16 coverage gaps` 与 `6216f9f ci: bind phase16 coverage source closure` 已推送。当前进入文档提交和 PR #1 required checks/mergeability 查询；merge 后状态仍为 `AWAITING_PHASE_17_GATE`。
+
+## 2026-07-22 Phase 16 Official Real-Model Smoke Evidence Task 0
+
+- 在 `codex/phase16-official-smoke-evidence` 隔离工作树开始已授权的 Phase 16 外部证据收口；
+  根目录 `main` 未直接修改。基线为 unit `1555 passed, 1 warning`、integration
+  `185 passed, 7 deselected, 5 warnings`。
+- 两个只读审查确认：旧 `PHASE16_MULTI_AGENT_SMOKE` 表和直接脚本不足以作为正式证据，正式路径
+  必须独立于生产 Coordinator，走 `BoundedSpecialistRunner`、固定十 slot、append-only receipt 和
+  validation ledger。
+- Task 0 仅持久化 Design、Plan、D-168 至 D-171 与状态事实。真实模型调用为 `0`，正式 run
+  费用为 `0.000000 CNY`；历史 `0.073220 CNY` 只计入一元总预算。下一步是文档编码、差异检查、
+  docs-only 提交和推送；在此之前不修改业务代码、不运行迁移、不发送网络请求。

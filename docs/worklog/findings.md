@@ -1,5 +1,20 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 0
+
+- 新正式 smoke 不能复用旧 `PHASE16_MULTI_AGENT_SMOKE` 的 `0.100000` reservation 表：它没有
+  run、固定十 slot、历史支出、逐阶段 attempt、provider receipt 或 validation fact，也会破坏
+  历史 Task 10 的语义。formal ledger 必须版本化并 append-only。
+- 正式证据不能使用生产 Coordinator 或公开参数化的 LIVE Profile。生产领域事实精确绑定 LIVE
+  Profile 和 Workspace/lease/OperatorDecision 边界；Smoke Profile 只能存在于独立 Registry、预算端口
+  和只读 evidence projection 中。
+- `BoundedSpecialistRunner` 是 AgentAction、Schema 和 EvidenceRef 的唯一执行验证链。当前直接
+  `AgentModelPort` smoke 路径和旧脚本都不满足正式证据要求，必须收口为唯一 formal runner/CLI。
+- 初始干净基线：unit `1555 passed, 1 warning`；integration `185 passed, 7 deselected, 5 warnings`。
+  两个只读审查 sub-agent 未修改文件、未连接数据库或真实模型，均已关闭；其结论已进入 D-168 至 D-171。
+- 真实模型不会因 Task 0 被调用。历史直接模式 `0.073220 CNY` 只计入预算，正式 `PASS` 仍需首轮
+  `10/10` case 和 `20/20` 有完整 provider ID、finish reason、usage 的调用。
+
 ## 2026-07-18 Phase 16 Design Baseline
 
 - 项目定位扩展为生命周期感知、人机协同、受控多 Agent 决策 Runtime；这不意味着
