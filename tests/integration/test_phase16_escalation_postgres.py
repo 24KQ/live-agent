@@ -1838,7 +1838,18 @@ def test_postgres_concurrent_coordinators_share_one_dispatch_claim() -> None:
 
     first, second, runner = asyncio.run(scenario())
 
-    assert first.analysis is not None
+    # 本用例验证的是跨 Coordinator 的 "至多一次外部 Analyst 发送" 安全性质，而不是
+    # 首个调用一定在 LIVE 固定两秒窗口内完成的活性性质。完整 PostgreSQL 套件负载下，第二个
+    # Coordinator 的同步只读观察可能耗尽首个调用剩余窗口；生产契约要求此时 fail-closed 写入
+    # COORDINATOR_TIMEOUT，而不能为了让测试成功延长租约、重发模型或让第二个 Coordinator 抢占。
+    # 其他用例已分别覆盖正常 Analyst 成功与超时降级；这里同时固定两种合法首个结果，并只断言
+    # 第二个 Coordinator 绝不进入 Runner。
+    assert first.selected is True
+    assert first.escalation is not None
+    if first.analysis is None:
+        assert first.outcome is not None
+        assert first.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert first.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
     assert second.analysis is None
     assert second.outcome is None
     assert len(runner.calls) == 1

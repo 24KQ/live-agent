@@ -7,6 +7,7 @@ from decimal import Decimal
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 import psycopg
@@ -145,6 +146,34 @@ def _official_price() -> Phase16OfficialPriceEvidence:
     )
 
 
+def _historically_matching_preflight(*, dataset, official_price, manifest):
+    """为 PostgreSQL Runner 演练签发历史执行前的可信 READY 预检。
+
+    真实 v1 run 已结束，当前工作树的安全整改必须令正式 CLI 对旧 Manifest fail-closed；
+    本集成测试只验证冻结代码仍一致时的账本/Runner 组合语义。因此仅在局部 patch 中让真实
+    预检工厂读取已冻结 Manifest，退出后恢复当前源码漂移阻断，不影响任何真实发送路径。
+    """
+
+    from src.decision_support import official_smoke_evidence as evidence_module
+
+    with patch.object(
+        evidence_module,
+        "build_phase16_official_smoke_evidence_manifest",
+        lambda **_kwargs: manifest,
+    ):
+        preflight = preflight_phase16_official_smoke_evidence(
+            dataset=dataset,
+            official_price=official_price,
+            environment=Phase16OfficialSmokeEnvironment(
+                model_id="deepseek-v4-flash",
+                endpoint_host="api.deepseek.com",
+                credential_configured=True,
+            ),
+        )
+    assert preflight.can_send is True
+    return preflight
+
+
 def test_postgres_formal_runner_writes_ten_authenticated_two_stage_pass_chains(
     postgres_formal_runner_ledger,
 ) -> None:
@@ -155,14 +184,10 @@ def test_postgres_formal_runner_writes_ten_authenticated_two_stage_pass_chains(
     )
     price = _official_price()
     manifest = load_phase16_official_smoke_evidence_manifest(repository_root=_PROJECT_ROOT)
-    preflight = preflight_phase16_official_smoke_evidence(
+    preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=price,
-        environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
-            endpoint_host="api.deepseek.com",
-            credential_configured=True,
-        ),
+        manifest=manifest,
     )
     port = _ValidFormalSmokePort()
     report = asyncio.run(
@@ -200,14 +225,10 @@ def test_postgres_formal_runner_recovers_unknown_attempt_before_any_new_dispatch
     )
     price = _official_price()
     manifest = load_phase16_official_smoke_evidence_manifest(repository_root=_PROJECT_ROOT)
-    preflight = preflight_phase16_official_smoke_evidence(
+    preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=price,
-        environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
-            endpoint_host="api.deepseek.com",
-            credential_configured=True,
-        ),
+        manifest=manifest,
     )
     postgres_formal_runner_ledger.ensure_run(manifest)
     claim = postgres_formal_runner_ledger.claim_case(manifest.case_ids[0])

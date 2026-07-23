@@ -167,6 +167,85 @@ def test_pre_send_blocked_case_closes_as_inconclusive_without_dispatch_attempt(
     ) == outcome
 
 
+def test_terminal_failed_outcome_rejects_later_api_and_sql_claims_or_dispatches(
+    postgres_official_smoke_ledger_factory,
+) -> None:
+    """任一已闭合 FAILED 必须冻结整个唯一 run，后续 API 或直接 SQL 都不能再触发发送意图。"""
+
+    manifest = _manifest()
+    ledger = postgres_official_smoke_ledger_factory()
+    ledger.ensure_run(manifest)
+    failed_claim = ledger.claim_case(manifest.case_ids[0])
+    # 先制造一个在失败前已经被不可信调用方预约的 slot，验证终态到达后连这条遗留
+    # claim 也不能再创建 attempt，避免“先多领 slot、后在失败后发送”的竞态旁路。
+    stale_claim = ledger.claim_case(manifest.case_ids[1])
+    failed_attempt = ledger.begin_dispatch(
+        claim_id=failed_claim.claim_id,
+        stage=Phase16OfficialSmokeDispatchStage.ANALYST,
+        profile_digest=manifest.profile_digests["analyst"],
+        internal_request_id=_internal_request_id("terminal-failed-analyst"),
+    )
+    ledger.append_validation_fact(
+        attempt_id=failed_attempt.attempt_id,
+        verdict=Phase16OfficialSmokeValidationVerdict.FAILED,
+        reason_code="MODEL_RESPONSE_SCHEMA_FAILED",
+        validation_digest="d" * 64,
+    )
+    outcome = ledger.close_case(
+        claim_id=failed_claim.claim_id,
+        status=Phase16OfficialSmokeCaseOutcomeStatus.FAILED,
+        reason_code="MODEL_RESPONSE_SCHEMA_FAILED",
+    )
+
+    assert outcome.status is Phase16OfficialSmokeCaseOutcomeStatus.FAILED
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="terminal"):
+        ledger.claim_case(manifest.case_ids[2])
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="terminal"):
+        ledger.begin_dispatch(
+            claim_id=stale_claim.claim_id,
+            stage=Phase16OfficialSmokeDispatchStage.ANALYST,
+            profile_digest=manifest.profile_digests["analyst"],
+            internal_request_id=_internal_request_id("terminal-stale-dispatch"),
+        )
+
+    settings = postgres_official_smoke_ledger_factory.settings
+    # 直接 SQL 不能绕过 Python 层的冻结。此处分别尝试新 claim 和旧 claim 的 attempt，
+    # 用真实触发器证明数据库同样拒绝，且每次失败事务都会显式 rollback 保持夹具可清理。
+    with psycopg.connect(**settings.postgres_connection_kwargs) as connection:
+        with connection.cursor() as cursor:
+            with pytest.raises(psycopg.Error, match="terminal"):
+                cursor.execute(
+                    """INSERT INTO phase16_official_smoke_case_claims
+                       (claim_id, run_id, case_id, manifest_digest, reserved_amount_cny)
+                       VALUES (%s::uuid,%s,%s,%s,%s);""",
+                    (
+                        str(uuid4()),
+                        manifest.run_id,
+                        manifest.case_ids[2],
+                        manifest.manifest_digest,
+                        PHASE16_OFFICIAL_SMOKE_CASE_RESERVATION_CNY,
+                    ),
+                )
+        connection.rollback()
+    with psycopg.connect(**settings.postgres_connection_kwargs) as connection:
+        with connection.cursor() as cursor:
+            with pytest.raises(psycopg.Error, match="terminal"):
+                cursor.execute(
+                    """INSERT INTO phase16_official_smoke_dispatch_attempts
+                       (attempt_id, run_id, case_id, claim_id, stage, profile_digest, internal_request_id)
+                       VALUES (%s::uuid,%s,%s,%s::uuid,'ANALYST',%s,%s::uuid);""",
+                    (
+                        str(uuid4()),
+                        manifest.run_id,
+                        stale_claim.case_id,
+                        stale_claim.claim_id,
+                        manifest.profile_digests["analyst"],
+                        _internal_request_id("terminal-direct-dispatch"),
+                    ),
+                )
+        connection.rollback()
+
+
 def test_explicit_unsent_attempt_closes_blocked_and_restart_does_not_resend(
     postgres_official_smoke_ledger_factory,
 ) -> None:
@@ -197,7 +276,9 @@ def test_explicit_unsent_attempt_closes_blocked_and_restart_does_not_resend(
     assert len(recovered) == 1
     assert recovered[0].status is Phase16OfficialSmokeCaseOutcomeStatus.BLOCKED
     assert recovered[0].reason_code == "MODEL_REQUEST_NOT_SENT"
-    with pytest.raises(Phase16OfficialSmokeLedgerError, match="attempt already exists"):
+    # run 已因明确零发送 BLOCKED 终态封闭；新版门禁在重复 stage 唯一键之前即拒绝所有新 dispatch，
+    # 这是比“attempt 已存在”更强的不重发保证。
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="formal smoke run is terminal"):
         restarted.begin_dispatch(
             claim_id=claim.claim_id,
             stage=Phase16OfficialSmokeDispatchStage.ANALYST,
@@ -332,7 +413,8 @@ def test_restart_recovers_open_attempt_as_unknown_failure_without_resend(
     assert recovered[0].status is Phase16OfficialSmokeCaseOutcomeStatus.FAILED
     assert recovered[0].reason_code == "UNKNOWN_ATTEMPT_AFTER_RESTART"
     assert restarted.get_case_outcome(case_id=claim.case_id) == recovered[0]
-    with pytest.raises(Phase16OfficialSmokeLedgerError, match="attempt already exists"):
+    # UNKNOWN 恢复已把整轮实验标记 FAILED，不能再依赖同 stage 冲突作为唯一防线。
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="formal smoke run is terminal"):
         restarted.begin_dispatch(
             claim_id=claim.claim_id,
             stage=Phase16OfficialSmokeDispatchStage.ANALYST,
@@ -880,7 +962,8 @@ def test_restart_closes_case_after_existing_failed_validation_without_resend(
     assert len(recovered) == 1
     assert recovered[0].status is Phase16OfficialSmokeCaseOutcomeStatus.FAILED
     assert recovered[0].reason_code == "MODEL_RESPONSE_SCHEMA_FAILED"
-    with pytest.raises(Phase16OfficialSmokeLedgerError, match="attempt already exists"):
+    # 已提交的 FAILED validation 经恢复闭合后，run 级零重试门必须先于重复 attempt 校验生效。
+    with pytest.raises(Phase16OfficialSmokeLedgerError, match="formal smoke run is terminal"):
         restarted.begin_dispatch(
             claim_id=claim.claim_id,
             stage=Phase16OfficialSmokeDispatchStage.ANALYST,

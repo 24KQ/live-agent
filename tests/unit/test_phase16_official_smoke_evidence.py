@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -16,8 +18,10 @@ from src.decision_support.multi_agent import (
     build_evidence_analyst_profile,
 )
 from src.decision_support.official_smoke_evidence import (
+    FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS,
     FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH,
-    FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS,
+    PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_PATH,
+    PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS,
     PHASE16_OFFICIAL_SMOKE_EVIDENCE_ANALYST_PROFILE_ID,
     PHASE16_OFFICIAL_SMOKE_EVIDENCE_PLANNER_PROFILE_ID,
     PHASE16_OFFICIAL_SMOKE_RUN_ID,
@@ -30,6 +34,7 @@ from src.decision_support.official_smoke_evidence import (
     build_phase16_smoke_evidence_analyst_profile,
     build_phase16_smoke_evidence_planner_profile,
     load_phase16_official_smoke_evidence_manifest,
+    verify_phase16_official_smoke_historical_closure_audit,
     preflight_phase16_official_smoke_evidence,
     validate_phase16_official_smoke_receipt,
 )
@@ -63,6 +68,18 @@ def _official_price() -> Phase16OfficialPriceEvidence:
         input_cny_per_million=Decimal("1.000000"),
         output_cny_per_million=Decimal("2.000000"),
     )
+
+
+def _execution_blob_sha256(*, execution_commit: str, relative_path: str) -> str:
+    """直接读取执行提交中的 Git blob，防止工作树后续整改改写历史审计结论。"""
+
+    result = subprocess.run(
+        ["git", "show", f"{execution_commit}:{relative_path}"],
+        cwd=_repository_root(),
+        check=True,
+        capture_output=True,
+    )
+    return sha256(result.stdout).hexdigest()
 
 
 def test_live_profiles_are_fixed_and_smoke_profiles_are_isolated() -> None:
@@ -103,8 +120,10 @@ def test_live_profiles_are_fixed_and_smoke_profiles_are_isolated() -> None:
     }
 
 
-def test_official_manifest_and_preflight_bind_exact_dataset_profiles_price_and_environment() -> None:
-    """Manifest 必须锁定十个既有高冲突 case，任何价格或环境身份漂移都在发送前阻断。"""
+def test_official_manifest_and_preflight_bind_exact_dataset_profiles_price_and_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """历史 run 的当前源码漂移必须阻断；若身份重建一致，环境和价格仍决定发送许可。"""
 
     dataset = _dataset()
     price = _official_price()
@@ -126,7 +145,30 @@ def test_official_manifest_and_preflight_bind_exact_dataset_profiles_price_and_e
         repository_root=_repository_root(),
         manifest_path=FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH,
     )
-    assert stored.manifest_digest == manifest.manifest_digest
+    # 正式 v1 已在 a2e70a7 执行，之后的账本安全整改会改变当前源码摘要。允许“当前工作树
+    # 重建”覆盖历史 Manifest 会把审计变成可变事实，因此真实预检必须 fail-closed。
+    current_source_blocked = preflight_phase16_official_smoke_evidence(
+        dataset=dataset,
+        official_price=price,
+        environment=Phase16OfficialSmokeEnvironment(
+            model_id="deepseek-v4-flash",
+            endpoint_host="api.deepseek.com",
+            credential_configured=True,
+        ),
+    )
+    assert current_source_blocked.status is Phase16OfficialSmokeStatus.BLOCKED
+    assert current_source_blocked.can_send is False
+    assert "FORMAL_MANIFEST_MISMATCH" in current_source_blocked.reason_codes
+
+    # 下面的局部替身只模拟“执行前源码尚未漂移”的可信重建结果，用来继续覆盖 READY
+    # 分支；真正的历史身份由独立 Git-blob 审计测试复验，不能由此替身替代。
+    from src.decision_support import official_smoke_evidence as evidence_module
+
+    monkeypatch.setattr(
+        evidence_module,
+        "build_phase16_official_smoke_evidence_manifest",
+        lambda **_kwargs: stored,
+    )
 
     allowed = preflight_phase16_official_smoke_evidence(
         dataset=dataset,
@@ -241,18 +283,43 @@ def test_formal_smoke_receipt_requires_provider_id_and_finish_reason() -> None:
     )
 
 
-def test_formal_manifest_source_closure_includes_ledger_and_runner() -> None:
-    """正式证据必须同时绑定账本与运行器源码，避免发送或验证语义在同一 Manifest 下漂移。"""
+def test_historical_execution_closure_audit_expands_manifest_identity_without_rewriting_run() -> None:
+    """已执行 Manifest 保持不可变，独立审计必须补齐其遗漏的一方输入和验证依赖。"""
 
     ledger_path = "src/decision_support/official_smoke_ledger.py"
     runner_path = "src/decision_support/official_smoke_runner.py"
-    assert ledger_path in FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS
-    assert runner_path in FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS
+    evidence_path = "src/decision_support/evidence.py"
+    workspace_path = "src/decision_support/models.py"
+    evaluation_path = "src/decision_support/multi_agent_evaluation.py"
+    store_path = "src/decision_support/store.py"
+    resolver_path = "src/specialist_runtime/evidence.py"
+    assert ledger_path in FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS
+    assert runner_path in FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS
+    assert {
+        ledger_path,
+        runner_path,
+        evidence_path,
+        workspace_path,
+        evaluation_path,
+        store_path,
+        resolver_path,
+    } <= set(PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS)
 
-    manifest = build_phase16_official_smoke_evidence_manifest(
+    manifest = load_phase16_official_smoke_evidence_manifest(
         repository_root=_repository_root(),
-        dataset=_dataset(),
-        official_price=_official_price(),
+        manifest_path=FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH,
     )
-    assert ledger_path in manifest.source_file_digests
-    assert runner_path in manifest.source_file_digests
+    audit = verify_phase16_official_smoke_historical_closure_audit(
+        repository_root=_repository_root()
+    )
+
+    assert (_repository_root() / PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_PATH).is_file()
+    assert audit.execution_manifest_digest == manifest.manifest_digest
+    assert audit.execution_identity_paths == FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS
+    assert dict(audit.execution_identity_file_digests) == dict(manifest.source_file_digests)
+    assert set(audit.source_file_digests) == set(PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS)
+    for relative_path, digest in audit.source_file_digests.items():
+        assert digest == _execution_blob_sha256(
+            execution_commit=audit.execution_commit,
+            relative_path=relative_path,
+        )

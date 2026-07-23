@@ -93,6 +93,13 @@ def test_phase16_demo_is_byte_stable_and_honestly_blocks_real_smoke(tmp_path: Pa
     assert "Phase 16 Controlled Multi-Agent Escalation Acceptance" in rendered
     assert "AWAITING_PHASE_17_GATE" in rendered
     assert "REAL_MODEL_SMOKE_NOT_RUN" in rendered
+    # 本地 ScriptedModel Demo 永远不会替代正式网络实验；后续真实回执必须由独立
+    # Addendum 解释，避免 Demo 的离线 BLOCKED 状态被误读为当前外部证据结论。
+    assert "phase-16-official-smoke-evidence.md" in rendered
+    # 受控 Demo 的 INCONCLUSIVE 只描述本地 ScriptedModel 演练；当前正式外部事实必须由
+    # 同一确定性渲染器链接，并明确保留唯一真实发送后的 FAILED 结论，不能依赖手工补文档。
+    assert "## Official Evidence Closeout" in rendered
+    assert "FAILED / ANALYST_VALIDATION_FAILED" in rendered
     assert f"- Escalation: `{first.escalation_id}` / `{first.escalation_digest}`" in rendered
     assert f"- Analysis: `{first.analysis_id}` / `{first.analysis_digest}`" in rendered
     assert f"- Proposal: `{first.ready_proposal_id}` / `{first.ready_proposal_digest}`" in rendered

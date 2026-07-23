@@ -13,6 +13,7 @@ from decimal import Decimal
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid5
 
 import pytest
@@ -75,6 +76,35 @@ def _official_price() -> Phase16OfficialPriceEvidence:
         input_cny_per_million=Decimal("1.000000"),
         output_cny_per_million=Decimal("2.000000"),
     )
+
+
+def _historically_matching_preflight(*, dataset, official_price, manifest):
+    """签发仅供离线 Runner 契约的可信 READY 预检，不把当前整改源码伪装成历史执行源码。
+
+    唯一正式 run 已结束，当前工作树的安全整改故意使其重建摘要与历史 Manifest 不同；正式
+    CLI 因而必须被生产预检阻断。Runner 单测则需要覆盖执行前“冻结文件与源码仍一致”的
+    合法路径，故仅在此局部上下文将重建结果替换为已加载的历史 Manifest，再由真实预检
+    工厂签发 provenance。替身离开上下文后立即恢复，不能影响任何当前 fail-closed 测试。
+    """
+
+    from src.decision_support import official_smoke_evidence as evidence_module
+
+    with patch.object(
+        evidence_module,
+        "build_phase16_official_smoke_evidence_manifest",
+        lambda **_kwargs: manifest,
+    ):
+        preflight = preflight_phase16_official_smoke_evidence(
+            dataset=dataset,
+            official_price=official_price,
+            environment=Phase16OfficialSmokeEnvironment(
+                model_id="deepseek-v4-flash",
+                endpoint_host="api.deepseek.com",
+                credential_configured=True,
+            ),
+        )
+    assert preflight.can_send is True
+    return preflight
 
 
 @dataclass(frozen=True)
@@ -355,14 +385,10 @@ def _ready_formal_runner(*, ledger, model_port, clock=None) -> Phase16OfficialSm
     manifest = load_phase16_official_smoke_evidence_manifest(
         repository_root=_repository_root()
     )
-    preflight = preflight_phase16_official_smoke_evidence(
+    preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=official_price,
-        environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
-            endpoint_host="api.deepseek.com",
-            credential_configured=True,
-        ),
+        manifest=manifest,
     )
     return Phase16OfficialSmokeRunner(
         dataset=dataset,
@@ -423,14 +449,10 @@ def test_formal_runner_uses_bounded_runner_for_each_frozen_two_stage_case(
     manifest = load_phase16_official_smoke_evidence_manifest(
         repository_root=_repository_root()
     )
-    preflight = preflight_phase16_official_smoke_evidence(
+    preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=official_price,
-        environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
-            endpoint_host="api.deepseek.com",
-            credential_configured=True,
-        ),
+        manifest=manifest,
     )
     ledger = _FormalLedger()
     model_port = _ValidFormalPort()
@@ -554,14 +576,10 @@ def test_formal_runner_marks_pre_send_block_as_inconclusive_without_dispatch(
     manifest = load_phase16_official_smoke_evidence_manifest(
         repository_root=_repository_root()
     )
-    preflight = preflight_phase16_official_smoke_evidence(
+    preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=official_price,
-        environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
-            endpoint_host="api.deepseek.com",
-            credential_configured=True,
-        ),
+        manifest=manifest,
     )
     ledger = _FormalLedger()
     model_port = _ValidFormalPort()
@@ -605,14 +623,10 @@ def test_formal_runner_reports_ledger_initialization_block_without_dispatch() ->
     manifest = load_phase16_official_smoke_evidence_manifest(
         repository_root=_repository_root()
     )
-    preflight = preflight_phase16_official_smoke_evidence(
+    preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=official_price,
-        environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
-            endpoint_host="api.deepseek.com",
-            credential_configured=True,
-        ),
+        manifest=manifest,
     )
 
     class _UnavailableLedger(_FormalLedger):
