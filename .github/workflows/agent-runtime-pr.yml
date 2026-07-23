@@ -4,6 +4,9 @@ name: Agent Runtime PR Gate
 "on":
   pull_request:
     branches: [main]
+  # 自动 PR 事件未投递时，维护者可显式重跑完全相同的无密钥确定性 Gate；不接受
+  # 输入参数，避免手动运行改变 case、模型路由或安全边界。
+  workflow_dispatch:
 
 permissions:
   contents: read
