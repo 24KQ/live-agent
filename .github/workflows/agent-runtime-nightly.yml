@@ -56,6 +56,9 @@ jobs:
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
+        with:
+          # 完整 unit 集包含 Phase 16 历史 Git-blob 审计，必须保留其绑定的执行提交。
+          fetch-depth: 0
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:

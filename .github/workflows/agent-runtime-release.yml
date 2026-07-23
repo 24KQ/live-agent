@@ -58,6 +58,9 @@ jobs:
     steps:
       - name: Checkout exact release commit
         uses: actions/checkout@v4
+        with:
+          # Release 回归同样执行历史闭包校验，不能因默认浅检出遗漏不可变执行事实。
+          fetch-depth: 0
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:

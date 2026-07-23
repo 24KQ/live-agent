@@ -70,6 +70,10 @@ def test_phase15_pr_workflow_uses_python_312_pgvector_kafka_and_36_cases_without
     assert "kafka" in services
     assert job["env"]["KAFKA_BOOTSTRAP_SERVERS"] == "localhost:9092"
     steps = job["steps"]
+    # Phase 16 的历史闭包审计必须读取一次真实执行提交的 Git blob；浅检出会让
+    # `git ls-tree <execution-commit>` 在 CI 中缺对象并 fail-closed，因此 PR 必须保留完整历史。
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["fetch-depth"] == 0
     setup = next(step for step in steps if step.get("uses", "").startswith("actions/setup-python@"))
     assert setup["with"]["python-version"] == "3.12"
     commands = _all_run_commands(job)
@@ -102,6 +106,10 @@ def test_phase15_nightly_workflow_has_schedule_postgres_kafka_and_36_cases() -> 
     services = job["services"]
     assert services["postgres"]["image"] == "pgvector/pgvector:pg16"
     assert "kafka" in services
+    checkout = next(
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == 0
     commands = _all_run_commands(job)
     assert "--mode nightly" in commands
     assert "36" in commands or "non-holdout" in commands
@@ -123,6 +131,10 @@ def test_phase15_release_workflow_is_tag_or_manual_only_48_cases_and_180_day_art
     job = _job(workflow)
     assert job["environment"] == "phase15-release"
     assert job["services"]["postgres"]["image"] == "pgvector/pgvector:pg16"
+    checkout = next(
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == 0
     commands = _all_run_commands(job)
     assert "--mode release" in commands
     assert "48" in commands or "full" in commands.lower()
