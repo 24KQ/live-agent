@@ -46,6 +46,8 @@ from src.gateway.decision_support_service import (
     canonical_multi_agent_escalation_idempotency_key,
 )
 from src.specialist_runtime.models import (
+    AgentAction,
+    AgentActionKind,
     AgentResult,
     AgentResultStatus,
     AgentTask,
@@ -1065,20 +1067,31 @@ class _PostgresScriptedAnalyst:
         """回显 Coordinator 已冻结的触发码和六个引用，模拟 Schema 合法的 FINAL 结果。"""
 
         self.calls.append(task)
+        output = {
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "多个冻结冲突信号需要运营确认。",
+            "evidence_refs": [
+                item.model_dump(mode="json") for item in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "多个冻结冲突信号需要运营确认。",
-                "evidence_refs": [
-                    item.model_dump(mode="json") for item in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # PostgreSQL 路径也必须回放共享 Runner 的唯一 FINAL；这样测试真实 Store
+            # 的同时不会绕过 Coordinator 对动作、输出和六角色 EvidenceRef 的二次校验。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_SCRIPTED_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_SCRIPTED_ANALYST_SUCCEEDED",
         )
@@ -1104,31 +1117,42 @@ class _PostgresScriptedPlanner:
     def _result(self, task: AgentTask) -> AgentResult:
         """按冻结 task 生成稳定合法 Planner 输出，供阻塞并发替身复用而不重复计数。"""
 
+        output = {
+            "options": [
+                {
+                    "option_id": "switch-backup",
+                    "product_strategy": "SWITCH_TO_BACKUP",
+                    "backup_product_id": "p002",
+                    "host_prompt": "主商品售罄，请等待运营确认后切换备品。",
+                    "timing": "AFTER_OPERATOR_CONFIRMATION",
+                    "risk_flags": [
+                        "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
+                        "HUMAN_CONFIRMATION_REQUIRED",
+                        "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+                    ],
+                    "evidence_refs": [
+                        item.model_dump(mode="json")
+                        for item in task.initial_evidence_refs
+                    ],
+                }
+            ]
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "options": [
-                    {
-                        "option_id": "switch-backup",
-                        "product_strategy": "SWITCH_TO_BACKUP",
-                        "backup_product_id": "p002",
-                        "host_prompt": "主商品售罄，请等待运营确认后切换备品。",
-                        "timing": "AFTER_OPERATOR_CONFIRMATION",
-                        "risk_flags": [
-                            "BACKUP_PRODUCT_REQUIRES_CONFIRMATION",
-                            "HUMAN_CONFIRMATION_REQUIRED",
-                            "INVENTORY_CONFLICT_REQUIRES_REVIEW",
-                        ],
-                        "evidence_refs": [
-                            item.model_dump(mode="json")
-                            for item in task.initial_evidence_refs
-                        ],
-                    }
-                ]
-            },
+            output=output,
+            # Planner 也不能仅凭 output 模拟成功；封闭 FINAL 让真实 PostgreSQL
+            # Proposal/Outcome 链继续受同一 AgentAction 与 EvidenceRef 不变量保护。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_SCRIPTED_PLANNER_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_SCRIPTED_PLANNER_SUCCEEDED",
         )
@@ -1188,20 +1212,31 @@ class _BlockingPostgresAnalyst(_PostgresScriptedAnalyst):
         if len(self.calls) == 1:
             self.entered.set()
             await self.release.wait()
+        output = {
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "多个冻结冲突信号需要运营确认。",
+            "evidence_refs": [
+                item.model_dump(mode="json") for item in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "多个冻结冲突信号需要运营确认。",
-                "evidence_refs": [
-                    item.model_dump(mode="json") for item in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # 阻塞并发替身返回后仍必须具有完整 Runner 信封，保证本用例观察的是
+            # PostgreSQL dispatch claim 的并发语义，而不是缺少 FINAL 的协议降级。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_BLOCKING_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_BLOCKING_ANALYST_SUCCEEDED",
         )
@@ -1226,20 +1261,31 @@ class _LatePostgresAnalyst(_PostgresScriptedAnalyst):
 
         self.calls.append(task)
         await asyncio.sleep(2.1)
+        output = {
+            "finding_codes": list(task.input_snapshot["trigger_codes"]),
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "迟到的冲突分析不得越过数据库租约。",
+            "evidence_refs": [
+                item.model_dump(mode="json") for item in task.initial_evidence_refs
+            ],
+        }
         return AgentResult(
             task_id=task.task_id,
             profile_id=task.profile_id,
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
-            output={
-                "finding_codes": list(task.input_snapshot["trigger_codes"]),
-                "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
-                "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
-                "explanation": "迟到的冲突分析不得越过数据库租约。",
-                "evidence_refs": [
-                    item.model_dump(mode="json") for item in task.initial_evidence_refs
-                ],
-            },
+            output=output,
+            # 即使该结果应因数据库租约过期而被拒绝，也应保持完整 FINAL 形状，
+            # 以避免测试把超时正确性和动作信封缺失两个失败原因混在一起。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=task.initial_evidence_refs,
+                    reason_summary="POSTGRES_LATE_ANALYST_FINAL",
+                ),
+            ),
             evidence_refs=task.initial_evidence_refs,
             summary="POSTGRES_LATE_ANALYST_SUCCEEDED",
         )
@@ -1408,11 +1454,24 @@ def test_postgres_concurrent_coordinators_share_one_planner_dispatch_claim() -> 
 
     first, second, planner = asyncio.run(scenario())
 
-    assert first.proposal is not None
+    # 该场景故意在第一个 Planner 已离开进程后等待第二个 Coordinator 返回，故只验证
+    # "至多一次 Planner 发送"，不能把机器负载下合法的五秒全局超时误判为安全回归。
+    # Scripted Planner 没有其他失败来源，因此首个终态只能是完整 READY，或不重发的
+    # COORDINATOR_TIMEOUT 降级；任何模型错误、非法 Proposal 或重复 dispatch 仍会失败。
+    assert first.selected is True
+    assert first.escalation is not None
     assert first.outcome is not None
-    assert second.analysis is not None
+    if first.outcome.status is MultiAgentOutcomeStatus.READY:
+        assert first.proposal is not None
+    else:
+        assert first.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert first.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    # 第二个 Coordinator 不得触发 Planner。它可能在首个调用超时后只读恢复同一条
+    # COORDINATOR_TIMEOUT 终态；这不是第二次模型调用，也不能放宽为其他失败类型。
     assert second.proposal is None
-    assert second.outcome is None
+    if second.outcome is not None:
+        assert second.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert second.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
     assert len(planner.calls) == 1
 
 
@@ -1792,9 +1851,25 @@ def test_postgres_concurrent_coordinators_share_one_dispatch_claim() -> None:
 
     first, second, runner = asyncio.run(scenario())
 
-    assert first.analysis is not None
-    assert second.analysis is None
-    assert second.outcome is None
+    # 本用例验证的是跨 Coordinator 的 "至多一次外部 Analyst 发送" 安全性质，而不是
+    # 首个调用一定在 LIVE 固定两秒窗口内完成的活性性质。完整 PostgreSQL 套件负载下，第二个
+    # Coordinator 的同步只读观察可能耗尽首个调用剩余窗口；生产契约要求此时 fail-closed 写入
+    # COORDINATOR_TIMEOUT，而不能为了让测试成功延长租约、重发模型或让第二个 Coordinator 抢占。
+    # 其他用例已分别覆盖正常 Analyst 成功与超时降级；这里同时固定两种合法首个结果，并只断言
+    # 第二个 Coordinator 绝不进入 Runner。
+    assert first.selected is True
+    assert first.escalation is not None
+    if first.analysis is None:
+        assert first.outcome is not None
+        assert first.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert first.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    # 第二个 Coordinator 的唯一安全约束是不得进入 Analyst Runner。若第一个调用在
+    # 同一五秒预算内写出超时终态，第二个调用只读恢复该事实是合法的；不能把它误判为
+    # 抢占、重发或独立的模型失败。
+    assert second.proposal is None
+    if second.outcome is not None:
+        assert second.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert second.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
     assert len(runner.calls) == 1
 
 

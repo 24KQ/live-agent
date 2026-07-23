@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from dataclasses import dataclass
 from decimal import Decimal
 from datetime import datetime, timezone
 import hashlib
@@ -34,6 +35,7 @@ from src.decision_support.models import (
     MultiAgentProposalLineage,
     Proposal,
     WorkspaceView,
+    _require_safe_display_text,
 )
 from src.decision_support.proposal import (
     DecisionOption,
@@ -47,6 +49,7 @@ from src.decision_support.store import (
     derive_automatic_escalation_codes,
 )
 from src.specialist_runtime.models import (
+    AgentActionKind,
     AgentResult,
     AgentResultStatus,
     AgentTask,
@@ -65,6 +68,8 @@ from src.specialist_runtime.profiles import (
 
 EVIDENCE_ANALYST_PROFILE_ID = "evidence_analyst"
 DECISION_PLANNER_PROFILE_ID = "decision_planner"
+PHASE16_SMOKE_EVIDENCE_ANALYST_PROFILE_ID = "phase16_smoke_evidence_analyst"
+PHASE16_SMOKE_EVIDENCE_PLANNER_PROFILE_ID = "phase16_smoke_evidence_planner"
 CONTROLLED_MULTI_AGENT_PROFILE_VERSION = "1.0.0"
 COORDINATOR_DEADLINE_SECONDS = 5
 COORDINATOR_MAX_TOTAL_TOKENS = 4000
@@ -251,7 +256,8 @@ def _build_profile(
     result_schema: dict[str, object],
     max_total_tokens: int,
     max_case_cost_cny: Decimal,
-    deadline_seconds: int = 2,
+    deadline_seconds: int,
+    max_output_tokens: int | None = None,
 ) -> SpecialistProfile:
     """统一构造温度零、单次调用、零 Skill 的精确 Profile。""",
 
@@ -280,13 +286,14 @@ def _build_profile(
         max_model_calls=1,
         max_skill_calls=0,
         max_total_tokens=max_total_tokens,
+        max_output_tokens=max_output_tokens,
         deadline_seconds=deadline_seconds,
         max_case_cost_cny=max_case_cost_cny,
     )
 
 
-def build_evidence_analyst_profile(deadline_seconds: int = 2, max_total_tokens: int = 1200) -> SpecialistProfile:
-    """返回只读 ConflictAnalysis Profile。"""
+def build_evidence_analyst_profile() -> SpecialistProfile:
+    """返回生产 LIVE 使用的固定只读 ConflictAnalysis Profile。"""
 
     return _build_profile(
         profile_id=EVIDENCE_ANALYST_PROFILE_ID,
@@ -296,14 +303,14 @@ def build_evidence_analyst_profile(deadline_seconds: int = 2, max_total_tokens: 
             "Do not rank products, propose actions, call Skills, or claim authority."
         ),
         result_schema=_CONFLICT_ANALYSIS_RESULT_SCHEMA,
-        max_total_tokens=max_total_tokens,
+        max_total_tokens=1200,
         max_case_cost_cny=Decimal("0.030000"),
-        deadline_seconds=deadline_seconds,
+        deadline_seconds=2,
     )
 
 
-def build_decision_planner_profile(deadline_seconds: int = 2) -> SpecialistProfile:
-    """返回只读 Planner Profile。"""
+def build_decision_planner_profile() -> SpecialistProfile:
+    """返回生产 LIVE 使用的固定只读 Planner Profile。"""
 
     return _build_profile(
         profile_id=DECISION_PLANNER_PROFILE_ID,
@@ -315,8 +322,206 @@ def build_decision_planner_profile(deadline_seconds: int = 2) -> SpecialistProfi
         result_schema=_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
         max_total_tokens=2800,
         max_case_cost_cny=Decimal("0.070000"),
-        deadline_seconds=deadline_seconds,
+        deadline_seconds=2,
     )
+
+
+def build_phase16_smoke_evidence_analyst_profile() -> SpecialistProfile:
+    """返回仅正式 smoke 使用的 Analyst Profile，不可注册到生产 LIVE 路由。"""
+
+    return _build_profile(
+        profile_id=PHASE16_SMOKE_EVIDENCE_ANALYST_PROFILE_ID,
+        task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
+        prompt_prefix=(
+            "You are EvidenceAnalystAgent for an isolated formal smoke test. "
+            "Do not rank products, propose actions, call Skills, or claim authority."
+        ),
+        result_schema=_CONFLICT_ANALYSIS_RESULT_SCHEMA,
+        max_total_tokens=4000,
+        max_output_tokens=2800,
+        max_case_cost_cny=Decimal("0.040000"),
+        deadline_seconds=30,
+    )
+
+
+def build_phase16_smoke_evidence_planner_profile() -> SpecialistProfile:
+    """返回仅正式 smoke 使用的 Planner Profile，不可注册到生产 LIVE 路由。"""
+
+    return _build_profile(
+        profile_id=PHASE16_SMOKE_EVIDENCE_PLANNER_PROFILE_ID,
+        task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+        prompt_prefix=(
+            "You are DecisionPlannerAgent for an isolated formal smoke test. "
+            "Return options only; never call Skills, select a route, or execute a command."
+        ),
+        result_schema=_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
+        max_total_tokens=4000,
+        max_output_tokens=2800,
+        max_case_cost_cny=Decimal("0.052000"),
+        deadline_seconds=30,
+    )
+
+
+@dataclass(frozen=True)
+class ValidatedConflictAnalysisPayload:
+    """脱离生产 Store 的 Analyst 结果投影，供 LIVE Coordinator 与正式 Smoke 共同消费。
+
+    该值对象刻意不携带 escalation、workspace、proposal 或经营命令身份。调用方必须在
+    自己的受控边界把它绑定到相应父事实，不能将纯模型输出误当成可持久化领域事实。
+    """
+
+    finding_codes: tuple[ConflictAnalysisCode, ...]
+    constraint_codes: tuple[ConflictConstraintCode, ...]
+    risk_codes: tuple[ConflictRiskCode, ...]
+    explanation: str
+    evidence_refs: tuple[EvidenceRef, ...]
+
+    def as_model_input(self) -> dict[str, Any]:
+        """返回 Planner 可见的最小结构化分析，不泄漏 LIVE Store 的父事实或控制字段。"""
+
+        return {
+            "finding_codes": [item.value for item in self.finding_codes],
+            "constraint_codes": [item.value for item in self.constraint_codes],
+            "risk_codes": [item.value for item in self.risk_codes],
+            "explanation": self.explanation,
+            "evidence_refs": [item.model_dump(mode="json") for item in self.evidence_refs],
+        }
+
+
+def _validate_final_result_envelope(
+    *,
+    task: AgentTask,
+    result: AgentResult,
+    expected_profile: SpecialistProfile,
+    expected_evidence_refs: tuple[EvidenceRef, ...],
+) -> dict[str, Any]:
+    """重复核验共享 Runner 成功结果的 FINAL 信封与精确证据集合。
+
+    BoundedSpecialistRunner 是第一道 AgentAction、JSON Schema 和 Resolver 门；本函数是
+    Coordinator/Smoke 在消费 ``AgentResult`` 前的第二道纯验证。它允许测试或恢复路径
+    传入结果时仍拒绝手工构造的成功对象，而不读取 Store、时钟或网络。
+    """
+
+    if (
+        task.profile_id != expected_profile.profile_id
+        or task.profile_version != expected_profile.profile_version
+        or result.task_id != task.task_id
+        or result.profile_id != expected_profile.profile_id
+        or result.profile_version != expected_profile.profile_version
+        or result.status is not AgentResultStatus.SUCCEEDED
+    ):
+        raise ValueError("agent result identity or status is invalid")
+    if len(result.actions) != 1:
+        raise ValueError("agent result must contain exactly one FINAL action")
+    action = result.actions[0]
+    if (
+        action.kind is not AgentActionKind.FINAL
+        or tuple(action.evidence_refs) != expected_evidence_refs
+        or tuple(result.evidence_refs) != expected_evidence_refs
+        or _plain_json(action.final_output) != _plain_json(result.output)
+    ):
+        raise ValueError("agent FINAL action does not close over expected evidence")
+    output = _plain_json(result.output)
+    if not isinstance(output, dict):
+        raise ValueError("agent final output must be an object")
+    return output
+
+
+def validate_conflict_analysis_result(
+    *,
+    task: AgentTask,
+    result: AgentResult,
+    expected_profile: SpecialistProfile,
+    expected_evidence_refs: tuple[EvidenceRef, ...],
+    expected_finding_codes: tuple[ConflictAnalysisCode, ...],
+) -> ValidatedConflictAnalysisPayload:
+    """以纯函数验证 Analyst 输出，拒绝错 Profile、伪造引用和非精确冲突回显。"""
+
+    output = _validate_final_result_envelope(
+        task=task,
+        result=result,
+        expected_profile=expected_profile,
+        expected_evidence_refs=expected_evidence_refs,
+    )
+    if set(output) != {
+        "finding_codes",
+        "constraint_codes",
+        "risk_codes",
+        "explanation",
+        "evidence_refs",
+    }:
+        raise ValueError("analysis output has unexpected fields")
+    try:
+        returned_refs = tuple(EvidenceRef.model_validate(item) for item in output["evidence_refs"])
+        finding_codes = tuple(ConflictAnalysisCode(item) for item in output["finding_codes"])
+        constraint_codes = tuple(ConflictConstraintCode(item) for item in output["constraint_codes"])
+        risk_codes = tuple(ConflictRiskCode(item) for item in output["risk_codes"])
+        explanation = _require_safe_display_text(str(output["explanation"]), field_name="explanation")
+    except Exception as error:
+        raise ValueError("analysis output fields are invalid") from error
+    if (
+        returned_refs != expected_evidence_refs
+        or finding_codes != expected_finding_codes
+        or not finding_codes
+        or len(finding_codes) != len(set(finding_codes))
+        or len(constraint_codes) != len(set(constraint_codes))
+        or len(risk_codes) != len(set(risk_codes))
+        or len(finding_codes) > 3
+        or len(constraint_codes) > 3
+        or len(risk_codes) > 8
+        or not explanation
+        or len(explanation) > 500
+    ):
+        raise ValueError("analysis output does not close over governed facts")
+    return ValidatedConflictAnalysisPayload(
+        finding_codes=finding_codes,
+        constraint_codes=constraint_codes,
+        risk_codes=risk_codes,
+        explanation=explanation,
+        evidence_refs=returned_refs,
+    )
+
+
+def validate_live_decision_planner_result(
+    *,
+    task: AgentTask,
+    result: AgentResult,
+    expected_profile: SpecialistProfile,
+    expected_evidence_refs: tuple[EvidenceRef, ...],
+    required_risk_codes: frozenset[str],
+    available_backup_product_ids: frozenset[str],
+    proposal_eligible_and_fresh: bool,
+) -> tuple[DecisionOption, ...]:
+    """以纯函数验证 Planner 的 1-3 个受限选项，不创建 Proposal 或写入任何 LIVE 事实。"""
+
+    output = _validate_final_result_envelope(
+        task=task,
+        result=result,
+        expected_profile=expected_profile,
+        expected_evidence_refs=expected_evidence_refs,
+    )
+    if not proposal_eligible_and_fresh or set(output) != {"options"}:
+        raise ValueError("planner output is not eligible for formal consumption")
+    try:
+        options = tuple(DecisionOption.model_validate(item) for item in output["options"])
+    except Exception as error:
+        raise ValueError("planner options are invalid") from error
+    if not 1 <= len(options) <= 3 or len({item.option_id for item in options}) != len(options):
+        raise ValueError("planner options must be one to three unique values")
+    for option in options:
+        if tuple(option.evidence_refs) != expected_evidence_refs:
+            raise ValueError("planner option evidence refs do not match bundle")
+        risk_flags = set(option.risk_flags)
+        if "HUMAN_CONFIRMATION_REQUIRED" not in risk_flags:
+            raise ValueError("planner option omits human confirmation risk")
+        if not required_risk_codes.issubset(risk_flags):
+            raise ValueError("planner option omits analysis risk")
+        if option.product_strategy is ProductStrategy.SWITCH_TO_BACKUP:
+            if option.backup_product_id not in available_backup_product_ids:
+                raise ValueError("planner option backup is unavailable")
+            if "BACKUP_PRODUCT_REQUIRES_CONFIRMATION" not in risk_flags:
+                raise ValueError("planner backup omits confirmation risk")
+    return options
 
 
 class _AnalystRunner(Protocol):
@@ -1262,25 +1467,11 @@ class HighConflictEscalationCoordinator:
     ) -> LiveDecisionProposal:
         """把 Planner 的封闭 options 重建为完整 Proposal，并在落库前做整份确定性验证。"""
 
-        if (
-            result.task_id != task.task_id
-            or result.profile_id != self._planner_profile.profile_id
-            or result.profile_version != self._planner_profile.profile_version
-        ):
-            raise _PlannerResultError(MultiAgentFailureCode.PLANNER_INVALID_OUTPUT)
         if result.status is not AgentResultStatus.SUCCEEDED:
             raise _PlannerResultError(self._planner_failure_code_for_result(result))
         try:
-            output = _plain_json(result.output)
-            if not isinstance(output, dict) or set(output) != {"options"}:
-                raise ValueError("planner output must contain only options")
-            options = tuple(DecisionOption.model_validate(item) for item in output["options"])
-            if not 1 <= len(options) <= 3 or len({item.option_id for item in options}) != len(options):
-                raise ValueError("planner options must be one to three unique values")
             snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
             references = tuple(component.reference for component in snapshot.components)
-            if tuple(result.evidence_refs) != references:
-                raise ValueError("planner result evidence refs do not match bundle")
             inventory_component = next(
                 component
                 for component in snapshot.components
@@ -1293,22 +1484,17 @@ class HighConflictEscalationCoordinator:
                 for item in inventory_component.payload.backup_products
                 if item.is_active and item.inventory > 0
             }
-            required_analysis_risks = {item.value for item in analysis.risk_codes}
-            for option in options:
-                if tuple(option.evidence_refs) != references:
-                    raise ValueError("planner option evidence refs do not match bundle")
-                risk_flags = set(option.risk_flags)
-                if "HUMAN_CONFIRMATION_REQUIRED" not in risk_flags:
-                    raise ValueError("planner option omits human confirmation risk")
-                if not required_analysis_risks.issubset(risk_flags):
-                    raise ValueError("planner option omits analysis risk")
-                if option.product_strategy is ProductStrategy.SWITCH_TO_BACKUP:
-                    if option.backup_product_id not in available_backups:
-                        raise ValueError("planner option backup is unavailable")
-                    if "BACKUP_PRODUCT_REQUIRES_CONFIRMATION" not in risk_flags:
-                        raise ValueError("planner backup omits confirmation risk")
-            if not snapshot.proposal_eligible or snapshot.valid_until <= self._utc_now():
-                raise ValueError("planner evidence is no longer eligible")
+            options = validate_live_decision_planner_result(
+                task=task,
+                result=result,
+                expected_profile=self._planner_profile,
+                expected_evidence_refs=references,
+                required_risk_codes=frozenset(item.value for item in analysis.risk_codes),
+                available_backup_product_ids=frozenset(available_backups),
+                proposal_eligible_and_fresh=(
+                    snapshot.proposal_eligible and snapshot.valid_until > self._utc_now()
+                ),
+            )
             lineage = MultiAgentProposalLineage(
                 escalation_id=escalation.escalation_id,
                 escalation_digest=escalation.escalation_digest,
@@ -1367,30 +1553,18 @@ class HighConflictEscalationCoordinator:
     ) -> ConflictAnalysis:
         """重新验证 Runner 身份、封闭输出和完整证据集，再构造可追加的分析事实。"""
 
-        if (
-            result.task_id != task.task_id
-            or result.profile_id != self._analyst_profile.profile_id
-            or result.profile_version != self._analyst_profile.profile_version
-        ):
-            raise _AnalystResultError(MultiAgentFailureCode.ANALYST_INVALID_OUTPUT)
         if result.status is not AgentResultStatus.SUCCEEDED:
             raise _AnalystResultError(self._failure_code_for_result(result))
         try:
-            output = result.output
-            # AgentResult 为阻断调用方运行中篡改会把 JSON 递归冻结为 FrozenDict；
-            # 协调器应接受该只读 Mapping，再复制到本地普通字典完成严格字段读取，
-            # 不能把共享 Runner 已验证的结构化结果误判为无效输出。
-            if not isinstance(output, Mapping):
-                raise ValueError("analysis output must be object")
-            output = dict(output)
             snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
             references = tuple(component.reference for component in snapshot.components)
-            returned_refs = tuple(
-                EvidenceRef.model_validate(item) for item in output["evidence_refs"]
+            payload = validate_conflict_analysis_result(
+                task=task,
+                result=result,
+                expected_profile=self._analyst_profile,
+                expected_evidence_refs=references,
+                expected_finding_codes=escalation.trigger_codes,
             )
-            finding_codes = tuple(ConflictAnalysisCode(item) for item in output["finding_codes"])
-            if returned_refs != references or finding_codes != escalation.trigger_codes:
-                raise ValueError("analysis does not exactly bind bundle evidence and triggers")
             return ConflictAnalysis(
                 analysis_id=f"phase16-analysis:{escalation.escalation_id}",
                 idempotency_key=f"phase16-analysis:{escalation.escalation_id}",
@@ -1402,10 +1576,10 @@ class HighConflictEscalationCoordinator:
                 analyst_profile_id=self._analyst_profile.profile_id,
                 analyst_profile_version=self._analyst_profile.profile_version,
                 analyst_profile_digest=self._analyst_profile.profile_digest,
-                finding_codes=finding_codes,
-                constraint_codes=tuple(output["constraint_codes"]),
-                risk_codes=tuple(output["risk_codes"]),
-                explanation=output["explanation"],
+                finding_codes=payload.finding_codes,
+                constraint_codes=payload.constraint_codes,
+                risk_codes=payload.risk_codes,
+                explanation=payload.explanation,
                 evidence_refs=references,
                 created_at=self._utc_now(),
             )

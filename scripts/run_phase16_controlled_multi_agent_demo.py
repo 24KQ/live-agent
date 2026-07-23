@@ -120,6 +120,8 @@ from src.skill_runtime.models import (
     SkillExecutionStatus,
 )
 from src.specialist_runtime.models import (
+    AgentAction,
+    AgentActionKind,
     AgentResult,
     AgentResultStatus,
     AgentTask,
@@ -419,6 +421,16 @@ class _DeterministicDemoRunner:
             profile_version=task.profile_version,
             status=AgentResultStatus.SUCCEEDED,
             output=output,
+            # Demo 也必须准确模拟共享 Runner 的唯一 FINAL 信封；否则它会绕过当前
+            # Coordinator 对 AgentAction、输出 Schema 与六角色 EvidenceRef 的二次校验。
+            actions=(
+                AgentAction(
+                    kind=AgentActionKind.FINAL,
+                    final_output=output,
+                    evidence_refs=references,
+                    reason_summary="SCRIPTED_PHASE16_DEMO_FINAL",
+                ),
+            ),
             evidence_refs=references,
             summary="SCRIPTED_PHASE16_DEMO_SUCCEEDED",
             model_calls=1,
@@ -1576,7 +1588,7 @@ def render_acceptance_report(result: Phase16DemoResult) -> str:
     lines = [
         "# Phase 16 Controlled Multi-Agent Escalation Acceptance",
         "",
-        "本报告只记录本地确定性保护、受控双 Agent 演练、人工命令边界和真实 smoke 外部证据状态。它不把 ScriptedModel 或本地预检冒充为真实模型调用。",
+        "本报告只记录本地确定性保护、受控双 Agent 演练和人工命令边界。它不把 ScriptedModel 或本地预检冒充为真实模型调用；正式网络回执由独立 Addendum 维护。",
         "",
         f"- Acceptance status: `{result.status.value}`",
         f"- Phase state: `{result.phase_state}`",
@@ -1631,7 +1643,7 @@ def render_acceptance_report(result: Phase16DemoResult) -> str:
         f"- Analyst / Planner / READY / DEGRADED / no-send: `{result.task9_analyst_calls} / {result.task9_planner_calls} / {result.task9_ready_outcomes} / {result.task9_degraded_outcomes} / {result.task9_no_send_cases}`",
         f"- Scripted reserved cost: `{result.task9_scripted_reserved_cost_cny} CNY`",
         "",
-        "## Real Smoke Evidence",
+        "## Deterministic Demo Real-Smoke Preflight",
         "",
         f"- Scope: `{result.real_smoke_scope_id}` (10 cases / 1.00 CNY hard cap)",
         f"- Smoke status: `{result.real_smoke_status}`",
@@ -1639,7 +1651,9 @@ def render_acceptance_report(result: Phase16DemoResult) -> str:
         "- Blockers:",
         *(f"  - `{code}`" for code in result.real_smoke_reason_codes),
         "",
-        "真实 endpoint、usage 合同和真实模型回执未提供，因此 Phase 16 结论保持 INCONCLUSIVE；默认路由继续为 DETERMINISTIC_ONLY。Phase 16 完成后不自动实施 Phase 17，当前状态固定为 AWAITING_PHASE_17_GATE。",
+        # 本地 Demo 永远不读取 `.env` 或访问网络，所以这里的 BLOCKED 只是它自身可重复的
+        # 离线预检快照；真实发送后的结论必须从 append-only PostgreSQL receipt Addendum 读取。
+        "以上 BLOCKED 仅表示本地确定性 Demo 不发送真实模型请求，不是当前正式真实模型证据结论。正式 PostgreSQL 回执见 [Phase 16 Official Real-Model Smoke Evidence](phase-16-official-smoke-evidence.md)。默认路由继续为 DETERMINISTIC_ONLY，阶段状态固定为 AWAITING_PHASE_17_GATE。",
         "",
         # 覆盖率整改是已经发生的工程事实，固定写入生成器，避免手工补报告后
         # Acceptance 文档与 Demo 的可重复渲染结果再次分叉。
@@ -1655,10 +1669,24 @@ def render_acceptance_report(result: Phase16DemoResult) -> str:
         "- integration：`185 passed, 7 deselected, 5 warnings`",
         "- coverage：line `92.035%`、branch `85.081%`",
         "- Gate：`PASS`",
-        "- 真实模型调用/费用：`0 / 0.000000 CNY`",
+        "- 覆盖率整改时的真实模型调用/费用：`0 / 0.000000 CNY`",
         "",
-        "本节只证明 PR coverage 技术门禁已通过；真实 endpoint、usage 合同和模型回执仍缺失，所以 Acceptance 总结继续为",
-        "`INCONCLUSIVE`，默认路由不改变。整改提交为 `599c98e`（测试）和 `6216f9f`（CI/source closure）。",
+        "本节只证明 PR coverage 技术门禁已通过；它不覆盖后续正式真实模型证据。确定性 Demo 的 Acceptance 状态保持",
+        "`INCONCLUSIVE`，正式外部结论以 Addendum 为准，默认路由不改变。整改提交为 `599c98e`（测试）和 `6216f9f`（CI/source closure）。",
+        "",
+        # 这组固定文字连接两个互不替代的证据层：本地 Demo 的 INCONCLUSIVE 与正式
+        # PostgreSQL 账本的 FAILED。它必须由唯一 renderer 生成，避免人工编辑 Acceptance
+        # 后绕开可重复性测试，或把未重试的真实失败误述为本地演练的状态。
+        "## Official Evidence Closeout",
+        "",
+        "本报告顶部的 `INCONCLUSIVE` 只描述本地确定性 Demo；唯一正式真实模型 run 的外部结论以",
+        "[Official Smoke Evidence](phase-16-official-smoke-evidence.md) 为准，仍为 `FAILED / ANALYST_VALIDATION_FAILED`。",
+        "正式 smoke 不会重试，默认路由继续 `DETERMINISTIC_ONLY`，阶段仍为 `AWAITING_PHASE_17_GATE`。",
+        "",
+        "该 Addendum 收口后的新鲜工程验证为：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,",
+        "5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`，19 个迁移",
+        "实际应用与 dry-run 均无失败。两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已",
+        "完成同范围复核，不把该外部故障描述为审查通过。",
         "",
     ]
     return "\n".join(lines)

@@ -53,12 +53,14 @@ def _all_run_commands(job: dict[str, Any]) -> str:
 
 
 def test_phase15_pr_workflow_uses_python_312_pgvector_kafka_and_36_cases_without_secrets() -> None:
-    """PR 只跑非 holdout，且不能把模型 secret 暴露到不受保护的 PR。"""
+    """PR 只跑非 holdout，且允许维护者显式重跑同一确定性门禁。"""
 
     workflow = _load("agent-runtime-pr.yml")
     trigger = _trigger(workflow)
     assert isinstance(trigger, dict) and "pull_request" in trigger
-    assert "workflow_dispatch" not in trigger
+    # PR 的自动事件可能因 GitHub 外部投递故障漏发；手动入口只能复用同一无密钥、确定性
+    # Gate，不能改为真实模型或扩大 case 集，因此将其作为受审计的恢复通道固定下来。
+    assert "workflow_dispatch" in trigger
     assert workflow["permissions"] == {"contents": "read"}
     job = _job(workflow)
     assert job["permissions"] == {"contents": "read"}
@@ -70,6 +72,10 @@ def test_phase15_pr_workflow_uses_python_312_pgvector_kafka_and_36_cases_without
     assert "kafka" in services
     assert job["env"]["KAFKA_BOOTSTRAP_SERVERS"] == "localhost:9092"
     steps = job["steps"]
+    # Phase 16 的历史闭包审计必须读取一次真实执行提交的 Git blob；浅检出会让
+    # `git ls-tree <execution-commit>` 在 CI 中缺对象并 fail-closed，因此 PR 必须保留完整历史。
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["fetch-depth"] == 0
     setup = next(step for step in steps if step.get("uses", "").startswith("actions/setup-python@"))
     assert setup["with"]["python-version"] == "3.12"
     commands = _all_run_commands(job)
@@ -102,6 +108,10 @@ def test_phase15_nightly_workflow_has_schedule_postgres_kafka_and_36_cases() -> 
     services = job["services"]
     assert services["postgres"]["image"] == "pgvector/pgvector:pg16"
     assert "kafka" in services
+    checkout = next(
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == 0
     commands = _all_run_commands(job)
     assert "--mode nightly" in commands
     assert "36" in commands or "non-holdout" in commands
@@ -123,6 +133,10 @@ def test_phase15_release_workflow_is_tag_or_manual_only_48_cases_and_180_day_art
     job = _job(workflow)
     assert job["environment"] == "phase15-release"
     assert job["services"]["postgres"]["image"] == "pgvector/pgvector:pg16"
+    checkout = next(
+        step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == 0
     commands = _all_run_commands(job)
     assert "--mode release" in commands
     assert "48" in commands or "full" in commands.lower()

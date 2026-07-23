@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.check_doc_encoding import scan_file
+from scripts.check_doc_encoding import scan_file, scan_py_file
 
 
 def test_scan_file_accepts_clean_utf8(tmp_path: Path) -> None:
@@ -36,3 +36,13 @@ def test_scan_file_reports_replacement_character(tmp_path: Path) -> None:
     issues = scan_file(path)
 
     assert any(issue.category == "replacement_char" and issue.severity == "error" for issue in issues)
+
+
+def test_scanner_does_not_report_its_own_replacement_character_detection_literals() -> None:
+    """扫描器内置的检测样例不是被扫描项目的损坏内容，不能让全仓门禁永久自失败。"""
+
+    scanner_path = Path(__file__).resolve().parents[2] / "scripts" / "check_doc_encoding.py"
+
+    issues = scan_py_file(scanner_path)
+
+    assert not [issue for issue in issues if issue.severity == "error"]

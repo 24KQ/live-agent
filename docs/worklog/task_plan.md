@@ -23,6 +23,20 @@
 所有 Task 使用 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> DOCS -> COMMIT -> PUSH；
 Task 10 前不访问真实模型，任何严重安全违规、预算风险或强制基础设施阻塞均停止当前 Task。
 
+## 2026-07-22 Phase 16 Official Real-Model Smoke Evidence Closure
+
+- [x] Task 0：持久化正式真实模型 smoke 的 Design、Implementation Plan、D-168 至 D-171 和状态事实源；仅文档提交 `a603159` 已推送。
+- [x] Task 1：恢复固定 LIVE Profile，新增隔离 Smoke Profile/Manifest、provider receipt 合同和离线预检；不联网，`d032cda` 已推送。
+- [x] Task 2：新增版本化 PostgreSQL append-only formal ledger，导入 `0.073220 CNY` 历史事实并锁定十个 `.092000 CNY` slot；不改旧 `PHASE16_MULTI_AGENT_SMOKE` 表。`b2387e9`、`469483e`、`69af187` 已推送。
+- [x] Task 3：让唯一 CLI 通过 `BoundedSpecialistRunner`、smoke-only 预算端口和六角色只读投影运行；默认 dry-run，只有 `--execute` 能联网。`a2e70a7` 已推送。
+- [x] Task 4：所有本地 Gate 通过后已执行唯一严格 smoke；首个 Analyst 已发送后以 `ANALYST_VALIDATION_FAILED` 停止，正式外部结论为 `FAILED`，不重试。脱敏报告为 `phase-16-official-smoke-evidence.md`。
+- [x] Task 5：历史闭包与空 slot 报告两项 Important 已完成 RED/GREEN；主模型已对终态锁、Git-blob
+  审计、认证只读报告、敏感字段与并发契约完成最终复核。两次独立只读终审分别在读取前因本地代理
+  `502`、`503` 终止，未产生可采纳结论，已按协议关闭并留痕，不将其误写为审查通过。
+  当前权威基线为 unit `1596 passed, 1 warning`、全部 integration 文件 `214 passed, 7 deselected, 5 warnings`、
+  Phase 16 escalation PostgreSQL `31 passed`、正式 ledger/runner PostgreSQL `29 passed`、实际迁移 `19 passed, 0 failed`。
+  无论外部结论如何都保持 `DETERMINISTIC_ONLY` 和 `AWAITING_PHASE_17_GATE`；下一步仅为提交、推送、PR Gate 与 merge commit。
+
 ## 目标
 
 把 `docs/worklog/` 从本机临时记录升级为可追踪的项目工作日志，用于记录阶段计划、发现、进度和后续迭代方向。
@@ -273,3 +287,23 @@ Task 10 前不访问真实模型，任何严重安全违规、预算风险或强
   `DEGRADED` 审计终态；没有 Planner claim 的历史 Analysis 保持原状。
 - 内存与 PostgreSQL Store/DDL 均收紧为 Analyst 无 Analysis 或 Planner 已发送两种受限闭合来源，
   并新增对应 RED/GREEN。真实模型费用仍为 `0.000000 CNY`。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 3
+
+- [x] 以 Smoke-only Profile、六角色只读投影、专用账本预算适配器和 `BoundedSpecialistRunner`
+  装配正式路径；不写生产 Coordinator、Store、Proposal、Outcome 或经营命令。
+- [x] 唯一脚本默认 dry-run，只有 `--execute` 可装配网络依赖；旧 direct-mode 参数在读取
+  `.env` 或构造 Adapter 前硬失败。
+- [x] 账本重启恢复先于任何新 slot：未知已发送 intent 只会追加 `FAILED`，明确未发送为
+  `BLOCKED`，已认证 PASS slot 只读跳过且不重发。
+- [x] Task 3 专项/关联验证为 `171 passed`；正式 Manifest 重建预检为 `READY`，真实模型
+  调用仍为 `0`。等待本 Task 的独立提交与推送后才进入 Task 4 的全量门禁。
+
+## 2026-07-23 Phase 16 Official Smoke Evidence PR #2 Gate Remediation
+
+- [x] 复现 PR #2 首轮历史闭包失败：Actions 默认浅检出缺少执行提交 `a2e70a7`，闭包审计正确 fail-closed。
+- [x] 用 `fetch-depth: 0` 绑定 PR、Nightly、Release 的 checkout，并以 workflow 契约测试冻结该要求。
+- [x] 复现并修正报告器测试的 CI PostgreSQL 环境覆盖；并发 PostgreSQL 测试仅接受 `READY` 或精确
+  `COORDINATOR_TIMEOUT`，持续断言单次外部 dispatch。
+- [x] 刷新定向证据：workflow/report unit `16 passed`，Phase 16 escalation PostgreSQL `31 passed`。
+- [x] 本地整改和验证已完成；合并前必须实时查询 PR #2 required checks，只有全绿才允许使用 merge commit。

@@ -1,12 +1,16 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_COMPLETE_AWAITING_PHASE_17_GATE`
+文档状态：`PHASE_16_OFFICIAL_SMOKE_EVIDENCE_PR_GATE_REMEDIATION_PENDING`
 
-最后更新：2026-07-18
+最后更新：2026-07-22
 
 当前授权边界：Phase 11A-15 的历史 Acceptance 保持原结论；Phase 15 与 Final Acceptance
 为 `INCONCLUSIVE`，默认路由保持 `DETERMINISTIC_ONLY`。用户已授权连续实施 Phase 16：先
 持久化本阶段 Design/Plan/决策/状态，再连续执行 Task 2-11；完成后停止在 Phase 17 Gate。
+
+2026-07-22 的补充授权只收口 Phase 16 的真实模型外部证据，不开始 Phase 17。它以独立分支和
+版本化正式账本执行一轮严格 10/10 DeepSeek smoke；正式 `PASS` 不改变生产默认
+`DETERMINISTIC_ONLY`，而 `BLOCKED` 或 `FAILED` 也不回写历史 Phase 16 本地技术验收。
 
 ## 1. 文档职责
 
@@ -99,6 +103,29 @@ Phase 16 Task 2-11 继续受冻结预算、真实证据、无 fallback 和用户
 - PostgreSQL、PostgresSaver、Kafka 或模型服务持续不可用，导致强制验收证据无法生成。
 - 需要扩大到真实淘宝 API、外部插件、热加载、自由 A2A、动态 handoff 或共享 scratchpad。
 - 需要降低 Agent 保留门槛、绕过失败测试或提交已知失败代码。
+
+### 4.1 Phase 16 正式真实模型证据收口
+
+该收口是已合并 Phase 16 的有限补充，不是新阶段：先提交 Design/Plan 和 D-168 至 D-171，再实现
+隔离 Smoke Profile、formal PostgreSQL append-only ledger、唯一 CLI 和报告。历史直接模式支出
+`0.073220 CNY` 计入一元总上限但不是成功证据；十个固定 slot 每例 `0.092000 CNY`，最大暴露
+`0.993220 CNY`。未发送预检阻断为 `BLOCKED + INCONCLUSIVE`，任何已发送失败为 `FAILED`；只有
+`10/10` case、`20/20` 调用和完整 receipt/usage/validation 才可把真实模型证据写为 `PASS`。
+
+**执行结论（2026-07-22）**：全部本地门禁通过后，唯一正式 run 的首个 Analyst 请求已获得完整 receipt 与
+usage，但正式 validation 为 `ANALYST_VALIDATION_FAILED`。D-170 因此要求立即结束：Planner 与剩余九个
+slot 未发送，不重试、不修补、不用 ScriptedModel 替代。正式外部证据为 `FAILED`；正式实际费用
+`0.006306 CNY`，加历史直接模式 `0.073220 CNY` 后为 `0.079526 CNY`。确定性工程 Acceptance 保留，
+默认路由继续 `DETERMINISTIC_ONLY`，阶段保持 `AWAITING_PHASE_17_GATE`。v1 Manifest 的八项源码摘要只可
+解释为执行身份子集；完整历史一方闭包必须以执行提交 Git blob 审计资产复核，不能用当前整改源码重写已发送事实。
+
+**收口验证（2026-07-23）**：新鲜 unit 为 `1596 passed, 1 warning`，integration 为
+`214 passed, 7 deselected, 5 warnings`，Phase 16 escalation PostgreSQL 为 `31 passed`，formal
+ledger/runner PostgreSQL 为 `29 passed`；19 个迁移实际应用与 dry-run 均无失败。两次额外只读终审都在读取前因
+本地代理 `502`/`503` 终止，未被当作审查通过；第三次补充只读终审同样在读取前因 `502` 终止，主模型已完成同范围
+安全和规格复核。PR #2 首轮 Gate 的 shallow checkout 历史 blob 缺失与报告器 CI PostgreSQL 环境隔离问题已整改为
+全历史 checkout、workflow contract 与定向测试；恢复时必须依据 PR #2 当前 Gate 决定是否 merge，不能再次执行正式 smoke
+或开启 `DECISION_SUPPORT`。
 
 ## 5. Phase 12A 剩余范围
 

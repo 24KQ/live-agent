@@ -30,8 +30,11 @@ DEFAULT_ROOTS = (
 
 # 这些片段是典型的 UTF-8 被错误转写后留下的高风险字符。
 # 这里只保留少量高置信片段，宁可少报一点，也不要把正常中文误判太多。
-# Python docstring 中常见的中文 mojibake 片段（UTF-8 被误认为 GBK/Latin-1 解码后的残留）
-# 来源：反复出现的 docstring 乱码如 "þ����ڵ㡣"、"���ֻþ�" 等
+# Python docstring 中常见的中文 mojibake 片段（UTF-8 被误认为 GBK/Latin-1 解码后的残留）。
+# 来源包含 U+FFFD replacement character；源码通过字符码位构造样例，避免扫描器把自己的
+# 检测样例再次误判为仓库损坏内容，同时运行时匹配语义保持完全一致。
+REPLACEMENT_CHARACTER = chr(0xFFFD)
+
 # 只保留高置信片段，宁可漏报也不误报
 MOJIBAKE_FRAGMENTS = (
     "锟斤拷",
@@ -55,9 +58,9 @@ MOJIBAKE_FRAGMENTS = (
     "鐪",
     # Python docstring 特有乱码（UTF-8 bytes 被 Latin-1 解码）
     "þ",    # \xfe 或 \xc3\xbe 的残留
-    "��",   # Latin-1 解码 U+FFFD 后的二次乱码
-    "�þ�", # 常见 docstring 开头乱码模式
-    "���",  # 三个连续 replacement char（常见于大段中文损坏）
+    REPLACEMENT_CHARACTER * 2,   # Latin-1 解码 U+FFFD 后的二次乱码
+    REPLACEMENT_CHARACTER + "þ" + REPLACEMENT_CHARACTER, # 常见 docstring 开头乱码模式
+    REPLACEMENT_CHARACTER * 3,   # 三个连续 replacement char（常见于大段中文损坏）
 )
 
 
@@ -135,7 +138,7 @@ def scan_file(path: Path) -> list[DocIssue]:
         text = raw.decode("utf-8", errors="replace")
 
     for line_no, line in enumerate(text.splitlines(), start=1):
-        if "\ufffd" in line:
+        if REPLACEMENT_CHARACTER in line:
             issues.append(
                 DocIssue(
                     path=path,
@@ -219,7 +222,7 @@ def scan_py_file(path: Path) -> list[DocIssue]:
         if not stripped:
             continue
 
-        if "\ufffd" in line:
+        if REPLACEMENT_CHARACTER in line:
             issues.append(
                 DocIssue(
                     path=path,

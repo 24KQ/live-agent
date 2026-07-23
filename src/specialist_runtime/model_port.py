@@ -110,6 +110,8 @@ class ModelSuccess(StrictFrozenModel):
     model_id: str = Field(..., min_length=1)
     output: Any
     usage: ModelUsage | None
+    provider_response_id: str | None = Field(default=None, min_length=1)
+    finish_reason: str | None = Field(default=None, min_length=1)
     response_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     latency_ms: Decimal = Field(..., ge=Decimal("0"))
 
@@ -117,6 +119,19 @@ class ModelSuccess(StrictFrozenModel):
     @classmethod
     def _freeze_output(cls, value: Any) -> Any:
         return _freeze_json(value)
+
+    @field_validator("provider_response_id", "finish_reason")
+    @classmethod
+    def _validate_optional_provider_receipt(cls, value: str | None) -> str | None:
+        """拒绝空白回执字段，避免形式存在却不能用于审计关联。"""
+
+        if value is None:
+            # 普通历史 Runtime 仍允许 Provider 不提供这两项；Phase 16 正式 smoke
+            # 会在更窄的 receipt 校验中提升为必填，不能在通用模型层误伤旧回放记录。
+            return None
+        if type(value) is not str or not value.strip() or value != value.strip():
+            raise ValueError("provider receipt fields must be non-blank trimmed strings")
+        return value
 
     @field_serializer("output", when_used="json")
     def _serialize_output(self, value: Any) -> Any:
