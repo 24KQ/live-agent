@@ -1010,3 +1010,54 @@
   Planner 才可运行并形成 `MULTI_AGENT_READY`。
 - 默认 CLI 的离线输出为 `BLOCKED + INCONCLUSIVE`，原因是它有意不读取 `.env`；使用已知的
   非敏感环境身份重验时，冻结 Manifest 预检为 `READY`。真实模型调用仍为 `0`。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 4 发现
+
+- 唯一正式 `--execute` 已在全部本地 Gate 后运行。首个 `ANALYST` 请求获得完整 provider receipt、
+  `finish_reason=stop`、usage `2610/1848/4458`、延迟 `14138.545 ms` 与实际费用 `0.006306 CNY`；
+  账本只保存相应 digest，不保存原始 provider ID、Prompt、模型正文或经营建议。
+- 该请求的 append-only validation 与 case outcome 都为 `FAILED / ANALYST_VALIDATION_FAILED`。根据 D-170，
+  这是已发送后的正式失败，不是 `INCONCLUSIVE`；Planner 和其余九个 slot 未发送，不能重试、文本修补或
+  ScriptedModel 替代。
+- 当前已知实际支出为历史 `0.073220 CNY` 加正式 `0.006306 CNY`，即 `0.079526 CNY`；冻结最大暴露仍为
+  `0.993220 CNY`，没有超出 `1.000000 CNY` 上限。
+- 账本稳定原因码不保存模型正文或内部异常细节，故不能把总 token、Schema、AgentAction 或 EvidenceRef 中的
+  某一种可能原因写成确定根因。正式报告只陈述可复核事实与该边界。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 发现
+
+- 正式 Addendum 的公开 render/write API 不能接收调用方构造的 snapshot；它只接收数据库设置和 receipt HMAC
+  认证器，并在 PostgreSQL 只读事务中逐条认证 receipt、对 PASS outcome 复用账本公开认证入口。raw snapshot
+  格式化仅保留为模块私有离线单测夹具，符合 D-121 对同进程信任边界的表述。
+- 两轮独立规格与质量/安全复审均已关闭，最终没有 Critical、Important 或 Minor。首轮发现的公开 snapshot
+  旁路已经以 RED/GREEN 移除，不能再靠 Python 私有属性伪装成安全能力。
+- 当前工作树完整验证：unit `1593 passed, 1 warning`；integration `213 passed, 7 deselected, 5 warnings`；
+  正式账本 PostgreSQL 聚合 `28 passed`。这些结果只证明工程与账本路径；正式外部证据仍严格为
+  `FAILED / ANALYST_VALIDATION_FAILED`，不得再次发送。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 历史闭包复审整改
+
+- 最终只读审查确认 v1 Manifest 的八项源码摘要不能称为完整 source closure；它们只代表 execution identity subset。
+  不改写历史 Manifest，而以 `phase16-official-smoke-historical-closure-audit-v1.json` 绑定执行提交的完整一方 Git blob
+  闭包、原 Manifest 摘要和逐文件 SHA-256。
+- 审查还确认“无 claim/attempt/receipt/validation/outcome”不能单独代表合法 pre-send 状态。只有固定十 slot 已完整
+  初始化且预算拓扑有效时才可为 `INCONCLUSIVE`；9-slot 空账本现在 fail-closed 为 `FAILED`。
+- 审查实例 `019f8c8c-3411-7451-b89a-f49083cd620f` 在读取前遭 proxy 503；替代实例
+  `019f8c8d-dfd7-7cd0-b1d2-75234e922982` 的两项 Important 已消费，当前无运行中的 sub-agent。整改后需重新完成
+  全量门禁和最终复审，不能沿用本节上方历史 checkpoint 的 `1593/213/28` 计数。
+
+## 2026-07-23 Phase 16 Official Smoke Evidence Task 5 Final Findings
+
+- 整改后的新鲜证据替代上方历史 checkpoint：unit `1596 passed, 1 warning`；integration
+  `214 passed, 7 deselected, 5 warnings`；Phase 16 escalation PostgreSQL `31 passed`；formal ledger/runner
+  PostgreSQL `29 passed`；实际幂等迁移 `19 passed, 0 failed`，dry-run 识别 `19` 步。`compileall`、敏感载荷扫描和
+  `git diff --check` 也均通过。
+- 正式外部证据仍只能表述为 `FAILED / ANALYST_VALIDATION_FAILED`：唯一 Analyst 请求已经发送并有完整 receipt/usage，
+  因此不能降级为 `INCONCLUSIVE`；Planner 和其余九个 slot 未发送，也不得为了追求 10/10 重试、修补文本或以
+  ScriptedModel 代替。当前已知实际费用为 `0.079526 CNY`，低于 `1.000000 CNY` 上限。
+- 两次补充只读终审在任何仓库读取前分别被本地 proxy `502` 和 `503` 终止，不能记为独立审查批准。主模型据此完成
+  同范围复核：terminal outcome 与 claim/dispatch 走同一 run 行锁；历史闭包由执行提交的 Git blob 审计；报告器只走
+  receipt HMAC 认证的只读路径；敏感字段和并发测试均无未关闭的 Critical/Important。
+- 完整 unit 曾发现 checked-in Acceptance 手工追加正式收口段而 renderer 未同步的漂移。新增渲染内容断言先以
+  `Official Evidence Closeout` 缺失失败，随后将该固定段纳入唯一 renderer；专项 `7 passed`，完整 unit 再次
+  `1596 passed`，因此受控 Demo 的 `INCONCLUSIVE` 与正式 Addendum 的 `FAILED` 不会在文档层混淆或漂移。

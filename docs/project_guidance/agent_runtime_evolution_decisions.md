@@ -2247,7 +2247,8 @@
   `1555 passed, 1 warning`、integration `185 passed, 7 deselected, 5 warnings`，line `92.035%`、branch `85.081%`，
   source-closure 文件集合校验通过。测试费用和真实模型调用均为 `0`。
 - **影响**：PR 分支的 coverage Gate 现在对闭包漂移 fail-closed；Release/Nightly 的既有 coverage 语义不在本决策中
-  改变。Phase 16 Acceptance 的真实模型证据仍按原规则保持 `INCONCLUSIVE`，默认路由继续 `DETERMINISTIC_ONLY`。
+  改变。Phase 16 的确定性 Demo Acceptance 仍为 `INCONCLUSIVE`；后续正式外部 smoke 的独立结论见 D-168 至 D-171
+  的执行事实和 `phase-16-official-smoke-evidence.md`，默认路由继续 `DETERMINISTIC_ONLY`。
 - **重新评估条件**：若新增 Phase 16 生产源码、改变 Release/Nightly 分母或迁移 coverage 工具，必须先更新版本化 Manifest、
   决策和联合回归证据，不得在 workflow 中临时扩大或缩小统计范围。
 
@@ -2260,6 +2261,8 @@
 - **选择理由**：同时保持真实总成本上限和证据诚实性，避免低成本结算或历史脚本成为第十一例的旁路。
 - **未选理由**：忽略历史成本违反冻结一元上限；迁移为正式事实伪造了并不存在的验证链。
 - **影响**：新增版本化 formal ledger，而非改写旧 `PHASE16_MULTI_AGENT_SMOKE` 的 `0.100000` 语义。历史导入同值重放必须幂等、不同值必须失败。
+- **执行事实（2026-07-22）**：正式 run 已写入一条 `HISTORICAL_DIRECT_MODE=0.073220 CNY` 事实；首个正式 receipt 的实际成本为
+  `0.006306 CNY`，当前已知实际总额为 `0.079526 CNY`。它们均不构成正式成功样本，也没有释放任何固定 slot。
 - **重新评估条件**：若未来有经签名且完整验证的历史数据，必须创建新 run，不能追写本 run 的正式证据。
 
 ## D-169：正式 smoke 使用隔离 Profile、预算端口和验证投影，不改变生产 LIVE 架构
@@ -2271,6 +2274,8 @@
 - **选择理由**：保留 Phase 16 的生产安全边界，同时允许一次受控网络集成验证使用合理的外部 deadline。
 - **未选理由**：公开覆盖会让调用方暗中改变生产预算；复用生产 Coordinator 会把 smoke 事实与运营审计混合。
 - **影响**：formal runner 复用 `BoundedSpecialistRunner` 的 AgentAction、Schema 和 EvidenceRef 校验，但只使用窄的 smoke-only 语义验证和账本。
+- **执行事实（2026-07-22）**：首个正式请求使用隔离 Analyst Profile；没有 Smoke Profile 进入 LIVE Registry、Coordinator、Store
+  或经营命令路径。外部失败不会改变生产 `DETERMINISTIC_ONLY` 路由。
 - **重新评估条件**：若要把任何 Smoke Profile 提升为生产 Profile，必须另行设计、评估、审批和发布，不能由 smoke `PASS` 推导。
 
 ## D-170：正式 run 采用零重试、首轮严格 10/10，并以已发送边界区分 BLOCKED 与 FAILED
@@ -2282,6 +2287,9 @@
 - **选择理由**：将一次正式 smoke 变成可复核的实验，而不是用重试数量或人工修补掩盖模型/适配器问题。
 - **未选理由**：重试会增加花费和选择性成功偏差；本地修补会把应用逻辑混入模型证据。
 - **影响**：attempt 在联网前 append，崩溃恢复把未闭合 sent attempt 记录为未知失败；Planner 只在 Analyst 全验证通过后发送。
+- **执行事实（2026-07-22）**：`phase16-high-conflict-paired-development-001` 的 Analyst 已发送并留下完整 receipt/usage，
+  validation/outcome 均为 `FAILED / ANALYST_VALIDATION_FAILED`。因此 run 立即停止，Planner 与剩余九个 slot 未发送，
+  不重试、不修补文本，也不以 ScriptedModel 替代。
 - **重新评估条件**：若未来要研究可靠性分布，可另建多轮实验协议和独立预算，不能更改本 run 的结论。
 
 ## D-171：正式回执和报告必须 append-only、脱敏且不改变默认路由
@@ -2289,8 +2297,20 @@
 - **状态**：`ACCEPTED`
 - **背景**：真实 API 集成需要 provider identity、finish reason、usage 和成本证据；同时 Prompt、模型正文、思维链、API key 和经营建议都不应进入长期 PostgreSQL 审计库。
 - **候选方案**：保存完整响应；仅保存总成本；或保存最小回执和响应摘要并以不可变 validation fact 闭合。
-- **最终选择**：append-only attempt、receipt 和 validation fact 只保存内部 request ID、脱敏 provider ID、finish reason、模型、Profile/case 摘要、response digest、usage、延迟、成本和验证结论。报告从这些事实渲染汇总和 digest，不保存或输出敏感正文。无论 `PASS`、`BLOCKED` 或 `FAILED`，生产默认永久保持 `DETERMINISTIC_ONLY`。
+- **最终选择**：append-only attempt、receipt 和 validation fact 只保存内部 request ID、脱敏 provider ID、finish reason、模型、Profile/case 摘要、response digest、usage、延迟、成本和验证结论。正式 `render` / `write` 报告 API 只接收 PostgreSQL 连接设置和 receipt HMAC 认证器，必须先经认证只读读取器重建投影；调用方不能提交 raw snapshot。raw snapshot 格式化函数仅作为模块私有离线测试夹具，不构成服务内插件隔离。报告从认证事实渲染汇总和 digest，不保存或输出敏感正文。无论 `PASS`、`BLOCKED` 或 `FAILED`，生产默认永久保持 `DETERMINISTIC_ONLY`。
 - **选择理由**：足以审计真实模型集成与费用，同时最小化敏感内容留存和错误传播面。
 - **未选理由**：全量保存响应扩大泄露面；只保存成本无法证明模型身份、usage 或结构化校验。
-- **影响**：DeepSeek Adapter 提供可选 provider response ID 和 finish reason；formal smoke 对二者严格必填。正式 CLI 默认 dry-run，只有 `--execute` 才允许网络。
+- **影响**：DeepSeek Adapter 提供可选 provider response ID 和 finish reason；formal smoke 对二者严格必填。正式 CLI 默认 dry-run，只有 `--execute` 才允许网络。报告读取同时要求 libpq `default_transaction_read_only=on` 与事务内 `SET TRANSACTION READ ONLY`；任意同进程代码执行仍按 D-121 视为服务进程失陷，不以 Python 私有属性声称形成扩展沙箱。
+- **执行事实（2026-07-22）**：append-only ledger 现有一条脱敏 receipt、一条 validation 和一条 terminal outcome；
+  `phase-16-official-smoke-evidence.md` 只从认证只读投影渲染摘要、usage、成本和 digest。正式真实模型证据结论为
+  `FAILED`，不是 `PASS` 或 `INCONCLUSIVE`，且不改变默认路由。执行后的 Task 5 整改新增历史 Git-blob 闭包审计：v1
+  Manifest 的八项 `source_file_digests` 仅为 execution identity subset，完整一方闭包由
+  `phase16-official-smoke-historical-closure-audit-v1.json` 绑定执行提交
+  `a2e70a78301f10075b57040a5b8a1b9e2a34134d` 与原 Manifest 摘要
+  `d75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b`。任一 `BLOCKED` 或
+  `FAILED` outcome 后，API 与 PostgreSQL trigger 均拒绝新 claim/dispatch。最终新鲜验证为 unit
+  `1596 passed, 1 warning`、全部 integration 文件 `214 passed, 7 deselected, 5 warnings`、完整 Phase 16
+  escalation PostgreSQL `31 passed`、正式 ledger/runner PostgreSQL `29 passed`，19 个迁移实际应用和 dry-run
+  均无失败。两次额外只读终审在读取前遭本地代理 `502`/`503`，没有可采纳的结论；主模型已完成同范围复核，
+  不把代理故障写成审查通过。
 - **重新评估条件**：若要保留更丰富供应商证据，必须设计加密、访问控制、保留期与删除机制，不能直接扩大当前 ledger 字段。

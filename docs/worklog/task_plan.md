@@ -28,9 +28,14 @@ Task 10 前不访问真实模型，任何严重安全违规、预算风险或强
 - [x] Task 0：持久化正式真实模型 smoke 的 Design、Implementation Plan、D-168 至 D-171 和状态事实源；仅文档提交 `a603159` 已推送。
 - [x] Task 1：恢复固定 LIVE Profile，新增隔离 Smoke Profile/Manifest、provider receipt 合同和离线预检；不联网，`d032cda` 已推送。
 - [x] Task 2：新增版本化 PostgreSQL append-only formal ledger，导入 `0.073220 CNY` 历史事实并锁定十个 `.092000 CNY` slot；不改旧 `PHASE16_MULTI_AGENT_SMOKE` 表。`b2387e9`、`469483e`、`69af187` 已推送。
-- [ ] Task 3：让唯一 CLI 通过 `BoundedSpecialistRunner`、smoke-only 预算端口和六角色只读投影运行；默认 dry-run，只有 `--execute` 能联网。
-- [ ] Task 4：在所有本地 Gate 通过后，最多执行一次严格 10/10 正式 smoke，读取脱敏 receipt 渲染报告和 Acceptance；任何已发送失败立即停止且不重试。
-- [ ] Task 5：完整验证、审查、PR 和 merge commit；无论外部结论如何都保持 `DETERMINISTIC_ONLY` 和 `AWAITING_PHASE_17_GATE`。
+- [x] Task 3：让唯一 CLI 通过 `BoundedSpecialistRunner`、smoke-only 预算端口和六角色只读投影运行；默认 dry-run，只有 `--execute` 能联网。`a2e70a7` 已推送。
+- [x] Task 4：所有本地 Gate 通过后已执行唯一严格 smoke；首个 Analyst 已发送后以 `ANALYST_VALIDATION_FAILED` 停止，正式外部结论为 `FAILED`，不重试。脱敏报告为 `phase-16-official-smoke-evidence.md`。
+- [x] Task 5：历史闭包与空 slot 报告两项 Important 已完成 RED/GREEN；主模型已对终态锁、Git-blob
+  审计、认证只读报告、敏感字段与并发契约完成最终复核。两次独立只读终审分别在读取前因本地代理
+  `502`、`503` 终止，未产生可采纳结论，已按协议关闭并留痕，不将其误写为审查通过。
+  当前权威基线为 unit `1596 passed, 1 warning`、全部 integration 文件 `214 passed, 7 deselected, 5 warnings`、
+  Phase 16 escalation PostgreSQL `31 passed`、正式 ledger/runner PostgreSQL `29 passed`、实际迁移 `19 passed, 0 failed`。
+  无论外部结论如何都保持 `DETERMINISTIC_ONLY` 和 `AWAITING_PHASE_17_GATE`；下一步仅为提交、推送、PR Gate 与 merge commit。
 
 ## 目标
 

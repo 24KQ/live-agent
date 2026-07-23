@@ -2,6 +2,30 @@
 
 用途：当后续多轮对话或上下文压缩导致注意力丢失时，把本文内容直接发给执行者，用于恢复项目定位、当前阶段、关键决策和执行约束。
 
+## 2026-07-22 最新恢复覆盖
+
+本文件较早章节保留 Phase 11A 历史上下文；恢复当前任务时，以下事实优先于其中任何“下一步”为早期
+Phase 的表述：
+
+- Phase 16 Controlled Multi-Agent 的确定性工程验收、覆盖率整改和 PR merge 已完成，当前阶段状态为
+  `AWAITING_PHASE_17_GATE`；不得自动开始 Phase 17。
+- 正式 run `phase16-official-smoke-v1` 已执行一次。首个 Analyst 请求有完整脱敏 receipt/usage，随后
+  validation/outcome 为 `FAILED / ANALYST_VALIDATION_FAILED`；Planner 与剩余九个 slot 未发送。
+- D-170 的零重试规则已生效：不得再次执行 `scripts/run_phase16_real_smoke.py --execute`、清空账本、修补
+  模型文本，或把 ScriptedModel 演练替代为真实模型成功证据。
+- 正式外部证据为 `FAILED`，报告见
+  `docs/superpowers/reports/phase-16-official-smoke-evidence.md`；正式费用 `0.006306 CNY`，连同历史直接模式
+  `0.073220 CNY` 的当前已知实际总额为 `0.079526 CNY`。
+- 历史 Manifest 的八项源码摘要只代表 execution identity subset；完整一方依赖证据必须读取
+  `evaluation/manifests/phase16-official-smoke-historical-closure-audit-v1.json`，它以执行提交的 Git blob 绑定原
+  Manifest 摘要。不得用当前整改源码重写或重发 v1 run。
+- 该结论不否定确定性工程验收，不会开启 `DECISION_SUPPORT` 或自动经营动作；生产默认路由仍为
+  `DETERMINISTIC_ONLY`。
+- Task 5 的最终本地验证已完成：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,
+  5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`。
+  两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未形成可采纳结论；主模型已接管复核。下一步仅为提交、
+  推送、PR Gate 与 merge commit，不能重新执行 smoke。
+
 ## 恢复顺序
 
 请先不要直接实施代码。请按以下顺序恢复项目上下文，并以这些文档为事实源：
@@ -84,4 +108,5 @@ Phase 11B-14 只保留高层大纲，采用 Just-in-Time 设计：
 - 修改代码时遵守 `AGENTS.md`：新增或修改代码需要详细中文注释，文件使用 UTF-8。
 - 修改中文文档优先使用 `apply_patch`，不要用 PowerShell heredoc 或管道写大段中文。
 - 可以根据任务需要使用 sub-agent 做代码审查、并行分析和复杂任务拆分。
-- 当前下一步是由用户审核 Phase 11A Acceptance；审核完成前不提前设计或实施 Phase 11B。
+- 当前下一步是完成 Phase 16 official evidence 的最终复验、PR 与 merge；仍保持 `AWAITING_PHASE_17_GATE`，不得自动开始
+  Phase 17。早期 Phase 11A 的“下一步”只保留为历史上下文，不代表当前执行入口。

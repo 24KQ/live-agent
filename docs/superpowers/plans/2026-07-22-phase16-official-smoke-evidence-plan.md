@@ -75,7 +75,9 @@ API adapter, pytest, existing Phase 16 evaluation assets.
   formal smoke enforces non-empty values.
 - [x] Create `phase16-official-smoke-evidence-v1` with fixed ten case
   identities, original data Manifest digest, Profile digests, price digest,
-  source closure, and runner digest.
+  execution-identity subset, and runner digest. After execution, retain it
+  unchanged and use a separate historical Git-blob closure audit for complete
+  first-party dependency evidence.
 - [x] Run targeted unit tests, the source/Manifest validation, encoding checks,
   and `git diff --check`; commit the isolated contract change.
 
@@ -128,16 +130,19 @@ API adapter, pytest, existing Phase 16 evaluation assets.
 - Modify: report renderer, Phase 16 Acceptance, and formal smoke evidence
   artifact only after the single authorized execution.
 
-- [ ] Run unit, integration, PostgreSQL, migration, compile, sensitive-payload,
+- [x] Run unit, integration, PostgreSQL, migration, compile, sensitive-payload,
   documentation encoding, and diff gates before `--execute`.
-- [ ] Run the sole explicit `--execute` invocation once after preflight passes.
-  Stop immediately at the first sent-call failure and do not rerun it.
-- [ ] Render a sanitized report from PostgreSQL receipts. It records provider
+- [x] Run the sole explicit `--execute` invocation once after preflight passes.
+  It stopped at the first sent Analyst validation failure; it must not rerun.
+- [x] Render a sanitized report from PostgreSQL receipts. It records provider
   receipt digests, model IDs, usage, latency, cost, status, and script-baseline
   comparison without Prompt, model body, or recommendation text.
-- [ ] Update Acceptance to `PASS` only on strict `10/10` / `20/20`; otherwise
-  retain the precise `BLOCKED + INCONCLUSIVE` or `FAILED` conclusion.
-- [ ] Verify formal cost stays within `1.000000 CNY`; review and commit evidence.
+- [x] Update Acceptance only through the precise formal conclusion: this run is
+  `FAILED`, not `PASS` or `INCONCLUSIVE`; the deterministic Demo remains a
+  separate local snapshot and links the Addendum.
+- [x] Verify formal cost stays within `1.000000 CNY`: formal `0.006306 CNY`,
+  current known actual with historical spend `0.079526 CNY`; closeout review and
+  commit remain in Task 5.
 
 ### Task 5: Final Review, PR, And Merge Commit
 
@@ -145,10 +150,23 @@ API adapter, pytest, existing Phase 16 evaluation assets.
 - Modify: final decisions, Acceptance, status, roadmap, master plan, recovery
   prompt, and worklogs.
 
-- [ ] Re-run full unit/integration, PostgreSQL recovery, compileall, migration
-  dry-run, sensitive-payload scan, document encoding scan, and `git diff --check`.
-- [ ] Conduct independent specification and code-quality/security reviews; fix
-  all Critical and Important findings with RED/GREEN evidence.
+- [x] Re-run full unit/integration, PostgreSQL recovery, compileall, migration
+  dry-run and actual idempotent migration application, sensitive-payload scan,
+  document encoding scan, and `git diff --check`: unit `1596 passed, 1 warning`;
+  all integration files `214 passed, 7 deselected, 5 warnings`; Phase 16 escalation
+  PostgreSQL `31 passed`; formal PostgreSQL ledger/runner `29 passed`; migration
+  application `19 passed, 0 failed`.
+- [x] Correct the final-review findings with RED/GREEN evidence: terminal
+  `BLOCKED`/`FAILED` outcomes now reject later API and direct-SQL claims or
+  dispatches; valid same-case pre-send chains remain `INCONCLUSIVE`; the v1
+  Manifest's incomplete source list is preserved only as an execution identity
+  subset and a historical Git-blob closure audit provides the complete record.
+- [x] Complete the post-remediation final review: prior independent review findings
+  were remediated with RED/GREEN; two additional read-only reviewer attempts failed
+  before file access because of local proxy `502`/`503`, so their non-results were
+  recorded and the main model independently rechecked the exact scope. No unresolved
+  Critical or Important finding remains; this does not claim an unavailable reviewer
+  approved the branch.
 - [ ] Commit and push all remaining changes with scoped messages.
 - [ ] Create a PR from `codex/phase16-official-smoke-evidence`; merge with a
   merge commit only after all required Gates are green.

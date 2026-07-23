@@ -112,6 +112,19 @@ Phase 16 Task 2-11 继续受冻结预算、真实证据、无 fallback 和用户
 `0.993220 CNY`。未发送预检阻断为 `BLOCKED + INCONCLUSIVE`，任何已发送失败为 `FAILED`；只有
 `10/10` case、`20/20` 调用和完整 receipt/usage/validation 才可把真实模型证据写为 `PASS`。
 
+**执行结论（2026-07-22）**：全部本地门禁通过后，唯一正式 run 的首个 Analyst 请求已获得完整 receipt 与
+usage，但正式 validation 为 `ANALYST_VALIDATION_FAILED`。D-170 因此要求立即结束：Planner 与剩余九个
+slot 未发送，不重试、不修补、不用 ScriptedModel 替代。正式外部证据为 `FAILED`；正式实际费用
+`0.006306 CNY`，加历史直接模式 `0.073220 CNY` 后为 `0.079526 CNY`。确定性工程 Acceptance 保留，
+默认路由继续 `DETERMINISTIC_ONLY`，阶段保持 `AWAITING_PHASE_17_GATE`。v1 Manifest 的八项源码摘要只可
+解释为执行身份子集；完整历史一方闭包必须以执行提交 Git blob 审计资产复核，不能用当前整改源码重写已发送事实。
+
+**收口验证（2026-07-23）**：新鲜 unit 为 `1596 passed, 1 warning`，integration 为
+`214 passed, 7 deselected, 5 warnings`，Phase 16 escalation PostgreSQL 为 `31 passed`，formal
+ledger/runner PostgreSQL 为 `29 passed`；19 个迁移实际应用与 dry-run 均无失败。两次额外只读终审都在读取前因
+本地代理 `502`/`503` 终止，未被当作审查通过；主模型已完成同范围安全和规格复核。下一步只可提交、推送、PR Gate
+和 merge commit，不能再次执行正式 smoke 或开启 `DECISION_SUPPORT`。
+
 ## 5. Phase 12A 剩余范围
 
 ### 5.1 Task 6：Checkpoint 一致性与人工命令恢复

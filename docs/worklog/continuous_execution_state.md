@@ -936,6 +936,139 @@ Sub-agent ID / 角色: 019f8a54-2746-7693-af7a-ac6f549e0bd6 / Runner、Coordinat
 
 当前无运行中的 sub-agent。
 
+## 2026-07-23 Phase 16 Official Smoke Evidence Task 5 FINAL CLOSEOUT
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 5
+状态: REVIEW -> VERIFY -> DOCS -> READY_TO_COMMIT
+范围: 对 Task 0-4 的正式真实模型证据与收口整改做最终留痕；不修改正式账本事实、不再次运行 --execute、不启动 Phase 17
+正式外部结论: FAILED / ANALYST_VALIDATION_FAILED。唯一已发送的 Analyst 调用已有完整 provider receipt、finish_reason、usage、延迟和费用；Planner 与其余九个 slot 均未发送，D-170 零重试规则继续生效
+预算事实: 历史直接模式 0.073220 CNY，加正式账本 0.006306 CNY，当前已知实际总额 0.079526 CNY；冻结最大暴露 0.993220 CNY，未超过 1.000000 CNY 上限
+最新验证: unit 1596 passed, 1 warning；integration 214 passed, 7 deselected, 5 warnings；Phase 16 escalation PostgreSQL 31 passed；formal ledger/runner PostgreSQL 29 passed；实际幂等迁移 19 passed, 0 failed；迁移 dry-run 识别 19 步；compileall、敏感载荷扫描和 git diff --check 通过
+追加 RED/GREEN: 完整 unit 首次暴露 checked-in Acceptance 手工追加 Official Evidence Closeout 后未进入确定性 renderer；新增明确断言先红，再将同一固定收口段纳入唯一 renderer，专项 `7 passed` 且完整 unit 重新通过
+最终审查: 既有独立审查的 Critical/Important 均已由 RED/GREEN 关闭。两次补充只读终审分别在读取前因本地 review proxy 502 与 503 终止，未访问仓库、未产生可采纳结论；主模型已复核终态锁、历史 Git-blob 闭包、认证只读报告、敏感字段边界和并发用例，未发现未关闭的 Critical 或 Important
+Sub-agent 状态: 无运行中的 sub-agent；失败的外部审查不计为审查通过
+阶段状态: AWAITING_PHASE_17_GATE；生产默认路由仍为 DETERMINISTIC_ONLY；不得自动启动 Phase 17
+下一条精确操作: 对本条及工作日志完成编码/差异检查后，仅提交、推送、创建 PR，并在远端必需 Gate 全绿后使用 merge commit 合并
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 Historical Closure Final Review Dispatched
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 5
+状态: FINAL_REMEDIATION_REVIEW_FINDINGS_CONSUMED -> RED/GREEN -> VERIFY
+目标: 复核历史 Git-blob 闭包审计、run 级终态不重发、报告 BLOCKED/FAILED 归约、正式账本 DDL 与冻结失败事实；不改变已执行 run 或其 FAILED 结论
+文件边界: 只读 src/decision_support/official_smoke_evidence.py、official_smoke_ledger.py、scripts/render_phase16_official_smoke_evidence.py、DDL、正式审计 JSON、相关 unit/PostgreSQL tests 与 Task 5 文档
+预期交付物: Critical / Important / Minor 规格、代码质量与安全发现；特别核对 Git blob 不读取当前工作树、历史 Manifest 不被改写、终态后 API/SQL 均不能 claim/dispatch、跨 case BLOCKED 不能误报 INCONCLUSIVE
+禁止事项: 不修改、暂存、提交、推送、读取 .env、连接 PostgreSQL、运行迁移或调用真实模型
+主模型验证基线: unit 1595 passed；integration 按完整文件分组 214 passed, 7 deselected；正式 ledger/runner PostgreSQL 29 passed；迁移实际应用 19 passed；正式报告只读重渲染仍为 FAILED
+监控规则: 首次回报、提交前各检查一次；20 分钟无可验证进展、连续两次同一阻塞、扩大范围或建议放宽安全/预算/验收门槛时立即停止并主模型接管
+Sub-agent 状态: 首次 reviewer `019f8c8c-3411-7451-b89a-f49083cd620f` 在读取前因本地 proxy 503 终止；替代 reviewer
+`019f8c8d-dfd7-7cd0-b1d2-75234e922982` 已关闭并报告 2 Important、1 Minor。两项 Important 已进入 RED/GREEN：
+历史 Manifest 改称 execution identity subset 并以 Git-blob audit 补齐完整闭包；不完整 slot 的空账本不再可渲染为
+INCONCLUSIVE。Minor 的旧验证计数已标记为历史 checkpoint。当前无运行中的 sub-agent。
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 FINAL REVIEW -> VERIFY（历史整改前 checkpoint）
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 5
+状态: HISTORICAL_CHECKPOINT；后续历史闭包/终态报告整改已使本段数字不再是当前验收依据
+冻结真实事实: 唯一 run phase16-official-smoke-v1 的首条 Analyst 已发送，receipt/usage 完整；
+validation/outcome=FAILED / ANALYST_VALIDATION_FAILED。Planner 与余下九个 slot 未发送，绝不重试。
+复审事实: 首轮发现公开报告 API 可接收手工 snapshot；RED/GREEN 后公开 render/write 只能接收数据库设置与
+receipt HMAC，并强制经认证只读 ledger reader 重建投影。raw snapshot 仅用于模块私有离线格式化测试，D-121
+明确同进程任意代码执行仍等同服务失陷。最终两轮只读规格与质量/安全审查均为 0 Critical / 0 Important / 0 Minor。
+当时验证: 全量 unit 1593 passed, 1 warning；全量 integration 213 passed, 7 deselected, 5 warnings；
+正式 PostgreSQL ledger/runner 聚合 28 passed。此后已新增本轮闭包/终态回归，当前证据以本文件上方的
+Historical Closure Final Review 条目和后续最终收口条目为准。真实模型执行次数不增加，费用仍为已知 0.079526 CNY。
+静态 Gate: compileall、迁移 dry-run（19 steps）、敏感载荷、文档编码（0 errors）和 git diff --check
+均已通过；文档扫描仅报告目标外历史 UTF-8 BOM warning，本轮文件均为 UTF-8 无 BOM、LF。
+下一条精确操作: 暂存本 Task 文件，提交并推送分支，创建 PR，等待所有 Gate 后使用 merge commit 合入 main。
+Sub-agent 状态: 当前无运行中的 sub-agent；无未消费审查发现。
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 FINAL BRANCH REVIEW DISPATCHED
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 5
+状态: COMMIT_PENDING -> FINAL_READ_ONLY_BRANCH_REVIEW
+目标: 在提交前复核当前未提交的正式报告器、报告单测、Acceptance 链接、D-171、冻结失败结论和
+Task 5 文档事实是否一致；不重新解释模型正文，不改变 FAILED 结论。
+Sub-agent ID / 角色: 019f8c4f-b479-70e0-90ec-4e90f8fd6fcd / 最终全分支只读规格、质量与安全审查
+文件边界: 只读本分支 git diff、scripts/render_phase16_official_smoke_evidence.py、相关 unit tests、
+docs/superpowers/reports/phase-16-official-smoke-evidence.md、Acceptance、设计/计划/决策和 worklog；
+禁止修改、暂存、提交、推送、读取 .env、连接 PostgreSQL、运行迁移或调用模型。
+预期交付物: Critical / Important / Minor 分级代码质量、安全、规格和文档事实发现；无发现也必须明确结论。
+监控规则: 首次回报、提交前复核；20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽
+安全/预算/验收门槛时立即停止并由主模型接管。
+真实模型与费用: 唯一正式 run 保持 FAILED；不发送任何新请求，已知实际费用 0.079526 CNY。
+```
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 Review Remediation
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 5
+状态: REVIEW_REMEDIATION -> VERIFY
+冻结真实事实: 唯一 run phase16-official-smoke-v1 已发送一条 Analyst；receipt 已完整记录，
+validation/outcome 均为 FAILED / ANALYST_VALIDATION_FAILED；Planner 与其余九个 slot 未发送。
+禁止事项: 不得再次执行 --execute、清空账本、重试、修补模型文本或以 ScriptedModel 替代正式结果。
+首轮只读审查: 2 个 Important 类别已确认并进入 RED/GREEN：报告 PASS 必须复用账本公开 HMAC
+消费路径；未发送/未消费陈述必须由 claim/dispatch 投影导出；报告器不得装配应用 LLM 配置，
+PostgreSQL 读取必须事务只读；恢复提示词必须更新至正式 FAILED 事实。
+当前整改: 报告器校验所有 receipt 的 HMAC、PASS outcome 再经 ledger public verification；只读取
+PostgreSQL/HMAC 白名单配置；以 libpq + SET TRANSACTION READ ONLY 双重限制；报告已从现有账本重渲染。
+下一步复审: 派发两个只读 sub-agent，分别复核规格/事实一致性与代码质量/安全；禁止修改、
+读取 .env、连接数据库、调用模型或运行迁移。主模型负责全部验证、提交、推送和 PR 合并。
+
+Sub-agent 规格审查: `019f8c21-5557-7910-a8f6-6558ef1a30ce`，文件边界为报告器、Addendum、
+Acceptance、恢复提示词、Design/Plan 与必要的 ledger 公开契约；预期交付为 Critical/Important/Minor。
+Sub-agent 质量/安全审查: `019f8c21-69ad-79a1-9a8f-9d3c837bd121`，文件边界为报告器、单测和必要的
+ledger 契约；预期交付为配置白名单、只读事务、HMAC、UUID/Decimal、SQL 和泄露风险审查。
+监控: 首次回报、关键 GREEN、提交前各复核；20 分钟无可验证进展、连续两次同一阻塞、越界或建议放宽
+安全/预算/验收门槛时立即停止并主模型接管。当前状态: RUNNING_READ_ONLY_REVIEW。
+```
+
+审查回报与接管：质量/安全审查 `019f8c21-69ad-79a1-9a8f-9d3c837bd121` 无 Critical/Important/Minor。
+规格审查 `019f8c21-5557-7910-a8f6-6558ef1a30ce` 发现 Important：公开 render/write 接受未由读取路径
+认证的手工 receipt snapshot。主模型已 RED/GREEN：新增模块私有 receipt provenance capability；读取路径在逐条
+HMAC 复验后才签发，render/write 对含 receipt 但无能力的 snapshot fail-closed；同进程任意代码执行仍按 D-121
+视为服务失陷，不将 Python 私有属性表述为插件沙箱。正式账本报告已重新读取并保持 FAILED。
+
+整改后复审计划：恢复同两位只读 sub-agent，仅复核 receipt provenance、HMAC、只读连接、配置白名单和报告泄露边界；
+禁止编辑、读取 .env、连接数据库、调用模型或运行迁移。当前状态: REMEDIATION_REVIEW_DISPATCH_PENDING。
+
+第二轮复审结论：两位代理一致确认模块私有 provenance issuer 仍可被同进程调用，不能作为可信边界；该 Important
+不能以 Python 私有属性关闭。主模型已撤除该机制：公开 `render_official_smoke_evidence_report` 与
+`write_official_smoke_evidence_report` 仅接受 PostgreSQL 设置和 receipt HMAC，内部先调用认证读取路径；raw snapshot
+只可用于私有格式化单测，不能作为正式公开渲染/写入 API 参数。该边界与 D-121 一致，不声称抵抗任意同进程失陷。
+新的 RED/GREEN 已验证 public API 拒绝 snapshot、公开入口经读取函数生成报告、实际账本 Addendum 重渲染为 FAILED。
+最终复审将仅检查此 API 边界、HMAC/read-only/白名单和泄露风险；当前状态: FINAL_REMEDIATION_REVIEW_DISPATCH_PENDING。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 4 EXECUTED -> FAILED -> TASK 5 REVIEW
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 4
+状态: VERIFY -> EXECUTE_ONCE -> FAILED -> DOCS -> TASK_5_REVIEW
+当前分支: codex/phase16-official-smoke-evidence（隔离工作树；根目录 main 未修改）
+冻结运行: phase16-official-smoke-v1；原始正式 run 事实不可清空、不可改写、不可重发
+发送前 Gate: unit 1583 passed；integration 213 passed, 7 deselected；正式账本 PostgreSQL 28 passed；迁移 dry-run、compileall、敏感载荷、文档编码和 git diff --check 通过
+唯一发送结果: case phase16-high-conflict-paired-development-001 / ANALYST 已发送 1 次；provider receipt 完整，finish_reason=stop，usage=2610/1848/4458，latency=14138.545 ms，正式成本=0.006306 CNY
+验证与终态: validation=FAILED/ANALYST_VALIDATION_FAILED；outcome=FAILED/ANALYST_VALIDATION_FAILED；Planner 未发送，剩余九个固定 slot 未消费
+结论: 已发送后的正式真实模型证据为 FAILED；不得重试、修补模型文本、清空账本或用 ScriptedModel 替代
+预算: 历史直接模式=0.073220 CNY；正式已知实际=0.006306 CNY；当前已知实际合计=0.079526 CNY；冻结最大暴露=0.993220 CNY；硬上限=1.000000 CNY
+报告: docs/superpowers/reports/phase-16-official-smoke-evidence.md 仅从 PostgreSQL 脱敏 receipt/validation/outcome 生成；不含 API Key、Prompt、正文、思维链、原始 provider ID 或经营建议
+路由与阶段: DETERMINISTIC_ONLY；AWAITING_PHASE_17_GATE；不自动开始 Phase 17
+下一条精确操作: 对 Task 4/5 差异做规格与代码质量/安全独立审查；修复 Critical/Important 后全量验证、提交、推送、PR Gate 与 merge commit
+Sub-agent 状态: 当前无运行中的 sub-agent；Task 5 审查如派发，必须在首次回报、核心 GREEN 与提交前核对实际差异和测试证据
+```
+
+Task 5 审查派发预记录（2026-07-22 Asia/Shanghai）：
+
+- 规格审查：只读 Task 4 报告器、Acceptance Addendum、D-168 至 D-171、计划与工作日志；禁止修改、数据库连接、真实模型调用、暂存、提交或推送。预期交付物为严格 10/10/20/20、零重试、预算、结论和默认路由的 Critical/Important/Minor 发现。
+- 质量与安全审查：只读 Task 4 Python 脚本、目标测试和文档差异；禁止修改、数据库连接、真实模型调用、暂存、提交或推送。预期交付物为脱敏字段、错误处理、冻结源码闭包、测试缺口和代码质量的 Critical/Important/Minor 发现。
+- 监控：主模型在首次回报、任何整改 GREEN 和提交前复核实际差异与测试；20 分钟无可验证进展、两次同一阻塞、越界或建议放宽安全/预算时立即停止并接管。
+
 ## 2026-07-22 Phase 16 Official Smoke Evidence Task 3 Recovery Re-review Dispatched
 
 ```text

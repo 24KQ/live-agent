@@ -2,9 +2,11 @@
 
 ## Status
 
-`APPROVED_FOR_IMPLEMENTATION` as of 2026-07-22. This document defines a
-bounded Phase 16 evidence-closure slice. It does not start Phase 17, change the
-production route, or authorize an automatic operating action.
+`FORMAL_RUN_EXECUTED_FAILED_AWAITING_CLOSEOUT` as of 2026-07-22. This document
+defines a bounded Phase 16 evidence-closure slice. The sole formal run was sent
+once and stopped after the first Analyst validation failure; it does not start
+Phase 17, change the production route, or authorize an automatic operating
+action.
 
 ## Goal
 
@@ -21,7 +23,13 @@ twenty model calls succeed.
 - The sole dataset identity is a new immutable
   `phase16-official-smoke-evidence-v1` Manifest. It binds exactly ten existing
   smoke-eligible high-conflict cases, their six-role Evidence identities, the
-  two Smoke Profiles, prices, source closure, and runner summary.
+  two Smoke Profiles, prices, an eight-file execution-identity subset, and a
+  runner summary. It is historical evidence and is never rewritten after send.
+- `phase16-official-smoke-historical-closure-audit-v1.json` separately binds
+  the original Manifest digest, execution commit, and the complete first-party
+  dependency closure by exact Git blob SHA-256 values. It corrects the old
+  naming without changing the executed v1 Manifest or pretending current
+  remediation source is what sent the request.
 - The production default remains `DETERMINISTIC_ONLY`. A smoke `PASS` is
   integration evidence only; it never enables the LIVE route or submits an
   operating command.
@@ -91,6 +99,12 @@ and recovery of open attempts. Recovery turns an unclosed sent attempt into a
 stable unknown failure and never re-sends it. Planner dispatch is permitted only
 after every Analyst validation fact for the same slot is `PASS`.
 
+Once any case reaches `BLOCKED` or `FAILED`, both the Python ledger API and
+PostgreSQL triggers reject later claims or dispatch attempts for the formal run.
+This run-level terminal rule is intentionally stronger than a duplicate-stage
+constraint: it prevents a caller from using an unclaimed slot to evade the
+strict first-send zero-retry experiment.
+
 The database may record only non-sensitive audit data: run/case/stage/Profile
 digests, internal request ID, provider response ID, finish reason, model ID,
 response digest, usage, latency, cost, and validation result. It must never
@@ -123,6 +137,19 @@ baseline without treating that baseline as external proof. Acceptance changes
 from `INCONCLUSIVE` only after the strict formal criteria pass; otherwise it
 records the exact `BLOCKED`, `INCONCLUSIVE`, or `FAILED` state.
 
+## Executed Formal Run
+
+The sole `--execute` invocation passed all local gates and sent the Analyst
+request for `phase16-high-conflict-paired-development-001`. PostgreSQL recorded
+one complete receipt with model `deepseek-v4-flash`, finish reason `stop`, usage
+`2610 / 1848 / 4458`, latency `14138.545 ms`, and cost `0.006306 CNY`.
+The following validation and case outcome are both
+`FAILED / ANALYST_VALIDATION_FAILED`. Therefore the Planner and remaining nine
+slots were not sent, no retry or text repair is allowed, and the formal external
+evidence is `FAILED`. The sanitized evidence Addendum is
+`phase-16-official-smoke-evidence.md`; the production default remains
+`DETERMINISTIC_ONLY`.
+
 ## Verification
 
 Every implementation change follows `RED -> GREEN -> REFACTOR -> REVIEW ->
@@ -133,3 +160,19 @@ field exclusion. Only after all local gates pass can one `--execute` run occur.
 The final merge requires full unit/integration, PostgreSQL recovery, migration
 dry-run, compile, sensitive-payload scan, document encoding scan, and
 `git diff --check` evidence.
+
+### Task 5 Closeout Verification
+
+The final fresh evidence is unit `1596 passed, 1 warning`, integration
+`214 passed, 7 deselected, 5 warnings`, the full Phase 16 escalation PostgreSQL
+file `31 passed`, and formal ledger/runner PostgreSQL `29 passed`. Both the
+idempotent migration application and its dry-run recognized all 19 steps without
+failure. The final review also rechecked run-level terminal locking, the historical
+Git-blob audit, authenticated read-only reporting, sensitive-payload exclusion, and
+the fixed two-second Coordinator safety test.
+
+Two additional independent read-only review attempts failed before reading files
+because the local review proxy returned `502` and `503`. They produced no findings
+and are not represented as approvals. The main model performed the same scoped
+review; no unresolved Critical or Important finding remained. This does not alter
+the immutable formal `FAILED` result or permit another execution.

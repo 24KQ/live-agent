@@ -1283,3 +1283,50 @@
   `compileall`、迁移 dry-run、敏感载荷扫描和 `git diff --check` 均已执行。
 - 当前正式 Manifest 为 `d75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b`，
   schema contract 为 `6b0da8095081fc5f44a1e8d956304bb6`；正式费用仍为 `0.000000 CNY`。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 4 EXECUTED / FAILED
+
+- 全部 unit、integration、正式 PostgreSQL、迁移 dry-run、编译、敏感载荷、文档编码和差异门禁通过后，
+  唯一 `python scripts/run_phase16_real_smoke.py --execute` 已执行一次。
+- 首个 case `phase16-high-conflict-paired-development-001` 的 Analyst 请求已发送并获得完整 receipt/usage，
+  但 validation/outcome 为 `FAILED / ANALYST_VALIDATION_FAILED`。D-170 零重试协议立即终止 run：Planner 和剩余
+  九个 slot 未发送，不能修补、替换或再次执行。
+- 新增只读报告器从 PostgreSQL 白名单字段渲染
+  `docs/superpowers/reports/phase-16-official-smoke-evidence.md`。报告记录 receipt/response digest、模型、usage、
+  延迟、费用与稳定原因码，不读取或输出 API Key、Prompt、模型正文、思维链、原始 provider ID 或经营建议。
+- 正式外部证据结论为 `FAILED`；正式费用 `0.006306 CNY`，含历史直接模式后的当前已知实际总额
+  `0.079526 CNY`。确定性 Demo Acceptance 仍是其自身的 `INCONCLUSIVE` 本地快照，并链接正式 Addendum；
+  默认路由继续 `DETERMINISTIC_ONLY`，阶段保持 `AWAITING_PHASE_17_GATE`。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 REVIEW / VERIFY
+
+- Task 5 的首轮规格审查指出公开报告器仍可接收调用方提供的 snapshot。整改后，公开 API 强制通过认证账本
+  读取路径，逐条 receipt HMAC 复验，PASS outcome 复用 ledger 公开验证；raw snapshot 只用于模块私有离线格式化测试。
+- 最终规格与质量/安全复审均无 Critical、Important 或 Minor；所有 sub-agent 已停止，无待消费结论。
+- 当前完整回归：unit `1593 passed, 1 warning`，integration `213 passed, 7 deselected, 5 warnings`，正式
+  PostgreSQL ledger/runner 聚合 `28 passed`。下一步只可完成静态门禁、提交、推送、PR 和 merge commit；不得再次运行
+  `--execute`，默认路由和阶段状态不变。
+- `compileall`、19 步迁移 dry-run、敏感载荷扫描、文档扫描 `0 errors` 和 `git diff --check` 已在本次
+  文档更新后重新通过；扫描器仅报告目标外历史 UTF-8 BOM warning，Phase 16 本轮新增或修改文档均为 UTF-8 无 BOM、LF。
+
+## 2026-07-22 Phase 16 Official Smoke Evidence Task 5 Historical Closure Remediation
+
+- 最终 reviewer 的两项 Important 已 RED/GREEN：v1 Manifest 八项摘要重命名为 execution identity subset，完整闭包从
+  执行提交 `a2e70a78301f10075b57040a5b8a1b9e2a34134d` 的精确 Git blob 生成独立 audit；空事实报告必须同时验证十个
+  固定 slot，部分初始化不再被误报为 `INCONCLUSIVE`。
+- 定向报告单测为 `13 passed`。此前 `1593/213/28` 是整改前历史 checkpoint；当前提交前必须刷新完整 unit、全部
+  integration 文件、正式 ledger/runner PostgreSQL、迁移、编码和敏感载荷证据。
+
+## 2026-07-23 Phase 16 Official Smoke Evidence Task 5 Final Closeout
+
+- [x] 重新完成正式账本终态、历史 Git-blob 闭包、认证只读报告和并发恢复的主模型复核；两次补充外部只读终审在文件读取
+  前因本地 proxy `502`/`503` 终止，未作为审查通过或验收证据。
+- [x] 刷新验证证据：unit `1596 passed, 1 warning`；integration `214 passed, 7 deselected, 5 warnings`；
+  Phase 16 escalation PostgreSQL `31 passed`；formal ledger/runner PostgreSQL `29 passed`；实际幂等迁移
+  `19 passed, 0 failed`；dry-run `19` 步；`compileall`、敏感载荷扫描与 `git diff --check` 通过。
+- [x] 固化唯一正式真实模型结论：`FAILED / ANALYST_VALIDATION_FAILED`。未再次执行 `--execute`，不允许重试或替代；
+  `DETERMINISTIC_ONLY` 与 `AWAITING_PHASE_17_GATE` 保持不变。
+- [x] 修复 Acceptance 的唯一生成源漂移：`Official Evidence Closeout` 先由定向 RED 捕获，再进入确定性 renderer；专项
+  `7 passed`，checked-in Acceptance 与当前渲染结果一致。
+- [ ] 提交剩余 Task 5 代码、测试、报告与最终文档，推送 `codex/phase16-official-smoke-evidence`，创建 PR 并在远端 Gate
+  全绿后用 merge commit 合并到 `main`。
