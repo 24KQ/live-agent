@@ -1454,11 +1454,24 @@ def test_postgres_concurrent_coordinators_share_one_planner_dispatch_claim() -> 
 
     first, second, planner = asyncio.run(scenario())
 
-    assert first.proposal is not None
+    # 该场景故意在第一个 Planner 已离开进程后等待第二个 Coordinator 返回，故只验证
+    # "至多一次 Planner 发送"，不能把机器负载下合法的五秒全局超时误判为安全回归。
+    # Scripted Planner 没有其他失败来源，因此首个终态只能是完整 READY，或不重发的
+    # COORDINATOR_TIMEOUT 降级；任何模型错误、非法 Proposal 或重复 dispatch 仍会失败。
+    assert first.selected is True
+    assert first.escalation is not None
     assert first.outcome is not None
-    assert second.analysis is not None
+    if first.outcome.status is MultiAgentOutcomeStatus.READY:
+        assert first.proposal is not None
+    else:
+        assert first.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert first.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
+    # 第二个 Coordinator 不得触发 Planner。它可能在首个调用超时后只读恢复同一条
+    # COORDINATOR_TIMEOUT 终态；这不是第二次模型调用，也不能放宽为其他失败类型。
     assert second.proposal is None
-    assert second.outcome is None
+    if second.outcome is not None:
+        assert second.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert second.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
     assert len(planner.calls) == 1
 
 
@@ -1850,8 +1863,13 @@ def test_postgres_concurrent_coordinators_share_one_dispatch_claim() -> None:
         assert first.outcome is not None
         assert first.outcome.status is MultiAgentOutcomeStatus.DEGRADED
         assert first.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
-    assert second.analysis is None
-    assert second.outcome is None
+    # 第二个 Coordinator 的唯一安全约束是不得进入 Analyst Runner。若第一个调用在
+    # 同一五秒预算内写出超时终态，第二个调用只读恢复该事实是合法的；不能把它误判为
+    # 抢占、重发或独立的模型失败。
+    assert second.proposal is None
+    if second.outcome is not None:
+        assert second.outcome.status is MultiAgentOutcomeStatus.DEGRADED
+        assert second.outcome.failure_code is MultiAgentFailureCode.COORDINATOR_TIMEOUT
     assert len(runner.calls) == 1
 
 

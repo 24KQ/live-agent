@@ -443,6 +443,17 @@ def test_read_only_report_settings_only_accept_allowlisted_dotenv_values(
         encoding="utf-8",
         newline="\n",
     )
+    # PR workflow 会在 job 级注入真实 PostgreSQL 容器地址；本用例要验证的是临时
+    # `.env` 白名单解析，因此必须清除全部允许的环境覆盖，不能依赖开发机恰好未设置。
+    for environment_name in (
+        "POSTGRES_HOST",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "PHASE16_OFFICIAL_SMOKE_RECEIPT_HMAC_HEX",
+    ):
+        monkeypatch.delenv(environment_name, raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
     settings, authenticator = _load_read_only_report_settings(dotenv_path=dotenv_path)
