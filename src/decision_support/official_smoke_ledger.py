@@ -443,6 +443,7 @@ class PostgresPhase16OfficialSmokeLedger:
                 run_row = cursor.fetchone()
                 if run_row is None:
                     raise Phase16OfficialSmokeLedgerError("formal smoke run has not been initialized")
+                self._assert_run_accepts_new_dispatch_in_cursor(cursor)
                 cursor.execute(
                     """SELECT * FROM phase16_official_smoke_case_slots
                        WHERE run_id=%s AND case_id=%s;""",
@@ -526,6 +527,7 @@ class PostgresPhase16OfficialSmokeLedger:
                 run_row = cursor.fetchone()
                 if run_row is None:
                     raise Phase16OfficialSmokeLedgerError("formal smoke run has not been initialized")
+                self._assert_run_accepts_new_dispatch_in_cursor(cursor)
                 cursor.execute(
                     """SELECT * FROM phase16_official_smoke_case_claims
                        WHERE run_id=%s AND claim_id=%s::uuid FOR UPDATE;""",
@@ -1265,6 +1267,27 @@ class PostgresPhase16OfficialSmokeLedger:
             ),
         )
         return self._outcome_from_row(cursor.fetchone())
+
+    def _assert_run_accepts_new_dispatch_in_cursor(self, cursor: Any) -> None:
+        """拒绝在唯一 formal run 已出现非成功终态后再领取 slot 或创建发送意图。
+
+        ``PASS`` 仅闭合当前 case，十例严格实验仍可继续。``BLOCKED`` 与 ``FAILED`` 则都表示
+        本轮正式 run 已不可能形成 10/10；即便攻击者在终态之前预先写入其他 claim，也不能在
+        终态之后补建 attempt。调用方已经持有 run 行锁，数据库 trigger 也实现同一检查，形成
+        Python API 与直接 SQL 两层一致的零重试边界。
+        """
+
+        cursor.execute(
+            """SELECT status
+                 FROM phase16_official_smoke_case_outcomes
+                WHERE run_id=%s AND status IN ('BLOCKED', 'FAILED')
+                LIMIT 1 FOR KEY SHARE;""",
+            (PHASE16_OFFICIAL_SMOKE_RUN_ID,),
+        )
+        if cursor.fetchone() is not None:
+            raise Phase16OfficialSmokeLedgerError(
+                "formal smoke run is terminal after a BLOCKED or FAILED outcome"
+            )
 
     @staticmethod
     def _claim_from_row(row: dict[str, Any], *, created: bool) -> Phase16OfficialSmokeCaseClaim:

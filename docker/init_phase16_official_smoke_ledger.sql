@@ -256,12 +256,23 @@ DECLARE
     historical_count INTEGER;
     historical_total NUMERIC(12, 6);
 BEGIN
+    -- claim、attempt 与 outcome 都通过同一 run 行序列化。这样直接 SQL 无法在失败终态
+    -- 即将提交时抢先领取新 slot，再在失败后补发模型请求。
     SELECT run.manifest_digest
       INTO expected_manifest_digest
       FROM phase16_official_smoke_runs run
-     WHERE run.run_id=NEW.run_id;
+     WHERE run.run_id=NEW.run_id
+       FOR UPDATE;
     IF expected_manifest_digest IS NULL OR NEW.manifest_digest IS DISTINCT FROM expected_manifest_digest THEN
         RAISE EXCEPTION 'phase16 official smoke claim manifest digest conflicts with run';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM phase16_official_smoke_case_outcomes outcome
+         WHERE outcome.run_id=NEW.run_id
+           AND outcome.status IN ('BLOCKED', 'FAILED')
+    ) THEN
+        RAISE EXCEPTION 'phase16 official smoke run is terminal after a BLOCKED or FAILED outcome';
     END IF;
     -- claim 是正式 run 的第一条可发送事实。必须在这里验证历史直接模式支出和完整十
     -- slot 已经同一事务封印，否则直接 SQL 可先造一个半初始化 run，再伪造 PASS 链。
@@ -288,6 +299,22 @@ CREATE OR REPLACE FUNCTION phase16_official_smoke_validate_attempt() RETURNS tri
 DECLARE
     expected_profile_digest TEXT;
 BEGIN
+    -- 与 claim/outcome 共用 run 行锁，阻止已有失败终态后的遗留 claim 再创建 dispatch。
+    PERFORM 1
+      FROM phase16_official_smoke_runs run
+     WHERE run.run_id=NEW.run_id
+       FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'phase16 official smoke attempt run is unknown';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM phase16_official_smoke_case_outcomes outcome
+         WHERE outcome.run_id=NEW.run_id
+           AND outcome.status IN ('BLOCKED', 'FAILED')
+    ) THEN
+        RAISE EXCEPTION 'phase16 official smoke run is terminal after a BLOCKED or FAILED outcome';
+    END IF;
     IF NOT EXISTS (
         SELECT 1 FROM phase16_official_smoke_case_claims claim
          WHERE claim.claim_id=NEW.claim_id
@@ -377,6 +404,15 @@ CREATE OR REPLACE FUNCTION phase16_official_smoke_validate_outcome() RETURNS tri
 DECLARE
     passed_stage_count INTEGER;
 BEGIN
+    -- outcome 写入也要先取得 run 行锁，和 claim/attempt trigger 形成单一顺序，避免
+    -- 并发事务将“新发送意图”与失败终态交叉提交。
+    PERFORM 1
+      FROM phase16_official_smoke_runs run
+     WHERE run.run_id=NEW.run_id
+       FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'phase16 official smoke outcome run is unknown';
+    END IF;
     IF NOT EXISTS (
         SELECT 1 FROM phase16_official_smoke_case_claims claim
          WHERE claim.claim_id=NEW.claim_id
@@ -647,7 +683,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := '6b0da8095081fc5f44a1e8d956304bb6';
+    expected_contract_digest TEXT := '8e2f1ffdd43a816043f8bfa569bc068c';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_schema_contract_digest();

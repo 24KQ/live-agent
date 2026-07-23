@@ -39,19 +39,58 @@ PHASE16_OFFICIAL_SMOKE_EVIDENCE_MANIFEST_ID = "phase16-official-smoke-evidence-v
 FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH = Path(
     "evaluation/manifests/phase16-official-smoke-evidence-v1.json"
 )
-FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS = (
+# v1 Manifest 已在唯一正式执行前冻结；其中的八个文件只标识执行入口、账本、Runner 和
+# 模型端口的直接身份，不能再被描述为完整的一方源码闭包。历史完整闭包由下方独立审计
+# 资产以执行提交的 Git blob 固化，绝不回写该 Manifest。
+FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS = (
     "src/decision_support/multi_agent.py",
     "src/decision_support/official_smoke_evidence.py",
-    # 正式 dispatch、receipt 捕获与两段结构校验都在隔离 Runner 中完成；若遗漏该文件，
-    # 发送顺序或失败终态可在不改变 Manifest 的情况下漂移，必须纳入正式源码闭包。
     "src/decision_support/official_smoke_runner.py",
-    # 正式账本决定预算预约、回执去重和重启终态；不绑定它会使同一 Manifest 下的
-    # 成本或恢复语义发生漂移，因此它属于正式真实模型证据的源码闭包。
     "src/decision_support/official_smoke_ledger.py",
     "src/specialist_runtime/deepseek_adapter.py",
     "src/specialist_runtime/model_port.py",
     "src/specialist_runtime/profiles.py",
     "src/specialist_runtime/runner.py",
+)
+# 执行命令、六角色 Evidence 投影、共享 Runner、模型适配器及其模块级一方依赖的完整
+# 历史闭包。列表按路径稳定排序；它只服务于既有 v1 运行的回溯审计，不会成为新的 LIVE
+# 路由、自动发现规则或可重试 smoke 配置。
+PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS = (
+    "src/config/settings.py",
+    "src/core/security_hooks.py",
+    "src/decision_support/evidence.py",
+    "src/decision_support/models.py",
+    "src/decision_support/multi_agent.py",
+    "src/decision_support/multi_agent_evaluation.py",
+    "src/decision_support/official_smoke_evidence.py",
+    "src/decision_support/official_smoke_ledger.py",
+    "src/decision_support/official_smoke_runner.py",
+    "src/decision_support/proposal.py",
+    "src/decision_support/store.py",
+    "src/plan_engine/event_state_machine.py",
+    "src/plan_engine/events.py",
+    "src/plan_engine/models.py",
+    "src/skill_runtime/models.py",
+    "src/skills/live_plan_generator.py",
+    "src/skills/product_catalog.py",
+    "src/specialist_runtime/budget.py",
+    "src/specialist_runtime/deepseek_adapter.py",
+    "src/specialist_runtime/evidence.py",
+    "src/specialist_runtime/live_ops.py",
+    "src/specialist_runtime/model_port.py",
+    "src/specialist_runtime/models.py",
+    "src/specialist_runtime/profiles.py",
+    "src/specialist_runtime/registry.py",
+    "src/specialist_runtime/runner.py",
+    "src/specialist_runtime/scripted_model.py",
+    "src/state/models.py",
+)
+PHASE16_OFFICIAL_SMOKE_EXECUTION_COMMIT = "a2e70a78301f10075b57040a5b8a1b9e2a34134d"
+PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_ID = (
+    "phase16-official-smoke-historical-closure-audit-v1"
+)
+PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_PATH = Path(
+    "evaluation/manifests/phase16-official-smoke-historical-closure-audit-v1.json"
 )
 FORMAL_INPUT_PRICE_CNY_PER_MILLION = Decimal("1.000000")
 FORMAL_OUTPUT_PRICE_CNY_PER_MILLION = Decimal("2.000000")
@@ -256,6 +295,88 @@ class Phase16OfficialSmokeEvidenceManifest(StrictFrozenModel):
         return self
 
 
+class Phase16OfficialSmokeHistoricalClosureAudit(StrictFrozenModel):
+    """对唯一 v1 执行提交的完整一方源码闭包进行只读复核。
+
+    历史 Manifest 本身不能再被修订，因此该模型把“直接执行身份子集”与“完整模块级
+    闭包”分开保存。两类摘要都必须从同一 Git commit 的 blob 重算，而不是读取当前
+    工作树，避免后续安全整改意外重写过去真实请求的证据含义。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    audit_id: str = Field(..., min_length=1)
+    schema_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    execution_commit: str = Field(..., pattern=r"^[0-9a-f]{40}$")
+    execution_manifest_path: str = Field(..., min_length=1)
+    execution_manifest_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    execution_identity_paths: tuple[str, ...] = Field(..., min_length=1)
+    execution_identity_file_digests: Mapping[str, str]
+    source_file_digests: Mapping[str, str]
+    audit_digest: str = Field(default="", pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("execution_identity_file_digests", "source_file_digests", mode="after")
+    @classmethod
+    def _freeze_digest_map(cls, value: Mapping[str, str]) -> Mapping[str, str]:
+        """规范化摘要映射，禁止空键、非 SHA-256 值或调用方可变字典进入审计对象。"""
+
+        if not isinstance(value, Mapping) or not value:
+            raise ValueError("historical closure digest map must be a non-empty object")
+        normalized = dict(sorted(value.items()))
+        if any(
+            not isinstance(key, str)
+            or not key
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            for key, digest in normalized.items()
+        ):
+            raise ValueError("historical closure digest maps require SHA-256 values")
+        return _freeze_json(normalized)
+
+    @field_serializer(
+        "execution_identity_file_digests",
+        "source_file_digests",
+        when_used="json",
+    )
+    def _serialize_digest_map(self, value: Mapping[str, str]) -> Mapping[str, str]:
+        """以稳定 JSON 还原深冻结映射，保证审计摘要在不同进程中保持一致。"""
+
+        return _plain_json(value)
+
+    @model_validator(mode="after")
+    def _verify_identity(self) -> "Phase16OfficialSmokeHistoricalClosureAudit":
+        """绑定唯一历史运行、原 Manifest 与预先审查的完整闭包，拒绝改名或缩减。"""
+
+        if self.audit_id != PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_ID:
+            raise ValueError("historical closure audit identity is frozen")
+        if self.schema_version != "1.0.0":
+            raise ValueError("historical closure audit schema version is frozen")
+        if self.execution_commit != PHASE16_OFFICIAL_SMOKE_EXECUTION_COMMIT:
+            raise ValueError("historical closure audit execution commit is frozen")
+        if self.execution_manifest_path != FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH.as_posix():
+            raise ValueError("historical closure audit manifest path is frozen")
+        if self.execution_identity_paths != FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS:
+            raise ValueError("historical closure audit execution identity paths are frozen")
+        if set(self.execution_identity_file_digests) != set(self.execution_identity_paths):
+            raise ValueError("historical closure audit identity digests must cover identity paths")
+        if set(self.source_file_digests) != set(PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS):
+            raise ValueError("historical closure audit must cover the complete frozen path set")
+        if not set(self.execution_identity_paths) <= set(self.source_file_digests):
+            raise ValueError("historical closure audit must include every execution identity path")
+        if any(
+            self.execution_identity_file_digests[path] != self.source_file_digests[path]
+            for path in self.execution_identity_paths
+        ):
+            raise ValueError("historical closure identity digest conflicts with complete closure")
+        payload = self.model_dump(mode="json", exclude={"audit_digest"})
+        calculated = canonical_json_sha256(payload)
+        if self.audit_digest and self.audit_digest != calculated:
+            raise ValueError("historical closure audit_digest does not match facts")
+        object.__setattr__(self, "audit_digest", calculated)
+        return self
+
+
 class Phase16OfficialSmokePreflight(StrictFrozenModel):
     """离线预检结果；后续正式 Runner 只能消费已验证的 READY 结果。"""
 
@@ -301,18 +422,18 @@ def build_phase16_official_smoke_profile_registry() -> SpecialistProfileRegistry
 
 
 def _source_digest(repository_root: Path, relative_path: str) -> str:
-    """读取受 Git 跟踪的 src 文件并计算 LF 规范摘要，拒绝 symlink 与越界路径。"""
+    """读取当前执行身份文件的规范摘要，供首次发送前的 v1 Manifest 重建使用。"""
 
     root = repository_root.resolve()
     raw_candidate = root / relative_path
     # 必须在 resolve 前检查 symlink；resolve 后目标文件会掩盖原路径的链接事实，
     # 使 Manifest 看似绑定仓库源码、实际却可读取仓库外可变内容。
     if raw_candidate.is_symlink():
-        raise ValueError("formal source closure file must not be a symlink")
+        raise ValueError("formal execution identity file must not be a symlink")
     candidate = raw_candidate.resolve(strict=True)
     source_root = (root / "src").resolve(strict=True)
     if not candidate.is_relative_to(source_root) or candidate.suffix != ".py":
-        raise ValueError("formal source closure path must be a non-symlink Python file under src")
+        raise ValueError("formal execution identity path must be a non-symlink Python file under src")
     tracked = subprocess.run(
         ["git", "ls-files", "--error-unmatch", "--", relative_path],
         cwd=root,
@@ -321,14 +442,14 @@ def _source_digest(repository_root: Path, relative_path: str) -> str:
         check=False,
     )
     if tracked.returncode != 0:
-        raise ValueError("formal source closure file must be Git tracked")
+        raise ValueError("formal execution identity file must be Git tracked")
     raw = candidate.read_bytes()
     if raw.startswith(b"\xef\xbb\xbf") or b"\r" in raw:
-        raise ValueError("formal source closure file must be UTF-8 without BOM and LF only")
+        raise ValueError("formal execution identity file must be UTF-8 without BOM and LF only")
     try:
         raw.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise ValueError("formal source closure file must be UTF-8") from error
+        raise ValueError("formal execution identity file must be UTF-8") from error
     return sha256(raw).hexdigest()
 
 
@@ -352,7 +473,7 @@ def build_phase16_official_smoke_evidence_manifest(
     dataset: Phase16EvaluationDataset,
     official_price: Phase16OfficialPriceEvidence,
 ) -> Phase16OfficialSmokeEvidenceManifest:
-    """从已有冻结数据集和当前源码闭包重建唯一正式 Manifest。"""
+    """从已有冻结数据集和当前执行身份子集重建唯一正式 Manifest。"""
 
     _validate_dataset_for_run(dataset)
     case_ids = dataset.manifest.smoke_eligible_case_ids
@@ -375,7 +496,7 @@ def build_phase16_official_smoke_evidence_manifest(
         output_cny_per_million=official_price.output_cny_per_million,
         source_file_digests={
             path: _source_digest(repository_root, path)
-            for path in FORMAL_OFFICIAL_SMOKE_SOURCE_CLOSURE_PATHS
+            for path in FORMAL_OFFICIAL_SMOKE_EXECUTION_IDENTITY_PATHS
         },
         runner_contract_digest=_runner_contract_digest(),
     )
@@ -394,6 +515,152 @@ def load_phase16_official_smoke_evidence_manifest(
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("formal smoke manifest is unreadable") from error
     return Phase16OfficialSmokeEvidenceManifest.model_validate(payload)
+
+
+def _read_git_blobs_at_execution_commit(
+    *,
+    repository_root: Path,
+    relative_paths: tuple[str, ...],
+) -> dict[str, bytes]:
+    """批量读取固定执行提交中的精确 blob，并拒绝缺失、目录、symlink 或路径替换。
+
+    历史审计不能依赖当前工作树，也不能只读 Git object ID：object ID 的算法可能随仓库
+    设置变化，而证据合同要求的是每个源码字节的 SHA-256。先用 ``ls-tree`` 锁定普通文件
+    模式，再通过单个 ``cat-file --batch`` 读取内容，既保留 Git 的不可变语义，也避免每个
+    路径各启一个子进程造成审计顺序和性能不稳定。
+    """
+
+    root = repository_root.resolve()
+    if not relative_paths or len(relative_paths) != len(set(relative_paths)):
+        raise ValueError("historical closure paths must be non-empty and unique")
+    normalized_paths = tuple(Path(path).as_posix() for path in relative_paths)
+    if any(
+        path.startswith("/")
+        or ".." in Path(path).parts
+        or not (path.startswith("src/") and path.endswith(".py") or path == FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH.as_posix())
+        for path in normalized_paths
+    ):
+        raise ValueError("historical closure contains an unsafe Git path")
+
+    tree = subprocess.run(
+        [
+            "git",
+            "ls-tree",
+            "-r",
+            "--full-tree",
+            PHASE16_OFFICIAL_SMOKE_EXECUTION_COMMIT,
+            "--",
+            *normalized_paths,
+        ],
+        cwd=root,
+        check=False,
+        capture_output=True,
+    )
+    if tree.returncode != 0:
+        raise ValueError("historical execution tree is unavailable")
+    tree_entries: dict[str, str] = {}
+    for raw_line in tree.stdout.splitlines():
+        try:
+            metadata, raw_path = raw_line.split(b"\t", maxsplit=1)
+            mode, object_type, _object_id = metadata.split(maxsplit=2)
+            path = raw_path.decode("utf-8")
+        except (UnicodeDecodeError, ValueError) as error:
+            raise ValueError("historical execution tree returned an invalid entry") from error
+        if object_type != b"blob" or mode not in {b"100644", b"100755"}:
+            raise ValueError("historical closure path must be a regular Git blob")
+        tree_entries[path] = mode.decode("ascii")
+    if set(tree_entries) != set(normalized_paths):
+        raise ValueError("historical execution tree does not contain every audited path")
+
+    specifications = "".join(
+        f"{PHASE16_OFFICIAL_SMOKE_EXECUTION_COMMIT}:{path}\n" for path in normalized_paths
+    ).encode("utf-8")
+    batch = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=root,
+        input=specifications,
+        check=False,
+        capture_output=True,
+    )
+    if batch.returncode != 0:
+        raise ValueError("historical execution blobs are unavailable")
+    output = batch.stdout
+    cursor = 0
+    blobs: dict[str, bytes] = {}
+    for path in normalized_paths:
+        line_end = output.find(b"\n", cursor)
+        if line_end < 0:
+            raise ValueError("historical execution blob header is truncated")
+        header = output[cursor:line_end].split()
+        cursor = line_end + 1
+        if len(header) != 3 or header[1] != b"blob":
+            raise ValueError("historical execution blob is missing or not a file")
+        try:
+            blob_size = int(header[2])
+        except ValueError as error:
+            raise ValueError("historical execution blob size is invalid") from error
+        body_end = cursor + blob_size
+        if body_end >= len(output) or output[body_end:body_end + 1] != b"\n":
+            raise ValueError("historical execution blob content is truncated")
+        blobs[path] = output[cursor:body_end]
+        cursor = body_end + 1
+    if cursor != len(output):
+        raise ValueError("historical execution blob stream contains unexpected data")
+    return blobs
+
+
+def load_phase16_official_smoke_historical_closure_audit(
+    *,
+    repository_root: Path,
+) -> Phase16OfficialSmokeHistoricalClosureAudit:
+    """加载版本化审计资产本身，并拒绝 BOM、混合换行或工作树 symlink。"""
+
+    root = repository_root.resolve()
+    path = root / PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_PATH
+    if path.is_symlink():
+        raise ValueError("historical closure audit must not be a symlink")
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise ValueError("historical closure audit is unreadable") from error
+    if raw.startswith(b"\xef\xbb\xbf") or b"\r" in raw:
+        raise ValueError("historical closure audit must use UTF-8 LF without BOM")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("historical closure audit is invalid JSON") from error
+    return Phase16OfficialSmokeHistoricalClosureAudit.model_validate(payload)
+
+
+def verify_phase16_official_smoke_historical_closure_audit(
+    *,
+    repository_root: Path,
+) -> Phase16OfficialSmokeHistoricalClosureAudit:
+    """用执行提交 Git blob 复验审计资产与历史 Manifest，失败即不返回部分结果。"""
+
+    audit = load_phase16_official_smoke_historical_closure_audit(repository_root=repository_root)
+    manifest_path = FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH.as_posix()
+    blobs = _read_git_blobs_at_execution_commit(
+        repository_root=repository_root,
+        relative_paths=(manifest_path, *PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS),
+    )
+    try:
+        manifest = Phase16OfficialSmokeEvidenceManifest.model_validate(
+            json.loads(blobs[manifest_path].decode("utf-8"))
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError("historical execution manifest is invalid") from error
+    if manifest.manifest_digest != audit.execution_manifest_digest:
+        raise ValueError("historical closure audit does not bind the execution manifest")
+    if dict(manifest.source_file_digests) != dict(audit.execution_identity_file_digests):
+        raise ValueError("historical closure audit does not reproduce execution identity digests")
+    actual_digests = {
+        path: sha256(blobs[path]).hexdigest()
+        for path in PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_PATHS
+    }
+    if actual_digests != dict(audit.source_file_digests):
+        raise ValueError("historical closure audit source blobs do not match execution commit")
+    return audit
 
 
 def validate_phase16_official_smoke_receipt(success: ModelSuccess) -> None:
