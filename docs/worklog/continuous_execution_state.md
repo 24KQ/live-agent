@@ -936,6 +936,20 @@ Sub-agent ID / 角色: 019f8a54-2746-7693-af7a-ac6f549e0bd6 / Runner、Coordinat
 
 当前无运行中的 sub-agent。
 
+## 2026-07-23 Phase 16 Official Smoke Evidence PR #2 Gate Remediation
+
+```text
+Phase / Task: Phase 16 / Official real-model smoke evidence / Task 5
+状态: PR_GATE_REMEDIATION -> COMMIT -> PUSH -> WAIT_FOR_REQUIRED_CHECKS
+目标: 修复 PR #2 首轮 Gate 的可复现基础设施/测试隔离失败；不改变正式账本、真实模型结论、预算或生产路由。
+首轮 Gate 根因: GitHub Actions 的默认 shallow checkout 缺少历史执行提交 a2e70a7，故历史 Git-blob 闭包审计按设计 fail-closed；报告器单测未清除 PR job 注入的 POSTGRES_HOST，错误把 CI 环境覆盖带入临时 .env 白名单断言。
+整改: PR、Nightly、Release checkout 明确 fetch-depth: 0；workflow 契约测试同时锁定三条工作流；报告器单测清除全部允许的 PostgreSQL/HMAC 环境覆盖；两条 PostgreSQL 并发断言只接受 READY 或精确 COORDINATOR_TIMEOUT，仍严格要求至多一次外部 dispatch。
+本轮定向验证: workflow/report unit 16 passed；Phase 16 escalation PostgreSQL 31 passed；此前刷新完整 unit 1596 passed、全部 integration 214 passed, 7 deselected、formal ledger/runner PostgreSQL 29 passed、实际幂等迁移 19 passed, 0 failed。
+审查: 新派只读终审 019f8de6-eb1f-72a3-bf4d-14f326cbd003 在读取任何文件前因本地 proxy 502 失败，已关闭，未产生或采用审查结论；主模型已逐项复核 workflow 历史闭包、环境隔离与并发断言范围。
+不变量: 禁止再次执行 scripts/run_phase16_real_smoke.py --execute；正式外部结论继续 FAILED / ANALYST_VALIDATION_FAILED；费用继续 0.079526 CNY；默认 DETERMINISTIC_ONLY；阶段继续 AWAITING_PHASE_17_GATE。
+恢复操作: 先查询本地 Git 状态与 PR #2 required checks；未合并时只可推送现有整改并等待 deterministic PR gate，只有全绿才使用 merge commit 合并到 main；已合并时保持 AWAITING_PHASE_17_GATE。
+```
+
 ## 2026-07-23 Phase 16 Official Smoke Evidence Task 5 FINAL CLOSEOUT
 
 ```text

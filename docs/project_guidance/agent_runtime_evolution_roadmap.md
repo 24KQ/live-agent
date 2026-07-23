@@ -271,7 +271,9 @@ docs/worklog/continuous_execution_state.md
 - **退出条件**：技术证据可记录 `PASS`；未发送的外部阻断保持 `BLOCKED + INCONCLUSIVE`；一旦已发送后任一
   验证失败即为 `FAILED`。三种结论都不自动开启默认路由。
 - **当前状态**：`AWAITING_PHASE_17_GATE`；Task 1-11、PR coverage 整改和 PR #1 merge commit 已完成；正式真实模型
-  evidence closure 的历史闭包与终态门整改、完整本地验证和主模型最终复核已完成，当前 evidence 分支仅等待提交、PR Gate 与 merge commit。两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生或采用任何结论。唯一 run `phase16-official-smoke-v1` 在首个 Analyst 发送后因
+  evidence closure 的历史闭包与终态门整改、完整本地验证和主模型最终复核已完成。PR #2 首轮 Gate 的 shallow checkout
+  历史 blob 缺失与报告器 CI 环境隔离问题已收敛为 `fetch-depth: 0`/定向测试整改，等待重新 Gate 与 merge commit。三次补充
+  只读终审在读取前因本地代理 `502`/`503` 终止，未产生或采用任何结论。唯一 run `phase16-official-smoke-v1` 在首个 Analyst 发送后因
   `ANALYST_VALIDATION_FAILED` 停止，Planner 与其余九个 slot 未发送；正式费用 `0.006306 CNY`，连同历史
   `0.073220 CNY` 的已知实际总额为 `0.079526 CNY`。正式外部结论为 `FAILED`，不是默认路由切换依据。
   `live-session-p001-sold-out-v2`

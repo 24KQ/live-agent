@@ -1061,3 +1061,15 @@
 - 完整 unit 曾发现 checked-in Acceptance 手工追加正式收口段而 renderer 未同步的漂移。新增渲染内容断言先以
   `Official Evidence Closeout` 缺失失败，随后将该固定段纳入唯一 renderer；专项 `7 passed`，完整 unit 再次
   `1596 passed`，因此受控 Demo 的 `INCONCLUSIVE` 与正式 Addendum 的 `FAILED` 不会在文档层混淆或漂移。
+
+## 2026-07-23 Phase 16 Official Smoke Evidence PR #2 Gate Remediation 发现
+
+- 历史 Git-blob 闭包审计的失败不是产品代码缺陷：它依赖正式执行提交 `a2e70a7` 的精确 Git object，Actions 默认
+  shallow checkout 缺对象时必须 fail-closed。PR、Nightly、Release 三个会执行完整 unit 的工作流均需 `fetch-depth: 0`，
+  否则同一合并结果会在 CI 中产生不可审计的环境差异。
+- 报告器的 `.env` 白名单测试必须删除所有允许的 PostgreSQL/HMAC 环境覆盖，不能只删除 API key；PR job 环境会注入
+  `POSTGRES_HOST=localhost`，这证明测试隔离本身需要显式控制，而不是依赖开发机默认环境。
+- 并发 Coordinator 的安全事实是“最多一次外部 dispatch”。五秒全局 deadline 下，同一 case 合法终态可为完整
+  `READY` 或不重发的 `COORDINATOR_TIMEOUT`；测试只接受这两个精确结果，仍拒绝模型错误、非法 Proposal、未知降级和重复发送。
+- 本轮复测为 workflow/report unit `16 passed`、Phase 16 escalation PostgreSQL `31 passed`。额外只读审查因本地代理
+  `502` 在读取前终止，未被当作审查通过；主模型已独立复核相同范围。

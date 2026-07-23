@@ -298,3 +298,12 @@ Task 10 前不访问真实模型，任何严重安全违规、预算风险或强
   `BLOCKED`，已认证 PASS slot 只读跳过且不重发。
 - [x] Task 3 专项/关联验证为 `171 passed`；正式 Manifest 重建预检为 `READY`，真实模型
   调用仍为 `0`。等待本 Task 的独立提交与推送后才进入 Task 4 的全量门禁。
+
+## 2026-07-23 Phase 16 Official Smoke Evidence PR #2 Gate Remediation
+
+- [x] 复现 PR #2 首轮历史闭包失败：Actions 默认浅检出缺少执行提交 `a2e70a7`，闭包审计正确 fail-closed。
+- [x] 用 `fetch-depth: 0` 绑定 PR、Nightly、Release 的 checkout，并以 workflow 契约测试冻结该要求。
+- [x] 复现并修正报告器测试的 CI PostgreSQL 环境覆盖；并发 PostgreSQL 测试仅接受 `READY` 或精确
+  `COORDINATOR_TIMEOUT`，持续断言单次外部 dispatch。
+- [x] 刷新定向证据：workflow/report unit `16 passed`，Phase 16 escalation PostgreSQL `31 passed`。
+- [x] 本地整改和验证已完成；合并前必须实时查询 PR #2 required checks，只有全绿才允许使用 merge commit。

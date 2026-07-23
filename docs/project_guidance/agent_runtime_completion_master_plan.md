@@ -1,6 +1,6 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_OFFICIAL_SMOKE_EVIDENCE_TASK_0_IN_PROGRESS`
+文档状态：`PHASE_16_OFFICIAL_SMOKE_EVIDENCE_PR_GATE_REMEDIATION_PENDING`
 
 最后更新：2026-07-22
 
@@ -122,8 +122,10 @@ slot 未发送，不重试、不修补、不用 ScriptedModel 替代。正式外
 **收口验证（2026-07-23）**：新鲜 unit 为 `1596 passed, 1 warning`，integration 为
 `214 passed, 7 deselected, 5 warnings`，Phase 16 escalation PostgreSQL 为 `31 passed`，formal
 ledger/runner PostgreSQL 为 `29 passed`；19 个迁移实际应用与 dry-run 均无失败。两次额外只读终审都在读取前因
-本地代理 `502`/`503` 终止，未被当作审查通过；主模型已完成同范围安全和规格复核。下一步只可提交、推送、PR Gate
-和 merge commit，不能再次执行正式 smoke 或开启 `DECISION_SUPPORT`。
+本地代理 `502`/`503` 终止，未被当作审查通过；第三次补充只读终审同样在读取前因 `502` 终止，主模型已完成同范围
+安全和规格复核。PR #2 首轮 Gate 的 shallow checkout 历史 blob 缺失与报告器 CI PostgreSQL 环境隔离问题已整改为
+全历史 checkout、workflow contract 与定向测试；恢复时必须依据 PR #2 当前 Gate 决定是否 merge，不能再次执行正式 smoke
+或开启 `DECISION_SUPPORT`。
 
 ## 5. Phase 12A 剩余范围
 

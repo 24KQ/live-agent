@@ -1330,3 +1330,11 @@
   `7 passed`，checked-in Acceptance 与当前渲染结果一致。
 - [ ] 提交剩余 Task 5 代码、测试、报告与最终文档，推送 `codex/phase16-official-smoke-evidence`，创建 PR 并在远端 Gate
   全绿后用 merge commit 合并到 `main`。
+
+## 2026-07-23 Phase 16 Official Smoke Evidence PR #2 Gate Remediation
+
+- PR #2 首轮 Gate 已定位为两项可复现问题：浅检出缺失历史执行 blob，以及报告器单测未隔离 CI 注入的 PostgreSQL 环境。
+- 已补 `fetch-depth: 0` 至 PR/Nightly/Release，并以三条 workflow 契约断言绑定；报告器单测清除完整 allowlist 环境。
+- 已收紧两条 PostgreSQL 并发期望：只允许 `READY` 或精确 `COORDINATOR_TIMEOUT`，始终断言 `len(calls) == 1`。
+- 新鲜定向验证：workflow/report unit `16 passed`，Phase 16 escalation PostgreSQL `31 passed`。合并前必须实时读取
+  PR Gate；不会再次发送真实模型请求，也不会启动 Phase 17。

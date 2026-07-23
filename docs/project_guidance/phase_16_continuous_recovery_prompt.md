@@ -19,10 +19,12 @@ Acceptance 仍为 `INCONCLUSIVE`，但正式外部证据必须以
 固定 case 每例预约 `0.092000 CNY`，最大暴露 `0.993220 CNY`。正式 `PASS` 仍要求 10/10 case、20/20
 调用、完整 receipt/usage/validation 与 HMAC 认证；Smoke Profile 不进入生产 LIVE 路由。
 
-正式收口分支为 `codex/phase16-official-smoke-evidence`。Task 0-5 的历史闭包和空 slot 报告整改、最终复验和文档已完成，
-当前只可提交、推送、等待 PR Gate 并合并，不得产生新的模型请求。最终本地证据为 unit `1596 passed, 1 warning`、
+正式收口分支为 `codex/phase16-official-smoke-evidence`。Task 0-5 的历史闭包和空 slot 报告整改、最终复验和文档已完成。
+PR #2 首轮 Gate 暴露默认 shallow checkout 缺失历史执行 Git blob，以及报告器单测未隔离 CI PostgreSQL 环境；整改已对
+PR/Nightly/Release 固定 `fetch-depth: 0` 并补齐对应测试。恢复时必须先读取 PR #2 与 Git 状态：未合并时只可推送整改并等待
+required checks，合并后只可停在 `AWAITING_PHASE_17_GATE`，不得产生新的模型请求。最终本地证据为 unit `1596 passed, 1 warning`、
 integration `214 passed, 7 deselected, 5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner
-PostgreSQL `29 passed`。两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳结论，主模型已接管复核。v1 Manifest 的八项源码摘要
+PostgreSQL `29 passed`。三次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳结论，主模型已接管复核。v1 Manifest 的八项源码摘要
 仅为 execution identity subset；完整闭包以独立 Git-blob audit 复核。Phase 16 只扩展 LIVE 高冲突售罄；自动升级需要
 proposal-eligible Bundle 和冻结三选二规则，人工升级需要当前 Workspace lease。双 Agent 零 Skill、零 Store、
 零写权限；任一失败为 `DEGRADED`，不回退单 Copilot。Analyst/Planner/Coordinator 生产预算分别固定为

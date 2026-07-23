@@ -23,8 +23,10 @@ Phase 的表述：
   `DETERMINISTIC_ONLY`。
 - Task 5 的最终本地验证已完成：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,
   5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`。
-  两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未形成可采纳结论；主模型已接管复核。下一步仅为提交、
-  推送、PR Gate 与 merge commit，不能重新执行 smoke。
+  三次补充只读终审均在读取前因本地代理 `502`/`503` 终止，未形成可采纳结论；主模型已接管复核。PR #2 首轮 Gate
+  因 shallow checkout 缺少历史执行 blob 与报告器测试未隔离 CI PostgreSQL 环境而失败；整改已将 PR/Nightly/Release
+  checkout 固定为 `fetch-depth: 0`，并收紧对应测试。恢复时先读取 PR #2 和 Git 状态：若仍未合并，只能等待全绿 Gate
+  后 merge commit；若已合并，只能停在 `AWAITING_PHASE_17_GATE`，不能重新执行 smoke 或启动 Phase 17。
 
 ## 恢复顺序
 
