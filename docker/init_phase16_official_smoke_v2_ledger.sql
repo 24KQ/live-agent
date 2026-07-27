@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS phase16_official_smoke_v2_historical_spend (
     source TEXT NOT NULL CHECK (source IN ('HISTORICAL_DIRECT_MODE', 'V1_FORMAL_FAILED')),
     amount_cny NUMERIC(12, 6) NOT NULL
         CHECK (
-            (source = 'HISTORICAL_DIRECT_MODE' AND amount_cny = 0.073220)
-            OR (source = 'V1_FORMAL_FAILED' AND amount_cny = 0.006306)
-        )
-        AND amount_cny <> 'NaN'::numeric,
+            (
+                (source = 'HISTORICAL_DIRECT_MODE' AND amount_cny = 0.073220)
+                OR (source = 'V1_FORMAL_FAILED' AND amount_cny = 0.006306)
+            )
+            AND amount_cny <> 'NaN'::numeric
+        ),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (run_id, source)
 );
@@ -214,9 +216,9 @@ $$;
 CREATE OR REPLACE FUNCTION phase16_official_smoke_v2_validate_frozen_run() RETURNS trigger AS $$
 BEGIN
     IF NEW.run_id <> 'phase16-official-smoke-v2'
-       OR NEW.manifest_digest <> 'd75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b'
-       OR NEW.analyst_profile_digest <> '415b331477a55c58bd61e0d632ec3b74aa3137a5c30f8fd1344ab19fb2875bee'
-       OR NEW.planner_profile_digest <> '40423dd6f8d7a1618ff65623940fc417ce54771fa48391338ab34bf5f8dc34c0' THEN
+       OR NEW.manifest_digest <> '6ba1c0613e50e0aedb143f5f3e6d25af200b9bd969aacee9030824a35c00285c'
+       OR NEW.analyst_profile_digest <> '7bdf995a2c8892c8a05ae6da094825a5abfe0b9a1f06ddf5e7d61968f921dff0'
+       OR NEW.planner_profile_digest <> 'e3b5d0cea141b69b1d7f4574f58d99202687277a9b3eb21edd9afc151f7eca43' THEN
         RAISE EXCEPTION 'phase16 official smoke frozen manifest identity conflicts with formal evidence';
     END IF;
     RETURN NEW;
@@ -658,7 +660,14 @@ BEGIN
          WHERE namespace.nspname=current_schema()
            AND NOT trigger_meta.tgisinternal
         UNION ALL
-        SELECT format('function:%s:%s', procedure.proname, procedure.prosrc) AS fact
+        -- DDL 可由 Windows 工作树、Linux CI 或 psycopg 多语句协议提交；函数体的 CRLF
+        -- 表示差异不属于 schema 语义，必须先统一为 LF，避免同一约束集因为客户端换行
+        -- 而产生不同 contract digest。列、约束、trigger 与实际函数文本仍全部参与哈希。
+        SELECT format(
+            'function:%s:%s',
+            procedure.proname,
+            replace(replace(procedure.prosrc, E'\r\n', E'\n'), E'\r', E'\n')
+        ) AS fact
           FROM pg_proc AS procedure
           JOIN pg_namespace AS namespace ON namespace.oid=procedure.pronamespace
          WHERE namespace.nspname=current_schema()
@@ -686,7 +695,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := '8e2f1ffdd43a816043f8bfa569bc068c';
+    expected_contract_digest TEXT := '2c0a0ba8961e80389b34d8bb5ac82fa1';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_v2_schema_contract_digest();
