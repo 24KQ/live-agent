@@ -2,8 +2,10 @@
 
 ## 状态
 
-`IMPLEMENTATION_AUTHORIZED`。本设计是已合并 Phase 16 的有限证据整改，不开启
-Phase 17，不改变生产默认路由，也不改写已经发送的 V1 证据。
+`EXECUTED_FAILED`。本设计是已合并 Phase 16 的有限证据整改，不开启 Phase 17，
+不改变生产默认路由，也不改写已经发送的 V1 证据。V2 已真实发送首个 case 的
+Analyst/Planner；Analyst 通过，Planner 以 `MODEL_OUTCOME_UNAVAILABLE` 失败，严格
+`10/10` 条件未满足且同一 run 不得重试。
 
 ## 目标
 

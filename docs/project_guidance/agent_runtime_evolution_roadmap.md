@@ -4,9 +4,10 @@
 
 文档状态：Phase 11A 至 Phase 15 已完成并保留历史 Acceptance；Phase 15 为
 `INCONCLUSIVE`，默认路由为 `DETERMINISTIC_ONLY`。Phase 16 Controlled Multi-Agent
-Escalation 的 Task 1-11 与确定性本地 Acceptance 已完成；后续唯一正式真实模型 run 已在
-首个 Analyst 调用后以 `ANALYST_VALIDATION_FAILED` 停止，外部证据结论为 `FAILED`。它不改变
-生产默认 `DETERMINISTIC_ONLY`，Phase 17 仍未自动开始。
+Escalation 的 Task 1-11 与确定性本地 Acceptance 已完成；V1 正式真实模型 run 在首个 Analyst
+调用后以 `ANALYST_VALIDATION_FAILED` 停止。独立 V2 run 的 Analyst 已通过完整 receipt 与结构校验，
+但首个 Planner 请求以 `MODEL_OUTCOME_UNAVAILABLE` 失败并按零重试规则停止。两条外部证据均为
+`FAILED`，不改变生产默认 `DETERMINISTIC_ONLY`，Phase 17 仍未自动开始。
 
 适用范围：Phase 11 及之后的 Agent Runtime 演进
 
@@ -82,7 +83,7 @@ Agent 不是阶段数量指标。一个职责只有在需要独立子目标、�
 | Phase 13 | 三场景 Agent 化评估与试点 | Task 1-12、正式评估与 Acceptance 已完成；0 个新增 Specialist Profile 被保留 | 已完成；历史自主评估结论保留 |
 | Phase 14 | 三场景人机协同决策支持 | Task 1-12 已完成；播中复合售罄优先、运营主控、结构化修改、默认关闭路由 | Acceptance 为 `INCONCLUSIVE`；停止在 `AWAITING_PHASE_15_GATE` |
 | Phase 15 | Golden Dataset 与发布门禁 | Stage A 已完成双轨 Release Design/Plan、D-123 至 D-133、48 例 Golden、真人证据和 CI 门禁冻结；Task 1-12 已验证完成，Acceptance 为 `INCONCLUSIVE` | `PHASE_15_COMPLETE_INCONCLUSIVE`；不自动进入下一阶段 |
-| Phase 16 | 受控多 Agent 高冲突升级 | 只在 proposal-eligible 的 LIVE 复合售罄事件中，以冻结规则升级 EvidenceAnalystAgent -> DecisionPlannerAgent -> Validator -> OperatorDecision；默认关闭 | Task 1-11、既有 PR 合并和正式 evidence closure 验证已完成；当前 evidence 分支等待提交、PR Gate 与 merge commit。唯一 run 在首个 Analyst validation 失败后停止，真实模型证据为 `FAILED`；默认路由未开启 |
+| Phase 16 | 受控多 Agent 高冲突升级 | 只在 proposal-eligible 的 LIVE 复合售罄事件中，以冻结规则升级 EvidenceAnalystAgent -> DecisionPlannerAgent -> Validator -> OperatorDecision；默认关闭 | Task 1-11 已完成；V1 在 Analyst validation 失败，独立 V2 在 Planner outcome 不可用后失败，真实模型证据均为 `FAILED`。当前 V2 分支待提交、PR Gate 与 merge commit；默认路由未开启 |
 
 阶段编号描述依赖顺序。Phase 14 的 Design/Plan 持久化不是业务实施授权；任何跨 Phase 推进都不得绕过当前 Phase Acceptance 和下一 Phase 的用户授权。
 

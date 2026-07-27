@@ -1,5 +1,18 @@
 # LiveAgent 连续执行实时状态
 
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+```text
+Phase / Task: Phase 16 / V2 official real-model evidence closeout
+状态: EXECUTED_FAILED / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v2-official-smoke
+真实证据: V1=FAILED / ANALYST_VALIDATION_FAILED; V2=FAILED / MODEL_OUTCOME_UNAVAILABLE.
+V2 事实: 首个 case Analyst receipt + validation PASS；Planner 请求已发送但没有可消费 outcome；零重试，剩余 9 个 slot 未发送。
+工程证据: unit 1614 passed；integration 219 passed, 7 deselected；coverage 91.914% line / 85.043% branch，90/85 Gate PASS。
+默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17 或重试 V1/V2。
+下一条精确操作: 提交 V2 文档与测试，推送、创建 PR、仅在 Gate 全绿后 merge commit；若讨论新真实模型实验，先进入新的独立 Design Gate。
+```
+
 ## 2026-07-18 Phase 16 Task 1 DOCUMENTATION IN PROGRESS
 
 ```text

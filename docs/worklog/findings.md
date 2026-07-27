@@ -1,5 +1,15 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+- V2 的 system-managed `evidence_ids` 边界已通过离线契约、PostgreSQL 账本和真实 Analyst receipt 验证；
+  它消除了 V1 要求模型逐字回显完整 EvidenceRef 摘要的设计负担，但不保证所有 Provider 阶段都可用。
+- V2 唯一真实 run 的 Analyst 为 `PASS`，真实回执为 `deepseek-v4-pro`、`stop`、`2471/1871/4342` tokens、
+  `24968.233 ms`、`0.018639 CNY`；Planner 请求已发送但没有可消费 ModelSuccess，账本以
+  `FAILED / MODEL_OUTCOME_UNAVAILABLE` 收口。
+- 该失败不是本地确定性 Runtime 回归，也不能被解释为完整真实双 Agent 通过。V1/V2 均不能重试；默认路由继续
+  `DETERMINISTIC_ONLY`，阶段保持 `AWAITING_PHASE_17_GATE`。
+
 ## 2026-07-22 Phase 16 Official Smoke Evidence Task 0
 
 - 新正式 smoke 不能复用旧 `PHASE16_MULTI_AGENT_SMOKE` 的 `0.100000` reservation 表：它没有

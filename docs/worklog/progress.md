@@ -1,5 +1,12 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+- V2 实现、账本迁移、正式回执 HMAC 和完整工程门禁已完成。
+- 正式外部结论：`FAILED / MODEL_OUTCOME_UNAVAILABLE`。首个 case 完成 Analyst，通过后 Planner 请求
+  已发送但无可消费 outcome；运行器按零重试规则停止，未调用其余九个 case。
+- 下一状态：`AWAITING_PHASE_17_GATE`。不自动开始 Phase 17，不开放 `DECISION_SUPPORT`，不重试 V1/V2。
+
 ## 2026-07-18 Phase 16 Started
 
 - 用户已授权连续执行：先完成 Task 1 文档持久化，再在同一授权内执行 Task 2-11。

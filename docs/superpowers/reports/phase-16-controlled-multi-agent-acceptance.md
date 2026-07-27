@@ -91,6 +91,11 @@ coverage 分母，并由 `scripts/coverage_source.py` 校验存在、Git 跟踪�
 [Official Smoke Evidence](phase-16-official-smoke-evidence.md) 为准，仍为 `FAILED / ANALYST_VALIDATION_FAILED`。
 正式 smoke 不会重试，默认路由继续 `DETERMINISTIC_ONLY`，阶段仍为 `AWAITING_PHASE_17_GATE`。
 
+V1 后的独立 V2 实验保留原账本与失败事实，改用 system-managed EvidenceRef、DeepSeek V4 Pro 和独立
+append-only ledger。V2 首个 case 的 Analyst 已通过完整 receipt 与结构校验；Planner 请求已发送但没有
+可消费 outcome，故 V2 以 `FAILED / MODEL_OUTCOME_UNAVAILABLE` 收口，不能将单段成功写成双 Agent
+`10/10` 通过。完整脱敏事实见 [Phase 16 V2 Official Smoke Evidence](phase-16-v2-official-smoke-evidence.md)。
+
 该 Addendum 收口后的新鲜工程验证为：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,
 5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`，19 个迁移
 实际应用与 dry-run 均无失败。两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已

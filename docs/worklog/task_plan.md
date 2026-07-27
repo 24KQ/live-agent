@@ -1,5 +1,14 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+- [x] V2 独立 Profile、Manifest、账本、CLI 和离线验证已完成；V1 失败事实未改写。
+- [x] 最终工程门禁：unit `1614 passed`、integration `219 passed, 7 deselected`、coverage line/branch
+  `91.914%/85.043%`，阈值 `90/85` 通过。
+- [x] 唯一 V2 正式 run：首个 case 的 Analyst PASS；Planner 已发送但 `MODEL_OUTCOME_UNAVAILABLE`。
+  V2 为 `FAILED`，零重试；其余九个 slot 未发送。
+- [ ] 后续仅可进入 Phase 17 Gate 的设计讨论或经新授权的独立真实模型实验；不得重试 V1/V2 run。
+
 ## 2026-07-18 Phase 16 Controlled Multi-Agent Escalation
 
 - [x] Task 1：持久化已批准的 Design、Implementation Plan、D-134 至 D-140、路线图、总控和恢复入口；等待本 Task 验证、提交与推送。

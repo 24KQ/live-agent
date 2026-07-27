@@ -12,6 +12,14 @@
 5. 从 V2 账本生成脱敏报告并更新 Acceptance/状态；通过 PR Gate 后 merge commit
    合并，停止在 `AWAITING_PHASE_17_GATE`。
 
+## 执行结果
+
+- Task 1-4 已完成。唯一 V2 `--execute` 在本地 Gate 后运行；第一个 case 的 Analyst
+  通过完整 receipt/usage/受控 ID 验证，Planner 已发送但没有可消费 outcome。
+- 根据零重试规则，V2 已以 `FAILED / MODEL_OUTCOME_UNAVAILABLE` 收口，未发送其余九个
+  slot。脱敏账本事实见 `phase-16-v2-official-smoke-evidence.md`。
+- 后续仅允许 PR 收口或新的独立设计授权；不得在该 V2 run 上修补、重试或篡改账本。
+
 ## 验收
 
 V2 PASS 需要十个固定 case、二十次 Pro 调用、每次 `finish_reason=stop`、完整
