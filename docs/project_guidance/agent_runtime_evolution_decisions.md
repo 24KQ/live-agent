@@ -2314,3 +2314,33 @@
   均无失败。两次额外只读终审在读取前遭本地代理 `502`/`503`，没有可采纳的结论；主模型已完成同范围复核，
   不把代理故障写成审查通过。
 - **重新评估条件**：若要保留更丰富供应商证据，必须设计加密、访问控制、保留期与删除机制，不能直接扩大当前 ledger 字段。
+
+## D-172：V1 正式失败不可改写，整改必须建立独立 V2 证据链
+
+- **状态**：`ACCEPTED`
+- **背景**：V1 已真实发送并记录 `FAILED / ANALYST_VALIDATION_FAILED`。直接修改其 Profile、Schema、Manifest、账本或执行闭包会把后续代码伪装成当时的外部实验。
+- **最终选择**：V1 永久只读；V2 使用新的 run、Manifest、Profile digest、PostgreSQL 表、CLI、报告和执行提交，只导入 V1 最小脱敏支出事实。
+- **影响**：旧试验分支只作设计与测试参考，不能直接合并或推送为 V1 修复。
+
+## D-173：V2 将确定性 finding 与完整引用留在系统，模型只返回受控证据 ID
+
+- **状态**：`ACCEPTED`
+- **背景**：要求模型逐字回显完整 EvidenceRef 会把 64 位摘要等确定性事实变成脆弱的生成任务。
+- **最终选择**：Analyst/Planner 仅输出非空、无重复、属于已解析六条证据的 `evidence_ids` 子集；系统注入 trigger-derived finding codes 并映射回完整权威引用。
+- **影响**：共享 Runner 为 digest 绑定的 V2 mode 增加受控 ID 校验；V1 与生产 Profile 继续完整 EvidenceRef 契约。
+
+## D-174：V2 使用 DeepSeek V4 Pro 和冻结的每例预算边界
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V2 固定 `deepseek-v4-pro`、输入 3 元/百万 token、输出 6 元/百万 token、60 秒、6000 总 token、2800 最大输出 token。既有支出为 `.079526 CNY`，十例 `.092000 CNY` slot 的最大暴露为 `.999526 CNY`。
+- **影响**：预检按冻结价格和请求上限 fail-closed；不允许预算绕过、价格截断或第十一例。
+
+## D-175：V2 只允许一次严格正式十例执行
+
+- **状态**：`ACCEPTED`
+- **最终选择**：完成全部离线和 PostgreSQL 门禁后，仅执行一次固定十例 run。任一已发送失败、缺 usage/receipt、非 `stop`、Schema/证据/路由失败均立即 FAILED，不探索性重试或修补文本。
+
+## D-176：V2 结论不改变生产路由或经营权限
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V2 PASS 仅证明受控外部集成；`DETERMINISTIC_ONLY`、OperatorDecision 和命令不自动提交边界保持不变，最终仍等待 Phase 17 Gate。
