@@ -763,12 +763,19 @@ class Phase16OfficialSmokeV2Runner:
         """把预检 provenance、Manifest、价格和固定十 slot 的异常全部收敛为可展示阻断码。"""
 
         reasons: set[str] = set(self._preflight.reason_codes)
-        if (
-            not self._preflight.provenance_verified
-            or self._preflight.status is not Phase16OfficialSmokeV2Status.READY
-            or not self._preflight.can_send
-        ):
+        if not self._preflight.provenance_verified:
             reasons.add("PREFLIGHT_NOT_VERIFIED")
+        # 可信预检也可以因为缺凭据、环境或价格而正常返回 BLOCKED。只有状态和
+        # ``can_send`` 自相矛盾才说明对象不满足 Runner 的封闭契约；不能把一个可解释
+        # 的外部配置缺口误报为来源伪造。
+        if (
+            self._preflight.status is Phase16OfficialSmokeV2Status.READY
+            and not self._preflight.can_send
+        ) or (
+            self._preflight.status is Phase16OfficialSmokeV2Status.BLOCKED
+            and self._preflight.can_send
+        ):
+            reasons.add("PREFLIGHT_STATE_INVALID")
         expected_case_ids = self._dataset.manifest.smoke_eligible_case_ids
         if (
             self._manifest.run_id != PHASE16_OFFICIAL_SMOKE_V2_RUN_ID
