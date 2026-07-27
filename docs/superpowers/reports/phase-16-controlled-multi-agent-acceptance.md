@@ -48,8 +48,8 @@
 
 ## Frozen Scripted Evaluation
 
-- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `d60d306b7a0977168c66d3629c01914dc1c931665772d50f6a0310614787a182`
-- Source closure digest: `a0c7e4bdc6e8b9d1e79e70737c0b82bfa638162599fae71b9ea23efd10e4ad6b`
+- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `927204ecb481092665569daa1025f0fdc8b623fcbb8735e06a5bc0d4531e5c2a`
+- Source closure digest: `05d0a7c9f53c527910a24ba0639e7b317477cbd23970debecfa97d505e81fb37`
 - Profile digests: `{"decision_planner": "70d9a6c3cedd2d571b6794b31983b0e20d9bb1d6f7c5c97cbd4e95b3c64c9183", "evidence_analyst": "aeafd9bfcc519d17e05ab8361be3c65aa16e8b4eb6a506bb0fa3d258ff5026ef"}`
 - Cases / route-correct / paired identity: `48 / 48 / 24`
 - Analyst / Planner / READY / DEGRADED / no-send: `30 / 26 / 24 / 6 / 18`

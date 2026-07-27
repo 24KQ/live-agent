@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from decimal import Decimal
+from enum import StrEnum
 import hashlib
 import re
 from typing import Any
@@ -21,6 +22,17 @@ from src.specialist_runtime.models import (
 
 FORMAL_ENDPOINT_HOST = "api.deepseek.com"
 FORMAL_MODEL_ID = "deepseek-v4-flash"
+# 兼容历史的 Flash 常量仍是默认值；只允许列出的模型进入冻结 Profile，避免调用方
+# 通过自由字符串把未审计的供应商或模型送入正式运行时。
+DEEPSEEK_V4_FLASH_MODEL_ID = FORMAL_MODEL_ID
+DEEPSEEK_V4_PRO_MODEL_ID = "deepseek-v4-pro"
+FORMAL_MODEL_IDS = frozenset({DEEPSEEK_V4_FLASH_MODEL_ID, DEEPSEEK_V4_PRO_MODEL_ID})
+
+
+class FinalEvidenceBindingMode(StrEnum):
+    """FINAL 输出与权威 EvidenceRef 的冻结绑定方式。"""
+
+    SYSTEM_MANAGED_IDS = "SYSTEM_MANAGED_IDS"
 
 
 def normalize_endpoint_host(value: str) -> str:
@@ -70,6 +82,9 @@ class SpecialistProfile(StrictFrozenModel):
     max_output_tokens: int | None = Field(default=None, ge=1, strict=True)
     deadline_seconds: int = Field(..., ge=1, strict=True)
     max_case_cost_cny: Decimal = Field(..., gt=Decimal("0"))
+    # None 表示历史完整 EvidenceRef 契约。摘要计算使用 exclude_none，因此新增字段不会
+    # 追溯改变 V1 或生产 Profile 的既有身份。
+    final_evidence_binding_mode: FinalEvidenceBindingMode | None = None
     profile_digest: str = ""
 
     @field_validator("endpoint_host")
@@ -85,8 +100,8 @@ class SpecialistProfile(StrictFrozenModel):
     @field_validator("model_id")
     @classmethod
     def _validate_model_id(cls, value: str) -> str:
-        if value != FORMAL_MODEL_ID:
-            raise ValueError(f"model_id must be {FORMAL_MODEL_ID}")
+        if value not in FORMAL_MODEL_IDS:
+            raise ValueError("model_id must be an approved DeepSeek formal model")
         return value
 
     @field_validator("temperature")
