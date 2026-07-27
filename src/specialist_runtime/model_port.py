@@ -12,7 +12,7 @@ from pydantic import ConfigDict, Field, field_serializer, field_validator, model
 from src.specialist_runtime.models import StrictFrozenModel, _freeze_json, _plain_json
 from src.specialist_runtime.profiles import (
     FORMAL_ENDPOINT_HOST,
-    FORMAL_MODEL_ID,
+    FORMAL_MODEL_IDS,
     normalize_endpoint_host,
 )
 
@@ -73,8 +73,10 @@ class ModelRequest(StrictFrozenModel):
     @field_validator("model_id")
     @classmethod
     def _validate_model_id(cls, value: str) -> str:
-        if value != FORMAL_MODEL_ID:
-            raise ValueError(f"model_id must be {FORMAL_MODEL_ID}")
+        # 请求层与 SpecialistProfile 共用同一冻结型号集合：V1 默认 Flash 保持不变，
+        # V2 只能额外使用已审计的 Pro；任何调用方提供的自由模型字符串仍在端口前拒绝。
+        if value not in FORMAL_MODEL_IDS:
+            raise ValueError("model_id must be an approved DeepSeek formal model")
         return value
 
     @field_validator("deadline_at")
