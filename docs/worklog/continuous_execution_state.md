@@ -1,5 +1,20 @@
 # LiveAgent 连续执行实时状态
 
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+```text
+Phase / Task: Phase 16 / V3 independent single-Planner diagnostic
+状态: EXECUTED_FAILED_WITH_UNVERIFIABLE_LEGACY_FAILURE_AUTH / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v3-planner-diagnostic
+真实证据: V1=FAILED / ANALYST_VALIDATION_FAILED; V2=FAILED / MODEL_OUTCOME_UNAVAILABLE;
+V3=FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON.
+V3 事实: 唯一 Planner 请求已发送；无 Provider 成功 receipt/usage；不重试。
+完整性限制: V3 failure HMAC=UNVERIFIABLE_LEGACY_LATENCY_PRECISION；历史行禁止回填、重签或更新。
+工程证据: unit 1616 passed；integration 222 passed, 7 deselected；V3 unit 9 passed、PostgreSQL 3 passed。
+默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17、重试 V1/V2/V3 或打开 DECISION_SUPPORT。
+下一条精确操作: 完成 V3 文档/测试提交并推送；GitHub 登录后创建 PR，Gate 全绿才 merge commit。
+```
+
 ## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
 
 ```text

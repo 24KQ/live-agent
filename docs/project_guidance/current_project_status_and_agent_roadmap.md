@@ -1,6 +1,18 @@
 # LiveAgent 当前项目状态与 Agent 化路线图
 
-更新日期：2026-07-11
+更新日期：2026-07-28
+
+## 2026-07-28 当前事实覆盖
+
+本文件较早章节保留项目早期 Agent 化路线。当前阶段事实以 Phase 16 Acceptance、路线图、决策日志和
+实时状态为准：受控双 Agent 的确定性工程实现、PostgreSQL 恢复、人工权限边界和 PR coverage 已完成，
+默认路由仍为 `DETERMINISTIC_ONLY`。
+
+真实模型证据未达到严格双 Agent `PASS`：V1 为 `FAILED / ANALYST_VALIDATION_FAILED`，V2 为
+`FAILED / MODEL_OUTCOME_UNAVAILABLE`，独立 V3 单 Planner 诊断为
+`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。V3 历史 failure HMAC 为
+`UNVERIFIABLE_LEGACY_LATENCY_PRECISION`，不可回填、重签或作为认证成功证据。项目停在
+`AWAITING_PHASE_17_GATE`，不自动开始 Phase 17、重试真实模型或打开经营动作。
 
 ## 当前状态结论
 

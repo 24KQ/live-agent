@@ -1,5 +1,16 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+- 已完成一次独立 V3 Planner 诊断，V2 的冻结 Planner Profile、case 和共享 Runner 均保持可比，
+  V1/V2 历史事实未改写。
+- 正式外部结论：`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。该请求已发送但未产生成功
+  Provider receipt 或 usage，零重试规则关闭唯一 slot。
+- 审计限制：历史 failure HMAC 为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；未来写入已修复
+  三位毫秒规范化，但不能倒灌历史事实。
+- 下一状态：`AWAITING_PHASE_17_GATE`。不自动开始 Phase 17，不开放 `DECISION_SUPPORT`，不重试
+  V1/V2/V3。
+
 ## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
 
 - V2 实现、账本迁移、正式回执 HMAC 和完整工程门禁已完成。

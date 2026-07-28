@@ -1,5 +1,17 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+- V3 用独立单 Planner 账本隔离 V2 的 `MODEL_OUTCOME_UNAVAILABLE`，唯一真实调用已发送后由
+  共享 DeepSeek 端口明确分类为 `MODEL_FAILURE_INVALID_OUTPUT_JSON`；这排除了“仅因未捕获 outcome
+  而不可诊断”的解释，但不构成 Planner 成功。
+- V3 初始 failure 将未量化 adapter latency 参与 digest/HMAC，而 PostgreSQL 保存为
+  `NUMERIC(16,3)`，读取时无法重建认证输入。历史行的 HMAC 因此为
+  `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`，不能被回填或声称为认证外部证据。
+- 新实现将未来 failure latency 在摘要/HMAC 前 half-up 量化到三位毫秒；单元与 PostgreSQL
+  回归覆盖非整毫秒写入、读取和 HMAC 复验。V1/V2/V3 均不得重试，默认路由继续
+  `DETERMINISTIC_ONLY`。
+
 ## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
 
 - V2 的 system-managed `evidence_ids` 边界已通过离线契约、PostgreSQL 账本和真实 Analyst receipt 验证；

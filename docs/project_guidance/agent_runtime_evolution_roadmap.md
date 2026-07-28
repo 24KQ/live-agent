@@ -1,6 +1,6 @@
 # LiveAgent Agent Runtime 演进路线图
 
-更新日期：2026-07-22
+更新日期：2026-07-28
 
 文档状态：Phase 11A 至 Phase 15 已完成并保留历史 Acceptance；Phase 15 为
 `INCONCLUSIVE`，默认路由为 `DETERMINISTIC_ONLY`。Phase 16 Controlled Multi-Agent
@@ -8,6 +8,10 @@ Escalation 的 Task 1-11 与确定性本地 Acceptance 已完成；V1 正式真�
 调用后以 `ANALYST_VALIDATION_FAILED` 停止。独立 V2 run 的 Analyst 已通过完整 receipt 与结构校验，
 但首个 Planner 请求以 `MODEL_OUTCOME_UNAVAILABLE` 失败并按零重试规则停止。两条外部证据均为
 `FAILED`，不改变生产默认 `DETERMINISTIC_ONLY`，Phase 17 仍未自动开始。
+
+独立 V3 单 Planner 诊断将 V2 的 Planner 无 outcome 进一步分类为
+`MODEL_FAILURE_INVALID_OUTPUT_JSON`；其历史 failure HMAC 因延迟精度写库差异不可复验，必须保留
+`UNVERIFIABLE_LEGACY_LATENCY_PRECISION` 限制，不能作为真实双 Agent PASS 证据。
 
 适用范围：Phase 11 及之后的 Agent Runtime 演进
 

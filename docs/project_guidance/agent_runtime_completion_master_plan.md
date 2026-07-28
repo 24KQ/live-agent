@@ -1,6 +1,6 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_V2_OFFICIAL_SMOKE_FAILED_AWAITING_PHASE_17_GATE`
+文档状态：`PHASE_16_REAL_MODEL_EVIDENCE_FAILED_AWAITING_PHASE_17_GATE`
 
 最后更新：2026-07-28
 
@@ -16,6 +16,11 @@
 但 Planner 请求已发送后无可消费 outcome，稳定结论为 `FAILED / MODEL_OUTCOME_UNAVAILABLE`。V1 的
 `FAILED / ANALYST_VALIDATION_FAILED` 保持不可变；两个真实模型 run 均未达严格 10/10，默认路由和
 阶段状态保持 `DETERMINISTIC_ONLY` / `AWAITING_PHASE_17_GATE`。
+
+同日的独立 V3 单 Planner 诊断用于细化 V2 Planner 故障，唯一调用记录为
+`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。历史 failure 因延迟写库精度差异无法复验 HMAC，
+认证结论为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；它不能成为真实双 Agent 成功证据，也不得
+通过回填、重签或重试修复。详见 V3 设计和证据报告。
 
 ## 1. 文档职责
 

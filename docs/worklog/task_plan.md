@@ -1,5 +1,15 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+- [x] 建立独立 V3 run、单 case slot、append-only ledger 和默认 dry-run CLI；不修改 V1/V2。
+- [x] 补齐 Provider receipt HMAC、failure 精确分类、CAS/终态拒绝和 PostgreSQL 真实契约测试。
+- [x] 唯一 V3 `--execute`：请求已发送，终态 `FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`，无重试。
+- [x] 修复未来 failure 的 `NUMERIC(16,3)` 延迟规范化；历史 V3 failure 保持
+  `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`，不回填或重签。
+- [ ] 仅剩 Git 收口：提交、推送、创建 PR、通过 Gate 后 merge commit；之后停在
+  `AWAITING_PHASE_17_GATE`，不自动开始 Phase 17 或新模型实验。
+
 ## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
 
 - [x] V2 独立 Profile、Manifest、账本、CLI 和离线验证已完成；V1 失败事实未改写。

@@ -3,10 +3,13 @@
 恢复时依次读取：
 
 1. `docs/worklog/continuous_execution_state.md`
-2. `docs/superpowers/specs/2026-07-22-phase16-official-smoke-evidence-design.md`
-3. `docs/superpowers/plans/2026-07-22-phase16-official-smoke-evidence-plan.md`
-4. `docs/superpowers/specs/phase-16-controlled-multi-agent-escalation-design.md`
-5. `docs/superpowers/plans/2026-07-18-phase-16-controlled-multi-agent-escalation-plan.md`
+2. `docs/superpowers/reports/phase-16-v3-planner-diagnostic-evidence.md`
+3. `docs/superpowers/specs/2026-07-28-phase16-v3-planner-diagnostic-design.md`
+4. `docs/superpowers/plans/2026-07-28-phase16-v3-planner-diagnostic-plan.md`
+5. `docs/superpowers/reports/phase-16-v2-official-smoke-evidence.md`
+6. `docs/superpowers/reports/phase-16-official-smoke-evidence.md`
+7. `docs/superpowers/specs/phase-16-controlled-multi-agent-escalation-design.md`
+8. `docs/superpowers/plans/2026-07-18-phase-16-controlled-multi-agent-escalation-plan.md`
 6. 总控计划、决策日志、三个 worklog、`git status` 与最近 Git log。
 
 固定事实：Phase 15 保持历史 `INCONCLUSIVE`，默认 `DETERMINISTIC_ONLY`。Phase 16 的本地确定性
@@ -29,6 +32,12 @@ PostgreSQL `29 passed`。三次补充只读终审在读取前因本地代理 `50
 proposal-eligible Bundle 和冻结三选二规则，人工升级需要当前 Workspace lease。双 Agent 零 Skill、零 Store、
 零写权限；任一失败为 `DEGRADED`，不回退单 Copilot。Analyst/Planner/Coordinator 生产预算分别固定为
 `2s/1200/0.03`、`2s/2800/0.07`、`5s/4000/0.10`；默认继续 `DETERMINISTIC_ONLY`。
+
+2026-07-28 的 V3 是独立单 Planner 诊断，而非 V1/V2 重试。其唯一请求已发送并以
+`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON` 终止，不能再次执行
+`scripts/run_phase16_v3_planner_diagnostic.py --execute`。初始 V3 failure 以高精度延迟计算
+digest/HMAC、以三位毫秒落库，历史认证为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；禁止回填、
+重签或把它描述为认证真实模型证据。未来写入的精度规范化修复不改变这条历史事实。
 
 每个 Task 执行 RED、GREEN、REVIEW、VERIFY、DOCS、COMMIT、PUSH 并更新实时状态。不得修改或提交
 主工作区用户脏文件。所有 Task 完成后仍保持 `AWAITING_PHASE_17_GATE`；广泛文档审计和 Phase 17

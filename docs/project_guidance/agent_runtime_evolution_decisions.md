@@ -2344,3 +2344,28 @@
 
 - **状态**：`ACCEPTED`
 - **最终选择**：V2 PASS 仅证明受控外部集成；`DETERMINISTIC_ONLY`、OperatorDecision 和命令不自动提交边界保持不变，最终仍等待 Phase 17 Gate。
+
+## D-177：V3 使用独立单 Planner 诊断解释 V2 的无 Outcome，不重试任何历史 run
+
+- **状态**：`ACCEPTED`
+- **背景**：V2 的 Analyst 已通过完整 receipt 与结构校验，但 Planner 已发送后未提供可消费
+  Outcome，`MODEL_OUTCOME_UNAVAILABLE` 无法区分供应商、适配器、JSON 还是共享 Runner 边界。
+- **最终选择**：建立独立 `phase16-v3-planner-diagnostic-001`，只使用一个固定 V2 case、冻结的
+  V4 Pro Planner Profile、共享 `BoundedSpecialistRunner` 与独立 append-only 账本。它只允许一次
+  Planner 调用，最大额外 reservation 为 `0.052000 CNY`；V1/V2 的账本、Manifest 和终态永不修改。
+- **执行事实**：唯一 V3 调用已发送，端口输出 `MODEL_FAILURE_INVALID_OUTPUT_JSON`；无 Provider
+  成功回执或 usage，终态为 `FAILED`。该结果缩小了 V2 的诊断范围，但不能成为真实双 Agent
+  10/10 smoke 通过证据。
+- **影响**：V3 终态后拒绝再次 dispatch，不开启 `DECISION_SUPPORT`，不修改 OperatorDecision 或命令提交权限。
+
+## D-178：failure 摘要与 HMAC 必须在数据库精度规范化后计算，历史不一致事实不得回填
+
+- **状态**：`ACCEPTED`
+- **背景**：V3 初始实现将 DeepSeek adapter 的高精度浮点毫秒值直接放入 failure digest/HMAC，
+  但 PostgreSQL `NUMERIC(16,3)` 只保留三位小数，导致历史行无法在读取后重建认证输入。
+- **最终选择**：未来 V3 failure 在生成 digest/HMAC 前统一以 half-up 量化到 `0.001 ms`；验证器对
+  无法重建的历史行返回 `false`，报告使用稳定标识
+  `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`。禁止 UPDATE、补签、重签或重发原 V3 行。
+- **执行事实**：V3 历史 failure 的 HMAC 不可复验，不能宣传为认证的真实模型证据；相关单元和真实
+  PostgreSQL 回归证明修复后的新行可在量化后复验。
+- **影响**：append-only 原则优先于“让报告变绿”。如需新的真实模型证据，必须经新的设计、预算和用户授权建立新 run。
