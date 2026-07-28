@@ -41,4 +41,3 @@
   `PASS: CONTROLLED_E2E_QUALIFIED`；历史 V1 至 V4 始终保留。
 - 最终 PR Gate 全绿后以 merge commit 合并；默认路由保持 `DETERMINISTIC_ONLY`，状态保持
   `AWAITING_PHASE_17_GATE`，不自动开始思考模式支持或 Phase 17。
-

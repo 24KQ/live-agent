@@ -16,8 +16,8 @@
   line/branch `91.914%/85.043%`、36 release cases、敏感载荷和迁移预览均通过。
 - [x] 唯一 V4 JSON probe：`PASS / JSON_PROTOCOL_PASS`，完整 receipt/usage、HMAC 和 outcome digest
   可复验；它只证明禁思考最小 JSON 协议可消费，不代表真实双 Agent `10/10`。
-- [ ] 仅剩 Git 收口：提交、推送、创建 PR、通过 Gate 后 merge commit；阶段继续
-  `AWAITING_PHASE_17_GATE`，不自动开始 Phase 17 或新模型实验。
+- [x] PR #3 的 Gate 已通过并以 merge commit `281cea6` 合并到 `origin/main`；V4 的历史收口完成。
+- [x] 2026-07-29 已建立独立 V5 收口，不重试 V4；后续状态以 V5 Task 0 游标为准。
 
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
 

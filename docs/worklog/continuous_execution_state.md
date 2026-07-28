@@ -24,7 +24,8 @@ V4 事实: 唯一无业务请求已发送；完整 Provider receipt/usage，rece
 范围限制: V4 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明真实双 Agent 10/10、AgentAction、Planner 或经营决策通过。
 工程证据: unit 1621 passed；integration 224 passed, 7 deselected；coverage 91.914% line / 85.043% branch；36 release cases PASS。
 默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17、重试 V1/V2/V3/V4 或打开 DECISION_SUPPORT。
-下一条精确操作: 生成并验证 V4 脱敏报告/Acceptance/状态文档；提交、推送、创建 PR，Gate 全绿后 merge commit。
+Git 收口: PR #3 已通过 Gate 并以 merge commit 281cea6 合并到 origin/main；不重试 V4。
+下一条精确操作: 以顶部 V5 Task 0 游标完成独立受控 E2E 实现和离线门禁。
 ```
 
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout

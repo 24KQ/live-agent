@@ -42,4 +42,3 @@ V5 建立一个新的 append-only campaign，总预算为 `1.000000 CNY`，覆�
    语义/预算失败均为 `FAILED`，立即停止且不重试、不修补文本。
 5. 只有 `10/10` case、`20/20` 调用和全部安全语义通过时，V5 结论为
    `PASS: CONTROLLED_E2E_QUALIFIED`。该结论不等同生产上线，仍等待独立的生产化阶段。
-
