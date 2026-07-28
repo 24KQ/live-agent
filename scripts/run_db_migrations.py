@@ -169,6 +169,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 16 V4 禁思考 JSON 协议探针 append-only 审计账本",
     ),
+    MigrationStep(
+        phase="phase16_v5_controlled_e2e",
+        sql_file="init_phase16_v5_controlled_e2e.sql",
+        required=True,
+        description="Phase 16 V5 禁思考双 Agent E2E campaign append-only 审计账本",
+    ),
 ]
 
 
