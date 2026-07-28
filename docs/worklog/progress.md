@@ -1,5 +1,11 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Closeout
+
+- 用户已授权 V5 实施。当前只完成 Design/Plan/决策和状态冻结，尚未实现 V5 代码、迁移、账本或真实调用。
+- V5 将以独立分支、独立 Manifest、独立一元 campaign 和独立合成校准进入严格真实双 Agent 10/10 验收。
+- 默认路由为 `DETERMINISTIC_ONLY`；V1 至 V4 不重试，思考模式兼容性不自动开始。
+
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 
 - 已完成 V4 专属 append-only ledger、禁思考 Adapter、脱敏解析诊断、命令入口和 PostgreSQL 契约测试；

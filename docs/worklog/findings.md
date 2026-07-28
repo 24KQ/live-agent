@@ -1,5 +1,14 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Baseline
+
+- V2 Analyst 曾在 V4 Pro 上通过完整 receipt 与结构验证，V3 Planner 在默认思考模式下得到
+  `MODEL_FAILURE_INVALID_OUTPUT_JSON`；V4 最小探针则在 `thinking.disabled` 下取得 JSON 协议 PASS。
+  这只是协议相关性，不能把禁思考写成已证明的复杂场景质量结论。
+- 共享 Adapter 已固定 `response_format=json_object`。V5 只以独立 Adapter 注入禁思考，保留 V1 至 V4
+  source closure；V2 的 system-managed Evidence ID 模式继续对模型输出实施严格受控验证。
+- V5 使用独立一元 campaign，校准与正式十例共享预算；旧费用与失败事实仅作审计披露，不改写也不抵扣。
+
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 
 - V2 冻结 Manifest 将共享 DeepSeek Adapter 纳入 source closure；向共享文件增加可选思考模式字段也会使

@@ -2386,3 +2386,42 @@
 - **影响**：V4 PASS 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明 AgentAction、EvidenceRef、
   Schema、Planner 或真实双 Agent `10/10` 成功。默认路由继续 `DETERMINISTIC_ONLY`，Phase 状态继续
   `AWAITING_PHASE_17_GATE`。后续双 Agent 实验必须重新设计、预算和授权，不能复用 V4 run。
+
+## D-180：V5 是独立受控 E2E campaign，不改写 V1 至 V4 历史
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V5 使用新的 Profile、Manifest、账本、CLI、报告和执行提交；V1 至 V4 的失败、费用、
+  Manifest 与 HMAC 限制永久保留。V5 成功可成为新的权威受控 E2E 证据，但不能覆盖历史事实。
+
+## D-181：V5 固定 DeepSeek V4 Pro 的禁思考 JSON 协议
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V5 固定 `deepseek-v4-pro`、`api.deepseek.com`、temperature `0`、
+  `response_format=json_object` 和 `thinking.disabled`，不允许 fallback。通过独立 Adapter 注入该字段，
+  不修改 V1 至 V4 的共享 Adapter。思考模式兼容性与质量对比属于后续独立工作。
+
+## D-182：V5 先使用隔离校准，再执行严格十例正式 E2E
+
+- **状态**：`ACCEPTED`
+- **最终选择**：使用不与正式十例重叠的合成校准 evidence bundle，校准必须完成 Analyst 与 Planner
+  `2/2 PASS`。只有校准认证通过才允许正式十例；正式 PASS 必须为 `10/10` case、`20/20` call、完整
+  receipt/usage/HMAC、结构校验与冻结语义校验均通过。
+
+## D-183：V5 独立一元 campaign 预算覆盖校准与正式调用
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V5 校准和正式 run 共用 `1.000000 CNY` 硬上限，每个 Analyst/Planner stage 最大预约
+  `0.030000 CNY`，发送前估算超额即阻断。V1 至 V4 费用继续披露，但不挪用、删除或改写以伪造 V5 预算。
+
+## D-184：V5 延续 system-managed 证据事实与零重试策略
+
+- **状态**：`ACCEPTED`
+- **最终选择**：模型只选择受控 `evidence_ids` 并生成非确定性分析/选项；系统注入 finding 和完整
+  EvidenceRef。未发送阻断为 `BLOCKED + INCONCLUSIVE`；任一已发送失败立即 `FAILED`，不重试、
+  不修补文本、不发送剩余正式 case。
+
+## D-185：V5 PASS 只标识受控 E2E 合格，不等同生产上线
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V5 严格成功后，Phase 16 Acceptance 标记 `PASS: CONTROLLED_E2E_QUALIFIED`；默认
+  路由继续 `DETERMINISTIC_ONLY`，思考模式、影子运行、SLO、真实业务接入和上线审批留给后续阶段。

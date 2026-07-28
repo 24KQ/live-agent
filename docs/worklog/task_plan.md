@@ -1,5 +1,13 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Closeout
+
+- [x] 冻结 V5 独立 campaign、V4 Pro 禁思考 JSON 协议、隔离校准和正式 10/10 验收边界。
+- [ ] 新建 V5 Adapter/Profile/Manifest、共享一元 campaign ledger、Runner 和 CLI。
+- [ ] 完成单元、PostgreSQL、迁移、coverage 和安全门禁；真实调用前提交推送冻结实现。
+- [ ] 执行 1 例隔离校准；仅在 2/2 PASS 后执行正式十例，任何已发送失败立即停止。
+- [ ] 更新证据报告与 Acceptance，PR Gate 全绿后 merge commit；保持 `DETERMINISTIC_ONLY`。
+
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 
 - [x] 将 `thinking=disabled` 与 JSON 解析诊断隔离到 V4 专属 Adapter，恢复 V1/V2/V3 的共享
