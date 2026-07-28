@@ -1,5 +1,38 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+- V2 冻结 Manifest 将共享 DeepSeek Adapter 纳入 source closure；向共享文件增加可选思考模式字段也会使
+  历史 Manifest 重建失败。V4 因此使用独立 Transport/Adapter 发送顶层 `thinking.disabled`，V1/V2/V3
+  源码与事实不被改写。
+- V4 唯一真实调用为 `PASS / JSON_PROTOCOL_PASS`，完整回执为 `deepseek-v4-pro`、`STOP`、
+  `45/5/50` tokens、`1150.662 ms`；receipt HMAC 与 outcome digest 可复验，usage-price-bound 为
+  `0.000165 CNY`。
+- 最小协议成功不能推广为 Agent 经营能力成功：它没有执行 AgentAction、EvidenceRef、Schema、Planner 或
+  10-case 路由验证。V1/V2/V3 双 Agent 事实保持失败，默认路由继续 `DETERMINISTIC_ONLY`。
+
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+- V3 用独立单 Planner 账本隔离 V2 的 `MODEL_OUTCOME_UNAVAILABLE`，唯一真实调用已发送后由
+  共享 DeepSeek 端口明确分类为 `MODEL_FAILURE_INVALID_OUTPUT_JSON`；这排除了“仅因未捕获 outcome
+  而不可诊断”的解释，但不构成 Planner 成功。
+- V3 初始 failure 将未量化 adapter latency 参与 digest/HMAC，而 PostgreSQL 保存为
+  `NUMERIC(16,3)`，读取时无法重建认证输入。历史行的 HMAC 因此为
+  `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`，不能被回填或声称为认证外部证据。
+- 新实现将未来 failure latency 在摘要/HMAC 前 half-up 量化到三位毫秒；单元与 PostgreSQL
+  回归覆盖非整毫秒写入、读取和 HMAC 复验。V1/V2/V3 均不得重试，默认路由继续
+  `DETERMINISTIC_ONLY`。
+
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+- V2 的 system-managed `evidence_ids` 边界已通过离线契约、PostgreSQL 账本和真实 Analyst receipt 验证；
+  它消除了 V1 要求模型逐字回显完整 EvidenceRef 摘要的设计负担，但不保证所有 Provider 阶段都可用。
+- V2 唯一真实 run 的 Analyst 为 `PASS`，真实回执为 `deepseek-v4-pro`、`stop`、`2471/1871/4342` tokens、
+  `24968.233 ms`、`0.018639 CNY`；Planner 请求已发送但没有可消费 ModelSuccess，账本以
+  `FAILED / MODEL_OUTCOME_UNAVAILABLE` 收口。
+- 该失败不是本地确定性 Runtime 回归，也不能被解释为完整真实双 Agent 通过。V1/V2 均不能重试；默认路由继续
+  `DETERMINISTIC_ONLY`，阶段保持 `AWAITING_PHASE_17_GATE`。
+
 ## 2026-07-22 Phase 16 Official Smoke Evidence Task 0
 
 - 新正式 smoke 不能复用旧 `PHASE16_MULTI_AGENT_SMOKE` 的 `0.100000` reservation 表：它没有

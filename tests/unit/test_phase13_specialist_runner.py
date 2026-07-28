@@ -35,7 +35,7 @@ from src.specialist_runtime.models import (
     SpecialistTaskKind,
     canonical_json_sha256,
 )
-from src.specialist_runtime.profiles import SpecialistProfile
+from src.specialist_runtime.profiles import FinalEvidenceBindingMode, SpecialistProfile
 from src.specialist_runtime.registry import SpecialistOrchestrator, SpecialistProfileRegistry
 from src.specialist_runtime.runner import (
     BoundedSpecialistRunner,
@@ -58,6 +58,7 @@ def _profile(
     result_schema: dict | None = None,
     skill_versions: dict[str, str] | None = None,
     max_output_tokens: int | None = None,
+    final_evidence_binding_mode: FinalEvidenceBindingMode | None = None,
 ) -> SpecialistProfile:
     schema = result_schema or {
         "type": "object",
@@ -95,6 +96,7 @@ def _profile(
         max_output_tokens=max_output_tokens,
         deadline_seconds=5,
         max_case_cost_cny=Decimal("0.10"),
+        final_evidence_binding_mode=final_evidence_binding_mode,
     )
 
 
@@ -1284,6 +1286,81 @@ def test_runner_rejects_declared_empty_evidence_ids_even_without_action_evidence
     )
 
     result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.POLICY_DENIED
+    assert result.failure is not None
+    assert result.failure.code == "RESULT_EVIDENCE_MISMATCH"
+
+
+def test_runner_system_managed_mode_accepts_a_subset_of_resolved_evidence_ids() -> None:
+    """V2 只允许模型选择权威 ID，完整 EvidenceRef 必须由系统保留并回填。"""
+
+    event_ref = _evidence_ref(kind=EvidenceKind.EVENT)
+    audit_ref = _evidence_ref(kind=EvidenceKind.AUDIT)
+    result_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["evidence_ids"],
+        "properties": {
+            "evidence_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": True,
+                "items": {"type": "string"},
+            }
+        },
+    }
+    profile = _profile(
+        result_schema=result_schema,
+        final_evidence_binding_mode=FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS,
+    )
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=_ScriptedPort(
+            [{"kind": "FINAL", "final_output": {"evidence_ids": [event_ref.evidence_id]}}]
+        ),
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task(evidence_refs=(event_ref, audit_ref))))
+
+    assert result.status is AgentResultStatus.SUCCEEDED
+    # AgentResult 是系统边界：即使模型只选中一条 ID，也必须继续携带完整的已解析
+    # 初始引用，供后续映射、账本和审计固定同一组六角色证据。
+    assert result.evidence_refs == (event_ref, audit_ref)
+
+
+def test_runner_system_managed_mode_rejects_unknown_evidence_id() -> None:
+    """V2 不能把未由权威 Resolver 解析的任意字符串伪装成证据选择。"""
+
+    event_ref = _evidence_ref(kind=EvidenceKind.EVENT)
+    profile = _profile(
+        result_schema={
+            "type": "object",
+            "required": ["evidence_ids"],
+            "properties": {"evidence_ids": {"type": "array", "minItems": 1}},
+        },
+        final_evidence_binding_mode=FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS,
+    )
+    runner = BoundedSpecialistRunner(
+        orchestrator=SpecialistOrchestrator(SpecialistProfileRegistry((profile,))),
+        model_port=_ScriptedPort(
+            [{"kind": "FINAL", "final_output": {"evidence_ids": ["forged-evidence"]}}]
+        ),
+        budget_store=InMemoryModelBudgetStore(),
+        evidence_registry=_resolver_registry(),
+        skill_port=_SkillPort(),
+        skill_catalog=get_default_skill_catalog(),
+        trusted_anchor_resolver=lambda _task: "anchor-001",
+        pricing_policy=_PricingPolicy(Decimal("0.01")),
+    )
+
+    result = asyncio.run(runner.run(_task(evidence_refs=(event_ref,))))
 
     assert result.status is AgentResultStatus.POLICY_DENIED
     assert result.failure is not None

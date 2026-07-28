@@ -1,5 +1,31 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+- 已完成 V4 专属 append-only ledger、禁思考 Adapter、脱敏解析诊断、命令入口和 PostgreSQL 契约测试；
+  V1/V2/V3 共享 Adapter 与冻结 source closure 未发生变化。
+- 正式外部结论：`PASS / JSON_PROTOCOL_PASS`。唯一无业务请求有完整 receipt/usage/HMAC，未重试。
+- 下一状态：`AWAITING_PHASE_17_GATE`。不自动开始 Phase 17，不开放 `DECISION_SUPPORT`；V4 PASS
+  不等于真实双 Agent `10/10`，不得据此重写 V1/V2/V3 失败或直接发起新双 Agent run。
+
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+- 已完成一次独立 V3 Planner 诊断，V2 的冻结 Planner Profile、case 和共享 Runner 均保持可比，
+  V1/V2 历史事实未改写。
+- 正式外部结论：`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。该请求已发送但未产生成功
+  Provider receipt 或 usage，零重试规则关闭唯一 slot。
+- 审计限制：历史 failure HMAC 为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；未来写入已修复
+  三位毫秒规范化，但不能倒灌历史事实。
+- 下一状态：`AWAITING_PHASE_17_GATE`。不自动开始 Phase 17，不开放 `DECISION_SUPPORT`，不重试
+  V1/V2/V3。
+
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+- V2 实现、账本迁移、正式回执 HMAC 和完整工程门禁已完成。
+- 正式外部结论：`FAILED / MODEL_OUTCOME_UNAVAILABLE`。首个 case 完成 Analyst，通过后 Planner 请求
+  已发送但无可消费 outcome；运行器按零重试规则停止，未调用其余九个 case。
+- 下一状态：`AWAITING_PHASE_17_GATE`。不自动开始 Phase 17，不开放 `DECISION_SUPPORT`，不重试 V1/V2。
+
 ## 2026-07-18 Phase 16 Started
 
 - 用户已授权连续执行：先完成 Task 1 文档持久化，再在同一授权内执行 Task 2-11。

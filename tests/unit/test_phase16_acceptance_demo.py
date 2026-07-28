@@ -100,6 +100,14 @@ def test_phase16_demo_is_byte_stable_and_honestly_blocks_real_smoke(tmp_path: Pa
     # 同一确定性渲染器链接，并明确保留唯一真实发送后的 FAILED 结论，不能依赖手工补文档。
     assert "## Official Evidence Closeout" in rendered
     assert "FAILED / ANALYST_VALIDATION_FAILED" in rendered
+    assert "FAILED / MODEL_OUTCOME_UNAVAILABLE" in rendered
+    assert "phase-16-v2-official-smoke-evidence.md" in rendered
+    assert "MODEL_FAILURE_INVALID_OUTPUT_JSON" in rendered
+    assert "UNVERIFIABLE_LEGACY_LATENCY_PRECISION" in rendered
+    assert "phase-16-v3-planner-diagnostic-evidence.md" in rendered
+    assert "PASS / JSON_PROTOCOL_PASS" in rendered
+    assert "phase-16-v4-json-probe-evidence.md" in rendered
+    assert "不是 V1/V2/V3 的重试" in rendered
     assert f"- Escalation: `{first.escalation_id}` / `{first.escalation_digest}`" in rendered
     assert f"- Analysis: `{first.analysis_id}` / `{first.analysis_digest}`" in rendered
     assert f"- Proposal: `{first.ready_proposal_id}` / `{first.ready_proposal_digest}`" in rendered

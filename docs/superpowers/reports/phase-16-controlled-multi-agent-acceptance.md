@@ -48,8 +48,8 @@
 
 ## Frozen Scripted Evaluation
 
-- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `d60d306b7a0977168c66d3629c01914dc1c931665772d50f6a0310614787a182`
-- Source closure digest: `a0c7e4bdc6e8b9d1e79e70737c0b82bfa638162599fae71b9ea23efd10e4ad6b`
+- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `ec8c30acc9c2eb5ab69cada4ee75df23366bebad5229c27ed13ba96363b5a396`
+- Source closure digest: `f786929e9a832a26aa9132b51d90e8cc1c595d3a63a4e6a0bda2eeae4786feea`
 - Profile digests: `{"decision_planner": "70d9a6c3cedd2d571b6794b31983b0e20d9bb1d6f7c5c97cbd4e95b3c64c9183", "evidence_analyst": "aeafd9bfcc519d17e05ab8361be3c65aa16e8b4eb6a506bb0fa3d258ff5026ef"}`
 - Cases / route-correct / paired identity: `48 / 48 / 24`
 - Analyst / Planner / READY / DEGRADED / no-send: `30 / 26 / 24 / 6 / 18`
@@ -91,7 +91,25 @@ coverage 分母，并由 `scripts/coverage_source.py` 校验存在、Git 跟踪�
 [Official Smoke Evidence](phase-16-official-smoke-evidence.md) 为准，仍为 `FAILED / ANALYST_VALIDATION_FAILED`。
 正式 smoke 不会重试，默认路由继续 `DETERMINISTIC_ONLY`，阶段仍为 `AWAITING_PHASE_17_GATE`。
 
-该 Addendum 收口后的新鲜工程验证为：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,
-5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`，19 个迁移
-实际应用与 dry-run 均无失败。两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已
-完成同范围复核，不把该外部故障描述为审查通过。
+V1 后的独立 V2 实验保留原账本与失败事实，改用 system-managed EvidenceRef、DeepSeek V4 Pro 和独立
+append-only ledger。V2 首个 case 的 Analyst 已通过完整 receipt 与结构校验；Planner 请求已发送但没有
+可消费 outcome，故 V2 以 `FAILED / MODEL_OUTCOME_UNAVAILABLE` 收口，不能将单段成功写成双 Agent
+`10/10` 通过。完整脱敏事实见 [Phase 16 V2 Official Smoke Evidence](phase-16-v2-official-smoke-evidence.md)。
+
+独立 V3 单 Planner 诊断对同一冻结 V2 Planner Profile 进行一次新调用，端口返回
+`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。该历史 failure 在摘要/HMAC 前使用了高精度延迟、
+落库后为三位毫秒，故读取认证为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；它只能解释诊断方向，
+不能成为真实双 Agent `PASS` 证据。V3 不会重试，完整脱敏事实见
+[Phase 16 V3 Planner Diagnostic Evidence](phase-16-v3-planner-diagnostic-evidence.md)。
+
+V3 收口后的新鲜工程验证为：unit `1616 passed, 1 warning`、integration `222 passed, 7 deselected,
+5 warnings`、V3 unit `9 passed`、V3 PostgreSQL `3 passed`，并已实际应用 V3 专属 DDL。全量迁移命令
+仍会被既有 V1 schema-contract 防护拒绝，故本报告不将其描述为全绿；该历史 schema 问题与 V3 DDL 无关。
+两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已完成同范围复核，不把该
+外部故障描述为审查通过。
+
+独立 V4 禁思考 JSON 协议探针以新 run 发送一次无业务数据的 `deepseek-v4-pro` 请求，并得到完整
+receipt/usage、可复验 HMAC 与 `PASS / JSON_PROTOCOL_PASS`。它仅证明最小 JSON 协议可消费，
+不是 V1/V2/V3 的重试，也不构成真实双 Agent `10/10` 通过。完整脱敏事实见
+[Phase 16 V4 Disabled-Thinking JSON Protocol Probe Evidence](phase-16-v4-json-probe-evidence.md)。
+默认路由继续 `DETERMINISTIC_ONLY`，阶段继续 `AWAITING_PHASE_17_GATE`。

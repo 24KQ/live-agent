@@ -151,6 +151,24 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 16 正式真实模型 smoke append-only 审计账本",
     ),
+    MigrationStep(
+        phase="phase16_official_smoke_v2_ledger",
+        sql_file="init_phase16_official_smoke_v2_ledger.sql",
+        required=True,
+        description="Phase 16 V2 正式真实模型 smoke 独立 append-only 审计账本",
+    ),
+    MigrationStep(
+        phase="phase16_v3_planner_diagnostic",
+        sql_file="init_phase16_v3_planner_diagnostic.sql",
+        required=True,
+        description="Phase 16 V3 单 Planner 诊断 append-only 审计账本",
+    ),
+    MigrationStep(
+        phase="phase16_v4_json_probe",
+        sql_file="init_phase16_v4_json_probe.sql",
+        required=True,
+        description="Phase 16 V4 禁思考 JSON 协议探针 append-only 审计账本",
+    ),
 ]
 
 

@@ -1,5 +1,48 @@
 # LiveAgent 连续执行实时状态
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+```text
+Phase / Task: Phase 16 / V4 isolated disabled-thinking JSON protocol probe
+状态: EXECUTED_PASS_PROTOCOL_ONLY / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v4-json-probe
+真实证据: V1=FAILED / ANALYST_VALIDATION_FAILED; V2=FAILED / MODEL_OUTCOME_UNAVAILABLE;
+V3=FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON; V4=PASS / JSON_PROTOCOL_PASS.
+V4 事实: 唯一无业务请求已发送；完整 Provider receipt/usage，receipt HMAC 与 outcome digest 可复验；不重试。
+范围限制: V4 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明真实双 Agent 10/10、AgentAction、Planner 或经营决策通过。
+工程证据: unit 1621 passed；integration 224 passed, 7 deselected；coverage 91.914% line / 85.043% branch；36 release cases PASS。
+默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17、重试 V1/V2/V3/V4 或打开 DECISION_SUPPORT。
+下一条精确操作: 生成并验证 V4 脱敏报告/Acceptance/状态文档；提交、推送、创建 PR，Gate 全绿后 merge commit。
+```
+
+## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
+
+```text
+Phase / Task: Phase 16 / V3 independent single-Planner diagnostic
+状态: EXECUTED_FAILED_WITH_UNVERIFIABLE_LEGACY_FAILURE_AUTH / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v3-planner-diagnostic
+真实证据: V1=FAILED / ANALYST_VALIDATION_FAILED; V2=FAILED / MODEL_OUTCOME_UNAVAILABLE;
+V3=FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON.
+V3 事实: 唯一 Planner 请求已发送；无 Provider 成功 receipt/usage；不重试。
+完整性限制: V3 failure HMAC=UNVERIFIABLE_LEGACY_LATENCY_PRECISION；历史行禁止回填、重签或更新。
+工程证据: unit 1616 passed；integration 222 passed, 7 deselected；V3 unit 9 passed、PostgreSQL 3 passed。
+默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17、重试 V1/V2/V3 或打开 DECISION_SUPPORT。
+下一条精确操作: 完成 V3 文档/测试提交并推送；GitHub 登录后创建 PR，Gate 全绿才 merge commit。
+```
+
+## 2026-07-28 Phase 16 V2 Official Smoke Evidence Closeout
+
+```text
+Phase / Task: Phase 16 / V2 official real-model evidence closeout
+状态: EXECUTED_FAILED / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v2-official-smoke
+真实证据: V1=FAILED / ANALYST_VALIDATION_FAILED; V2=FAILED / MODEL_OUTCOME_UNAVAILABLE.
+V2 事实: 首个 case Analyst receipt + validation PASS；Planner 请求已发送但没有可消费 outcome；零重试，剩余 9 个 slot 未发送。
+工程证据: unit 1614 passed；integration 219 passed, 7 deselected；coverage 91.914% line / 85.043% branch，90/85 Gate PASS。
+默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17 或重试 V1/V2。
+下一条精确操作: 提交 V2 文档与测试，推送、创建 PR、仅在 Gate 全绿后 merge commit；若讨论新真实模型实验，先进入新的独立 Design Gate。
+```
+
 ## 2026-07-18 Phase 16 Task 1 DOCUMENTATION IN PROGRESS
 
 ```text

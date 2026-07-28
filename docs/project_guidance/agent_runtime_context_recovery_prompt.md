@@ -21,6 +21,16 @@ Phase 的表述：
   Manifest 摘要。不得用当前整改源码重写或重发 v1 run。
 - 该结论不否定确定性工程验收，不会开启 `DECISION_SUPPORT` 或自动经营动作；生产默认路由仍为
   `DETERMINISTIC_ONLY`。
+- V2 后的独立 V3 单 Planner 诊断已执行一次：共享模型端口给出
+  `FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。V3 历史 failure 因毫秒精度在摘要/HMAC 与
+  PostgreSQL 之间不一致而为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；该限制必须如实保留，
+  不得回填、重签、重试或把 V3 写成真实双 Agent 通过。证据见
+  `docs/superpowers/reports/phase-16-v3-planner-diagnostic-evidence.md`。
+- 独立 V4 禁思考 JSON 协议探针已执行一次：`phase16-v4-json-probe-001` 取得完整
+  receipt/usage/HMAC 并以 `PASS / JSON_PROTOCOL_PASS` 收口。它仅证明最小 JSON 协议可消费，
+  不是 V1/V2/V3 重试，也不代表真实双 Agent `10/10`；不得再次执行
+  `scripts/run_phase16_v4_json_probe.py --execute`。证据见
+  `docs/superpowers/reports/phase-16-v4-json-probe-evidence.md`。
 - Task 5 的最终本地验证已完成：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,
   5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`。
   三次补充只读终审均在读取前因本地代理 `502`/`503` 终止，未形成可采纳结论；主模型已接管复核。PR #2 首轮 Gate

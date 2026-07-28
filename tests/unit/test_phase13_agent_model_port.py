@@ -398,7 +398,7 @@ def test_httpx_timeout_is_classified_as_deadline_exceeded() -> None:
 
 
 def test_request_models_are_strict_frozen_and_deadline_aware() -> None:
-    """请求不能携带额外字段、naive 时间或通过 copy 覆盖冻结执行控制。"""
+    """请求只接受冻结 DeepSeek 型号，且不能携带额外字段或可变执行控制。"""
 
     request = _request()
     with pytest.raises(TypeError, match="update"):
@@ -420,6 +420,12 @@ def test_request_models_are_strict_frozen_and_deadline_aware() -> None:
         ModelRequest.model_validate(
             {**request.model_dump(mode="json"), "endpoint_host": "example.com"}
         )
+    # Phase 16 V2 的隔离 Smoke 经独立 Manifest/预算/账本绑定后使用 V4 Pro；共享请求
+    # 协议必须接受该已批准身份，不能因为仍仅校验历史 Flash 默认值而在发送前误阻断。
+    v4_pro_request = ModelRequest.model_validate(
+        {**request.model_dump(mode="json"), "model_id": "deepseek-v4-pro"}
+    )
+    assert v4_pro_request.model_id == "deepseek-v4-pro"
     with pytest.raises(ValidationError, match="model_id"):
         ModelRequest.model_validate(
             {**request.model_dump(mode="json"), "model_id": "other-model"}

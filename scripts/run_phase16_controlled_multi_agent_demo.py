@@ -1683,10 +1683,36 @@ def render_acceptance_report(result: Phase16DemoResult) -> str:
         "[Official Smoke Evidence](phase-16-official-smoke-evidence.md) 为准，仍为 `FAILED / ANALYST_VALIDATION_FAILED`。",
         "正式 smoke 不会重试，默认路由继续 `DETERMINISTIC_ONLY`，阶段仍为 `AWAITING_PHASE_17_GATE`。",
         "",
-        "该 Addendum 收口后的新鲜工程验证为：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,",
-        "5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`，19 个迁移",
-        "实际应用与 dry-run 均无失败。两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已",
-        "完成同范围复核，不把该外部故障描述为审查通过。",
+        # V2 是一份独立实验，不得覆盖 V1 已发送的失败账本。把它交给同一 renderer
+        # 固化，保证 Acceptance、测试和工作日志对两次真实模型结论使用同一事实源。
+        "V1 后的独立 V2 实验保留原账本与失败事实，改用 system-managed EvidenceRef、DeepSeek V4 Pro 和独立",
+        "append-only ledger。V2 首个 case 的 Analyst 已通过完整 receipt 与结构校验；Planner 请求已发送但没有",
+        "可消费 outcome，故 V2 以 `FAILED / MODEL_OUTCOME_UNAVAILABLE` 收口，不能将单段成功写成双 Agent",
+        "`10/10` 通过。完整脱敏事实见 [Phase 16 V2 Official Smoke Evidence](phase-16-v2-official-smoke-evidence.md)。",
+        "",
+        # V3 不能被表述为 V2 的重试：它使用独立单 Planner 诊断账本，仅用于把 V2 的
+        # 无 Outcome 收敛为更精确的端口分类。首条历史 failure 的高精度延迟在写入
+        # NUMERIC(16,3) 后无法重建 HMAC，因此必须同时写明失败类别和认证限制。
+        "独立 V3 单 Planner 诊断对同一冻结 V2 Planner Profile 进行一次新调用，端口返回",
+        "`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。该历史 failure 在摘要/HMAC 前使用了高精度延迟、",
+        "落库后为三位毫秒，故读取认证为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；它只能解释诊断方向，",
+        "不能成为真实双 Agent `PASS` 证据。V3 不会重试，完整脱敏事实见",
+        "[Phase 16 V3 Planner Diagnostic Evidence](phase-16-v3-planner-diagnostic-evidence.md)。",
+        "",
+        "V3 收口后的新鲜工程验证为：unit `1616 passed, 1 warning`、integration `222 passed, 7 deselected,",
+        "5 warnings`、V3 unit `9 passed`、V3 PostgreSQL `3 passed`，并已实际应用 V3 专属 DDL。全量迁移命令",
+        "仍会被既有 V1 schema-contract 防护拒绝，故本报告不将其描述为全绿；该历史 schema 问题与 V3 DDL 无关。",
+        "两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已完成同范围复核，不把该",
+        "外部故障描述为审查通过。",
+        "",
+        # V4 不重试 V1/V2/V3，也不承载经营语义。它只通过独立账本确认禁思考模式下的
+        # 最小 JSON 协议是否可被共享 Adapter 消费，故必须同时写明 PASS 的精确范围和
+        # 不可推导出的双 Agent E2E 结论，避免局部协议成功被误读为经营决策已验证。
+        "独立 V4 禁思考 JSON 协议探针以新 run 发送一次无业务数据的 `deepseek-v4-pro` 请求，并得到完整",
+        "receipt/usage、可复验 HMAC 与 `PASS / JSON_PROTOCOL_PASS`。它仅证明最小 JSON 协议可消费，",
+        "不是 V1/V2/V3 的重试，也不构成真实双 Agent `10/10` 通过。完整脱敏事实见",
+        "[Phase 16 V4 Disabled-Thinking JSON Protocol Probe Evidence](phase-16-v4-json-probe-evidence.md)。",
+        "默认路由继续 `DETERMINISTIC_ONLY`，阶段继续 `AWAITING_PHASE_17_GATE`。",
         "",
     ]
     return "\n".join(lines)

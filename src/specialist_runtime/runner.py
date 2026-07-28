@@ -38,7 +38,7 @@ from src.specialist_runtime.models import (
     SpecialistTaskKind,
     _plain_json,
 )
-from src.specialist_runtime.profiles import SpecialistProfile
+from src.specialist_runtime.profiles import FinalEvidenceBindingMode, SpecialistProfile
 from src.specialist_runtime.registry import SpecialistOrchestrator, SpecialistProfileResolutionError
 from src.skill_runtime.models import SkillManifest
 from src.skill_runtime.models import (
@@ -505,20 +505,39 @@ class BoundedSpecialistRunner:
                     _collect_result_evidence_ids(final_output)
                 )
                 if has_evidence_ids:
-                    action_evidence_ids = {ref.evidence_id for ref in action.evidence_refs}
-                    # ReviewMemory 使用嵌套 evidence_ids 而不是完整 EvidenceRef；这里把所有层级
-                    # 收敛到已由 Resolver 验证的 FINAL 动作证据集合，拒绝未知、缺失或歧义 ID。
-                    if (
-                        invalid_evidence_ids
-                        or len(action_evidence_ids) != len(action.evidence_refs)
-                        or result_evidence_ids != action_evidence_ids
-                    ):
-                        return self._failure(
-                            task,
-                            AgentResultStatus.POLICY_DENIED,
-                            "RESULT_EVIDENCE_MISMATCH",
-                            audit,
-                        )
+                    if profile.final_evidence_binding_mode is FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS:
+                        # V2 smoke 不能要求模型回显 64 位 digest、scope 等确定性事实。初始
+                        # 引用已经在 run 开始时由 Resolver 全量验证；模型只能从其中选择 ID，
+                        # 而完整引用始终由系统在 AgentResult/下游事实中保留。模型若额外携带
+                        # EvidenceRef，等同尝试重获对权威身份字段的写权，必须 fail-closed。
+                        trusted_ids = {ref.evidence_id for ref in task.initial_evidence_refs}
+                        if (
+                            action.evidence_refs
+                            or invalid_evidence_ids
+                            or not result_evidence_ids
+                            or not result_evidence_ids.issubset(trusted_ids)
+                        ):
+                            return self._failure(
+                                task,
+                                AgentResultStatus.POLICY_DENIED,
+                                "RESULT_EVIDENCE_MISMATCH",
+                                audit,
+                            )
+                    else:
+                        action_evidence_ids = {ref.evidence_id for ref in action.evidence_refs}
+                        # ReviewMemory 使用嵌套 evidence_ids 而不是完整 EvidenceRef；这里把所有层级
+                        # 收敛到已由 Resolver 验证的 FINAL 动作证据集合，拒绝未知、缺失或歧义 ID。
+                        if (
+                            invalid_evidence_ids
+                            or len(action_evidence_ids) != len(action.evidence_refs)
+                            or result_evidence_ids != action_evidence_ids
+                        ):
+                            return self._failure(
+                                task,
+                                AgentResultStatus.POLICY_DENIED,
+                                "RESULT_EVIDENCE_MISMATCH",
+                                audit,
+                            )
                 return self._success(task, profile, action, actions, audit)
             if action.kind is AgentActionKind.ABSTAIN:
                 return self._failure(

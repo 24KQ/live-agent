@@ -60,8 +60,10 @@ from src.specialist_runtime.models import (
     _plain_json,
 )
 from src.specialist_runtime.profiles import (
+    DEEPSEEK_V4_PRO_MODEL_ID,
     FORMAL_ENDPOINT_HOST,
     FORMAL_MODEL_ID,
+    FinalEvidenceBindingMode,
     SpecialistProfile,
 )
 
@@ -71,6 +73,7 @@ DECISION_PLANNER_PROFILE_ID = "decision_planner"
 PHASE16_SMOKE_EVIDENCE_ANALYST_PROFILE_ID = "phase16_smoke_evidence_analyst"
 PHASE16_SMOKE_EVIDENCE_PLANNER_PROFILE_ID = "phase16_smoke_evidence_planner"
 CONTROLLED_MULTI_AGENT_PROFILE_VERSION = "1.0.0"
+PHASE16_SMOKE_EVIDENCE_V2_PROFILE_VERSION = "2.0.0"
 COORDINATOR_DEADLINE_SECONDS = 5
 COORDINATOR_MAX_TOTAL_TOKENS = 4000
 COORDINATOR_MAX_CASE_COST_CNY = Decimal("0.100000")
@@ -144,6 +147,37 @@ _CONFLICT_ANALYSIS_RESULT_SCHEMA = {
         "risk_codes",
         "explanation",
         "evidence_refs",
+    ],
+}
+
+
+# v1 已经完成真实发送，不能为了后续修复而改变其 Schema 摘要。v2 另建仅供正式
+# remediation smoke 使用的 Schema：冲突 finding 与完整 EvidenceRef 都是确定性事实，
+# 模型只负责生成解释、约束、风险以及对受控 evidence_id 的选择。
+_SMOKE_V2_CONFLICT_ANALYSIS_RESULT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "constraint_codes": _CONFLICT_ANALYSIS_RESULT_SCHEMA["properties"]["constraint_codes"],
+        "risk_codes": _CONFLICT_ANALYSIS_RESULT_SCHEMA["properties"]["risk_codes"],
+        "explanation": _CONFLICT_ANALYSIS_RESULT_SCHEMA["properties"]["explanation"],
+        "evidence_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 6,
+            "uniqueItems": True,
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+            },
+        },
+    },
+    "required": [
+        "constraint_codes",
+        "risk_codes",
+        "explanation",
+        "evidence_ids",
     ],
 }
 
@@ -248,6 +282,33 @@ _LIVE_DECISION_PLANNING_RESULT_SCHEMA = {
 }
 
 
+# V2 Planner 与 Analyst 一样不能让模型手工复述 digest/source_version 等权威字段。复制
+# V1 受限 option Schema 后只替换模型可见的引用字段；生产/V1 对象不共享该可变字典。
+_SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA = json.loads(
+    json.dumps(_LIVE_DECISION_PLANNING_RESULT_SCHEMA)
+)
+_SMOKE_V2_PLANNER_OPTION_SCHEMA = _SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA[
+    "properties"
+]["options"]["items"]
+_SMOKE_V2_PLANNER_OPTION_SCHEMA["properties"].pop("evidence_refs")
+_SMOKE_V2_PLANNER_OPTION_SCHEMA["properties"]["evidence_ids"] = {
+    "type": "array",
+    "minItems": 1,
+    "maxItems": 6,
+    "uniqueItems": True,
+    "items": {"type": "string", "minLength": 1, "maxLength": 256},
+}
+_SMOKE_V2_PLANNER_OPTION_SCHEMA["required"] = [
+    "option_id",
+    "product_strategy",
+    "backup_product_id",
+    "host_prompt",
+    "timing",
+    "risk_flags",
+    "evidence_ids",
+]
+
+
 def _build_profile(
     *,
     profile_id: str,
@@ -258,24 +319,32 @@ def _build_profile(
     max_case_cost_cny: Decimal,
     deadline_seconds: int,
     max_output_tokens: int | None = None,
+    profile_version: str = CONTROLLED_MULTI_AGENT_PROFILE_VERSION,
+    model_id: str = FORMAL_MODEL_ID,
+    endpoint_host: str = FORMAL_ENDPOINT_HOST,
+    final_envelope_instruction: str | None = None,
+    final_evidence_binding_mode: FinalEvidenceBindingMode | None = None,
 ) -> SpecialistProfile:
     """统一构造温度零、单次调用、零 Skill 的精确 Profile。""",
 
     # Runner 先解析 AgentAction，再只对 FINAL 的 final_output 校验 result_schema；Prompt
     # 必须同时固定两层形状，否则模型即使遵守结果 Schema 也会被 Runner 判为 INVALID_ACTION。
+    envelope_instruction = final_envelope_instruction or (
+        'FINAL envelope: {"kind":"FINAL","final_output":<RESULT>,"evidence_refs":[<EvidenceRef>]}. '
+    )
     prompt_text = (
         prompt_prefix
         + " Return exactly one AgentAction FINAL envelope and no markdown or reasoning. "
-        + 'FINAL envelope: {"kind":"FINAL","final_output":<RESULT>,"evidence_refs":[<EvidenceRef>]}. '
+        + envelope_instruction
         + "The final_output must match this RESULT JSON Schema: "
         + json.dumps(result_schema, sort_keys=True, separators=(",", ":"))
     )
     return SpecialistProfile(
         profile_id=profile_id,
-        profile_version=CONTROLLED_MULTI_AGENT_PROFILE_VERSION,
+        profile_version=profile_version,
         task_kind=task_kind,
-        model_id=FORMAL_MODEL_ID,
-        endpoint_host=FORMAL_ENDPOINT_HOST,
+        model_id=model_id,
+        endpoint_host=endpoint_host,
         temperature=Decimal("0"),
         prompt_text=prompt_text,
         prompt_hash=hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
@@ -289,6 +358,7 @@ def _build_profile(
         max_output_tokens=max_output_tokens,
         deadline_seconds=deadline_seconds,
         max_case_cost_cny=max_case_cost_cny,
+        final_evidence_binding_mode=final_evidence_binding_mode,
     )
 
 
@@ -362,6 +432,56 @@ def build_phase16_smoke_evidence_planner_profile() -> SpecialistProfile:
     )
 
 
+def build_phase16_smoke_evidence_v2_analyst_profile() -> SpecialistProfile:
+    """构造 v2 专用 V4 Pro Analyst Profile，绝不改变已发送 v1 的冻结身份。"""
+
+    return _build_profile(
+        profile_id=PHASE16_SMOKE_EVIDENCE_ANALYST_PROFILE_ID,
+        profile_version=PHASE16_SMOKE_EVIDENCE_V2_PROFILE_VERSION,
+        task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
+        prompt_prefix=(
+            "You are EvidenceAnalystAgent for a controlled formal remediation smoke. "
+            "你只能分析已提供的证据，不得排序商品、提出经营动作、调用 Skill 或声明权限。 "
+            "finding_codes and complete EvidenceRef values are system-owned facts: do not output them. "
+            "For evidence_ids, choose only IDs visible in the supplied evidence bundle. "
+            "输出必须是单个完整 JSON，不能输出 Markdown、代码块、解释前缀或推理过程。 "
+        ),
+        result_schema=_SMOKE_V2_CONFLICT_ANALYSIS_RESULT_SCHEMA,
+        max_total_tokens=6000,
+        max_output_tokens=2800,
+        max_case_cost_cny=Decimal("0.040000"),
+        deadline_seconds=60,
+        model_id=DEEPSEEK_V4_PRO_MODEL_ID,
+        endpoint_host=FORMAL_ENDPOINT_HOST,
+        final_envelope_instruction='FINAL envelope: {"kind":"FINAL","final_output":<RESULT>}. ',
+        final_evidence_binding_mode=FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS,
+    )
+
+
+def build_phase16_smoke_evidence_v2_planner_profile() -> SpecialistProfile:
+    """构造 v2 专用 V4 Pro Planner Profile，保持单轮、零 Skill 和人工决策边界。"""
+
+    return _build_profile(
+        profile_id=PHASE16_SMOKE_EVIDENCE_PLANNER_PROFILE_ID,
+        profile_version=PHASE16_SMOKE_EVIDENCE_V2_PROFILE_VERSION,
+        task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+        prompt_prefix=(
+            "You are DecisionPlannerAgent for a controlled formal remediation smoke. "
+            "Return bounded options only; never call Skills, select a route, or execute a command. "
+            "输出必须是单个完整 JSON，不能输出 Markdown、代码块或推理过程。 "
+        ),
+        result_schema=_SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
+        max_total_tokens=6000,
+        max_output_tokens=2800,
+        max_case_cost_cny=Decimal("0.052000"),
+        deadline_seconds=60,
+        model_id=DEEPSEEK_V4_PRO_MODEL_ID,
+        endpoint_host=FORMAL_ENDPOINT_HOST,
+        final_envelope_instruction='FINAL envelope: {"kind":"FINAL","final_output":<RESULT>}. ',
+        final_evidence_binding_mode=FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS,
+    )
+
+
 @dataclass(frozen=True)
 class ValidatedConflictAnalysisPayload:
     """脱离生产 Store 的 Analyst 结果投影，供 LIVE Coordinator 与正式 Smoke 共同消费。
@@ -425,6 +545,161 @@ def _validate_final_result_envelope(
     if not isinstance(output, dict):
         raise ValueError("agent final output must be an object")
     return output
+
+
+def _validate_system_managed_final_result_envelope(
+    *,
+    task: AgentTask,
+    result: AgentResult,
+    expected_profile: SpecialistProfile,
+    expected_evidence_refs: tuple[EvidenceRef, ...],
+) -> dict[str, Any]:
+    """验证 V2 的 FINAL 信封，并确认完整引用只来自已解析的系统事实。"""
+
+    if expected_profile.final_evidence_binding_mode is not FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS:
+        raise ValueError("V2 validator requires the system-managed evidence binding mode")
+    if (
+        task.profile_id != expected_profile.profile_id
+        or task.profile_version != expected_profile.profile_version
+        or result.task_id != task.task_id
+        or result.profile_id != expected_profile.profile_id
+        or result.profile_version != expected_profile.profile_version
+        or result.status is not AgentResultStatus.SUCCEEDED
+        or len(result.actions) != 1
+    ):
+        raise ValueError("V2 agent result identity or status is invalid")
+    action = result.actions[0]
+    if (
+        action.kind is not AgentActionKind.FINAL
+        or action.evidence_refs
+        or tuple(result.evidence_refs) != expected_evidence_refs
+        or _plain_json(action.final_output) != _plain_json(result.output)
+    ):
+        raise ValueError("V2 FINAL action does not preserve system-owned evidence")
+    output = _plain_json(result.output)
+    if not isinstance(output, dict):
+        raise ValueError("V2 agent final output must be an object")
+    return output
+
+
+def _validated_v2_evidence_ids(
+    value: Any, *, expected_evidence_refs: tuple[EvidenceRef, ...]
+) -> tuple[str, ...]:
+    """验证模型选择的 ID 是可追溯权威引用的非空、无重复子集。"""
+
+    if not isinstance(value, list) or not value or any(
+        not isinstance(item, str) or not item for item in value
+    ):
+        raise ValueError("V2 evidence_ids must be a non-empty string list")
+    selected = tuple(value)
+    if len(selected) != len(set(selected)):
+        raise ValueError("V2 evidence_ids must be unique")
+    trusted_ids = {item.evidence_id for item in expected_evidence_refs}
+    if not set(selected).issubset(trusted_ids):
+        raise ValueError("V2 evidence_ids contain an untrusted reference")
+    return selected
+
+
+def validate_v2_conflict_analysis_result(
+    *,
+    task: AgentTask,
+    result: AgentResult,
+    expected_profile: SpecialistProfile,
+    expected_evidence_refs: tuple[EvidenceRef, ...],
+    expected_finding_codes: tuple[ConflictAnalysisCode, ...],
+) -> ValidatedConflictAnalysisPayload:
+    """将 V2 Analyst 的受控 ID 输出映射为带完整权威引用的分析载荷。"""
+
+    output = _validate_system_managed_final_result_envelope(
+        task=task,
+        result=result,
+        expected_profile=expected_profile,
+        expected_evidence_refs=expected_evidence_refs,
+    )
+    if set(output) != {"constraint_codes", "risk_codes", "explanation", "evidence_ids"}:
+        raise ValueError("V2 analysis output has unexpected fields")
+    try:
+        _validated_v2_evidence_ids(output["evidence_ids"], expected_evidence_refs=expected_evidence_refs)
+        constraint_codes = tuple(ConflictConstraintCode(item) for item in output["constraint_codes"])
+        risk_codes = tuple(ConflictRiskCode(item) for item in output["risk_codes"])
+        explanation = _require_safe_display_text(str(output["explanation"]), field_name="explanation")
+    except Exception as error:
+        raise ValueError("V2 analysis output fields are invalid") from error
+    if (
+        not expected_finding_codes
+        or len(expected_finding_codes) != len(set(expected_finding_codes))
+        or len(expected_finding_codes) > 3
+        or len(constraint_codes) != len(set(constraint_codes))
+        or len(risk_codes) != len(set(risk_codes))
+        or len(constraint_codes) > 3
+        or len(risk_codes) > 8
+        or not explanation
+        or len(explanation) > 500
+    ):
+        raise ValueError("V2 analysis output does not close over governed facts")
+    # finding 与完整 EvidenceRef 不是模型返回值：它们只从已经验证的升级/Bundle 投影
+    # 注入，既保留下游类型兼容，也不允许生成模型拥有权威事实的写权限。
+    return ValidatedConflictAnalysisPayload(
+        finding_codes=expected_finding_codes,
+        constraint_codes=constraint_codes,
+        risk_codes=risk_codes,
+        explanation=explanation,
+        evidence_refs=expected_evidence_refs,
+    )
+
+
+def validate_v2_live_decision_planner_result(
+    *,
+    task: AgentTask,
+    result: AgentResult,
+    expected_profile: SpecialistProfile,
+    expected_evidence_refs: tuple[EvidenceRef, ...],
+    required_risk_codes: frozenset[str],
+    available_backup_product_ids: frozenset[str],
+    proposal_eligible_and_fresh: bool,
+) -> tuple[DecisionOption, ...]:
+    """验证 V2 Planner 的受控 ID option，并补回完整 EvidenceRef 供下游消费。"""
+
+    output = _validate_system_managed_final_result_envelope(
+        task=task,
+        result=result,
+        expected_profile=expected_profile,
+        expected_evidence_refs=expected_evidence_refs,
+    )
+    if not proposal_eligible_and_fresh or set(output) != {"options"}:
+        raise ValueError("V2 planner output is not eligible for formal consumption")
+    raw_options = output["options"]
+    if not isinstance(raw_options, list):
+        raise ValueError("V2 planner options are invalid")
+    options: list[DecisionOption] = []
+    for raw_option in raw_options:
+        if not isinstance(raw_option, dict) or "evidence_ids" not in raw_option:
+            raise ValueError("V2 planner option lacks controlled evidence IDs")
+        _validated_v2_evidence_ids(
+            raw_option["evidence_ids"], expected_evidence_refs=expected_evidence_refs
+        )
+        option_payload = dict(raw_option)
+        option_payload.pop("evidence_ids")
+        # Planner 的每一项建议继续完整绑定同一 Bundle；模型 ID 选择只作为受控的
+        # grounding 声明，不会缩窄 Proposal/OperatorDecision 的审计父链。
+        option_payload["evidence_refs"] = [item.model_dump(mode="json") for item in expected_evidence_refs]
+        try:
+            options.append(DecisionOption.model_validate(option_payload))
+        except Exception as error:
+            raise ValueError("V2 planner option is invalid") from error
+    validated = tuple(options)
+    if not 1 <= len(validated) <= 3 or len({item.option_id for item in validated}) != len(validated):
+        raise ValueError("V2 planner options must be one to three unique values")
+    for option in validated:
+        risk_flags = set(option.risk_flags)
+        if "HUMAN_CONFIRMATION_REQUIRED" not in risk_flags or not required_risk_codes.issubset(risk_flags):
+            raise ValueError("V2 planner option omits required risks")
+        if option.product_strategy is ProductStrategy.SWITCH_TO_BACKUP:
+            if option.backup_product_id not in available_backup_product_ids:
+                raise ValueError("V2 planner backup is unavailable")
+            if "BACKUP_PRODUCT_REQUIRES_CONFIRMATION" not in risk_flags:
+                raise ValueError("V2 planner backup omits confirmation risk")
+    return validated
 
 
 def validate_conflict_analysis_result(

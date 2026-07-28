@@ -1,8 +1,8 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_OFFICIAL_SMOKE_EVIDENCE_PR_GATE_REMEDIATION_PENDING`
+文档状态：`PHASE_16_DOUBLE_AGENT_E2E_FAILED_V4_PROTOCOL_PASS_AWAITING_PHASE_17_GATE`
 
-最后更新：2026-07-22
+最后更新：2026-07-28
 
 当前授权边界：Phase 11A-15 的历史 Acceptance 保持原结论；Phase 15 与 Final Acceptance
 为 `INCONCLUSIVE`，默认路由保持 `DETERMINISTIC_ONLY`。用户已授权连续实施 Phase 16：先
@@ -11,6 +11,20 @@
 2026-07-22 的补充授权只收口 Phase 16 的真实模型外部证据，不开始 Phase 17。它以独立分支和
 版本化正式账本执行一轮严格 10/10 DeepSeek smoke；正式 `PASS` 不改变生产默认
 `DETERMINISTIC_ONLY`，而 `BLOCKED` 或 `FAILED` 也不回写历史 Phase 16 本地技术验收。
+
+2026-07-28 的独立 V2 run 已在正式账本中收口：首个 case 的 Analyst receipt 与结构验证通过，
+但 Planner 请求已发送后无可消费 outcome，稳定结论为 `FAILED / MODEL_OUTCOME_UNAVAILABLE`。V1 的
+`FAILED / ANALYST_VALIDATION_FAILED` 保持不可变；两个真实模型 run 均未达严格 10/10，默认路由和
+阶段状态保持 `DETERMINISTIC_ONLY` / `AWAITING_PHASE_17_GATE`。
+
+同日的独立 V3 单 Planner 诊断用于细化 V2 Planner 故障，唯一调用记录为
+`FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。历史 failure 因延迟写库精度差异无法复验 HMAC，
+认证结论为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；它不能成为真实双 Agent 成功证据，也不得
+通过回填、重签或重试修复。详见 V3 设计和证据报告。
+
+同日的独立 V4 禁思考 JSON 协议探针已发送唯一无业务请求并得到
+`PASS / JSON_PROTOCOL_PASS`：完整 receipt/usage、`STOP` 与 HMAC 均可复验。它验证模型协议和
+Adapter 的最小集成，不替代真实双 Agent 的 10/10 验证，不改变默认路由或阶段 Gate。
 
 ## 1. 文档职责
 

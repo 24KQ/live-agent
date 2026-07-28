@@ -2314,3 +2314,75 @@
   均无失败。两次额外只读终审在读取前遭本地代理 `502`/`503`，没有可采纳的结论；主模型已完成同范围复核，
   不把代理故障写成审查通过。
 - **重新评估条件**：若要保留更丰富供应商证据，必须设计加密、访问控制、保留期与删除机制，不能直接扩大当前 ledger 字段。
+
+## D-172：V1 正式失败不可改写，整改必须建立独立 V2 证据链
+
+- **状态**：`ACCEPTED`
+- **背景**：V1 已真实发送并记录 `FAILED / ANALYST_VALIDATION_FAILED`。直接修改其 Profile、Schema、Manifest、账本或执行闭包会把后续代码伪装成当时的外部实验。
+- **最终选择**：V1 永久只读；V2 使用新的 run、Manifest、Profile digest、PostgreSQL 表、CLI、报告和执行提交，只导入 V1 最小脱敏支出事实。
+- **影响**：旧试验分支只作设计与测试参考，不能直接合并或推送为 V1 修复。
+
+## D-173：V2 将确定性 finding 与完整引用留在系统，模型只返回受控证据 ID
+
+- **状态**：`ACCEPTED`
+- **背景**：要求模型逐字回显完整 EvidenceRef 会把 64 位摘要等确定性事实变成脆弱的生成任务。
+- **最终选择**：Analyst/Planner 仅输出非空、无重复、属于已解析六条证据的 `evidence_ids` 子集；系统注入 trigger-derived finding codes 并映射回完整权威引用。
+- **影响**：共享 Runner 为 digest 绑定的 V2 mode 增加受控 ID 校验；V1 与生产 Profile 继续完整 EvidenceRef 契约。
+
+## D-174：V2 使用 DeepSeek V4 Pro 和冻结的每例预算边界
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V2 固定 `deepseek-v4-pro`、输入 3 元/百万 token、输出 6 元/百万 token、60 秒、6000 总 token、2800 最大输出 token。既有支出为 `.079526 CNY`，十例 `.092000 CNY` slot 的最大暴露为 `.999526 CNY`。
+- **影响**：预检按冻结价格和请求上限 fail-closed；不允许预算绕过、价格截断或第十一例。
+
+## D-175：V2 只允许一次严格正式十例执行
+
+- **状态**：`ACCEPTED`
+- **最终选择**：完成全部离线和 PostgreSQL 门禁后，仅执行一次固定十例 run。任一已发送失败、缺 usage/receipt、非 `stop`、Schema/证据/路由失败均立即 FAILED，不探索性重试或修补文本。
+
+## D-176：V2 结论不改变生产路由或经营权限
+
+- **状态**：`ACCEPTED`
+- **最终选择**：V2 PASS 仅证明受控外部集成；`DETERMINISTIC_ONLY`、OperatorDecision 和命令不自动提交边界保持不变，最终仍等待 Phase 17 Gate。
+
+## D-177：V3 使用独立单 Planner 诊断解释 V2 的无 Outcome，不重试任何历史 run
+
+- **状态**：`ACCEPTED`
+- **背景**：V2 的 Analyst 已通过完整 receipt 与结构校验，但 Planner 已发送后未提供可消费
+  Outcome，`MODEL_OUTCOME_UNAVAILABLE` 无法区分供应商、适配器、JSON 还是共享 Runner 边界。
+- **最终选择**：建立独立 `phase16-v3-planner-diagnostic-001`，只使用一个固定 V2 case、冻结的
+  V4 Pro Planner Profile、共享 `BoundedSpecialistRunner` 与独立 append-only 账本。它只允许一次
+  Planner 调用，最大额外 reservation 为 `0.052000 CNY`；V1/V2 的账本、Manifest 和终态永不修改。
+- **执行事实**：唯一 V3 调用已发送，端口输出 `MODEL_FAILURE_INVALID_OUTPUT_JSON`；无 Provider
+  成功回执或 usage，终态为 `FAILED`。该结果缩小了 V2 的诊断范围，但不能成为真实双 Agent
+  10/10 smoke 通过证据。
+- **影响**：V3 终态后拒绝再次 dispatch，不开启 `DECISION_SUPPORT`，不修改 OperatorDecision 或命令提交权限。
+
+## D-178：failure 摘要与 HMAC 必须在数据库精度规范化后计算，历史不一致事实不得回填
+
+- **状态**：`ACCEPTED`
+- **背景**：V3 初始实现将 DeepSeek adapter 的高精度浮点毫秒值直接放入 failure digest/HMAC，
+  但 PostgreSQL `NUMERIC(16,3)` 只保留三位小数，导致历史行无法在读取后重建认证输入。
+- **最终选择**：未来 V3 failure 在生成 digest/HMAC 前统一以 half-up 量化到 `0.001 ms`；验证器对
+  无法重建的历史行返回 `false`，报告使用稳定标识
+  `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`。禁止 UPDATE、补签、重签或重发原 V3 行。
+- **执行事实**：V3 历史 failure 的 HMAC 不可复验，不能宣传为认证的真实模型证据；相关单元和真实
+  PostgreSQL 回归证明修复后的新行可在量化后复验。
+- **影响**：append-only 原则优先于“让报告变绿”。如需新的真实模型证据，必须经新的设计、预算和用户授权建立新 run。
+
+## D-179：V4 禁思考 JSON 探针隔离协议诊断，不改变冻结双 Agent 证据闭包
+
+- **状态**：`ACCEPTED`
+- **背景**：V3 已将 V2 Planner 的无 Outcome 细化为 `INVALID_OUTPUT_JSON`，但共享 Adapter 位于 V2
+  冻结 Manifest 的 source closure。直接向共享 Adapter 增加 `thinking=disabled` 或解析诊断会使历史
+  Manifest 重建失败，等同用新代码重解释旧真实运行。
+- **最终选择**：建立独立 `phase16-v4-json-probe-001`，以 V4 专属 Transport/Adapter 在 DeepSeek
+  顶层发送 `thinking.disabled`，固定 `deepseek-v4-pro`、无业务 JSON、64 token、30 秒和一次
+  `0.010000 CNY` reservation。V4 只保存 Provider/响应/输出摘要、usage、有限解析分类和 HMAC；
+  V1/V2/V3 共享 Adapter、Manifest、账本和终态保持字节与事实不变。
+- **执行事实**：唯一 V4 调用获得 `PASS / JSON_PROTOCOL_PASS`，完整 receipt 为 `STOP`、`45/5/50`
+  tokens、`1150.662 ms`；receipt HMAC 与 outcome digest 可复验。按冻结价格得到 usage-price-bound
+  `0.000165 CNY`，不超过独立 reservation。
+- **影响**：V4 PASS 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明 AgentAction、EvidenceRef、
+  Schema、Planner 或真实双 Agent `10/10` 成功。默认路由继续 `DETERMINISTIC_ONLY`，Phase 状态继续
+  `AWAITING_PHASE_17_GATE`。后续双 Agent 实验必须重新设计、预算和授权，不能复用 V4 run。
