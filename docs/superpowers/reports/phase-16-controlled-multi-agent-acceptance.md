@@ -107,3 +107,9 @@ V3 收口后的新鲜工程验证为：unit `1616 passed, 1 warning`、integrati
 仍会被既有 V1 schema-contract 防护拒绝，故本报告不将其描述为全绿；该历史 schema 问题与 V3 DDL 无关。
 两次补充只读终审在读取前因本地代理 `502`/`503` 终止，未产生可采纳审查结论；主模型已完成同范围复核，不把该
 外部故障描述为审查通过。
+
+独立 V4 禁思考 JSON 协议探针以新 run 发送一次无业务数据的 `deepseek-v4-pro` 请求，并得到完整
+receipt/usage、可复验 HMAC 与 `PASS / JSON_PROTOCOL_PASS`。它仅证明最小 JSON 协议可消费，
+不是 V1/V2/V3 的重试，也不构成真实双 Agent `10/10` 通过。完整脱敏事实见
+[Phase 16 V4 Disabled-Thinking JSON Protocol Probe Evidence](phase-16-v4-json-probe-evidence.md)。
+默认路由继续 `DETERMINISTIC_ONLY`，阶段继续 `AWAITING_PHASE_17_GATE`。

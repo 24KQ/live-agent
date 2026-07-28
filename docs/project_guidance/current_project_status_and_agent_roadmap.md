@@ -14,6 +14,10 @@
 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`，不可回填、重签或作为认证成功证据。项目停在
 `AWAITING_PHASE_17_GATE`，不自动开始 Phase 17、重试真实模型或打开经营动作。
 
+2026-07-28 的独立 V4 禁思考 JSON 协议探针为 `PASS / JSON_PROTOCOL_PASS`，并有完整 receipt/usage
+与 HMAC 认证。它只验证 DeepSeek V4 Pro 的最小结构化输出协议可被 Adapter 消费，不覆盖上述真实双
+Agent 失败，不改变 `DETERMINISTIC_ONLY` 或 Phase 17 Gate。
+
 ## 当前状态结论
 
 LiveAgent 已完成从播前到播后再到记忆回写的基础业务闭环：

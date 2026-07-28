@@ -163,6 +163,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 16 V3 单 Planner 诊断 append-only 审计账本",
     ),
+    MigrationStep(
+        phase="phase16_v4_json_probe",
+        sql_file="init_phase16_v4_json_probe.sql",
+        required=True,
+        description="Phase 16 V4 禁思考 JSON 协议探针 append-only 审计账本",
+    ),
 ]
 
 

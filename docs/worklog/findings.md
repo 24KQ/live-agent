@@ -1,5 +1,16 @@
 # LiveAgent 工作发现记录
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+- V2 冻结 Manifest 将共享 DeepSeek Adapter 纳入 source closure；向共享文件增加可选思考模式字段也会使
+  历史 Manifest 重建失败。V4 因此使用独立 Transport/Adapter 发送顶层 `thinking.disabled`，V1/V2/V3
+  源码与事实不被改写。
+- V4 唯一真实调用为 `PASS / JSON_PROTOCOL_PASS`，完整回执为 `deepseek-v4-pro`、`STOP`、
+  `45/5/50` tokens、`1150.662 ms`；receipt HMAC 与 outcome digest 可复验，usage-price-bound 为
+  `0.000165 CNY`。
+- 最小协议成功不能推广为 Agent 经营能力成功：它没有执行 AgentAction、EvidenceRef、Schema、Planner 或
+  10-case 路由验证。V1/V2/V3 双 Agent 事实保持失败，默认路由继续 `DETERMINISTIC_ONLY`。
+
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
 
 - V3 用独立单 Planner 账本隔离 V2 的 `MODEL_OUTCOME_UNAVAILABLE`，唯一真实调用已发送后由

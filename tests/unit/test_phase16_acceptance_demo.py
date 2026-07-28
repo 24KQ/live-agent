@@ -105,6 +105,9 @@ def test_phase16_demo_is_byte_stable_and_honestly_blocks_real_smoke(tmp_path: Pa
     assert "MODEL_FAILURE_INVALID_OUTPUT_JSON" in rendered
     assert "UNVERIFIABLE_LEGACY_LATENCY_PRECISION" in rendered
     assert "phase-16-v3-planner-diagnostic-evidence.md" in rendered
+    assert "PASS / JSON_PROTOCOL_PASS" in rendered
+    assert "phase-16-v4-json-probe-evidence.md" in rendered
+    assert "不是 V1/V2/V3 的重试" in rendered
     assert f"- Escalation: `{first.escalation_id}` / `{first.escalation_digest}`" in rendered
     assert f"- Analysis: `{first.analysis_id}` / `{first.analysis_digest}`" in rendered
     assert f"- Proposal: `{first.ready_proposal_id}` / `{first.ready_proposal_digest}`" in rendered

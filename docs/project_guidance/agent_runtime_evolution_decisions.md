@@ -2369,3 +2369,20 @@
 - **执行事实**：V3 历史 failure 的 HMAC 不可复验，不能宣传为认证的真实模型证据；相关单元和真实
   PostgreSQL 回归证明修复后的新行可在量化后复验。
 - **影响**：append-only 原则优先于“让报告变绿”。如需新的真实模型证据，必须经新的设计、预算和用户授权建立新 run。
+
+## D-179：V4 禁思考 JSON 探针隔离协议诊断，不改变冻结双 Agent 证据闭包
+
+- **状态**：`ACCEPTED`
+- **背景**：V3 已将 V2 Planner 的无 Outcome 细化为 `INVALID_OUTPUT_JSON`，但共享 Adapter 位于 V2
+  冻结 Manifest 的 source closure。直接向共享 Adapter 增加 `thinking=disabled` 或解析诊断会使历史
+  Manifest 重建失败，等同用新代码重解释旧真实运行。
+- **最终选择**：建立独立 `phase16-v4-json-probe-001`，以 V4 专属 Transport/Adapter 在 DeepSeek
+  顶层发送 `thinking.disabled`，固定 `deepseek-v4-pro`、无业务 JSON、64 token、30 秒和一次
+  `0.010000 CNY` reservation。V4 只保存 Provider/响应/输出摘要、usage、有限解析分类和 HMAC；
+  V1/V2/V3 共享 Adapter、Manifest、账本和终态保持字节与事实不变。
+- **执行事实**：唯一 V4 调用获得 `PASS / JSON_PROTOCOL_PASS`，完整 receipt 为 `STOP`、`45/5/50`
+  tokens、`1150.662 ms`；receipt HMAC 与 outcome digest 可复验。按冻结价格得到 usage-price-bound
+  `0.000165 CNY`，不超过独立 reservation。
+- **影响**：V4 PASS 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明 AgentAction、EvidenceRef、
+  Schema、Planner 或真实双 Agent `10/10` 成功。默认路由继续 `DETERMINISTIC_ONLY`，Phase 状态继续
+  `AWAITING_PHASE_17_GATE`。后续双 Agent 实验必须重新设计、预算和授权，不能复用 V4 run。

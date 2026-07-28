@@ -1,5 +1,13 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+- 已完成 V4 专属 append-only ledger、禁思考 Adapter、脱敏解析诊断、命令入口和 PostgreSQL 契约测试；
+  V1/V2/V3 共享 Adapter 与冻结 source closure 未发生变化。
+- 正式外部结论：`PASS / JSON_PROTOCOL_PASS`。唯一无业务请求有完整 receipt/usage/HMAC，未重试。
+- 下一状态：`AWAITING_PHASE_17_GATE`。不自动开始 Phase 17，不开放 `DECISION_SUPPORT`；V4 PASS
+  不等于真实双 Agent `10/10`，不得据此重写 V1/V2/V3 失败或直接发起新双 Agent run。
+
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
 
 - 已完成一次独立 V3 Planner 诊断，V2 的冻结 Planner Profile、case 和共享 Runner 均保持可比，

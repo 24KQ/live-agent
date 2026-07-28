@@ -1,6 +1,6 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_REAL_MODEL_EVIDENCE_FAILED_AWAITING_PHASE_17_GATE`
+文档状态：`PHASE_16_DOUBLE_AGENT_E2E_FAILED_V4_PROTOCOL_PASS_AWAITING_PHASE_17_GATE`
 
 最后更新：2026-07-28
 
@@ -21,6 +21,10 @@
 `FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON`。历史 failure 因延迟写库精度差异无法复验 HMAC，
 认证结论为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；它不能成为真实双 Agent 成功证据，也不得
 通过回填、重签或重试修复。详见 V3 设计和证据报告。
+
+同日的独立 V4 禁思考 JSON 协议探针已发送唯一无业务请求并得到
+`PASS / JSON_PROTOCOL_PASS`：完整 receipt/usage、`STOP` 与 HMAC 均可复验。它验证模型协议和
+Adapter 的最小集成，不替代真实双 Agent 的 10/10 验证，不改变默认路由或阶段 Gate。
 
 ## 1. 文档职责
 

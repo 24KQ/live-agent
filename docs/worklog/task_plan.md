@@ -1,5 +1,16 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+- [x] 将 `thinking=disabled` 与 JSON 解析诊断隔离到 V4 专属 Adapter，恢复 V1/V2/V3 的共享
+  source closure，V2 PostgreSQL 历史回归通过。
+- [x] 完整工程门禁：unit `1621 passed`、integration `224 passed, 7 deselected`、冻结 coverage
+  line/branch `91.914%/85.043%`、36 release cases、敏感载荷和迁移预览均通过。
+- [x] 唯一 V4 JSON probe：`PASS / JSON_PROTOCOL_PASS`，完整 receipt/usage、HMAC 和 outcome digest
+  可复验；它只证明禁思考最小 JSON 协议可消费，不代表真实双 Agent `10/10`。
+- [ ] 仅剩 Git 收口：提交、推送、创建 PR、通过 Gate 后 merge commit；阶段继续
+  `AWAITING_PHASE_17_GATE`，不自动开始 Phase 17 或新模型实验。
+
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
 
 - [x] 建立独立 V3 run、单 case slot、append-only ledger 和默认 dry-run CLI；不修改 V1/V2。

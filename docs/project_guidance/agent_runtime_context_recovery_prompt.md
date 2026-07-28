@@ -26,6 +26,11 @@ Phase 的表述：
   PostgreSQL 之间不一致而为 `UNVERIFIABLE_LEGACY_LATENCY_PRECISION`；该限制必须如实保留，
   不得回填、重签、重试或把 V3 写成真实双 Agent 通过。证据见
   `docs/superpowers/reports/phase-16-v3-planner-diagnostic-evidence.md`。
+- 独立 V4 禁思考 JSON 协议探针已执行一次：`phase16-v4-json-probe-001` 取得完整
+  receipt/usage/HMAC 并以 `PASS / JSON_PROTOCOL_PASS` 收口。它仅证明最小 JSON 协议可消费，
+  不是 V1/V2/V3 重试，也不代表真实双 Agent `10/10`；不得再次执行
+  `scripts/run_phase16_v4_json_probe.py --execute`。证据见
+  `docs/superpowers/reports/phase-16-v4-json-probe-evidence.md`。
 - Task 5 的最终本地验证已完成：unit `1596 passed, 1 warning`、integration `214 passed, 7 deselected,
   5 warnings`、Phase 16 escalation PostgreSQL `31 passed`、formal ledger/runner PostgreSQL `29 passed`。
   三次补充只读终审均在读取前因本地代理 `502`/`503` 终止，未形成可采纳结论；主模型已接管复核。PR #2 首轮 Gate

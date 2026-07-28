@@ -1,5 +1,20 @@
 # LiveAgent 连续执行实时状态
 
+## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
+
+```text
+Phase / Task: Phase 16 / V4 isolated disabled-thinking JSON protocol probe
+状态: EXECUTED_PASS_PROTOCOL_ONLY / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v4-json-probe
+真实证据: V1=FAILED / ANALYST_VALIDATION_FAILED; V2=FAILED / MODEL_OUTCOME_UNAVAILABLE;
+V3=FAILED / MODEL_FAILURE_INVALID_OUTPUT_JSON; V4=PASS / JSON_PROTOCOL_PASS.
+V4 事实: 唯一无业务请求已发送；完整 Provider receipt/usage，receipt HMAC 与 outcome digest 可复验；不重试。
+范围限制: V4 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明真实双 Agent 10/10、AgentAction、Planner 或经营决策通过。
+工程证据: unit 1621 passed；integration 224 passed, 7 deselected；coverage 91.914% line / 85.043% branch；36 release cases PASS。
+默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17、重试 V1/V2/V3/V4 或打开 DECISION_SUPPORT。
+下一条精确操作: 生成并验证 V4 脱敏报告/Acceptance/状态文档；提交、推送、创建 PR，Gate 全绿后 merge commit。
+```
+
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
 
 ```text
