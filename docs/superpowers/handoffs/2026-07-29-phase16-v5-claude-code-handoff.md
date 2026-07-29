@@ -1,5 +1,28 @@
 # Phase 16 V5 Claude Code 移交说明
 
+## 最终目标与完成定义（先读本节）
+
+**最终目标：** 为已经完成工程实现的 Phase 16，补齐一条独立、真实、受控的
+`EvidenceAnalystAgent -> DecisionPlannerAgent` 端到端证据链。该证据链必须证明真实
+`deepseek-v4-pro` 可以在系统不放松安全校验的前提下，消费冻结的高冲突售罄证据、产生可验证的
+结构化结果，并留下可审计的成本、usage 和 provider receipt。
+
+**不是目标：** 不追求“无论如何都让模型通过”；不开放 `DETERMINISTIC_ONLY` 默认路由；不实现
+自动经营动作或生产上线；不继续扩展数据库安全；不改写 V1 至 V4 的失败或探测事实。模型表现不合格时，
+诚实的失败结论比绕过校验或反复调 Prompt 更符合本任务目标。
+
+**Phase 16 V5 的唯一有效终态：**
+
+| 终态 | 必须满足的条件 | Claude Code 的收口动作 |
+| --- | --- | --- |
+| `PASS: CONTROLLED_E2E_QUALIFIED` | 校准 `2/2 PASS`；正式十例 `10/10`，共 `20/20` 调用；全部有 usage、provider receipt、AgentAction、Schema、Evidence 和语义校验；成本不超过 `1.000000 CNY`。 | 渲染脱敏 PASS 证据和 Acceptance，完成 PR Gate，等待用户批准 merge commit。 |
+| `FAILED` | 任一已发送校准或正式 stage 失败、非 `stop`、缺 usage/receipt，或任一结构、证据、语义、预算校验失败。 | 追加不可变脱敏失败证据，更新 Acceptance 和状态，停止；只可提交新的 V6 方案，不能在 V5 重试。 |
+| `BLOCKED + INCONCLUSIVE` | 发送前预检、环境身份、预算或用户授权不满足，因而没有发送请求。 | 记录阻断原因并停止，不得伪造通过或把离线结果写成真实模型成功。 |
+
+**Claude Code 的交接任务何时完成：** 已获得上述三种终态之一，相关证据和状态文档已同步，当前 PR
+HEAD 已通过全部 Gate，并已向用户申请最终 merge 批准。最终是否合并 `main` 由用户决定；Claude Code
+不得自行合并。
+
 ## 1. 交接目标与起点
 
 本文件将 Phase 16 未完成的真实模型证据收口移交给 Claude Code。只允许推进
