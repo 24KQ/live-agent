@@ -3,8 +3,9 @@
 ## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Closeout
 
 - [x] 冻结 V5 独立 campaign、V4 Pro 禁思考 JSON 协议、隔离校准和正式 10/10 验收边界。
-- [ ] 新建 V5 Adapter/Profile/Manifest、共享一元 campaign ledger、Runner 和 CLI。
-- [ ] 完成单元、PostgreSQL、迁移、coverage 和安全门禁；真实调用前提交推送冻结实现。
+- [x] 新建 V5 Adapter/Profile/Manifest、共享一元 campaign ledger、Runner 和 CLI；校准使用独立合成输入，
+  不复用正式十例。
+- [x] 完成单元、PostgreSQL、迁移、coverage 和安全门禁；真实调用前提交推送冻结实现。
 - [ ] 执行 1 例隔离校准；仅在 2/2 PASS 后执行正式十例，任何已发送失败立即停止。
 - [ ] 更新证据报告与 Acceptance，PR Gate 全绿后 merge commit；保持 `DETERMINISTIC_ONLY`。
 

@@ -47,12 +47,14 @@ V4 是独立的禁思考 JSON 协议探针，而非 V1/V2/V3 重试。唯一
 可复验；不得再次执行 `scripts/run_phase16_v4_json_probe.py --execute`。它只证明最小 JSON 协议可消费，
 不得写成 AgentAction、Planner 或真实双 Agent `10/10` 通过；默认路由和 Phase Gate 不改变。
 
-V5 已获实施授权，但尚未发送真实模型请求。它必须在 `codex/phase16-v5-controlled-e2e` 隔离分支内使用
-新的 Manifest、Profile、账本、CLI 和独立 `1.00 CNY` campaign。固定模型为 DeepSeek V4 Pro，协议为
-`thinking.disabled` 加既有 JSON mode；先运行一个不与正式十例重叠的合成校准 case，只有 Analyst/Planner
-`2/2 PASS` 才能运行正式十例。V5 每阶段最大预约 `0.030000 CNY`，任一已发送失败立即停止且不重试。
-V1 至 V4 绝不改写、重试或纳入 V5 成功样本。V5 严格 `10/10` 成功后才可标记 Phase 16 为受控 E2E PASS，
-默认路由仍为 `DETERMINISTIC_ONLY`，思考模式兼容性和生产化另行设计。
+V5 的离线实现与 Gate 已完成，但尚未发送真实模型请求。它必须在
+`codex/phase16-v5-controlled-e2e` 隔离分支内使用新的 Manifest、Profile、最小 append-only 账本、CLI 和
+独立 `1.00 CNY` campaign。固定模型为 DeepSeek V4 Pro，协议为 `thinking.disabled` 加既有 JSON mode；
+先运行一个具有独立 case/payload digest 的合成校准 case，绝不复用正式十例的 case、bundle、digest 或 slot。
+只有 Analyst/Planner `2/2 PASS` 才能运行正式十例。V5 每阶段最大预约 `0.030000 CNY`，任一已发送失败立即
+停止且不重试。V1 至 V4 绝不改写、重试或纳入 V5 成功样本。V5 严格 `10/10` 成功后才可标记 Phase 16 为
+受控 E2E PASS，默认路由仍为 `DETERMINISTIC_ONLY`，思考模式兼容性和生产化另行设计。真实校准必须在
+提交、推送和 PR Gate 通过后再次取得用户授权。
 
 每个 Task 执行 RED、GREEN、REVIEW、VERIFY、DOCS、COMMIT、PUSH 并更新实时状态。不得修改或提交
 主工作区用户脏文件。所有 Task 完成后仍保持 `AWAITING_PHASE_17_GATE`；广泛文档审计和 Phase 17

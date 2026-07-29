@@ -105,7 +105,7 @@ def _start_calibration(ledger: PostgresPhase16V5CampaignLedger, manifest):
     return ledger.claim_case(
         run_id=PHASE16_V5_CALIBRATION_RUN_ID,
         case_id=manifest.calibration_case_id,
-        case_digest=manifest.formal_case_digests[manifest.calibration_parent_case_id],
+        case_digest=manifest.calibration_case_digest,
     )
 
 
@@ -232,7 +232,7 @@ def test_v5_non_stop_receipt_closes_the_run_and_blocks_later_case_claims(
         ledger.claim_case(
             run_id=claim.run_id,
             case_id=manifest.calibration_case_id,
-            case_digest=manifest.formal_case_digests[manifest.calibration_parent_case_id],
+            case_digest=manifest.calibration_case_digest,
         )
 
 
@@ -263,7 +263,7 @@ def test_v5_recovers_open_sent_intent_as_unknown_and_never_resends(
         postgres_v5_ledger_factory().claim_case(
             run_id=claim.run_id,
             case_id=manifest.calibration_case_id,
-            case_digest=manifest.formal_case_digests[manifest.calibration_parent_case_id],
+            case_digest=manifest.calibration_case_digest,
         )
 
 
@@ -448,7 +448,7 @@ def test_v5_ledger_rejects_campaign_conflict_unreleased_formal_and_invalid_dispa
     claim = ledger.claim_case(
         run_id=PHASE16_V5_CALIBRATION_RUN_ID,
         case_id=manifest.calibration_case_id,
-        case_digest=manifest.formal_case_digests[manifest.calibration_parent_case_id],
+        case_digest=manifest.calibration_case_digest,
     )
     with pytest.raises(Phase16V5CampaignLedgerError, match="reservation"):
         ledger.begin_dispatch(

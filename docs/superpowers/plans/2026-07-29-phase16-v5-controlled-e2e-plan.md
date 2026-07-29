@@ -13,24 +13,28 @@
 
 ## Task 1：隔离协议与 Profile
 
-- 新建 V5 专用 Transport/Adapter，显式注入 `thinking.disabled`，继续使用共享 Adapter 的 JSON mode、
+- [x] 新建 V5 专用 Transport/Adapter，显式注入 `thinking.disabled`，继续使用共享 Adapter 的 JSON mode、
   deadline、usage、receipt 和安全解析；不得修改 V1 至 V4 所绑定的共享 Adapter。
-- 新建冻结 V5 Analyst/Planner Profile、无案例 FINAL 信封结构示例和 system-managed Evidence ID 验证。
-- 新建 V5 Manifest，绑定合成校准 case、正式十例、价格、Profile/Prompt/Schema/source digest 和执行协议。
+- [x] 新建冻结 V5 Analyst/Planner Profile、无案例 FINAL 信封结构示例和 system-managed Evidence ID 验证。
+- [x] 新建 V5 Manifest，绑定独立合成校准输入的 case/payload digest、正式十例、价格、
+  Profile/Prompt/Schema/source digest 和执行协议。
 
 ## Task 2：campaign 账本与 Runner
 
-- 新建 PostgreSQL append-only V5 campaign、校准/正式 run、固定 slot、attempt、receipt、validation 和
+- [x] 新建 PostgreSQL append-only V5 campaign、校准/正式 run、固定 slot、attempt、receipt、validation 和
   terminal outcome；校准与正式调用共享 `1.000000 CNY`。
-- 复用 V2 的只读 projection、共享 Runner 与语义验证，不复制 AgentAction/Schema/EvidenceRef 逻辑。
-- CLI 默认 dry-run；`--execute-calibration` 与 `--execute-formal` 分离，后者要求已认证的校准 PASS。
+- [x] 正式十例复用 V2 的只读 projection、共享 Runner 与语义验证；校准改用独立合成投影，
+  不复制 AgentAction/Schema/EvidenceRef 逻辑。
+- [x] CLI 默认 dry-run；`--execute-calibration` 与 `--execute-formal` 分离，后者要求已认证的校准 PASS。
+- [x] 账本范围只保留 append-only、CAS、恢复和不重发；不在 V5 引入数据库账号隔离、GRANT/REVOKE、
+  execution lease 或 fencing 扩展。
 
 ## Task 3：离线验证
 
-- RED/GREEN 覆盖协议注入、Prompt/Manifest 身份、预算、校准门、重复 claim、崩溃恢复、脱敏、receipt/usage、
+- [x] RED/GREEN 覆盖协议注入、Prompt/Manifest 身份、预算、校准门、重复 claim、崩溃恢复、脱敏、receipt/usage、
   非 stop、JSON/Schema/Evidence/语义失败和默认路由隔离。
-- 使用真实 PostgreSQL 覆盖并发、append-only、HMAC/延迟量化、DDL 和恢复。
-- 运行完整 unit/integration、冻结 coverage 90/85、release cases、compileall、迁移 dry-run、敏感载荷、
+- [x] 使用真实 PostgreSQL 覆盖并发、append-only、HMAC/延迟量化、DDL 和恢复。
+- [x] 运行完整 unit/integration、冻结 coverage 90/85、36 个 PR release case、compileall、迁移 dry-run、敏感载荷、
   文档编码和 `git diff --check`。
 
 ## Task 4：真实证据与收口

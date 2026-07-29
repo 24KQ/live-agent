@@ -18,9 +18,10 @@
 与 HMAC 认证。它只验证 DeepSeek V4 Pro 的最小结构化输出协议可被 Adapter 消费，不覆盖上述真实双
 Agent 失败，不改变 `DETERMINISTIC_ONLY` 或 Phase 17 Gate。
 
-2026-07-29 已授权独立 V5 受控 E2E 收口：以 DeepSeek V4 Pro、禁思考和 JSON mode 先执行一个隔离校准
-双 Agent case，再在共享一元 campaign 内执行冻结正式十例。V5 未经完整离线门禁和提交推送不得联网；其成功只代表
-受控 E2E 合格，仍不等同生产上线或默认开启经营动作。
+2026-07-29 已完成独立 V5 受控 E2E 的离线实现和 Gate：以 DeepSeek V4 Pro、禁思考和 JSON mode 使用
+独立合成校准输入，校准不会复用正式十例的 case、Evidence Bundle、digest 或账本 slot；之后才可在共享一元
+campaign 内执行冻结正式十例。V5 尚未发送真实调用，必须先提交、推送、通过 PR Gate 并再次取得用户授权；其
+成功只代表受控 E2E 合格，仍不等同生产上线或默认开启经营动作。
 
 ## 当前状态结论
 

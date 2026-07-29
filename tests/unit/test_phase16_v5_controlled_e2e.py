@@ -17,6 +17,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 
+import src.decision_support.controlled_e2e_v5 as controlled_e2e_v5
 from src.decision_support.controlled_e2e_ledger_v5 import (
     Phase16V5CaseClaim,
     Phase16V5CaseOutcomeStatus,
@@ -40,6 +41,7 @@ from src.decision_support.controlled_e2e_v5 import (
     _V5BudgetAdapter,
     _V5PricingPolicy,
     build_phase16_v5_analyst_profile,
+    build_phase16_v5_calibration_projection,
     build_phase16_v5_manifest,
     build_phase16_v5_planner_profile,
     load_phase16_v5_manifest,
@@ -370,6 +372,59 @@ def test_v5_preflight_rebuilds_the_versioned_manifest_without_environment_or_net
     assert rebuilt.manifest_digest == stored.manifest_digest
     assert manifest == stored
     assert reasons == ()
+
+
+def test_v5_preflight_blocks_a_tampered_synthetic_calibration_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """校准输入的摘要一旦被替换，预检必须在联网前拒绝重建 campaign。"""
+
+    payload = json.loads(
+        (_PROJECT_ROOT / "evaluation/manifests/phase16-v5-controlled-e2e-calibration-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    # 仅破坏已冻结的 case 摘要，保持其余合成事实原样，精确验证加载器的防篡改边界。
+    payload["case_digest"] = "0" * 64
+    tampered_input = tmp_path / "tampered-calibration.json"
+    tampered_input.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    monkeypatch.setattr(
+        controlled_e2e_v5,
+        "PHASE16_V5_CALIBRATION_INPUT_PATH",
+        tampered_input,
+    )
+
+    manifest, reasons = preflight_phase16_v5(repository_root=_PROJECT_ROOT)
+
+    assert manifest is None
+    assert reasons == ("MANIFEST_REBUILD_FAILED",)
+
+
+def test_v5_calibration_projection_is_disjoint_from_all_formal_slots() -> None:
+    """合成校准只验证协议链路，绝不能复用十个正式 case 的身份或证据投影。"""
+
+    dataset = load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT)
+    calibration = build_phase16_v5_calibration_projection(
+        repository_root=_PROJECT_ROOT,
+        now=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+    runner = Phase16V5ControlledE2ERunner(
+        dataset=dataset,
+        manifest=load_phase16_v5_manifest(repository_root=_PROJECT_ROOT),
+        ledger=_RecordingLedger(),
+        model_port=_ValidV5Port(),
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+    formal = runner._projections(run_kind=Phase16V5RunKind.FORMAL)
+
+    assert calibration.case_id not in dataset.manifest.smoke_eligible_case_ids
+    assert all(
+        calibration.case_digest != formal_projection.case_digest
+        and calibration.evidence_bundle_digest != formal_projection.evidence_bundle_digest
+        and calibration.analyst_task.task_id != formal_projection.analyst_task.task_id
+        for _, _, formal_projection in formal
+    )
 
 
 def test_v5_manifest_rejects_a_profile_digest_changed_without_resigning_identity() -> None:

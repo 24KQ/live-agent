@@ -2425,3 +2425,12 @@
 - **状态**：`ACCEPTED`
 - **最终选择**：V5 严格成功后，Phase 16 Acceptance 标记 `PASS: CONTROLLED_E2E_QUALIFIED`；默认
   路由继续 `DETERMINISTIC_ONLY`，思考模式、影子运行、SLO、真实业务接入和上线审批留给后续阶段。
+
+## D-186：V5 调用前账本只保留证据闭环所需的最小数据库边界
+
+- **状态**：`ACCEPTED`
+- **背景**：V5 已有 append-only run/slot/attempt/receipt/validation/outcome、CAS、恢复和不重发边界。
+  继续加入数据库账号隔离、权限审计、GRANT/REVOKE、execution lease 或 fencing 会扩大实现范围，且不解决
+  当前真实模型结构化验证的主线问题。
+- **最终选择**：V5 只保留已有最小账本能力和真实 PostgreSQL 契约测试；上述权限与租约治理明确停止，留给
+  后续独立生产化设计。该选择不放宽预算、HMAC、receipt/usage、零重试或终态不可改写要求。

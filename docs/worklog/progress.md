@@ -2,9 +2,12 @@
 
 ## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Closeout
 
-- 用户已授权 V5 实施。当前只完成 Design/Plan/决策和状态冻结，尚未实现 V5 代码、迁移、账本或真实调用。
-- V5 将以独立分支、独立 Manifest、独立一元 campaign 和独立合成校准进入严格真实双 Agent 10/10 验收。
-- 默认路由为 `DETERMINISTIC_ONLY`；V1 至 V4 不重试，思考模式兼容性不自动开始。
+- V5 的独立 Adapter/Profile/Manifest、最小 append-only campaign 账本、Runner、CLI 和独立合成校准输入
+  已完成。校准不复用正式十例的 case、Evidence Bundle、digest 或账本 slot。
+- 离线验证已通过：unit `1644 passed`、integration `233 passed, 7 deselected`、V5 PostgreSQL `9 passed`、
+  coverage `91.956% line / 85.130% branch`、36 个 PR release case PASS、迁移 dry-run、敏感扫描与文档检查。
+- 尚未发送 V5 真实模型请求，费用为 `0.000000 CNY`。下一步是提交、推送和 PR Gate；校准与正式十例
+  均仍需单独用户授权。默认路由为 `DETERMINISTIC_ONLY`；V1 至 V4 不重试。
 
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 

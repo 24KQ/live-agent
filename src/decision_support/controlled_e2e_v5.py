@@ -27,7 +27,11 @@ from src.decision_support.multi_agent import (
     validate_v2_conflict_analysis_result,
     validate_v2_live_decision_planner_result,
 )
-from src.decision_support.multi_agent_evaluation import Phase16EvaluationDataset
+from src.decision_support.multi_agent_evaluation import (
+    Phase16EvaluationCase,
+    Phase16EvaluationDataset,
+    _assemble_bundle,
+)
 from src.decision_support.official_smoke_evidence_v2 import (
     FORMAL_INPUT_PRICE_CNY_PER_MILLION,
     FORMAL_OFFICIAL_SMOKE_MANIFEST_PATH,
@@ -37,8 +41,13 @@ from src.decision_support.official_smoke_evidence_v2 import (
 )
 from src.decision_support.official_smoke_runner_v2 import (
     Phase16OfficialSmokeV2CaseProjection,
+    _opaque_case_key,
+    _projection_evidence_registry,
+    _synthetic_live_parents,
     build_phase16_official_smoke_v2_case_projection,
 )
+from src.decision_support.evidence import EvidenceBundleSnapshot, ProductInventoryPayload
+from src.decision_support.store import derive_automatic_escalation_codes
 from src.decision_support.controlled_e2e_ledger_v5 import (
     Phase16V5CaseOutcomeStatus,
     Phase16V5DispatchStage,
@@ -73,6 +82,9 @@ PHASE16_V5_FORMAL_RUN_ID = "phase16-v5-formal-001"
 PHASE16_V5_MANIFEST_ID = "phase16-v5-controlled-e2e-v1"
 PHASE16_V5_MANIFEST_PATH = Path(
     "evaluation/manifests/phase16-v5-controlled-e2e-v1.json"
+)
+PHASE16_V5_CALIBRATION_INPUT_PATH = Path(
+    "evaluation/manifests/phase16-v5-controlled-e2e-calibration-v1.json"
 )
 PHASE16_V5_ANALYST_PROFILE_ID = "phase16_v5_evidence_analyst"
 PHASE16_V5_PLANNER_PROFILE_ID = "phase16_v5_decision_planner"
@@ -141,6 +153,50 @@ class Phase16V5ExecutionReport:
     model_calls: int
 
 
+class Phase16V5CalibrationInput(StrictFrozenModel):
+    """独立于正式十例的合成校准输入及其可复验摘要。
+
+    校准只验证真实 API、JSON 协议、双阶段顺序与账本链路，不得复用正式评分 slot 的
+    任一 case 投影。这里保存的全部字段都是合成库存/节奏事实，不包含用户、订单或标签。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    calibration_case_id: str = Field(
+        default="phase16-v5-synthetic-calibration-001",
+        pattern=r"^phase16-v5-synthetic-calibration-[0-9]{3}$",
+    )
+    case: Phase16EvaluationCase
+    # 空字符串仅允许出现在首次重建前的源码模板；加载后的验证器会立即以 canonical JSON
+    # 填充并冻结两个摘要，因此运行时对象不可能携带空摘要进入 Manifest 或网络路径。
+    case_digest: str = ""
+    calibration_payload_digest: str = ""
+
+    @model_validator(mode="after")
+    def _bind_synthetic_identity(self) -> "Phase16V5CalibrationInput":
+        """拒绝将正式 slot、标签或未签名的 case 替换为所谓 calibration。"""
+
+        if self.case.case_id.startswith("phase16-v5-"):
+            raise ValueError("V5 calibration model case must use the governed synthetic case shape")
+        case_digest = canonical_json_sha256(self.case.model_dump(mode="json"))
+        if self.case_digest and len(self.case_digest) != 64:
+            raise ValueError("V5 calibration case digest is invalid")
+        if self.case_digest and self.case_digest != case_digest:
+            raise ValueError("V5 calibration case digest does not match synthetic case")
+        payload = self.model_dump(
+            mode="json",
+            exclude={"case_digest", "calibration_payload_digest"},
+        )
+        payload_digest = canonical_json_sha256(payload)
+        if self.calibration_payload_digest and len(self.calibration_payload_digest) != 64:
+            raise ValueError("V5 calibration payload digest is invalid")
+        if self.calibration_payload_digest and self.calibration_payload_digest != payload_digest:
+            raise ValueError("V5 calibration payload digest does not match synthetic input")
+        object.__setattr__(self, "case_digest", case_digest)
+        object.__setattr__(self, "calibration_payload_digest", payload_digest)
+        return self
+
+
 class Phase16V5Manifest(StrictFrozenModel):
     """冻结 V5 campaign 的公开身份，不保存 Prompt、真实证据正文或环境凭据。"""
 
@@ -154,7 +210,8 @@ class Phase16V5Manifest(StrictFrozenModel):
     thinking_mode: DeepSeekV5ThinkingMode = DeepSeekV5ThinkingMode.DISABLED
     parent_manifest_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     calibration_case_id: str = Field(..., min_length=1)
-    calibration_parent_case_id: str = Field(..., min_length=1)
+    calibration_case_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    calibration_payload_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     formal_case_ids: tuple[str, ...] = Field(..., min_length=PHASE16_V5_FORMAL_CASE_COUNT)
     formal_case_digests: dict[str, str]
     profile_digests: dict[str, str]
@@ -183,6 +240,8 @@ class Phase16V5Manifest(StrictFrozenModel):
             raise ValueError("V5 formal case slots must be unique")
         if set(self.formal_case_digests) != set(self.formal_case_ids):
             raise ValueError("V5 case digests must exactly cover formal case slots")
+        if self.calibration_case_id in self.formal_case_ids:
+            raise ValueError("V5 calibration slot must be independent from formal slots")
         if set(self.profile_digests) != {"analyst", "planner"}:
             raise ValueError("V5 manifest requires analyst and planner profile digests")
         if (
@@ -281,6 +340,19 @@ def _source_digest(repository_root: Path, relative_path: str) -> str:
     return sha256(raw).hexdigest()
 
 
+def load_phase16_v5_calibration_input(*, repository_root: Path) -> Phase16V5CalibrationInput:
+    """读取独立冻结的合成校准输入，编码或摘要异常均阻断真实模型发送。"""
+
+    path = repository_root / PHASE16_V5_CALIBRATION_INPUT_PATH
+    try:
+        raw = path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf") or b"\r" in raw:
+            raise ValueError("calibration input encoding is invalid")
+        return Phase16V5CalibrationInput.model_validate(json.loads(raw.decode("utf-8")))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+        raise Phase16V5Error("V5 synthetic calibration input is unreadable") from error
+
+
 def build_phase16_v5_manifest(
     *, repository_root: Path, dataset: Phase16EvaluationDataset
 ) -> Phase16V5Manifest:
@@ -294,14 +366,18 @@ def build_phase16_v5_manifest(
         raise ValueError("V5 parent dataset no longer matches the frozen V2 case set")
     if len(case_ids) != PHASE16_V5_FORMAL_CASE_COUNT:
         raise ValueError("V5 parent dataset must expose exactly ten formal cases")
+    calibration = load_phase16_v5_calibration_input(repository_root=repository_root)
+    if calibration.case.case_id in case_ids:
+        raise ValueError("V5 synthetic calibration must not reuse a formal case")
     analyst = build_phase16_v5_analyst_profile()
     planner = build_phase16_v5_planner_profile()
     return Phase16V5Manifest(
         parent_manifest_digest=parent_manifest.manifest_digest,
-        # 校准引用同一份合成评估数据的首个冻结投影，但使用不同 run、slot 和 case 身份；
-        # 它既不占用十个正式 slot，也不会读取真实客户或生产经营数据。
-        calibration_case_id="phase16-v5-synthetic-calibration-001",
-        calibration_parent_case_id=case_ids[0],
+        # 校准拥有单独冻结的合成输入和摘要，既不占用正式 slot，也不能通过改变正式数据集
+        # 来重签。它只证明 API 集成与协议闭环，不能为十例正式结果提供训练或预演机会。
+        calibration_case_id=calibration.calibration_case_id,
+        calibration_case_digest=calibration.case_digest,
+        calibration_payload_digest=calibration.calibration_payload_digest,
         formal_case_ids=tuple(case_ids),
         formal_case_digests={
             case_id: dataset.manifest.case_digests[case_id] for case_id in case_ids
@@ -353,6 +429,82 @@ def preflight_phase16_v5(*, repository_root: Path) -> tuple[Phase16V5Manifest | 
     if stored is not None and rebuilt is not None and stored.manifest_digest != rebuilt.manifest_digest:
         reasons.append("MANIFEST_IDENTITY_MISMATCH")
     return stored if not reasons else None, tuple(sorted(set(reasons)))
+
+
+def build_phase16_v5_calibration_projection(
+    *,
+    repository_root: Path,
+    now: datetime,
+) -> Phase16OfficialSmokeV2CaseProjection:
+    """从独立合成输入重建校准证据 Bundle，不读取或投影正式十例的 case。"""
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("V5 calibration projection requires timezone-aware clock")
+    calibration = load_phase16_v5_calibration_input(repository_root=repository_root)
+    workspace, incident = _synthetic_live_parents(
+        # 外层校准 slot 是审计账本用于隔离正式十例的稳定身份；但六角色证据组件、事件和
+        # Incident 的绑定关系必须全部由合成受治理 case 的身份派生。若把 slot ID 传入这里，
+        # Assembler 会检测到事件 source_ref 与 ``calibration.case.case_id`` 不一致并 fail-closed。
+        # 因而仅内部父事实使用 case ID，模型可见和账本可见的 slot 身份仍保持独立。
+        case_id=calibration.case.case_id,
+        now=now,
+    )
+    # 继续复用 Phase 16 正式六角色 Assembler。V5 仅提供独立的合成 case，不复制或
+    # 绕过 EvidenceBundle、freshness、trigger derivation 与只读 Resolver 的治理逻辑。
+    bundle = _assemble_bundle(
+        workspace=workspace,
+        incident=incident,
+        case=calibration.case,
+        now=now,
+    )
+    snapshot = EvidenceBundleSnapshot.model_validate(bundle.snapshot)
+    references = tuple(component.reference for component in snapshot.components)
+    trigger_codes = derive_automatic_escalation_codes(bundle)
+    if len(trigger_codes) < 2:
+        raise ValueError("V5 synthetic calibration does not contain a high-conflict trigger set")
+    inventory = next(
+        component.payload
+        for component in snapshot.components
+        if component.role.value == "PRODUCT_INVENTORY_SNAPSHOT"
+    )
+    if not isinstance(inventory, ProductInventoryPayload):
+        raise ValueError("V5 synthetic calibration inventory evidence is invalid")
+    key = _opaque_case_key(calibration.calibration_case_id)
+    analyst_profile = build_phase16_v5_analyst_profile()
+    planner_profile = build_phase16_v5_planner_profile()
+    analyst_task = AgentTask(
+        task_id=f"v5-calibration-analyst-{key}",
+        task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
+        profile_id=analyst_profile.profile_id,
+        profile_version=analyst_profile.profile_version,
+        room_id=snapshot.scope.room_id,
+        trace_id=snapshot.scope.trace_id,
+        objective="Analyze only governed synthetic sold-out conflict evidence for controlled E2E calibration.",
+        input_snapshot={
+            "trigger_codes": [code.value for code in trigger_codes],
+            "evidence_bundle_digest": snapshot.bundle_digest,
+        },
+        initial_evidence_refs=references,
+    )
+    return Phase16OfficialSmokeV2CaseProjection(
+        case_id=calibration.calibration_case_id,
+        case_digest=calibration.case_digest,
+        analyst_task=analyst_task,
+        planner_profile_id=planner_profile.profile_id,
+        planner_profile_version=planner_profile.profile_version,
+        evidence_refs=references,
+        evidence_registry=_projection_evidence_registry(snapshot),
+        trusted_anchor_id=snapshot.scope.anchor_id,
+        trigger_codes=tuple(trigger_codes),
+        available_backup_product_ids=frozenset(
+            product.product_id
+            for product in inventory.backup_products
+            if product.is_active and product.inventory > 0
+        ),
+        proposal_eligible=snapshot.proposal_eligible,
+        valid_until=snapshot.valid_until,
+        evidence_bundle_digest=snapshot.bundle_digest,
+    )
 
 
 class _NoSkillPort:
@@ -655,11 +807,13 @@ class Phase16V5ControlledE2ERunner:
         if instant.tzinfo is None or instant.utcoffset() is None:
             raise ValueError("V5 clock must be timezone-aware")
         if run_kind is Phase16V5RunKind.CALIBRATION:
-            parent_case_id = self._manifest.calibration_parent_case_id
             return ((
                 self._manifest.calibration_case_id,
-                self._dataset.manifest.case_digests[parent_case_id],
-                build_phase16_official_smoke_v2_case_projection(dataset=self._dataset, case_id=parent_case_id, now=instant),
+                self._manifest.calibration_case_digest,
+                build_phase16_v5_calibration_projection(
+                    repository_root=Path(__file__).resolve().parents[2],
+                    now=instant,
+                ),
             ),)
         return tuple(
             (

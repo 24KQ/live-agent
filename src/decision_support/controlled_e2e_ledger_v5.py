@@ -929,7 +929,9 @@ class PostgresPhase16V5CampaignLedger:
         """从 Manifest 显式映射校准或正式 slot，调用方不能通过参数扩展 case 集合。"""
 
         if run_kind is Phase16V5RunKind.CALIBRATION:
-            return ((manifest.calibration_case_id, manifest.formal_case_digests[manifest.calibration_parent_case_id]),)
+            # 校准的 case 摘要来自独立合成输入，不能借用正式十例的任一摘要；否则一次
+            # 校准请求会提前暴露正式 slot，并让后续 10/10 结论带有预演歧义。
+            return ((manifest.calibration_case_id, manifest.calibration_case_digest),)
         return tuple((case_id, manifest.formal_case_digests[case_id]) for case_id in manifest.formal_case_ids)
 
     @staticmethod

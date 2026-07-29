@@ -1,20 +1,14 @@
 {
-  "calibration_case_id": "phase16-v5-synthetic-calibration-001",
-  "calibration_parent_case_id": "phase16-high-conflict-paired-development-001",
+  "manifest_id": "phase16-v5-controlled-e2e-v1",
+  "schema_version": "1.0.0",
   "campaign_id": "phase16-v5-controlled-e2e",
+  "model_id": "deepseek-v4-pro",
   "endpoint_host": "api.deepseek.com",
-  "formal_case_digests": {
-    "phase16-high-conflict-paired-development-001": "979d90b04ca16b1450b887d83740c506dbfa0172a3b861ca923077f1adbf3a1a",
-    "phase16-high-conflict-paired-development-002": "eaab3b3c50b9c1d37c224680c49572fca9be2c851cd922ad2bc47d5b154189c2",
-    "phase16-high-conflict-paired-development-003": "cb6372dd8b2f0b57f748332a8d6bf03dfaaff2661821c23572a6243621015bca",
-    "phase16-high-conflict-paired-development-004": "8365cbab982492bc73158f157c79c37bef7018a6cb26d91efef7680a268e811f",
-    "phase16-high-conflict-paired-development-005": "2c34b5acebb8f1e0bdbf3523919a155e0ade6486afa59c3a1455728af202cb5a",
-    "phase16-high-conflict-paired-development-006": "baae0713ea18aa9cc87abca8f765ae112b5a67d1caca9466895aba0a1fea9c89",
-    "phase16-high-conflict-paired-validation-007": "f739622375fdb1103a8341ce4fa038acefd22fdb27339cba461439892d2d37bd",
-    "phase16-high-conflict-paired-validation-008": "d0a1a805be6a613b0f978b06d51dbebab185e1bbd6886baf8f5f7ddb48f2a45e",
-    "phase16-high-conflict-paired-validation-009": "458baf11bae10c3b98fd497096b4a4ca3743847fda8afd955e232e37e8ced9a7",
-    "phase16-high-conflict-paired-validation-010": "7a33a8bd78fc681e0699c7499c6cce61e3b177f8ab8b6d85558fa7956c76caeb"
-  },
+  "thinking_mode": "disabled",
+  "parent_manifest_digest": "228e012f559e2ecb6118c2eeb2b733bb3f3ee571c66e5183de4aca7ba994b1c9",
+  "calibration_case_id": "phase16-v5-synthetic-calibration-001",
+  "calibration_case_digest": "34093bea7eddd7a29d5fe2ec9445821519f10ba9bf697ec4d8794afbc7856e07",
+  "calibration_payload_digest": "28804fa5aa4fec44e45e869096d5724776628e342363b038559f1cc2c5d0c7ab",
   "formal_case_ids": [
     "phase16-high-conflict-paired-development-001",
     "phase16-high-conflict-paired-development-002",
@@ -27,25 +21,32 @@
     "phase16-high-conflict-paired-validation-009",
     "phase16-high-conflict-paired-validation-010"
   ],
-  "input_cny_per_million": "3.000000",
-  "manifest_digest": "3025ad4aadb227fff1b791b7f3ce37e205e0f9558692cd29ba1423350307b7a4",
-  "manifest_id": "phase16-v5-controlled-e2e-v1",
-  "model_id": "deepseek-v4-pro",
-  "output_cny_per_million": "6.000000",
-  "parent_manifest_digest": "228e012f559e2ecb6118c2eeb2b733bb3f3ee571c66e5183de4aca7ba994b1c9",
+  "formal_case_digests": {
+    "phase16-high-conflict-paired-development-001": "979d90b04ca16b1450b887d83740c506dbfa0172a3b861ca923077f1adbf3a1a",
+    "phase16-high-conflict-paired-development-002": "eaab3b3c50b9c1d37c224680c49572fca9be2c851cd922ad2bc47d5b154189c2",
+    "phase16-high-conflict-paired-development-003": "cb6372dd8b2f0b57f748332a8d6bf03dfaaff2661821c23572a6243621015bca",
+    "phase16-high-conflict-paired-development-004": "8365cbab982492bc73158f157c79c37bef7018a6cb26d91efef7680a268e811f",
+    "phase16-high-conflict-paired-development-005": "2c34b5acebb8f1e0bdbf3523919a155e0ade6486afa59c3a1455728af202cb5a",
+    "phase16-high-conflict-paired-development-006": "baae0713ea18aa9cc87abca8f765ae112b5a67d1caca9466895aba0a1fea9c89",
+    "phase16-high-conflict-paired-validation-007": "f739622375fdb1103a8341ce4fa038acefd22fdb27339cba461439892d2d37bd",
+    "phase16-high-conflict-paired-validation-008": "d0a1a805be6a613b0f978b06d51dbebab185e1bbd6886baf8f5f7ddb48f2a45e",
+    "phase16-high-conflict-paired-validation-009": "458baf11bae10c3b98fd497096b4a4ca3743847fda8afd955e232e37e8ced9a7",
+    "phase16-high-conflict-paired-validation-010": "7a33a8bd78fc681e0699c7499c6cce61e3b177f8ab8b6d85558fa7956c76caeb"
+  },
   "profile_digests": {
     "analyst": "df80f94e569aadb181495a7a9562299423bcef745e725db2d42999f8899988de",
     "planner": "585f33850581f78c4b2643cabb87aed8989a0407d2a0683ebecfe58b6828f4e2"
   },
-  "schema_version": "1.0.0",
+  "input_cny_per_million": "3.000000",
+  "output_cny_per_million": "6.000000",
+  "stage_reservation_cny": "0.030000",
+  "total_budget_cny": "1.000000",
   "source_file_digests": {
     "docker/init_phase16_v5_controlled_e2e.sql": "e95f0e0d3537ee95b57a706e88e2af8aea83b3c52e05c15b780004b88b4981d3",
     "scripts/run_phase16_v5_controlled_e2e.py": "b6ef71d6274fb475107cb86fad5a61b50f17e94aefef5b30ef5c4d2f45e470f3",
     "src/decision_support/controlled_e2e_adapter_v5.py": "fb85d119f0a0733cc615ad0b6ff601a13b98460f4711c50727b0162211e2c530",
-    "src/decision_support/controlled_e2e_ledger_v5.py": "4ffaf68dec15c22e072e2153b68bdc7d8e653d7dc8833c5d2f80cc2ca262c0f6",
-    "src/decision_support/controlled_e2e_v5.py": "5ca583fa5de98f93e45bfe349f64107d9dc44cc216bd9ce3bbf80da2ac245642"
+    "src/decision_support/controlled_e2e_ledger_v5.py": "e280fdef9b57015106a13ee2dfed8232a9e5b66befbb4bcce1929491a3c474a9",
+    "src/decision_support/controlled_e2e_v5.py": "7adf99ac8f5e022a0f99ce8d9311df32afbf030fc841111162419f522895e501"
   },
-  "stage_reservation_cny": "0.030000",
-  "thinking_mode": "disabled",
-  "total_budget_cny": "1.000000"
+  "manifest_digest": "8911fd1798d9e2641f27e52b1c52bb7a27df92a10b88eb753a303a11c1322c80"
 }

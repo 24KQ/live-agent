@@ -18,6 +18,9 @@
   `thinking={"type":"disabled"}`。它不保存或回传 `reasoning_content`。
 - V5 Profile 为零 Skill、单模型调用、60 秒 deadline、6000 总 token、2800 最大输出 token。Prompt 使用
   V2 的 system-managed Evidence ID 模式，并加入不含真实 ID、标签、案例或经营建议的 FINAL 信封骨架。
+- 校准输入固定为独立的 `phase16-v5-synthetic-calibration-001` 合成 case，并以 case 与完整输入摘要
+  绑定到 V5 Manifest。它通过同一六角色 Evidence Assembler 重建 bundle，但绝不复用正式十例的 case、
+  digest、投影或账本 slot，因而校准不会成为正式结果的预演样本。
 - 模型只输出受控 `evidence_ids`、约束、风险、解释和 Planner 候选；系统注入 finding、完整
   EvidenceRef 和其他确定性谱系事实。所有模型输出仍经共享 `BoundedSpecialistRunner` 的 AgentAction、
   JSON Schema、Resolver、预算和领域验证。
@@ -42,3 +45,9 @@ V5 建立一个新的 append-only campaign，总预算为 `1.000000 CNY`，覆�
    语义/预算失败均为 `FAILED`，立即停止且不重试、不修补文本。
 5. 只有 `10/10` case、`20/20` 调用和全部安全语义通过时，V5 结论为
    `PASS: CONTROLLED_E2E_QUALIFIED`。该结论不等同生产上线，仍等待独立的生产化阶段。
+
+## 实施状态（2026-07-29）
+
+V5 的离线实现、独立校准输入、PostgreSQL 最小 append-only 账本、CLI dry-run 和全部本地 Gate
+已经完成；尚未读取 V5 的 LLM 凭据，也没有发送 V5 真实模型请求。真实校准只能在冻结提交推送、PR
+Gate 通过并取得单独授权后执行。

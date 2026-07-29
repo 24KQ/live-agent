@@ -1,14 +1,18 @@
 # LiveAgent 连续执行实时状态
 
-## 2026-07-29 Phase 16 V5 Controlled E2E Evidence / Task 0
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence / Offline Gate Complete
 
 ```text
-Phase / Task: Phase 16 / V5 controlled real-model E2E evidence / documentation frozen
-状态: IMPLEMENTATION_AUTHORIZED / AWAITING_PHASE_17_GATE
+Phase / Task: Phase 16 / V5 controlled real-model E2E evidence / offline implementation verified
+状态: COMMIT_PENDING / AWAITING_PHASE_17_GATE
 分支: codex/phase16-v5-controlled-e2e，基线 origin/main@281cea6
 固定边界: V5 是新的一元 campaign，校准与正式十例共享预算；V1 至 V4 历史不可修改。
 模型协议: deepseek-v4-pro + thinking.disabled + JSON mode；模型只处理受控 ID、分析与选项。
-真实调用门: 当前禁止真实调用，直至 V5 代码、Manifest、PostgreSQL、完整门禁和提交推送均完成。
+校准隔离: 独立合成 input 的 case/payload digest 已冻结；校准不复用正式十例的 case、bundle、digest 或 slot。
+已验证: unit 1644 passed；integration 233 passed, 7 deselected；V5 PostgreSQL 9 passed；coverage
+91.956%/85.130%；36 PR release cases PASS；compileall、迁移 dry-run、敏感和文档门禁通过。
+账本范围: 仅 append-only、CAS、恢复和不重发；权限/账号/GRANT/REVOKE/lease/fencing 扩展已停止。
+真实调用门: 当前禁止真实调用，直至 V5 代码、Manifest、PostgreSQL、完整门禁和提交推送均完成，且用户另行授权校准。
 执行门: 校准 2/2 PASS 后才能运行正式 10/10；已发送失败立即停止，默认路由 DETERMINISTIC_ONLY。
 ```
 
