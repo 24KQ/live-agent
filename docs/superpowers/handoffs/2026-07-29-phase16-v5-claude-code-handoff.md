@@ -19,9 +19,12 @@
 | `FAILED` | 任一已发送校准或正式 stage 失败、非 `stop`、缺 usage/receipt，或任一结构、证据、语义、预算校验失败。 | 追加不可变脱敏失败证据，更新 Acceptance 和状态，停止；只可提交新的 V6 方案，不能在 V5 重试。 |
 | `BLOCKED + INCONCLUSIVE` | 发送前预检、环境身份、预算或用户授权不满足，因而没有发送请求。 | 记录阻断原因并停止，不得伪造通过或把离线结果写成真实模型成功。 |
 
-**Claude Code 的交接任务何时完成：** 已获得上述三种终态之一，相关证据和状态文档已同步，当前 PR
-HEAD 已通过全部 Gate，并已向用户申请最终 merge 批准。最终是否合并 `main` 由用户决定；Claude Code
-不得自行合并。
+**Claude Code 的 V5 证据收口任务何时完成：** 已获得上述三种终态之一，相关证据和状态文档已同步，当前
+PR HEAD 已通过全部 Gate，并已向用户申请最终 merge 批准。此时只是“等待合并”，不是 Phase 16 已结束。
+
+**Phase 16 何时正式完结：** 用户明确批准 merge 后，PR 的 merge commit 已成功进入 `origin/main`，并且以
+`git merge-base --is-ancestor <merge-commit> origin/main` 验证远端 main 包含该提交；最终 Acceptance 写入对应
+的 V5 终态。此前无论离线 Gate、校准或正式 smoke 处于何种状态，都不得把 Phase 16 写成正式完结。
 
 ## 1. 交接目标与起点
 
@@ -30,10 +33,16 @@ V5 受控 E2E campaign；不得重新开启已完成的 Phase 16 Task 1-11，也
 重跑 V1、V2、V3、V4 的历史事实。
 
 - 工作分支：`codex/phase16-v5-controlled-e2e`
-- 固定交接提交：`c85b8494a41616dcf261ccbe7e9f177e6955e935`
+- V5 实现基线：`c85b8494a41616dcf261ccbe7e9f177e6955e935`。
+- 实际交接起点：远端 `origin/codex/phase16-v5-controlled-e2e` 的当前 HEAD，且该 HEAD 必须包含本文件和
+  `c85b849`。不得 detached checkout `c85b849` 后直接工作，否则会丢失本移交说明。
 - 工作目录：`D:\\java\\agent\\.worktrees\\phase16-v5-controlled-e2e`
 - 根目录 `D:\\java\\agent` 不是本任务工作区；其中的未跟踪文件和本地状态不得读取、修改、暂存或清理。
-- V5 尚未读取 LLM 凭据、未发送 DeepSeek 请求，V5 费用为 `0.000000 CNY`。
+- 当前 V5 状态：本地离线 Gate 已通过，结果为 unit `1644 passed`、integration `233 passed, 7 deselected`、
+  V5 PostgreSQL `9 passed`、coverage `91.956% line / 85.130% branch`、36 个 PR release case PASS；尚未读取
+  V5 LLM 凭据、未发送 DeepSeek 请求，V5 费用为 `0.000000 CNY`。
+- 当前远端状态：尚未创建 V5 PR，因此不存在针对当前 V5 HEAD 的远端 PR Gate 成功记录；这是校准前必须完成的
+  下一项工作，不能将上述本地 Gate 写成远端 Gate 已通过。
 
 本次交接的目标不是把默认路由打开，也不是把真实模型结果包装成生产上线证明。唯一目标是：在
 冻结、可审计、人工授权的条件下，取得 V5 真实双 Agent 的严格结论，或如实记录其失败。
@@ -69,6 +78,8 @@ V5 受控 E2E campaign；不得重新开启已完成的 Phase 16 Task 1-11，也
   digest、投影、Evidence Bundle 或账本 slot。
 - V5 campaign 的总预算固定为 `1.000000 CNY`，每阶段预约最多 `0.030000 CNY`。不得关闭、绕过或增大
   预算门禁。
+- V1 至 V4 的历史费用和结论必须继续从各自不可变报告中披露，但它们不从 V5 独立 campaign 的
+  `1.000000 CNY` 预算扣除，也不得计入 V5 成功样本或剩余额度。
 - 默认路由永久保持 `DETERMINISTIC_ONLY`；V5 不得进入 LIVE Registry、Coordinator、Store、HTTP、
   WebSocket、OperatorDecision 或经营命令路径。
 - V5 账本范围仅限 append-only、CAS、恢复与 no-resend。禁止扩展数据库账号、GRANT/REVOKE、lease、
@@ -89,9 +100,13 @@ V5 受控 E2E campaign；不得重新开启已完成的 Phase 16 Task 1-11，也
 
 - Claude Code 可以修复 V5 的离线缺陷、补测试、重新冻结 V5 Manifest/Profile/source digest、提交、推送和创建或更新 PR。
 - 任何 V5 代码修改必须有详细 UTF-8 中文注释；文档使用 UTF-8、LF、无 BOM。
-- 真实调用只可读取现有 `.env` 中的既有变量。不得打印、复制、修改或提交 API Key，也不得将完整
-  Prompt、模型正文、思维链、原始 provider ID 或经营建议写入日志、报告、Issue、PR 或账本。
-- 校准和正式调用都必须由用户在当前对话中单独明确批准。Claude Code 不能自行调用，即使所有 Gate 都通过。
+- 真实调用只可读取现有 `.env` 中的既有变量。网络前置条件包括 `LLM_API_BASE_URL`、`LLM_API_KEY`、
+  `LLM_MODEL`、`PHASE16_OFFICIAL_SMOKE_V2_RECEIPT_HMAC_HEX`，以及 PostgreSQL 的 `POSTGRES_HOST`、
+  `POSTGRES_PORT`、`POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD`。只允许确认这些变量存在、格式有效
+  且数据库可连接；不得打印、复制、修改或提交任何值。
+- 校准和正式调用都必须由用户在**执行该命令的 Claude Code 任务**中单独明确批准。批准消息必须指明当前
+  commit SHA、将要执行的精确命令及其范围；Claude Code 需将脱敏授权摘要写入报告。Claude Code 不能自行调用，
+  即使所有 Gate 都通过。
 - 每个已发送 stage 仅允许一次调用。任何已发送失败、非 `stop`、缺 usage、缺 provider receipt、JSON/
   Schema/Evidence/语义/预算失败，都必须写入 append-only 脱敏事实并终止当前 V5 run；不得重试、改文本后重发、
   删除账本事实或修改历史结果。
@@ -100,7 +115,8 @@ V5 受控 E2E campaign；不得重新开启已完成的 Phase 16 Task 1-11，也
 
 ### A. 离线准备
 
-1. 确认当前分支从 `c85b849` 或其后续 V5 提交继续，且不在根目录工作树操作。
+1. `git fetch origin` 后从 `origin/codex/phase16-v5-controlled-e2e` 的当前 HEAD 继续，确认
+   `c85b849` 是其祖先且本移交文件存在；不得仅 checkout `c85b849`。始终不在根目录工作树操作。
 2. 先执行默认 dry-run；该命令不读 `.env`、不连 PostgreSQL、不会联网：
 
    ```powershell
@@ -146,9 +162,9 @@ V5 受控 E2E campaign；不得重新开启已完成的 Phase 16 Task 1-11，也
 5. 所有文档更新推送后重新通过当前 PR HEAD 的 Gate。Claude Code 只可请求用户批准 merge commit，
    不得自行合并 `main`。
 
-## 6. 交接完成判定
+## 6. 本移交文档的交付状态
 
-本移交在以下条件满足时完成：本文件单独提交为
-`docs: hand off phase16 v5 closeout to claude code` 并推送至 V5 分支；`git diff --check`、敏感载荷扫描和
-本文件的 UTF-8/BOM/LF/replacement character/尾随空白检查均通过。此提交本身不运行迁移、不读取 `.env`、
-不连接数据库，也不调用真实模型。
+本移交文档已以 `docs: hand off phase16 v5 closeout to claude code` 提交并推送；本次澄清只补充其执行事实。
+它的 UTF-8/BOM/LF/replacement character/尾随空白、敏感载荷和 `git diff --check` 检查必须继续通过。
+**本节仅表示移交文档交付完成，不表示 V5 或 Phase 16 已完成。** Phase 16 的正式完结条件以本文件
+“最终目标与完成定义”章节为唯一准则。
