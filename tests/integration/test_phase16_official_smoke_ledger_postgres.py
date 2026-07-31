@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import psycopg
@@ -18,6 +20,7 @@ import pytest
 from psycopg import sql
 
 from src.config.settings import get_settings
+from src.decision_support import official_smoke_ledger as ledger_module
 from src.decision_support.official_smoke_evidence import (
     load_phase16_official_smoke_evidence_manifest,
 )
@@ -56,6 +59,25 @@ def postgres_official_smoke_ledger_factory():
     )
     initialize_phase16_official_smoke_ledger_schema(settings)
 
+    # V1 冻结身份按 Manifest 统一为 flash 全链（SQL run/cost 触发器与 receipts CHECK
+    # 均按 flash 封印，真实历史 pro receipts 只作为既有 append-only 事实存在）。账本
+    # 当前源码仍对齐 pro，因此演练期间把 Ledger 的模型身份与计费常量局部还原为 flash，
+    # 使经 Ledger API 写入的 claim/receipt 与 SQL 冻结触发器自洽；退出后恢复。
+    ledger_stack = ExitStack()
+    ledger_stack.enter_context(
+        patch.object(ledger_module, "FORMAL_MODEL_ID", "deepseek-v4-flash")
+    )
+    ledger_stack.enter_context(
+        patch.object(
+            ledger_module, "FORMAL_INPUT_PRICE_CNY_PER_MILLION", Decimal("1.000000")
+        )
+    )
+    ledger_stack.enter_context(
+        patch.object(
+            ledger_module, "FORMAL_OUTPUT_PRICE_CNY_PER_MILLION", Decimal("2.000000")
+        )
+    )
+
     def build_ledger() -> PostgresPhase16OfficialSmokeLedger:
         """用同一隔离 schema 构造新实例，供并发与重启测试复用。"""
 
@@ -73,6 +95,7 @@ def postgres_official_smoke_ledger_factory():
         # 每次调用构造新的 Python 对象，验证事实来自 PostgreSQL 而非进程内缓存。
         yield build_ledger
     finally:
+        ledger_stack.close()
         with psycopg.connect(**base_kwargs) as connection:
             connection.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE;").format(sql.Identifier(schema_name)))
             connection.commit()
@@ -306,7 +329,7 @@ def test_blocked_validation_rejects_provider_receipt(
         attempt_id=analyst.attempt_id,
         provider_response_id="chatcmpl-blocked-with-receipt",
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="b" * 64,
         input_tokens=1,
         output_tokens=1,
@@ -351,7 +374,7 @@ def test_planner_dispatch_requires_same_case_analyst_pass_and_receipt_is_append_
         attempt_id=analyst_attempt.attempt_id,
         provider_response_id="chatcmpl-formal-analyst-001",
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="a" * 64,
         input_tokens=100,
         output_tokens=50,
@@ -359,13 +382,13 @@ def test_planner_dispatch_requires_same_case_analyst_pass_and_receipt_is_append_
         latency_ms=Decimal("12.500"),
     )
 
-    assert receipt.total_cost_cny == Decimal("0.000600")
+    assert receipt.total_cost_cny == Decimal("0.000200")
     with pytest.raises(Phase16OfficialSmokeLedgerError, match="provider receipt already exists"):
         ledger.append_provider_receipt(
             attempt_id=analyst_attempt.attempt_id,
             provider_response_id="chatcmpl-formal-analyst-duplicate",
             finish_reason="stop",
-            model_id="deepseek-v4-pro",
+            model_id="deepseek-v4-flash",
             response_digest="b" * 64,
             input_tokens=100,
             output_tokens=50,
@@ -443,7 +466,7 @@ def test_case_pass_requires_two_validated_receipts_and_persists_terminal_outcome
         attempt_id=analyst.attempt_id,
         provider_response_id="chatcmpl-formal-pass-analyst",
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="d" * 64,
         input_tokens=10,
         output_tokens=10,
@@ -474,7 +497,7 @@ def test_case_pass_requires_two_validated_receipts_and_persists_terminal_outcome
         attempt_id=planner.attempt_id,
         provider_response_id="chatcmpl-formal-pass-planner",
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="f" * 64,
         input_tokens=10,
         output_tokens=10,
@@ -774,7 +797,7 @@ def test_ledger_rejects_free_text_audit_values_and_hashes_provider_response_id(
             attempt_id=analyst.attempt_id,
             provider_response_id="provider-response-with-untrusted-text",
             finish_reason="model body must not become a finish reason",
-            model_id="deepseek-v4-pro",
+            model_id="deepseek-v4-flash",
             response_digest="a" * 64,
             input_tokens=1,
             output_tokens=1,
@@ -787,7 +810,7 @@ def test_ledger_rejects_free_text_audit_values_and_hashes_provider_response_id(
         attempt_id=analyst.attempt_id,
         provider_response_id=provider_response_id,
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="b" * 64,
         input_tokens=1,
         output_tokens=1,
@@ -900,7 +923,7 @@ def test_ledger_rejects_duplicate_provider_response_id_across_attempts(
         attempt_id=analyst.attempt_id,
         provider_response_id=provider_response_id,
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="a" * 64,
         input_tokens=1,
         output_tokens=1,
@@ -925,7 +948,7 @@ def test_ledger_rejects_duplicate_provider_response_id_across_attempts(
             attempt_id=planner.attempt_id,
             provider_response_id=provider_response_id,
             finish_reason="stop",
-            model_id="deepseek-v4-pro",
+            model_id="deepseek-v4-flash",
             response_digest="c" * 64,
             input_tokens=1,
             output_tokens=1,
@@ -991,7 +1014,7 @@ def test_restart_closes_case_after_two_validated_receipts_without_resend(
         attempt_id=analyst.attempt_id,
         provider_response_id="chatcmpl-completed-chain-analyst",
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="e" * 64,
         input_tokens=1,
         output_tokens=1,
@@ -1014,7 +1037,7 @@ def test_restart_closes_case_after_two_validated_receipts_without_resend(
         attempt_id=planner.attempt_id,
         provider_response_id="chatcmpl-completed-chain-planner",
         finish_reason="stop",
-        model_id="deepseek-v4-pro",
+        model_id="deepseek-v4-flash",
         response_digest="0" * 64,
         input_tokens=1,
         output_tokens=1,
@@ -1068,8 +1091,8 @@ def test_database_direct_pass_chain_without_receipt_authenticator_tag_is_not_for
                    (attempt_id, provider_response_id_digest, finish_reason, model_id, response_digest,
                     input_tokens, output_tokens, total_tokens, latency_ms,
                     input_cost_cny, output_cost_cny, total_cost_cny, receipt_auth_tag)
-                   VALUES (%s::uuid,%s,'stop','deepseek-v4-pro',%s,1,1,2,1.000,
-                           0.000003,0.000006,0.000009,%s);""",
+                   VALUES (%s::uuid,%s,'stop','deepseek-v4-flash',%s,1,1,2,1.000,
+                           0.000001,0.000002,0.000003,%s);""",
                 (analyst_attempt_id, "a" * 64, "b" * 64, "0" * 64),
             )
             cursor.execute(
@@ -1096,8 +1119,8 @@ def test_database_direct_pass_chain_without_receipt_authenticator_tag_is_not_for
                    (attempt_id, provider_response_id_digest, finish_reason, model_id, response_digest,
                     input_tokens, output_tokens, total_tokens, latency_ms,
                     input_cost_cny, output_cost_cny, total_cost_cny, receipt_auth_tag)
-                   VALUES (%s::uuid,%s,'stop','deepseek-v4-pro',%s,1,1,2,1.000,
-                           0.000003,0.000006,0.000009,%s);""",
+                   VALUES (%s::uuid,%s,'stop','deepseek-v4-flash',%s,1,1,2,1.000,
+                           0.000001,0.000002,0.000003,%s);""",
                 (planner_attempt_id, "d" * 64, "e" * 64, "0" * 64),
             )
             cursor.execute(
@@ -1151,8 +1174,8 @@ def test_recovery_and_close_case_reject_forged_authenticated_pass_chain(
                    (attempt_id, provider_response_id_digest, finish_reason, model_id, response_digest,
                     input_tokens, output_tokens, total_tokens, latency_ms,
                     input_cost_cny, output_cost_cny, total_cost_cny, receipt_auth_tag)
-                   VALUES (%s::uuid,%s,'stop','deepseek-v4-pro',%s,1,1,2,1.000,
-                           0.000003,0.000006,0.000009,%s);""",
+                   VALUES (%s::uuid,%s,'stop','deepseek-v4-flash',%s,1,1,2,1.000,
+                           0.000001,0.000002,0.000003,%s);""",
                 (analyst_attempt_id, "a" * 64, "b" * 64, "0" * 64),
             )
             cursor.execute(
@@ -1179,8 +1202,8 @@ def test_recovery_and_close_case_reject_forged_authenticated_pass_chain(
                    (attempt_id, provider_response_id_digest, finish_reason, model_id, response_digest,
                     input_tokens, output_tokens, total_tokens, latency_ms,
                     input_cost_cny, output_cost_cny, total_cost_cny, receipt_auth_tag)
-                   VALUES (%s::uuid,%s,'stop','deepseek-v4-pro',%s,1,1,2,1.000,
-                           0.000003,0.000006,0.000009,%s);""",
+                   VALUES (%s::uuid,%s,'stop','deepseek-v4-flash',%s,1,1,2,1.000,
+                           0.000001,0.000002,0.000003,%s);""",
                 (planner_attempt_id, "d" * 64, "e" * 64, "0" * 64),
             )
             cursor.execute(

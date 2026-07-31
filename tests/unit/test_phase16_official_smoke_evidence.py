@@ -60,13 +60,14 @@ def _dataset():
 
 
 def _official_price() -> Phase16OfficialPriceEvidence:
-    """构造用户已提供的官方 cache-miss 价格证据，不读取密钥或访问网络。"""
+    """构造正式执行契约的官方 cache-miss 价格证据（V1 真实 receipt 为 3.0/6.0 计费），
+    不读取密钥或访问网络。"""
 
     return Phase16OfficialPriceEvidence.create(
-        model_id="deepseek-v4-flash",
+        model_id="deepseek-v4-pro",
         endpoint_host="api.deepseek.com",
-        input_cny_per_million=Decimal("1.000000"),
-        output_cny_per_million=Decimal("2.000000"),
+        input_cny_per_million=Decimal("3.000000"),
+        output_cny_per_million=Decimal("6.000000"),
     )
 
 
@@ -151,7 +152,7 @@ def test_official_manifest_and_preflight_bind_exact_dataset_profiles_price_and_e
         dataset=dataset,
         official_price=price,
         environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
+            model_id="deepseek-v4-pro",
             endpoint_host="api.deepseek.com",
             credential_configured=True,
         ),
@@ -166,15 +167,15 @@ def test_official_manifest_and_preflight_bind_exact_dataset_profiles_price_and_e
 
     monkeypatch.setattr(
         evidence_module,
-        "build_phase16_official_smoke_evidence_manifest",
-        lambda **_kwargs: stored,
+        "load_phase16_official_smoke_evidence_manifest",
+        lambda **_kwargs: manifest,
     )
 
     allowed = preflight_phase16_official_smoke_evidence(
         dataset=dataset,
         official_price=price,
         environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
+            model_id="deepseek-v4-pro",
             endpoint_host="api.deepseek.com",
             credential_configured=True,
         ),
@@ -220,7 +221,7 @@ def test_preflight_fails_closed_when_canonical_manifest_cannot_be_loaded(monkeyp
         dataset=_dataset(),
         official_price=_official_price(),
         environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
+            model_id="deepseek-v4-pro",
             endpoint_host="api.deepseek.com",
             credential_configured=True,
         ),
@@ -248,7 +249,7 @@ def test_preflight_marks_only_factory_results_as_trusted_for_future_dispatch() -
         dataset=_dataset(),
         official_price=_official_price(),
         environment=Phase16OfficialSmokeEnvironment(
-            model_id="deepseek-v4-flash",
+            model_id="deepseek-v4-pro",
             endpoint_host="api.deepseek.com",
             credential_configured=True,
         ),
