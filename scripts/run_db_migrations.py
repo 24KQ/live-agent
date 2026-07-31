@@ -148,8 +148,11 @@ MIGRATIONS: list[MigrationStep] = [
     MigrationStep(
         phase="phase16_official_smoke_ledger",
         sql_file="init_phase16_official_smoke_ledger.sql",
-        required=True,
-        description="Phase 16 正式真实模型 smoke append-only 审计账本",
+        # V1 契约 digest 只与"纯净 V1 schema"匹配；V2 叠加（v4-pro CHECK/新函数体/
+        # 新 Manifest digest）后该检查必然 fail-closed。V1 建表使命在叠加前已完成，
+        # 重复执行只会产生 warning；全新数据库初始化仍会先执行本步再叠加 V2。
+        required=False,
+        description="Phase 16 正式真实模型 smoke append-only 审计账本（V1；V2 叠加后仅告警）",
     ),
     MigrationStep(
         phase="phase16_official_smoke_v2_ledger",
@@ -174,6 +177,42 @@ MIGRATIONS: list[MigrationStep] = [
         sql_file="init_phase16_v5_controlled_e2e.sql",
         required=True,
         description="Phase 16 V5 禁思考双 Agent E2E campaign append-only 审计账本",
+    ),
+    MigrationStep(
+        phase="phase16_qualification",
+        sql_file="init_phase16_qualification_ledger.sql",
+        required=True,
+        description="Phase 16 三层资格 policy/corpus/candidate 独立 append-only 审计账本",
+    ),
+    MigrationStep(
+        phase="phase16_qualification_budget_ranges",
+        sql_file="alter_phase16_qualification_budget_ranges.sql",
+        required=True,
+        description="Phase 16 资格账本预算 CHECK 放宽为范围兜底（policy 为唯一权威）",
+    ),
+    MigrationStep(
+        phase="phase16_qualification_identity_uniques",
+        sql_file="alter_phase16_qualification_identity_uniques.sql",
+        required=True,
+        description="Phase 16 资格账本 (id, version) 唯一约束放宽为 digest 身份（支持重冻结追加）",
+    ),
+    MigrationStep(
+        phase="phase16_qualification_receipt_attempts",
+        sql_file="alter_phase16_qualification_receipt_attempts.sql",
+        required=True,
+        description="Phase 16 资格账本 provider_receipts 补传输层重试事实列（attempt_count/responded_endpoint_host）",
+    ),
+    MigrationStep(
+        phase="phase16_qualification_receipt_effort",
+        sql_file="alter_phase16_qualification_receipt_effort.sql",
+        required=True,
+        description="Phase 16 资格账本 provider_receipts 补矩阵配置事实列（reasoning_effort）",
+    ),
+    MigrationStep(
+        phase="phase16_qualification_campaign_declared",
+        sql_file="alter_phase16_qualification_campaign_declared.sql",
+        required=True,
+        description="Phase 16 资格账本 campaigns 补矩阵配置声明列（model/effort/endpoint 列表）",
     ),
 ]
 

@@ -23,6 +23,13 @@ from src.specialist_runtime.model_port import ModelSuccess
 from src.specialist_runtime.models import canonical_json_sha256
 
 
+# 正式 run 的解锁门必须指向同一 campaign 的校准 run。此前该 run ID 以字面量重复写在
+# ``begin_run`` 与 ``calibration_passed`` 两处 SQL 里，任何 campaign 换代都会漏改其中一处，
+# 从而让正式 run 误读上一代 campaign 的校准结论。这里改为单一常量，由本模块权威持有，
+# 上层 ``controlled_e2e_v5`` 反向复用它，避免两处身份再次分叉。
+PHASE16_V8_CALIBRATION_RUN_ID = "phase16-v8-calibration-001"
+
+
 class Phase16V5CampaignLedgerError(RuntimeError):
     """V5 账本的稳定错误，不向调用方泄漏 SQL、Provider 或模型正文。"""
 
@@ -205,7 +212,7 @@ class PostgresPhase16V5CampaignLedger:
                             """SELECT outcome.status FROM phase16_v5_runs run
                                  JOIN phase16_v5_run_outcomes outcome ON outcome.run_id=run.run_id
                                 WHERE run.run_id=%s AND run.run_kind='CALIBRATION'""",
-                            ("phase16-v5-calibration-001",),
+                            (PHASE16_V8_CALIBRATION_RUN_ID,),
                         )
                         calibration = cursor.fetchone()
                         if calibration is None or calibration["status"] != Phase16V5RunStatus.PASS.value:
@@ -263,7 +270,7 @@ class PostgresPhase16V5CampaignLedger:
                         """SELECT outcome.status FROM phase16_v5_runs run
                              JOIN phase16_v5_run_outcomes outcome ON outcome.run_id=run.run_id
                             WHERE run.run_id=%s AND run.run_kind='CALIBRATION'""",
-                        ("phase16-v5-calibration-001",),
+                        (PHASE16_V8_CALIBRATION_RUN_ID,),
                     )
                     row = cursor.fetchone()
                     return row is not None and row["status"] == Phase16V5RunStatus.PASS.value
@@ -436,7 +443,7 @@ class PostgresPhase16V5CampaignLedger:
                     complete = (
                         provider_digest is not None
                         and success.finish_reason == "stop"
-                        and success.model_id == "deepseek-v4-pro"
+                        and bool(success.model_id)
                         and usage is not None
                         and actual_cost is not None
                         and actual_cost <= Decimal(attempt["reservation_cny"])

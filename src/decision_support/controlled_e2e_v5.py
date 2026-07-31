@@ -8,6 +8,7 @@ V5 的职责是把既有 V2 的只读证据投影、共享 ``BoundedSpecialistRu
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_EVEN
@@ -15,9 +16,11 @@ from enum import StrEnum
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
+from jsonschema.validators import Draft202012Validator
 from pydantic import ConfigDict, Field, model_validator
 
 from src.decision_support.multi_agent import (
@@ -49,6 +52,7 @@ from src.decision_support.official_smoke_runner_v2 import (
 from src.decision_support.evidence import EvidenceBundleSnapshot, ProductInventoryPayload
 from src.decision_support.store import derive_automatic_escalation_codes
 from src.decision_support.controlled_e2e_ledger_v5 import (
+    PHASE16_V8_CALIBRATION_RUN_ID,
     Phase16V5CaseOutcomeStatus,
     Phase16V5DispatchStage,
     Phase16V5RunKind,
@@ -76,9 +80,26 @@ from src.specialist_runtime.runner import BoundedSpecialistRunner
 from src.decision_support.controlled_e2e_adapter_v5 import DeepSeekV5ThinkingMode
 
 
-PHASE16_V5_CAMPAIGN_ID = "phase16-v5-controlled-e2e"
-PHASE16_V5_CALIBRATION_RUN_ID = "phase16-v5-calibration-001"
-PHASE16_V5_FORMAL_RUN_ID = "phase16-v5-formal-001"
+# V6 换代说明：V5 校准已发送并以 ``PLANNER_VALIDATION_FAILED`` 写入不可变终态，按契约不得在
+# V5 内重试。V6 只修正 Planner Prompt 未告知已有语义规则这一缺陷，校验器、Schema、预算门禁和
+# V1 至 V5 的历史事实全部不变。换用新的 campaign 与 run ID，使 V6 成为账本上独立的新 campaign
+# 而非对终态 run 的重开；新 campaign 因此获得独立的 1.000000 CNY 预算额度。
+#
+# V7 换代说明：V6 校准 PASS，正式 run 以 9/10 写入 ``FAILED`` 终态——同样不得重开。V6 的
+# 失败暴露的不是校验器或 Prompt 缺陷（离线拒绝矩阵证明 Analyst 契约自洽），而是账本只留下
+# 粗粒度 ``ANALYST_VALIDATION_FAILED``、无法定位违反了哪条规则的可审计性缺口。V7 只带上那处
+# 修复，校验器、Schema、Prompt、预算门禁与全部历史事实一律不变；再次换 ID 以获得独立 campaign。
+#
+# V8 换代说明：V7 校准 PASS，正式 run 在 case 1 即以 ``ANALYST_VALIDATION_FAILED`` 写入
+# ``FAILED`` 终态。V7 的细码首次证明拒绝发生在 Runner 的 JSON Schema 边界而非语义校验器，
+# 这同时暴露两处测量缺陷：其一，fail-fast 使后 9 例从未被观测，run 的产出退化成 1 bit，
+# 而终态不可重开让同一 campaign 无法补测；其二，账本只留 ``RESULT_SCHEMA_INVALID``，
+# 无法定位违反 8 个约束族中的哪一条。V8 只带这两处修正——跑满全部 slot、把 jsonschema
+# 的违规坐标映射为受控枚举。验收判据（十例双阶段全 PASS 才合格）、校验器、Schema、
+# Prompt、预算门禁与 V1 至 V7 的历史事实一律不变；再次换 ID 以获得独立 campaign。
+PHASE16_V5_CAMPAIGN_ID = "phase16-v8-controlled-e2e"
+PHASE16_V5_CALIBRATION_RUN_ID = PHASE16_V8_CALIBRATION_RUN_ID
+PHASE16_V5_FORMAL_RUN_ID = "phase16-v8-formal-001"
 PHASE16_V5_MANIFEST_ID = "phase16-v5-controlled-e2e-v1"
 PHASE16_V5_MANIFEST_PATH = Path(
     "evaluation/manifests/phase16-v5-controlled-e2e-v1.json"
@@ -105,6 +126,206 @@ PHASE16_V5_EXECUTION_IDENTITY_PATHS = (
     "src/decision_support/controlled_e2e_ledger_v5.py",
     "src/decision_support/controlled_e2e_v5.py",
 )
+
+
+# V6 可审计性修正：``_execute_stage`` 原先用 ``except Exception`` 把校验器抛出的具体规则
+# 吞掉，账本只留下 ``ANALYST_VALIDATION_FAILED`` 这一个粗粒度码。V6 正式 run 第 10 个 case
+# 因此无法从账本判定究竟违反了哪条语义规则——一条声称可审计的决策链，失败时必须能说清
+# 失败在哪。这里把校验器的封闭字面量消息映射为受控枚举后缀：落库的是我们自己持有的枚举
+# 值，绝不是异常文本，因此不会有模型正文、Prompt 或敏感配置经由 reason_code 泄漏。
+# 校验器消息一旦改动而此表未同步，映射会退化为 ``UNMAPPED`` 而不是猜测某条规则。
+_PHASE16_V5_VALIDATION_RULE_CODES: dict[str, str] = {
+    "V2 validator requires the system-managed evidence binding mode": "BINDING_MODE",
+    "V2 agent result identity or status is invalid": "RESULT_IDENTITY",
+    "V2 FINAL action does not preserve system-owned evidence": "FINAL_EVIDENCE_BINDING",
+    "V2 agent final output must be an object": "OUTPUT_NOT_OBJECT",
+    "V2 evidence_ids must be a non-empty string list": "EVIDENCE_IDS_SHAPE",
+    "V2 evidence_ids must be unique": "EVIDENCE_IDS_DUPLICATE",
+    "V2 evidence_ids contain an untrusted reference": "EVIDENCE_IDS_UNTRUSTED",
+    "V2 analysis output has unexpected fields": "ANALYSIS_FIELD_SET",
+    "V2 analysis output fields are invalid": "ANALYSIS_FIELD_VALUE",
+    "V2 analysis output does not close over governed facts": "ANALYSIS_GOVERNED_FACTS",
+    "V2 planner output is not eligible for formal consumption": "PLANNER_NOT_ELIGIBLE",
+    "V2 planner options are invalid": "PLANNER_OPTIONS_SHAPE",
+    "V2 planner option lacks controlled evidence IDs": "PLANNER_OPTION_EVIDENCE_MISSING",
+    "V2 planner option is invalid": "PLANNER_OPTION_INVALID",
+    "V2 planner options must be one to three unique values": "PLANNER_OPTION_CARDINALITY",
+    "V2 planner option omits required risks": "PLANNER_RISK_COVERAGE",
+    "V2 planner backup is unavailable": "PLANNER_BACKUP_UNAVAILABLE",
+    "V2 planner backup omits confirmation risk": "PLANNER_BACKUP_CONFIRMATION",
+    "shared runner did not return AgentResult": "NO_AGENT_RESULT",
+    "planner requires validated analyst analysis": "MISSING_ANALYSIS",
+    # ``V2 analysis output fields are invalid`` 只是 multi_agent.py 的包装层，真正违反的
+    # 规则在 __cause__ 里，而字段级消息由 models.py 抛出，不带 ``V2 `` 前缀。缺了它们，
+    # 尾空白/控制字符与未知枚举都会退化成同一个 ANALYSIS_FIELD_VALUE。
+    "explanation contains unsafe control characters": "ANALYSIS_EXPLANATION_UNSAFE_TEXT",
+}
+
+# StrEnum 的拒绝消息把非法取值嵌进了文本（``'X' is not a valid ConflictRiskCode``），
+# 而那个取值来自模型正文，绝不能落库。所以这两条只按封闭后缀匹配，落库仍是我们自己
+# 持有的枚举码，模型返回的字符串不会进入 reason_code。
+_PHASE16_V5_VALIDATION_RULE_CODE_SUFFIXES: tuple[tuple[str, str], ...] = (
+    (" is not a valid ConflictRiskCode", "ANALYSIS_RISK_CODE_UNKNOWN"),
+    (" is not a valid ConflictConstraintCode", "ANALYSIS_CONSTRAINT_CODE_UNKNOWN"),
+)
+
+# 账本 ``reason_code`` 列上的 CHECK。转发 Runner 失败码前必须自己再校一遍形状，
+# 绝不能把未经确认的字符串拼进落库值。
+_PHASE16_V5_REASON_CODE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]*")
+
+# V8 可审计性修正（第二层）：V7 正式 run 的失败落库为 ``RUNNER_RESULT_SCHEMA_INVALID``，
+# 证明拒绝发生在 Runner 的 JSON Schema 边界而非语义校验器——但究竟违反 8 个约束族中的
+# 哪一条，账本无从判定，因为只留了 ``output_digest``。共享 Runner 不能改（V2 的冻结
+# Manifest 把它的源码摘要钉进了 source closure），所以 V5 自己重算违规坐标，再用下面
+# 两张表映射为我们自己持有的封闭枚举。两张表都是封闭白名单：命中才组成后缀，任何一侧
+# 未命中就沿用粗码，绝不把未确认的字符串拼进 reason_code。jsonschema 的 ``message``
+# 会内嵌被拒实例值（模型正文），因此从不读取。
+_PHASE16_V5_SCHEMA_KEYWORD_CODES: dict[str, str] = {
+    "type": "TYPE",
+    "enum": "ENUM",
+    "const": "CONST",
+    "pattern": "PATTERN",
+    "minLength": "MIN_LENGTH",
+    "maxLength": "MAX_LENGTH",
+    "minItems": "MIN_ITEMS",
+    "maxItems": "MAX_ITEMS",
+    "uniqueItems": "UNIQUE_ITEMS",
+    "required": "REQUIRED",
+    "additionalProperties": "ADDITIONAL_PROPERTIES",
+}
+
+# 两个 RESULT Schema 里出现的全部属性名。测试用 Schema 自身推导的集合反查这张表，
+# Schema 一旦新增字段而此表未同步，测试失败而不是静默把该字段记成 ``ROOT``。
+_PHASE16_V5_SCHEMA_FIELD_CODES: dict[str, str] = {
+    "constraint_codes": "CONSTRAINT_CODES",
+    "risk_codes": "RISK_CODES",
+    "explanation": "EXPLANATION",
+    "evidence_ids": "EVIDENCE_IDS",
+    "options": "OPTIONS",
+    "option_id": "OPTION_ID",
+    "product_strategy": "PRODUCT_STRATEGY",
+    "backup_product_id": "BACKUP_PRODUCT_ID",
+    "host_prompt": "HOST_PROMPT",
+    "timing": "TIMING",
+    "risk_flags": "RISK_FLAGS",
+}
+
+# jsonschema 的 ``json_path`` 形如 ``$.options[0].host_prompt``；数组下标来自模型输出的
+# 长度，不落库。只取路径里最深的已知属性名，纯根路径记 ``ROOT``。
+_PHASE16_V5_SCHEMA_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _phase16_v5_schema_violation_coordinates(
+    result: object, result_schema: object
+) -> tuple[str, str] | None:
+    """在 V5 侧就被拒的 FINAL 输出重算 Schema 违规坐标，取不到则返回 ``None``。
+
+    坐标不能由共享 Runner 产出：V2 的冻结 Manifest 把 ``specialist_runtime/runner.py``
+    的源码摘要钉进了 source closure，改动那个文件会让 V1 至 V4 的历史身份重建失败——
+    重签它们的 Manifest 等于改写既有真实调用的审计事实。所以 V5 自己重跑一遍同一个
+    ``Draft202012Validator``：Runner 在 Schema 校验之前就已把 FINAL 动作追加进 audit，
+    且失败结果也会带出 ``actions``，因此这里能拿到与 Runner 判定完全相同的输入。
+
+    只用于诊断，绝不改变判定：拒绝早已由 Runner 做出并落为 ``RESULT_SCHEMA_INVALID``，
+    这里取不到坐标就沿用粗码。重算与原判不一致（例如 Runner 拒因不是 Schema）时会
+    ``is_valid`` 通过，此时同样返回 ``None`` 而不是猜一个约束。
+    """
+
+    actions = getattr(result, "actions", None)
+    if not isinstance(actions, (list, tuple)) or not actions:
+        return None
+    final_output = getattr(actions[-1], "final_output", None)
+    if final_output is None:
+        return None
+    try:
+        validator = Draft202012Validator(_plain_json(result_schema))
+        errors = sorted(validator.iter_errors(_plain_json(final_output)), key=lambda item: item.json_path)
+    except Exception:
+        return None
+    if not errors:
+        return None
+    # 多处违规时按 json_path 取确定性的第一条：同一份输出必须映射到同一个码，
+    # 否则同样的失败会因 jsonschema 的迭代顺序落成不同的账本事实。
+    first = errors[0]
+    return str(first.validator), str(first.json_path)
+
+
+def _phase16_v5_schema_violation_code(coordinates: tuple[str, str] | None) -> str | None:
+    """把 Schema 违规坐标映射为受控后缀，缺失或未命中白名单一律返回 ``None``。
+
+    关键字与字段名都必须命中封闭白名单才组合成后缀；任何一侧未命中就退回 ``None``，
+    由调用方沿用粗码——宁可记"违反了 Schema"，也不能把未确认的字符串当成枚举落进账本。
+    jsonschema 的 ``message`` 会内嵌被拒实例值（模型正文），因此从不读取。
+    """
+
+    if coordinates is None:
+        return None
+    keyword, path = coordinates
+    keyword_code = _PHASE16_V5_SCHEMA_KEYWORD_CODES.get(keyword)
+    if keyword_code is None:
+        return None
+    # 由深到浅取第一个已知属性名：最深的段最贴近真正被拒的字段。
+    field_code = "ROOT"
+    segments = _PHASE16_V5_SCHEMA_PATH_SEGMENT_PATTERN.findall(path)
+    for segment in reversed(segments):
+        candidate = _PHASE16_V5_SCHEMA_FIELD_CODES.get(segment)
+        if candidate is not None:
+            field_code = candidate
+            break
+    return f"{field_code}_{keyword_code}"
+
+
+def _phase16_v5_validation_rule_code(error: BaseException) -> str:
+    """把校验异常映射为受控规则枚举后缀，未知消息一律记为 ``UNMAPPED``。
+
+    只比对完全相等的已知字面量。校验器用 ``raise ... from error`` 逐层包装，例如
+    ``evidence_ids`` 的三种违规都会被 ``V2 analysis output fields are invalid`` 罩住，
+    因此必须沿整条 ``__cause__`` 链向下找最内层可识别的规则，只读外层会把互不相同的
+    违规都记成同一个粗码，等于没有修复可审计性。链长设上限以防构造出的循环引用。
+    """
+
+    chain: list[BaseException] = []
+    cursor: BaseException | None = error
+    while cursor is not None and len(chain) < 8:
+        chain.append(cursor)
+        cursor = cursor.__cause__
+    # 由内向外取第一个可识别的码：最内层异常最贴近真正违反的规则。
+    for candidate in reversed(chain):
+        message = str(candidate)
+        code = _PHASE16_V5_VALIDATION_RULE_CODES.get(message)
+        if code is not None:
+            return code
+        for suffix, suffix_code in _PHASE16_V5_VALIDATION_RULE_CODE_SUFFIXES:
+            if message.endswith(suffix):
+                return suffix_code
+    return "UNMAPPED"
+
+
+def _phase16_v5_stage_failure_code(
+    result: object, error: BaseException, result_schema: object = None
+) -> str:
+    """优先记录共享 Runner 自己的失败码，其次才回落到 V2 校验器的规则映射。
+
+    共享 Runner 在 V2 校验器之前就会拒绝越界结果，此时它返回的是 ``POLICY_DENIED``
+    加一个受控的 ``AgentFailure.code``（例如 ``RESULT_EVIDENCE_MISMATCH``），而校验器
+    只会笼统地说"identity or status is invalid"。若不先读 Runner 的码，账本就会把
+    "证据绑定被 Runner 拦下"记成"身份不符"，方向完全错了。``AgentFailure.code`` 本身
+    受 ``^[A-Z][A-Z0-9_]*$`` 约束且由我们的 Runner 生成，不含模型正文。
+    """
+
+    failure = getattr(result, "failure", None)
+    code = getattr(failure, "code", None)
+    if isinstance(code, str) and _PHASE16_V5_REASON_CODE_PATTERN.fullmatch(code):
+        # Schema 拒绝再补一层坐标：``RESULT_SCHEMA_INVALID`` 单独出现时只能说明"违反了
+        # Schema"，而这正是 V7 无法定位的那个洞。坐标取不到或未命中白名单则沿用粗码。
+        if code == "RESULT_SCHEMA_INVALID" and result_schema is not None:
+            violation = _phase16_v5_schema_violation_code(
+                _phase16_v5_schema_violation_coordinates(result, result_schema)
+            )
+            if violation is not None:
+                return f"RUNNER_{code}_{violation}"
+        return f"RUNNER_{code}"
+    return _phase16_v5_validation_rule_code(error)
 
 
 class Phase16V5Error(RuntimeError):
@@ -316,12 +537,27 @@ def build_phase16_v5_planner_profile() -> SpecialistProfile:
     return _v5_profile(
         profile_id=PHASE16_V5_PLANNER_PROFILE_ID,
         task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+        # V6 修正：下游 ``validate_v2_live_decision_planner_result`` 一直强制三条领域语义规则，
+        # 但 V5 Prompt 从未声明它们，且 JSON Schema 结构上也无法表达“必须覆盖 analysis 中的
+        # 全部 risk_codes”。V5 校准因此以 PLANNER_VALIDATION_FAILED 失败。此处只把既有校验
+        # 规则如实告知模型，不放松任何校验；同时删除原先仅含单个 risk_flag 的示例，因为它把
+        # 模型引向必然不满足覆盖规则的输出。示例值继续使用与任何真实 case 无关的占位内容，
+        # 不泄漏本次应当给出的具体 risk 码。
         prompt_prefix=(
             "You are DecisionPlannerAgent for a controlled E2E qualification. "
             "只返回一到三个供人工审阅的受限 option，不得调用 Skill、选择路由、执行命令或"
             "声称权限。每个 evidence_ids 只能选择已提供证据包内 ID。只输出一个 JSON 对象，"
-            "不得输出 Markdown、代码块、前缀或推理过程。无真实数据的信封形状示例："
-            '{"kind":"FINAL","final_output":{"options":[{"option_id":"hold-review","product_strategy":"HOLD_AND_ESCALATE","backup_product_id":null,"host_prompt":"review before action","timing":"AFTER_OPERATOR_CONFIRMATION","risk_flags":["HUMAN_CONFIRMATION_REQUIRED"],"evidence_ids":["bundle-evidence-id"]}]}}. '
+            "不得输出 Markdown、代码块、前缀或推理过程。"
+            "每个 option 的 risk_flags 必须同时满足以下三条强制规则，任一不满足即整体判为不合格："
+            "第一，必须完整包含输入 analysis.risk_codes 中出现的每一个风险码，不得遗漏、概括或替换；"
+            "第二，必须包含 HUMAN_CONFIRMATION_REQUIRED，因为所有 option 都只能等待人工确认，"
+            "不得自动执行；"
+            "第三，只要该 option 的 product_strategy 为 SWITCH_TO_BACKUP，就必须给出输入证据中"
+            "确实可用的 backup_product_id，并同时包含 BACKUP_PRODUCT_REQUIRES_CONFIRMATION；"
+            "其余 product_strategy 的 backup_product_id 必须为 null。"
+            "risk_flags 上限为 8 项且枚举恰好有 8 个值，因此上述覆盖要求总能被满足。"
+            "无真实数据的信封形状示例（其中 risk_flags 仅为占位，实际必须按上述三条规则计算）："
+            '{"kind":"FINAL","final_output":{"options":[{"option_id":"placeholder-option","product_strategy":"HOLD_AND_ESCALATE","backup_product_id":null,"host_prompt":"placeholder text","timing":"AFTER_OPERATOR_CONFIRMATION","risk_flags":["HUMAN_CONFIRMATION_REQUIRED","SIDE_EFFECT_UNKNOWN"],"evidence_ids":["bundle-evidence-id"]}]}}. '
         ),
         result_schema=_SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
     )
@@ -700,7 +936,19 @@ class Phase16V5ControlledE2ERunner:
         )
 
     async def execute(self, *, run_kind: Phase16V5RunKind) -> Phase16V5ExecutionReport:
-        """执行一轮已授权 V5 run；任何已发送失败立即关闭并绝不继续下一个 case。"""
+        """执行一轮已授权 V5 run；每个 case 各自封入不可改写终态，全部 slot 一律走完。
+
+        V8 测量修正：此前任何已发送失败都会立即关闭整个 run，于是 V7 正式 run 在 case 1
+        就中止，后 9 例从未被观测——"0/10"这个说法其实不成立。而"不继续"并非"不重试"的
+        必要条件：失败 case 的终态已由 ``close_case`` 封死，``claim_case`` 对已终态 slot
+        直接拒绝，所以继续跑 case 2 不可能重跑 case 1。两者被绑在一起没有契约依据，代价
+        是 run 的产出从"十例通过率"退化成 1 bit，且终态不可重开使同一 campaign 永远无法
+        补测。现在逐例封终态并走完全部 slot，run 终态仍在出现任一已发送失败时为 FAILED，
+        判据（十例双阶段全 PASS 才合格）一字未改。预算侧安全：20 个 stage 各 ≤0.030000，
+        上限仍受 campaign 的 1.000000 CNY 敞口门禁约束。
+
+        ``claim_case`` 或账本异常仍立即关闭：那是账本层不可知状态，继续联网并不安全。
+        """
 
         reasons = self._static_reasons(run_kind=run_kind)
         run_id = self._run_id(run_kind)
@@ -763,7 +1011,7 @@ class Phase16V5ControlledE2ERunner:
                     reason_code=analyst.reason_code,
                 )
                 executions.append(Phase16V5CaseExecution(case_id, status, analyst.reason_code, analyst.attempt_id, None))
-                return self._close_and_report(run_id, run_kind, status, analyst.reason_code, executions, model_calls)
+                continue
             planner = await self._execute_stage(
                 run_id=run_id,
                 claim_id=claim.claim_id,
@@ -781,13 +1029,22 @@ class Phase16V5ControlledE2ERunner:
                     reason_code=planner.reason_code,
                 )
                 executions.append(Phase16V5CaseExecution(case_id, status, planner.reason_code, analyst.attempt_id, planner.attempt_id))
-                return self._close_and_report(run_id, run_kind, status, planner.reason_code, executions, model_calls)
+                continue
             self._ledger.close_case(
                 claim_id=claim.claim_id,
                 status=Phase16V5CaseOutcomeStatus.PASS,
                 reason_code="MULTI_AGENT_READY",
             )
             executions.append(Phase16V5CaseExecution(case_id, Phase16V5ExecutionStatus.PASS, "MULTI_AGENT_READY", analyst.attempt_id, planner.attempt_id))
+        # run 终态由逐例结果聚合：全 PASS 才合格；只要有已发送失败即 FAILED；余下的
+        # 非 PASS（未联网即被拦）为 BLOCKED。首个非 PASS case 的码上升为 run 的 reason，
+        # 与既有终态语义一致，下游报告逐字消费的仍是粗码。
+        first_failed = next((item for item in executions if item.status is Phase16V5ExecutionStatus.FAILED), None)
+        if first_failed is not None:
+            return self._close_and_report(run_id, run_kind, Phase16V5ExecutionStatus.FAILED, first_failed.reason_code, executions, model_calls)
+        first_blocked = next((item for item in executions if item.status is not Phase16V5ExecutionStatus.PASS), None)
+        if first_blocked is not None:
+            return self._close_and_report(run_id, run_kind, Phase16V5ExecutionStatus.BLOCKED, first_blocked.reason_code, executions, model_calls)
         return self._close_and_report(run_id, run_kind, Phase16V5ExecutionStatus.PASS, "CONTROLLED_E2E_QUALIFIED", executions, model_calls)
 
     def _static_reasons(self, *, run_kind: Phase16V5RunKind) -> tuple[str, ...]:
@@ -940,9 +1197,17 @@ class Phase16V5ControlledE2ERunner:
             )
             self._append_validation(attempt.attempt_id, stage, Phase16V5ValidationVerdict.PASS, "PLANNER_VALIDATION_PASS", result)
             return _StageExecution(True, True, "PLANNER_VALIDATION_PASS", attempt.attempt_id)
-        except Exception:
+        except Exception as error:
             reason = "ANALYST_VALIDATION_FAILED" if stage is Phase16V5DispatchStage.ANALYST else "PLANNER_VALIDATION_FAILED"
-            self._append_validation(attempt.attempt_id, stage, Phase16V5ValidationVerdict.FAILED, reason, None)
+            # validation fact 记录细化到具体规则，便于事后审计定位；stage 的返回值仍用粗粒度
+            # 码，因为它会向上成为 case/run 终态，而既有终态语义与历史报告都以此为准。
+            self._append_validation(
+                attempt.attempt_id,
+                stage,
+                Phase16V5ValidationVerdict.FAILED,
+                f"{reason}_{_phase16_v5_stage_failure_code(result, error, profile.result_schema)}",
+                None,
+            )
             return _StageExecution(False, True, reason, attempt.attempt_id)
 
     def _append_validation(self, attempt_id: str, stage: Phase16V5DispatchStage, verdict: Phase16V5ValidationVerdict, reason_code: str, result: AgentResult | None) -> None:

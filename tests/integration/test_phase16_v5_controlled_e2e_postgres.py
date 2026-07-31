@@ -430,7 +430,7 @@ def test_v5_ledger_rejects_campaign_conflict_unreleased_formal_and_invalid_dispa
     assert ledger.calibration_passed() is False
     with pytest.raises(Phase16V5CampaignLedgerError, match="calibration PASS"):
         ledger.begin_run(
-            run_id="phase16-v5-formal-001",
+            run_id=PHASE16_V5_FORMAL_RUN_ID,
             run_kind=Phase16V5RunKind.FORMAL,
             manifest=manifest,
         )

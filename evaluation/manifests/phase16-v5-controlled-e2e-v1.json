@@ -1,7 +1,7 @@
 {
   "manifest_id": "phase16-v5-controlled-e2e-v1",
   "schema_version": "1.0.0",
-  "campaign_id": "phase16-v5-controlled-e2e",
+  "campaign_id": "phase16-v8-controlled-e2e",
   "model_id": "deepseek-v4-pro",
   "endpoint_host": "api.deepseek.com",
   "thinking_mode": "disabled",
@@ -35,18 +35,18 @@
   },
   "profile_digests": {
     "analyst": "df80f94e569aadb181495a7a9562299423bcef745e725db2d42999f8899988de",
-    "planner": "585f33850581f78c4b2643cabb87aed8989a0407d2a0683ebecfe58b6828f4e2"
+    "planner": "e710bd37ec1b895e6fc6ede356fdb4bf285f630b472e090d3a6a22f02307a0d4"
   },
   "input_cny_per_million": "3.000000",
   "output_cny_per_million": "6.000000",
   "stage_reservation_cny": "0.030000",
   "total_budget_cny": "1.000000",
   "source_file_digests": {
-    "docker/init_phase16_v5_controlled_e2e.sql": "e95f0e0d3537ee95b57a706e88e2af8aea83b3c52e05c15b780004b88b4981d3",
-    "scripts/run_phase16_v5_controlled_e2e.py": "b6ef71d6274fb475107cb86fad5a61b50f17e94aefef5b30ef5c4d2f45e470f3",
-    "src/decision_support/controlled_e2e_adapter_v5.py": "fb85d119f0a0733cc615ad0b6ff601a13b98460f4711c50727b0162211e2c530",
-    "src/decision_support/controlled_e2e_ledger_v5.py": "e280fdef9b57015106a13ee2dfed8232a9e5b66befbb4bcce1929491a3c474a9",
-    "src/decision_support/controlled_e2e_v5.py": "7adf99ac8f5e022a0f99ce8d9311df32afbf030fc841111162419f522895e501"
+    "docker/init_phase16_v5_controlled_e2e.sql": "efb88ca0b80420b28c695967562108d4772f1ca6b20cf0a0b97466732f501bb2",
+    "scripts/run_phase16_v5_controlled_e2e.py": "d9fd81c64f592417b90f09789f524d76e4ab8bcb650cfe6c17a38ab9f40c8965",
+    "src/decision_support/controlled_e2e_adapter_v5.py": "dd4f4abbb1b628046ccee648d531aa5530aba45cca725577f07a6902109a5a45",
+    "src/decision_support/controlled_e2e_ledger_v5.py": "884e5e285b1601ea741ccb0954d0e6be743b1fc85cd19d97d3a701ab7c988f09",
+    "src/decision_support/controlled_e2e_v5.py": "eec9479987fe0c93de9d9e1a726f9887bc37eb093cb6acd1e56f34cdbc5f0cc9"
   },
-  "manifest_digest": "8911fd1798d9e2641f27e52b1c52bb7a27df92a10b88eb753a303a11c1322c80"
+  "manifest_digest": "29d37b455d59db42495d99562d5325aad6a9f65db2e404700947c4fda2c8e79b"
 }

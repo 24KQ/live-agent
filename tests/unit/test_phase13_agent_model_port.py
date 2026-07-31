@@ -23,6 +23,7 @@ from src.specialist_runtime.model_port import (
     ModelMessage,
     ModelRequest,
     ModelSuccess,
+    ModelUsage,
 )
 from src.specialist_runtime.scripted_model import ScriptedAgentModel
 
@@ -148,10 +149,53 @@ def test_adapter_makes_one_request_and_preserves_identity_usage() -> None:
     assert result.provider_response_id == "chatcmpl-test-001"
     assert result.finish_reason == "stop"
     assert len(transport.calls) == 1
-    assert transport.calls[0]["url"] == "https://api.deepseek.com/chat/completions"
+    assert transport.calls[0]["url"] == "https://api.deepseek.com/v1/chat/completions"
     assert transport.calls[0]["payload"]["model"] == "deepseek-v4-flash"
     assert transport.calls[0]["headers"]["Authorization"] == "Bearer test-secret"
     assert "test-secret" not in result.model_dump_json()
+
+
+def test_adapter_records_reasoning_tokens_separately_from_billed_output() -> None:
+    """网关把思维链计入 completion_tokens 时，reasoning_tokens 单独记录且可见输出可计算。"""
+
+    transport = _RecordingTransport(
+        _response(
+            usage={
+                "prompt_tokens": 90,
+                "completion_tokens": 510,
+                "total_tokens": 600,
+                "completion_tokens_details": {"reasoning_tokens": 500},
+            }
+        )
+    )
+    adapter = DeepSeekAgentModelAdapter(api_key="test-secret", transport=transport)
+
+    result = asyncio.run(adapter.complete(_request()))
+
+    assert isinstance(result, ModelSuccess)
+    assert result.usage is not None
+    assert result.usage.output_tokens == 510  # 计费真值不变
+    assert result.usage.reasoning_tokens == 500
+    assert result.usage.visible_output_tokens == 10  # 可见输出才是受限动作面
+    assert result.usage.total_tokens == 600
+
+
+def test_adapter_tolerates_missing_reasoning_details_without_failing() -> None:
+    """网关不返回 completion_tokens_details 时按历史语义处理，不误伤响应。"""
+
+    transport = _RecordingTransport(
+        _response(
+            usage={"prompt_tokens": 90, "completion_tokens": 510, "total_tokens": 600}
+        )
+    )
+    adapter = DeepSeekAgentModelAdapter(api_key="test-secret", transport=transport)
+
+    result = asyncio.run(adapter.complete(_request()))
+
+    assert isinstance(result, ModelSuccess)
+    assert result.usage is not None
+    assert result.usage.reasoning_tokens is None
+    assert result.usage.visible_output_tokens == 510
 
 
 @pytest.mark.parametrize(
@@ -497,3 +541,36 @@ def test_scripted_model_returns_one_scripted_outcome_per_call() -> None:
     assert scripted.call_count == 2
     with pytest.raises(RuntimeError, match="exhausted"):
         asyncio.run(scripted.complete(_request()))
+
+
+def test_v9_attempt_facts_default_backward_compatibly() -> None:
+    """V9 新增 attempts/endpoint_host 必须向后兼容：历史回放回执仍可原样构造。"""
+
+    success = ModelSuccess(
+        request_id="request-002",
+        model_id="deepseek-v4-pro",
+        output={"status": "ok"},
+        usage=ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+        provider_response_id="provider-002",
+        finish_reason="stop",
+        response_digest="0" * 64,
+        latency_ms=Decimal("1.000"),
+    )
+    assert success.attempts == 1
+    assert success.endpoint_host is None
+
+    failure = ModelFailure(
+        request_id="request-003",
+        category=ModelFailureCategory.TRANSPORT_ERROR,
+        request_sent=True,
+    )
+    assert failure.attempts == 1
+    assert failure.endpoint_host is None
+
+    with pytest.raises(ValidationError, match="attempts"):
+        ModelSuccess.model_validate(
+            {
+                **success.model_dump(mode="json"),
+                "attempts": 0,
+            }
+        )

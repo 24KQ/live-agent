@@ -11,7 +11,7 @@ from pydantic import ConfigDict, Field, field_serializer, field_validator, model
 
 from src.specialist_runtime.models import StrictFrozenModel, _freeze_json, _plain_json
 from src.specialist_runtime.profiles import (
-    FORMAL_ENDPOINT_HOST,
+    FORMAL_ENDPOINT_HOSTS,
     FORMAL_MODEL_IDS,
     normalize_endpoint_host,
 )
@@ -66,8 +66,8 @@ class ModelRequest(StrictFrozenModel):
     def _validate_endpoint_host(cls, value: str) -> str:
         # Adapter 直接用该字段拼接 HTTPS URL，因此请求边界必须再次独立校验。
         normalized = normalize_endpoint_host(value)
-        if normalized != FORMAL_ENDPOINT_HOST:
-            raise ValueError(f"endpoint_host must be {FORMAL_ENDPOINT_HOST}")
+        if normalized not in FORMAL_ENDPOINT_HOSTS:
+            raise ValueError(f"endpoint_host must be one of {sorted(FORMAL_ENDPOINT_HOSTS)}")
         return normalized
 
     @field_validator("model_id")
@@ -88,19 +88,36 @@ class ModelRequest(StrictFrozenModel):
 
 
 class ModelUsage(StrictFrozenModel):
-    """API 明确返回的 token 计量；缺失时上层必须看到 ``None``。"""
+    """API 明确返回的 token 计量；缺失时上层必须看到 ``None``。
+
+    OpenAI-compatible 网关可能把 reasoning_content（思维链）计入
+    completion_tokens。output_tokens 保持提供方计费真值（成本与账本都基于它）；
+    网关如实上报 completion_tokens_details.reasoning_tokens 时单独记录，
+    上限检查一律使用可见输出（见 ``visible_output_tokens``）。
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     input_tokens: int = Field(..., ge=0, strict=True)
     output_tokens: int = Field(..., ge=0, strict=True)
     total_tokens: int = Field(..., ge=0, strict=True)
+    reasoning_tokens: int | None = Field(default=None, ge=0, strict=True)
 
     @model_validator(mode="after")
     def _verify_total(self) -> "ModelUsage":
         if self.total_tokens != self.input_tokens + self.output_tokens:
             raise ValueError("total_tokens must equal input_tokens + output_tokens")
         return self
+
+    @property
+    def visible_output_tokens(self) -> int:
+        """排除计入 completion_tokens 的思维链 token 后的可见输出 token 数。
+
+        网关未上报 reasoning_tokens 时与 output_tokens 相同，保持历史语义。
+        """
+        if self.reasoning_tokens is None:
+            return self.output_tokens
+        return max(self.output_tokens - self.reasoning_tokens, 0)
 
 
 class ModelSuccess(StrictFrozenModel):
@@ -116,6 +133,8 @@ class ModelSuccess(StrictFrozenModel):
     finish_reason: str | None = Field(default=None, min_length=1)
     response_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
     latency_ms: Decimal = Field(..., ge=Decimal("0"))
+    attempts: int = Field(default=1, ge=1, strict=True)
+    endpoint_host: str | None = Field(default=None, min_length=1)
 
     @field_validator("output", mode="after")
     @classmethod
@@ -152,6 +171,8 @@ class ModelFailure(StrictFrozenModel):
     http_status: int | None = Field(default=None, ge=100, le=599, strict=True)
     retry_after_seconds: int | None = Field(default=None, ge=0, strict=True)
     latency_ms: Decimal = Field(default=Decimal("0"), ge=Decimal("0"))
+    attempts: int = Field(default=1, ge=1, strict=True)
+    endpoint_host: str | None = Field(default=None, min_length=1)
 
 
 ModelOutcome = ModelSuccess | ModelFailure

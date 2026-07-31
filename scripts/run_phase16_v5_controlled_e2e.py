@@ -123,13 +123,17 @@ async def _execute(*, formal: bool) -> dict[str, object]:
     if manifest is None or reasons:
         raise _Blocked("OFFLINE_PREFLIGHT_BLOCKED")
     run_kind = Phase16V5RunKind.FORMAL if formal else Phase16V5RunKind.CALIBRATION
+    # V4 专属 Adapter 显式注入 thinking.disabled，V5 不修改任何被历史 Manifest 绑定的
+    # 共享 Adapter 源码，也不会回传或保存 reasoning_content。V9 渠道链签名下保留单端点
+    # 链：host 与共享 runner 的 env 覆写（LLM_API_ENDPOINT_HOST）同源，行为与旧签名一致。
+    endpoint_host = os.environ.get("LLM_API_ENDPOINT_HOST", "").strip() or "api.deepseek.com"
     runner = Phase16V5ControlledE2ERunner(
         dataset=load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT),
         manifest=manifest,
         ledger=PostgresPhase16V5CampaignLedger(get_settings(), hmac_key=key),
-        # V4 专属 Adapter 显式注入 thinking.disabled，V5 不修改任何被历史 Manifest 绑定的
-        # 共享 Adapter 源码，也不会回传或保存 reasoning_content。
-        model_port=DeepSeekV5ControlledE2EAdapter(api_key=api_key),
+        model_port=DeepSeekV5ControlledE2EAdapter(
+            endpoints=((endpoint_host, api_key),),
+        ),
     )
     report = await runner.execute(run_kind=run_kind)
     return {

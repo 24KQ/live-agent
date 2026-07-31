@@ -1,1 +1,18 @@
-{"closure_id":"phase16-coverage-source-closure-v1","closure_version":"1.0.0","source_digest":"f786929e9a832a26aa9132b51d90e8cc1c595d3a63a4e6a0bda2eeae4786feea","source_paths":["src/decision_support/multi_agent.py","src/decision_support/multi_agent_evaluation.py","src/decision_support/evidence.py","src/decision_support/models.py","src/decision_support/proposal.py","src/decision_support/store.py","src/specialist_runtime/model_port.py","src/specialist_runtime/models.py","src/specialist_runtime/profiles.py","src/specialist_runtime/live_ops.py","src/specialist_runtime/scripted_model.py"]}
+{
+  "closure_id": "phase16-coverage-source-closure-v1",
+  "closure_version": "1.0.0",
+  "source_digest": "3b00f90dfa1842ba7631b8dc6d38ca64f174eacf4839354e3e5a0b6421e880b5",
+  "source_paths": [
+    "src/decision_support/multi_agent.py",
+    "src/decision_support/multi_agent_evaluation.py",
+    "src/decision_support/evidence.py",
+    "src/decision_support/models.py",
+    "src/decision_support/proposal.py",
+    "src/decision_support/store.py",
+    "src/specialist_runtime/model_port.py",
+    "src/specialist_runtime/models.py",
+    "src/specialist_runtime/profiles.py",
+    "src/specialist_runtime/live_ops.py",
+    "src/specialist_runtime/scripted_model.py"
+  ]
+}

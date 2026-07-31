@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS phase16_v5_campaigns (
     output_cny_per_million NUMERIC(12,6) NOT NULL CHECK (output_cny_per_million = 6.000000),
     analyst_profile_digest CHAR(64) NOT NULL,
     planner_profile_digest CHAR(64) NOT NULL,
-    model_id TEXT NOT NULL CHECK (model_id = 'deepseek-v4-pro'),
+    model_id TEXT NOT NULL,
     thinking_mode TEXT NOT NULL CHECK (thinking_mode = 'disabled'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS phase16_v5_provider_receipts (
         OR (
             provider_response_id_digest IS NOT NULL
             AND finish_reason = 'stop'
-            AND model_id = 'deepseek-v4-pro'
+            AND model_id IS NOT NULL
             AND input_tokens IS NOT NULL
             AND output_tokens IS NOT NULL
             AND total_tokens = input_tokens + output_tokens
