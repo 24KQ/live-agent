@@ -210,9 +210,9 @@ $$;
 CREATE OR REPLACE FUNCTION phase16_official_smoke_validate_frozen_run() RETURNS trigger AS $$
 BEGIN
     IF NEW.run_id <> 'phase16-official-smoke-v1'
-       OR NEW.manifest_digest <> 'c1999c59a2ee480913cde0d325799d38d090e308625dcde5d223ce30315ae828'
-       OR NEW.analyst_profile_digest <> '415b331477a55c58bd61e0d632ec3b74aa3137a5c30f8fd1344ab19fb2875bee'
-       OR NEW.planner_profile_digest <> '40423dd6f8d7a1618ff65623940fc417ce54771fa48391338ab34bf5f8dc34c0' THEN
+       OR NEW.manifest_digest <> '11ab1a1e663283f0c91d418fa98882eb207d8a7d01c3704330ff6f3bdd169aa2'
+       OR NEW.analyst_profile_digest <> '7c942b33b985264c8cd75d8be9b34f857b70cb732ff391c9fb1afba8d5d52db9'
+       OR NEW.planner_profile_digest <> 'ff33e69c9b2abb8920c8c3f6ca70d853113e35a82d6581eb680ac2d51ad648f5' THEN
         RAISE EXCEPTION 'phase16 official smoke frozen manifest identity conflicts with formal evidence';
     END IF;
     RETURN NEW;
@@ -684,7 +684,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := 'e672790bd8f2b17f0ce2aab038783926';
+    expected_contract_digest TEXT := '4994163cd9d4669940a359240f2f5fb0';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_schema_contract_digest();
