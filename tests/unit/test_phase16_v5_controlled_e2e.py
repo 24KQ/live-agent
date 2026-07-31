@@ -590,6 +590,91 @@ def test_v5_adapter_skips_retry_when_deadline_already_passed() -> None:
     assert len(transport.calls) == 1
 
 
+def test_v5_adapter_skips_retry_when_window_insufficient() -> None:
+    """第一次 TRANSPORT_ERROR 后剩余不足最小窗口时必须停止，不得发出注定失败的
+    第二次调用；attempts 保持 1。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _ShortWindowTransport(_ScriptedV5AdapterTransport):
+        """第一次调用即把时钟推到 deadline 前 0.6s（< 1s 最小重试窗口）。"""
+
+        def __init__(self) -> None:
+            super().__init__([RuntimeError("late transport failure")])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            state["now"] = datetime(2026, 7, 18, 12, 0, 0, 400000, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _ShortWindowTransport()
+    adapter = _v5_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(
+        adapter.complete(
+            ModelRequest(
+                request_id=str(uuid5(NAMESPACE_URL, "v5-short-window-request")),
+                endpoint_host="api.deepseek.com",
+                model_id="deepseek-v4-pro",
+                temperature=Decimal("0"),
+                prompt_hash="a" * 64,
+                result_schema_hash="b" * 64,
+                messages=(ModelMessage(role="user", content="Return JSON."),),
+                max_output_tokens=64,
+                deadline_at=datetime(2026, 7, 18, 12, 0, 1, tzinfo=timezone.utc),
+            )
+        )
+    )
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.TRANSPORT_ERROR
+    assert outcome.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_v5_adapter_backs_off_without_consuming_retry_window() -> None:
+    """5xx 退避必须保留最小重试窗口：总剩余 < 2s 时压缩退避而非压掉窗口。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _ShortWindowTransport(_ScriptedV5AdapterTransport):
+        """第一次调用把时钟推到 deadline 前 1.4s；退避后重试仍持有完整 1s 窗口。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_error_response(503), _v5_http_success_response()])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            if not self.calls:
+                state["now"] = datetime(2026, 7, 18, 12, 0, 0, 600000, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _ShortWindowTransport()
+    sleeps: list[float] = []
+    adapter = _v5_adapter(transport, clock=lambda: state["now"], record=sleeps)
+
+    outcome = asyncio.run(
+        adapter.complete(
+            ModelRequest(
+                request_id=str(uuid5(NAMESPACE_URL, "v5-short-window-request")),
+                endpoint_host="api.deepseek.com",
+                model_id="deepseek-v4-pro",
+                temperature=Decimal("0"),
+                prompt_hash="a" * 64,
+                result_schema_hash="b" * 64,
+                messages=(ModelMessage(role="user", content="Return JSON."),),
+                max_output_tokens=64,
+                deadline_at=datetime(2026, 7, 18, 12, 0, 2, tzinfo=timezone.utc),
+            )
+        )
+    )
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 2
+    # 退避 = min(1.0, 1.4 - 1.0) ≈ 0.4s：sleep 后重试调用仍持有 1s 完整窗口。
+    assert len(sleeps) == 1
+    assert sleeps[0] == pytest.approx(0.4)
+    assert len(transport.calls) == 2
+
+
 def test_v5_preflight_rebuilds_the_versioned_manifest_without_environment_or_network() -> None:
     """本地预检必须从源码和冻结父数据重建同一身份，不能依赖 ``.env`` 或数据库。"""
 
@@ -1447,6 +1532,46 @@ def test_v5_channel_skips_rest_when_deadline_already_passed() -> None:
     # 时钟在渠道 A 调用期间已越过 deadline：delegate 的 deadline 后检查优先判
     # DEADLINE_EXCEEDED（而不是 503），adapter 不得把超时当作可重试/可换端失败。
     assert outcome.category is ModelFailureCategory.DEADLINE_EXCEEDED
+    assert outcome.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_v5_channel_skips_rest_when_window_insufficient() -> None:
+    """渠道 A 429 后剩余不足最小窗口时必须停止，绝不触碰渠道 B。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _ShortWindowTransport(_ScriptedV5AdapterTransport):
+        """第一次调用即把时钟推到 deadline 前 0.6s（< 1s 最小窗口）。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_error_response(429)])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            state["now"] = datetime(2026, 7, 18, 12, 0, 0, 400000, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _ShortWindowTransport()
+    adapter = _v5_channel_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(
+        adapter.complete(
+            ModelRequest(
+                request_id=str(uuid5(NAMESPACE_URL, "v5-short-window-request")),
+                endpoint_host="api.deepseek.com",
+                model_id="deepseek-v4-pro",
+                temperature=Decimal("0"),
+                prompt_hash="a" * 64,
+                result_schema_hash="b" * 64,
+                messages=(ModelMessage(role="user", content="Return JSON."),),
+                max_output_tokens=64,
+                deadline_at=datetime(2026, 7, 18, 12, 0, 1, tzinfo=timezone.utc),
+            )
+        )
+    )
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.RATE_LIMITED
     assert outcome.attempts == 1
     assert len(transport.calls) == 1
 

@@ -132,6 +132,10 @@ class DeepSeekV5ControlledE2EAdapter:
     #: HTTP 5xx 重试前的固定退避上限；TRANSPORT_ERROR 立即重试。
     _RETRY_BACKOFF_SECONDS = 1.0
 
+    #: 重试或换端前必须剩余的最小时间窗口；不足则不再触碰网络，避免在绝对
+    #: deadline 边缘发出注定失败的请求（实测仅剩 0.8ms 时仍会发出第二次调用）。
+    _MIN_RETRY_WINDOW_SECONDS = 1.0
+
     def __init__(
         self,
         *,
@@ -225,7 +229,8 @@ class DeepSeekV5ControlledE2EAdapter:
 
         成功返回（或最后一次失败）统一带上 attempts 与 endpoint_host 事实。
         429 只换端不重试；TRANSPORT_ERROR/5xx 在同端点重试一次；DEADLINE_EXCEEDED
-        立即返回；换端前剩余 deadline 不足则不再触碰后续渠道。
+        立即返回；重试与换端前都必须至少剩余 ``_MIN_RETRY_WINDOW_SECONDS``，
+        不足则不再触碰任何网络。
         """
 
         attempts = 0
@@ -250,22 +255,28 @@ class DeepSeekV5ControlledE2EAdapter:
                     )
                 last_outcome = outcome
                 if self._retryable(outcome):
-                    if self._remaining_seconds(request, self._clock) <= 0:
+                    if self._remaining_seconds(request, self._clock) < self._MIN_RETRY_WINDOW_SECONDS:
                         break
                     if outcome.http_status is not None and outcome.http_status >= 500:
+                        # 退避后仍需保留最小重试窗口：剩余时间不足 2 倍窗口时，
+                        # 压缩退避而非压掉窗口，确保重试调用不会在 deadline 边缘发出。
                         await self._sleep(
-                            min(self._RETRY_BACKOFF_SECONDS, self._remaining_seconds(request, self._clock))
+                            min(
+                                self._RETRY_BACKOFF_SECONDS,
+                                self._remaining_seconds(request, self._clock)
+                                - self._MIN_RETRY_WINDOW_SECONDS,
+                            )
                         )
                     continue
                 if outcome.category is ModelFailureCategory.RATE_LIMITED:
-                    # 429 不重试同端点：直接走渠道链下一端点（换端前仍受 deadline 门约束）。
+                    # 429 不重试同端点：直接走渠道链下一端点（换端前仍受最小窗口门约束）。
                     break
                 return _stamp_attempt(
                     outcome,
                     attempts=attempts,
                     endpoint_host=endpoint_request.endpoint_host,
                 )
-            if self._remaining_seconds(request, self._clock) <= 0:
+            if self._remaining_seconds(request, self._clock) < self._MIN_RETRY_WINDOW_SECONDS:
                 break
         assert last_outcome is not None
         return _stamp_attempt(
