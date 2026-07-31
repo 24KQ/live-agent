@@ -1353,7 +1353,7 @@ def test_v5_schema_violation_codes_stay_sql_safe_and_leak_no_model_text() -> Non
 def _v5_channel_adapter(
     transport: _ScriptedV5AdapterTransport,
     *,
-    hosts: tuple[str, ...] = ("ai.saigou.work", "synapse-ai.uk"),
+    hosts: tuple[str, ...] = ("api.imagebridge.top", "synapse-ai.uk"),
     clock: Callable[[], datetime] | None = None,
     record: list[float] | None = None,
 ) -> DeepSeekV5ControlledE2EAdapter:
@@ -1383,8 +1383,8 @@ def test_v5_channel_chain_switches_after_both_primary_attempts_fail() -> None:
     assert outcome.attempts == 3
     assert outcome.endpoint_host == "synapse-ai.uk"
     assert transport.calls == [
-        "https://ai.saigou.work/v1/chat/completions",
-        "https://ai.saigou.work/v1/chat/completions",
+        "https://api.imagebridge.top/v1/chat/completions",
+        "https://api.imagebridge.top/v1/chat/completions",
         "https://synapse-ai.uk/v1/chat/completions",
     ]
     assert sleeps == [1.0, 1.0]
@@ -1400,7 +1400,7 @@ def test_v5_channel_never_touches_secondary_on_first_success() -> None:
 
     assert isinstance(outcome, ModelSuccess)
     assert outcome.attempts == 1
-    assert outcome.endpoint_host == "ai.saigou.work"
+    assert outcome.endpoint_host == "api.imagebridge.top"
     assert len(transport.calls) == 1
 
 
@@ -1418,7 +1418,7 @@ def test_v5_channel_rate_limited_switches_channel_without_retrying() -> None:
     assert outcome.attempts == 2
     assert outcome.endpoint_host == "synapse-ai.uk"
     assert transport.calls == [
-        "https://ai.saigou.work/v1/chat/completions",
+        "https://api.imagebridge.top/v1/chat/completions",
         "https://synapse-ai.uk/v1/chat/completions",
     ]
 
