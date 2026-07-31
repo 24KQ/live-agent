@@ -210,7 +210,7 @@ $$;
 CREATE OR REPLACE FUNCTION phase16_official_smoke_validate_frozen_run() RETURNS trigger AS $$
 BEGIN
     IF NEW.run_id <> 'phase16-official-smoke-v1'
-       OR NEW.manifest_digest <> 'd75b8dce67ac49e8cbb9c71388fc9e666703c7296f585eb9e3b792bd0abaeb7b'
+       OR NEW.manifest_digest <> 'c1999c59a2ee480913cde0d325799d38d090e308625dcde5d223ce30315ae828'
        OR NEW.analyst_profile_digest <> '415b331477a55c58bd61e0d632ec3b74aa3137a5c30f8fd1344ab19fb2875bee'
        OR NEW.planner_profile_digest <> '40423dd6f8d7a1618ff65623940fc417ce54771fa48391338ab34bf5f8dc34c0' THEN
         RAISE EXCEPTION 'phase16 official smoke frozen manifest identity conflicts with formal evidence';
@@ -683,7 +683,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := '6b9d53c098327915e69c74420d31cf4c';
+    expected_contract_digest TEXT := '0d0710f65533f85427a66b84bec8a1e1';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_schema_contract_digest();
