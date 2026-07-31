@@ -21,10 +21,13 @@ from src.specialist_runtime.models import (
 
 
 FORMAL_ENDPOINT_HOST = "api.deepseek.com"
-FORMAL_MODEL_ID = "deepseek-v4-flash"
-# 兼容历史的 Flash 常量仍是默认值；只允许列出的模型进入冻结 Profile，避免调用方
+# 正式 smoke（V1/V2 账本）模型身份：真实历史 run 的 receipts 均为 deepseek-v4-pro
+# （2026-07-24 封印证据，成本按 3.0/6.0 定价），V1 账本 CHECK 与成本触发器同源，
+# Python 侧身份常量必须与其一致，否则 Python 校验（flash）与 SQL 校验（pro）漂移。
+FORMAL_MODEL_ID = "deepseek-v4-pro"
+# 兼容历史的 Flash 常量仍是独立白名单成员；只允许列出的模型进入冻结 Profile，避免调用方
 # 通过自由字符串把未审计的供应商或模型送入正式运行时。
-DEEPSEEK_V4_FLASH_MODEL_ID = FORMAL_MODEL_ID
+DEEPSEEK_V4_FLASH_MODEL_ID = "deepseek-v4-flash"
 DEEPSEEK_V4_PRO_MODEL_ID = "deepseek-v4-pro"
 GPT_5_6_LUNA_MODEL_ID = "gpt-5.6-luna"
 GPT_5_6_SOL_MODEL_ID = "gpt-5.6-sol"

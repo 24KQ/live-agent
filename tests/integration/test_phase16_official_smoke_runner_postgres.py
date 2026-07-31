@@ -139,7 +139,7 @@ def _official_price() -> Phase16OfficialPriceEvidence:
     """返回用户批准的 DeepSeek V4 Flash cache-miss 价格，不读取本机 API 配置。"""
 
     return Phase16OfficialPriceEvidence.create(
-        model_id="deepseek-v4-flash",
+        model_id="deepseek-v4-pro",
         endpoint_host="api.deepseek.com",
         input_cny_per_million=Decimal("1.000000"),
         output_cny_per_million=Decimal("2.000000"),
@@ -165,7 +165,7 @@ def _historically_matching_preflight(*, dataset, official_price, manifest):
             dataset=dataset,
             official_price=official_price,
             environment=Phase16OfficialSmokeEnvironment(
-                model_id="deepseek-v4-flash",
+                model_id="deepseek-v4-pro",
                 endpoint_host="api.deepseek.com",
                 credential_configured=True,
             ),

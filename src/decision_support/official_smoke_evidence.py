@@ -92,8 +92,11 @@ PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_ID = (
 PHASE16_OFFICIAL_SMOKE_HISTORICAL_CLOSURE_AUDIT_PATH = Path(
     "evaluation/manifests/phase16-official-smoke-historical-closure-audit-v1.json"
 )
-FORMAL_INPUT_PRICE_CNY_PER_MILLION = Decimal("1.000000")
-FORMAL_OUTPUT_PRICE_CNY_PER_MILLION = Decimal("2.000000")
+# V1 正式 smoke 官方价格快照（deepseek-v4-pro cache-miss）：与 V1 真实 receipts
+# 的封印成本一致（2912/5097 tokens -> 0.039318 CNY = 3.0/6.0 定价），也是 V1 账本
+# 成本触发器钉死的价格；Python 侧常量曾漂移为 flash 时代的 1.0/2.0，已回对齐。
+FORMAL_INPUT_PRICE_CNY_PER_MILLION = Decimal("3.000000")
+FORMAL_OUTPUT_PRICE_CNY_PER_MILLION = Decimal("6.000000")
 FORMAL_SMOKE_CASE_COUNT = 10
 # 对外模块使用正式 evidence 名称；底层 Profile 工厂仍保留简短常量，避免生产协调器
 # 误把 Smoke Profile 作为 LIVE Profile 身份。

@@ -359,11 +359,12 @@ BEGIN
       JOIN phase16_official_smoke_case_slots slot
         ON slot.run_id=attempt.run_id AND slot.case_id=attempt.case_id
      WHERE attempt.attempt_id=NEW.attempt_id;
-    -- D-168 固定 DeepSeek V4 Flash 的 cache-miss 输入 1.0、输出 2.0 CNY / 百万
-    -- token。两个价格均为整数元，因此 input/output token 均按百万分之一精确落在
+    -- D-168 固定 DeepSeek V4 Pro 的 cache-miss 输入 3.0、输出 6.0 CNY / 百万
+    -- token（与 V1 真实 receipts 封印成本 0.039318 一致：2912/5097 tokens）。
+    -- 两个价格均为整数元，因此 input/output token 均按百万分之一精确落在
     -- NUMERIC(12,6) 网格；直接 SQL 不能低报成本或替换供应商计价事实。
-    expected_input_cost := NEW.input_tokens::NUMERIC / 1000000;
-    expected_output_cost := NEW.output_tokens::NUMERIC * 2 / 1000000;
+    expected_input_cost := NEW.input_tokens::NUMERIC * 3 / 1000000;
+    expected_output_cost := NEW.output_tokens::NUMERIC * 6 / 1000000;
     IF NEW.input_cost_cny <> expected_input_cost
        OR NEW.output_cost_cny <> expected_output_cost
        OR NEW.total_cost_cny <> expected_input_cost + expected_output_cost THEN
@@ -683,7 +684,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := '0d0710f65533f85427a66b84bec8a1e1';
+    expected_contract_digest TEXT := 'e672790bd8f2b17f0ce2aab038783926';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_schema_contract_digest();
