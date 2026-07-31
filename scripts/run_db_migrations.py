@@ -148,11 +148,13 @@ MIGRATIONS: list[MigrationStep] = [
     MigrationStep(
         phase="phase16_official_smoke_ledger",
         sql_file="init_phase16_official_smoke_ledger.sql",
-        # V1 契约 digest 只与"纯净 V1 schema"匹配；V2 叠加（v4-pro CHECK/新函数体/
-        # 新 Manifest digest）后该检查必然 fail-closed。V1 建表使命在叠加前已完成，
-        # 重复执行只会产生 warning；全新数据库初始化仍会先执行本步再叠加 V2。
-        required=False,
-        description="Phase 16 正式真实模型 smoke append-only 审计账本（V1；V2 叠加后仅告警）",
+        # V1 账本的契约检查必须强制生效：历史教训是 V1 表创建于 deepseek-v4-pro 时代，
+        # init 文件后来演进但 CREATE TABLE IF NOT EXISTS 从不升级已有表，导致真实库
+        # 表结构漂移（model_id CHECK、manifest 常量、缺 no-truncate 触发器）长期被
+        # optional 标记静默成 warning。V1 init 已回对齐（pro CHECK + 重算契约 digest），
+        # 此处改为 required 让任何未来漂移显式 fail-closed。
+        required=True,
+        description="Phase 16 正式真实模型 smoke append-only 审计账本（V1 历史 + 契约 fail-closed）",
     ),
     MigrationStep(
         phase="phase16_official_smoke_v2_ledger",

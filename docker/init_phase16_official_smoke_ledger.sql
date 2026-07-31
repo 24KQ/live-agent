@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS phase16_official_smoke_provider_receipts (
     provider_response_id_digest TEXT NOT NULL
         CHECK (provider_response_id_digest ~ '^[0-9a-f]{64}$'),
     finish_reason TEXT NOT NULL CHECK (finish_reason IN ('stop', 'length', 'content_filter', 'tool_calls')),
-    model_id TEXT NOT NULL CHECK (model_id = 'deepseek-v4-flash'),
+    model_id TEXT NOT NULL CHECK (model_id = 'deepseek-v4-pro'),
     response_digest TEXT NOT NULL CHECK (response_digest ~ '^[0-9a-f]{64}$'),
     input_tokens BIGINT NOT NULL CHECK (input_tokens >= 0),
     output_tokens BIGINT NOT NULL CHECK (output_tokens >= 0),
@@ -683,7 +683,7 @@ DECLARE
     -- 此值由全新隔离 schema 执行本 DDL 后的完整列/约束/触发器/函数契约计算得到。
     -- 它不包含本断言函数自身，故替换期望值不会改变被核验的 schema 投影；任何现有
     -- 数据库移除了 CHECK、lineage FK 或 append-only trigger，都会产生不同摘要并 fail-closed。
-    expected_contract_digest TEXT := '8e2f1ffdd43a816043f8bfa569bc068c';
+    expected_contract_digest TEXT := '6b9d53c098327915e69c74420d31cf4c';
     actual_contract_digest TEXT;
 BEGIN
     actual_contract_digest := phase16_official_smoke_schema_contract_digest();

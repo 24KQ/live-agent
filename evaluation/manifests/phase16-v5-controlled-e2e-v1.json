@@ -5,7 +5,7 @@
   "model_id": "deepseek-v4-pro",
   "endpoint_host": "api.deepseek.com",
   "thinking_mode": "disabled",
-  "parent_manifest_digest": "cbbe53478f4605e5d479c7f88471d2199686d02e227d8b5d390bf1334eda2390",
+  "parent_manifest_digest": "64fce3e6f635a9ffe444cca56ab347778bcad91e6a21f7caa9a19d51b87464d6",
   "calibration_case_id": "phase16-v5-synthetic-calibration-001",
   "calibration_case_digest": "34093bea7eddd7a29d5fe2ec9445821519f10ba9bf697ec4d8794afbc7856e07",
   "calibration_payload_digest": "28804fa5aa4fec44e45e869096d5724776628e342363b038559f1cc2c5d0c7ab",
@@ -48,5 +48,5 @@
     "src/decision_support/controlled_e2e_ledger_v5.py": "884e5e285b1601ea741ccb0954d0e6be743b1fc85cd19d97d3a701ab7c988f09",
     "src/decision_support/controlled_e2e_v5.py": "eec9479987fe0c93de9d9e1a726f9887bc37eb093cb6acd1e56f34cdbc5f0cc9"
   },
-  "manifest_digest": "f8a8a8fe8cad5ff6a6744202c367b2228931f33d8aefc46e3ad1ecae81d902e4"
+  "manifest_digest": "764272f0092c3e8b825c4960277ec17ea56f1310aa74647d3ccae6368d1211a5"
 }
