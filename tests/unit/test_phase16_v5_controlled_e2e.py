@@ -7,7 +7,7 @@ Fake，不读取 ``.env``、不连接 PostgreSQL，也绝不向 DeepSeek 发送�
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -407,6 +407,23 @@ def _v5_adapter_request() -> ModelRequest:
     )
 
 
+def _v5_long_deadline_request() -> ModelRequest:
+    """per-attempt 窗口单测的请求：总 deadline 12:10（600s 兜底），
+    90s 每尝试窗口才能独立起算，不会被单次尝试耗尽。"""
+
+    return ModelRequest(
+        request_id=str(uuid5(NAMESPACE_URL, "v5-per-attempt-request")),
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-pro",
+        temperature=Decimal("0"),
+        prompt_hash="c" * 64,
+        result_schema_hash="d" * 64,
+        messages=(ModelMessage(role="user", content="Return JSON."),),
+        max_output_tokens=64,
+        deadline_at=datetime(2026, 7, 18, 12, 10, tzinfo=timezone.utc),
+    )
+
+
 def _v5_http_error_response(status_code: int) -> AsyncHttpResponse:
     """构造 Provider 非 2xx 响应；正文无业务含义，只驱动状态码分类。"""
 
@@ -438,6 +455,9 @@ class _ScriptedV5AdapterTransport:
 
         self._script = list(script)
         self.calls: list[str] = []
+        #: 每次调用收到的 timeout_seconds = delegate 计算的尝试窗口剩余，用于
+        #: 断言 per-attempt 90s 独立窗口不随渠道链共享衰减。
+        self.timeouts: list[float] = []
 
     async def post_json(
         self,
@@ -449,8 +469,9 @@ class _ScriptedV5AdapterTransport:
     ) -> AsyncHttpResponse:
         """消费脚本下一步：异常模拟传输层故障，响应模拟 Provider 状态码。"""
 
-        _ = (headers, payload, timeout_seconds)
+        _ = (headers, payload)
         self.calls.append(url)
+        self.timeouts.append(timeout_seconds)
         step = self._script.pop(0)
         if isinstance(step, Exception):
             raise step
@@ -673,6 +694,54 @@ def test_v5_adapter_backs_off_without_consuming_retry_window() -> None:
     assert len(sleeps) == 1
     assert sleeps[0] == pytest.approx(0.4)
     assert len(transport.calls) == 2
+
+
+def test_v5_adapter_retries_deadline_exceeded_once_and_succeeds() -> None:
+    """单次尝试超时（DEADLINE_EXCEEDED）在同一端点可重试，且重试拿到全新 90s 窗口。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _FirstCallAdvancesPastAttemptWindow(_ScriptedV5AdapterTransport):
+        """第一次调用把时钟推到尝试窗口（12:01:30）之后，触发 delegate 的 deadline 检查。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_success_response(), _v5_http_success_response()])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            if not self.calls:
+                state["now"] = datetime(2026, 7, 18, 12, 1, 31, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _FirstCallAdvancesPastAttemptWindow()
+    adapter = _v5_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(adapter.complete(_v5_long_deadline_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    # 第一次尝试的 90s 窗口在调用期间耗尽 → DEADLINE_EXCEEDED；同端点重试获新窗口后成功。
+    assert outcome.attempts == 2
+    assert len(transport.calls) == 2
+    # 两次尝试都是完整 90s 独立窗口（总 deadline 12:10 兜底未参与收缩）。
+    assert transport.timeouts == [90.0, 90.0]
+
+
+def test_v5_adapter_grants_fresh_90s_window_per_attempt_across_chain() -> None:
+    """渠道链的每一次尝试都获得独立 90s 窗口：前面端点的消耗不衰减后续窗口。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [_v5_http_error_response(500), _v5_http_error_response(503), _v5_http_success_response()]
+    )
+    sleeps: list[float] = []
+    adapter = _v5_channel_adapter(transport, record=sleeps)
+
+    outcome = asyncio.run(adapter.complete(_v5_long_deadline_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 3
+    assert outcome.endpoint_host == "synapse-ai.uk"
+    # 三次调用全部是完整 90s 独立窗口：换端与退避都不衰减尝试预算。
+    assert transport.timeouts == [90.0, 90.0, 90.0]
+    assert sleeps == [1.0, 1.0]
 
 
 def test_v5_preflight_rebuilds_the_versioned_manifest_without_environment_or_network() -> None:

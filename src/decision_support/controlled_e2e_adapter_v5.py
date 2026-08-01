@@ -17,7 +17,7 @@ receipt/campaign 行钉死实际组合。
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 import os
 from typing import Any, Awaitable, Callable
@@ -129,6 +129,11 @@ class DeepSeekV5ControlledE2EAdapter:
     #: 同一端点内最多尝试次数（1 次原始调用 + 1 次重试）。
     _MAX_ATTEMPTS_PER_ENDPOINT = 2
 
+    #: 每次尝试的独立窗口(秒):渠道链每一层的每次调用都获得全新 90s,
+    #: 不再共享同一个绝对 deadline 沙漏 —— 前面的慢调用不挤压后面渠道的预算。
+    #: 请求声明的总 deadline(profile.deadline_seconds)仍作为整条链的罕见上限。
+    _PER_ATTEMPT_DEADLINE_SECONDS = 90.0
+
     #: HTTP 5xx 重试前的固定退避上限；TRANSPORT_ERROR 立即重试。
     _RETRY_BACKOFF_SECONDS = 1.0
 
@@ -212,9 +217,16 @@ class DeepSeekV5ControlledE2EAdapter:
 
     @staticmethod
     def _retryable(outcome: ModelFailure) -> bool:
-        """只重试可证明的瞬态失败；限流与超时交给渠道链或上层，不在端点内消耗时间。"""
+        """只重试可证明的瞬态失败与单次尝试超时；429 交给渠道链换端，不在端点内消耗时间。
+
+        DEADLINE_EXCEEDED 在 per-attempt 窗口语义下可重试：单次尝试的 90s 窗口
+        独立起算，超时只说明该次尝试失败，同端点重试会获得全新 90s 窗口
+        (每端点仍受 ``_MAX_ATTEMPTS_PER_ENDPOINT`` 上限约束)。
+        """
 
         if outcome.category is ModelFailureCategory.TRANSPORT_ERROR:
+            return True
+        if outcome.category is ModelFailureCategory.DEADLINE_EXCEEDED:
             return True
         return outcome.http_status is not None and outcome.http_status >= 500
 
@@ -224,28 +236,47 @@ class DeepSeekV5ControlledE2EAdapter:
 
         return (request.deadline_at - clock()).total_seconds()
 
+    @classmethod
+    def _attempt_deadline(
+        cls, request: ModelRequest, clock: Callable[[], datetime]
+    ) -> datetime:
+        """每次尝试的独立窗口：固定 90s，且不超过请求声明的总 deadline 兜底。
+
+        总 deadline（profile.deadline_seconds，当前 600s）只作为整条渠道链的
+        罕见上限；正常语义下每次尝试都是全新 90s 窗口，不再共享一个沙漏。
+        """
+
+        return min(
+            clock() + timedelta(seconds=cls._PER_ATTEMPT_DEADLINE_SECONDS),
+            request.deadline_at,
+        )
+
     async def complete(self, request: ModelRequest) -> ModelOutcome:
-        """按渠道有序列表在绝对 deadline 内执行，每端点最多 2 次调用。
+        """按渠道有序列表执行，每端点每尝试独立 90s 窗口，每端点最多 2 次调用。
 
         成功返回（或最后一次失败）统一带上 attempts 与 endpoint_host 事实。
-        429 只换端不重试；TRANSPORT_ERROR/5xx 在同端点重试一次；DEADLINE_EXCEEDED
-        立即返回；重试与换端前都必须至少剩余 ``_MIN_RETRY_WINDOW_SECONDS``，
-        不足则不再触碰任何网络。
+        TRANSPORT_ERROR/5xx/DEADLINE_EXCEEDED 在同端点重试一次（每次尝试窗口
+        重新起算）；429 只换端不重试；每次尝试前重建请求，把总 deadline 覆盖为
+        ``min(now+90s, 总 deadline)`` —— 渠道链的每一层都获得完整窗口，前面的
+        慢调用不再挤压后面渠道的预算。换端前必须至少剩余
+        ``_MIN_RETRY_WINDOW_SECONDS``，不足则不再触碰任何网络。
         """
 
         attempts = 0
         last_outcome: ModelOutcome | None = None
         endpoint_request = request
         for delegate, host in self._chain:
-            endpoint_request = request
-            if host != request.endpoint_host:
+            for _ in range(self._MAX_ATTEMPTS_PER_ENDPOINT):
+                attempts += 1
+                # 每次尝试重建：换端 host + 独立窗口 deadline（覆盖 profile 总 deadline）。
                 # StrictFrozenModel 禁止 model_copy(update=...)；重建会重跑 endpoint
                 # 校验，渠道 host 已在上层手工通过 normalize + FORMAL 白名单。
                 payload = request.model_dump(mode="json")
                 payload["endpoint_host"] = host
+                payload["deadline_at"] = self._attempt_deadline(
+                    request, self._clock
+                ).isoformat()
                 endpoint_request = ModelRequest.model_validate(payload)
-            for _ in range(self._MAX_ATTEMPTS_PER_ENDPOINT):
-                attempts += 1
                 outcome = await delegate.complete(endpoint_request)
                 if isinstance(outcome, ModelSuccess):
                     return _stamp_attempt(
