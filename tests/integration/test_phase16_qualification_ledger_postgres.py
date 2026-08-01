@@ -28,6 +28,7 @@ from src.decision_support.phase16_qualification_ledger import (
     build_qualification_metric,
     corpus_identity_from_manifest,
     initialize_phase16_qualification_schema,
+    qualification_campaign_id,
 )
 
 
@@ -83,9 +84,17 @@ def _parents(ledger: PostgresPhase16QualificationLedger):
     return policy, identity, candidate
 
 
-def _campaign(*, policy, corpus, candidate, campaign_id: str, kind: QualificationCampaignKind):
+def _campaign(*, policy, corpus, candidate, kind: QualificationCampaignKind):
+    # fixture 使用模型默认声明组合（gpt-5.6-luna / 无 effort / synapse 单渠道）；
+    # campaign_id 由闭包 canonical 函数按声明字段派生。
     return QualificationCampaign(
-        campaign_id=campaign_id,
+        campaign_id=qualification_campaign_id(
+            kind=kind,
+            candidate_digest=candidate.candidate_digest or "",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=("synapse-ai.uk",),
+        ),
         campaign_kind=kind,
         policy_digest=policy.policy_digest or "",
         corpus_digest=corpus.corpus_digest,
@@ -123,7 +132,6 @@ def test_qualification_ledger_authenticates_terminal_result_and_rejects_mutation
         policy=policy,
         corpus=corpus,
         candidate=candidate,
-        campaign_id="phase16-qualification-development-001",
         kind=QualificationCampaignKind.DEVELOPMENT,
     )
     ledger.ensure_campaign(campaign)
@@ -181,7 +189,6 @@ def test_qualification_holdout_batch_requires_committed_corpus_release_and_fifte
         policy=policy,
         corpus=pending_corpus,
         candidate=candidate,
-        campaign_id="phase16-qualification-holdout-pending-001",
         kind=QualificationCampaignKind.HOLDOUT,
     )
     with pytest.raises(Phase16QualificationLedgerError, match="not committed"):
@@ -202,7 +209,6 @@ def test_qualification_holdout_batch_requires_committed_corpus_release_and_fifte
         policy=policy,
         corpus=committed_corpus,
         candidate=candidate,
-        campaign_id="phase16-qualification-holdout-001",
         kind=QualificationCampaignKind.HOLDOUT,
     )
     ledger.ensure_campaign(campaign)
@@ -235,7 +241,6 @@ def test_qualification_result_hmac_fails_closed_for_wrong_process_key(qualificat
         policy=policy,
         corpus=corpus,
         candidate=candidate,
-        campaign_id="phase16-qualification-validation-001",
         kind=QualificationCampaignKind.VALIDATION,
     )
     writer.ensure_campaign(campaign)

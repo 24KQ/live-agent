@@ -1,0 +1,163 @@
+{
+  "host": "synapse-ai.uk",
+  "model_id": "gpt-5.6-terra",
+  "reasoning_effort": "high",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L1": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5009.905600003549,
+        "http_status": 200
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3656.001200011815,
+        "http_status": 200
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 2556.2497999926563,
+        "http_status": 200
+      }
+    ],
+    "L2": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6764.146100002108,
+        "wall_ms": 6764,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 130
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6873.502800008282,
+        "wall_ms": 6873,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 148
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4619.719800000894,
+        "wall_ms": 4619,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 155
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5698.2360999973025,
+        "wall_ms": 5698,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 159
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6668.207999988226,
+        "wall_ms": 6669,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 161
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5115.045799990185,
+        "wall_ms": 5115,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 166
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6149.586600004113,
+        "wall_ms": 6150,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 144
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 7914.989800003241,
+        "wall_ms": 7915,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 150
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 9492.416000008234,
+        "wall_ms": 9492,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 182
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6709.585600008722,
+        "wall_ms": 6710,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 154
+      }
+    ],
+    "L3": [
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 11112.515799992252,
+        "wall_ms": 11113,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 296
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "PLANNER",
+        "label": "SUCCESS",
+        "latency_ms": 7743.754499999341,
+        "wall_ms": 7744,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 312
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 13699.45960000041,
+        "wall_ms": 13700,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 648
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "PLANNER",
+        "label": "SUCCESS",
+        "latency_ms": 10507.60420000006,
+        "wall_ms": 10508,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 439
+      }
+    ]
+  }
+}

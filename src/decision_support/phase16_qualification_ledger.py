@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
+from hashlib import sha256
 import hmac
 from pathlib import Path
 import re
@@ -47,6 +48,35 @@ class QualificationCampaignKind(StrEnum):
     DEVELOPMENT = "DEVELOPMENT"
     VALIDATION = "VALIDATION"
     HOLDOUT = "HOLDOUT"
+
+
+def qualification_campaign_id(
+    *,
+    kind: QualificationCampaignKind,
+    candidate_digest: str,
+    declared_model_id: str,
+    declared_reasoning_effort: str | None,
+    declared_endpoint_hosts: tuple[str, ...],
+    batch_index: int = 1,
+) -> str:
+    """canonical campaign 身份 = kind + candidate digest + 运行时声明组合。
+
+    矩阵配置拍板语义：白名单内切模型/强度/渠道零成本——同一 digest 下不同声明
+    组合是不同 campaign 身份，各占一次 dev/validation 名额；同一组合重复声明
+    命中同一 campaign_id，由 UNIQUE(campaign_id) 与终态检查拒绝。batch_index
+    只对 HOLDOUT 有意义（batch 1/2），统一纳入组合串保持身份唯一。
+    """
+
+    combo = "|".join(
+        (
+            str(batch_index),
+            declared_model_id,
+            declared_reasoning_effort or "",
+            ",".join(declared_endpoint_hosts),
+        )
+    )
+    suffix = sha256(combo.encode("utf-8")).hexdigest()[:16]
+    return f"phase16-{kind.value.lower()}-{candidate_digest[:16]}-{suffix}"
 
 
 class QualificationRunStatus(StrEnum):
@@ -500,6 +530,41 @@ class PostgresPhase16QualificationLedger:
         try:
             with self._connection() as connection:
                 with connection.cursor() as cursor:
+                    # 身份规则冻结在闭包内：campaign_id 必须是声明组合的 canonical
+                    # 渲染，脚本层不能用手工 id 绕过防刷分。
+                    canonical = qualification_campaign_id(
+                        kind=campaign.campaign_kind,
+                        candidate_digest=campaign.candidate_digest,
+                        declared_model_id=campaign.declared_model_id,
+                        declared_reasoning_effort=campaign.declared_reasoning_effort,
+                        declared_endpoint_hosts=campaign.declared_endpoint_hosts,
+                        batch_index=campaign.batch_index,
+                    )
+                    if canonical != campaign.campaign_id:
+                        raise Phase16QualificationLedgerError(
+                            "qualification campaign id does not match declared identity"
+                        )
+                    # 同一 digest 下同一声明组合只能有一个 campaign（防刷分核心）：
+                    # 切换组合才开新名额；campaign_id 格式迁移不能重开已跑过的组合。
+                    cursor.execute(
+                        """SELECT campaign_id FROM phase16_qualification_campaigns
+                            WHERE campaign_kind=%s AND candidate_digest=%s
+                              AND declared_model_id=%s
+                              AND declared_reasoning_effort IS NOT DISTINCT FROM %s
+                              AND declared_endpoint_hosts=%s""",
+                        (
+                            campaign.campaign_kind.value,
+                            campaign.candidate_digest,
+                            campaign.declared_model_id,
+                            campaign.declared_reasoning_effort,
+                            ",".join(campaign.declared_endpoint_hosts),
+                        ),
+                    )
+                    existing = cursor.fetchone()
+                    if existing is not None and existing["campaign_id"] != campaign.campaign_id:
+                        raise Phase16QualificationLedgerError(
+                            "qualification campaign identity conflicts"
+                        )
                     cursor.execute(
                         """SELECT project_budget_cny, campaign_budget_cny, holdout_batch_count
                              FROM phase16_qualification_policies

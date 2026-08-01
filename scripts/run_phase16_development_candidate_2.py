@@ -82,6 +82,7 @@ def main() -> int:
         QualificationCampaignKind,
         corpus_identity_from_manifest,
         initialize_phase16_qualification_schema,
+        qualification_campaign_id,
     )
     initialize_phase16_qualification_schema(settings)
     print("[DB] qualification schema ready")
@@ -141,10 +142,17 @@ def main() -> int:
     ledger.ensure_corpus(identity)
     ledger.ensure_candidate(bundle.candidate)
 
-    # campaign_id 绑定 candidate digest 前缀：冻结输入变化 → 新 digest → 新 campaign 行，
-    # 旧证据保留（append-only），不需要清库；同一 digest 再次运行会被 UNIQUE(campaign_id)
-    # 与 begin_run 的终态检查拒绝（无重试语义）。
-    campaign_id = f"phase16-{kind.value.lower()}-{bundle.candidate.candidate_digest[:16]}"
+    # campaign_id 由闭包 canonical 函数生成：绑定 candidate digest 前缀 + 运行时
+    # 声明组合（模型/强度/渠道）。冻结输入变化 → 新 digest；白名单内切组合 → 新
+    # campaign 行（各占一次 dev/validation 名额）。同一 (digest, 组合) 重复声明
+    # 会命中 UNIQUE(campaign_id) 与终态检查被拒绝（无重试语义）。
+    campaign_id = qualification_campaign_id(
+        kind=kind,
+        candidate_digest=bundle.candidate.candidate_digest or "",
+        declared_model_id=model_id,
+        declared_reasoning_effort=reasoning_effort or None,
+        declared_endpoint_hosts=tuple(channel_hosts),
+    )
     # 每 campaign 预留只需覆盖自身最坏情况（24 stages × ~0.053 ≈ 1.27），
     # 让同一 project 下可并存 DEVELOPMENT + VALIDATION 两个 campaign。
     campaign = QualificationCampaign(

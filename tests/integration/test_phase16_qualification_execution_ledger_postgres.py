@@ -31,6 +31,7 @@ from src.decision_support.phase16_qualification_ledger import (
     build_qualification_candidate,
     corpus_identity_from_manifest,
     initialize_phase16_qualification_schema,
+    qualification_campaign_id,
 )
 from src.specialist_runtime.model_port import ModelSuccess, ModelUsage
 from src.specialist_runtime.models import canonical_json_sha256
@@ -83,7 +84,14 @@ def _setup(ledger: PostgresPhase16QualificationExecutionLedger):
     ledger.ensure_corpus(identity)
     ledger.ensure_candidate(candidate)
     campaign = QualificationCampaign(
-        campaign_id="phase16-qualification-v2-development-execution-001",
+        # fixture 使用模型默认声明组合（gpt-5.6-luna / 无 effort / synapse 单渠道）。
+        campaign_id=qualification_campaign_id(
+            kind=QualificationCampaignKind.DEVELOPMENT,
+            candidate_digest=candidate.candidate_digest or "",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=("synapse-ai.uk",),
+        ),
         campaign_kind=QualificationCampaignKind.DEVELOPMENT,
         policy_digest=policy.policy_digest or "",
         corpus_digest=identity.corpus_digest,
@@ -365,7 +373,14 @@ def test_execution_ledger_campaign_budget_counts_settled_actual_cost(
     )
     ledger.ensure_candidate(tight_candidate)
     tight = QualificationCampaign(
-        campaign_id="phase16-qualification-v2-development-tight-budget-001",
+        # tight 帽用独立 candidate 身份 + 模型默认声明组合派生 canonical id。
+        campaign_id=qualification_campaign_id(
+            kind=QualificationCampaignKind.DEVELOPMENT,
+            candidate_digest=tight_candidate.candidate_digest or "",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=("synapse-ai.uk",),
+        ),
         campaign_kind=QualificationCampaignKind.DEVELOPMENT,
         policy_digest=campaign.policy_digest,
         corpus_digest=campaign.corpus_digest,

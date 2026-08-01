@@ -41,6 +41,7 @@ from src.decision_support.phase16_qualification_ledger import (
     QualificationRunStatus,
     corpus_identity_from_manifest,
     initialize_phase16_qualification_schema,
+    qualification_campaign_id,
 )
 from src.decision_support.phase16_qualification_runner import (
     Phase16QualificationCampaignRunner,
@@ -183,7 +184,7 @@ def ledger_factory():
             connection.commit()
 
 
-def _init_campaign(ledger: PostgresPhase16QualificationExecutionLedger, *, campaign_id: str):
+def _init_campaign(ledger: PostgresPhase16QualificationExecutionLedger):
     """初始化 policy/corpus/candidate/campaign 身份并返回依赖项。"""
     policy = build_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
     corpus = load_phase16_qualification_corpus(
@@ -199,7 +200,14 @@ def _init_campaign(ledger: PostgresPhase16QualificationExecutionLedger, *, campa
     ledger.ensure_corpus(identity)
     ledger.ensure_candidate(bundle.candidate)
     campaign = QualificationCampaign(
-        campaign_id=campaign_id,
+        # fixture 使用模型默认声明组合（gpt-5.6-luna / 无 effort / synapse 单渠道）。
+        campaign_id=qualification_campaign_id(
+            kind=QualificationCampaignKind.DEVELOPMENT,
+            candidate_digest=bundle.candidate.candidate_digest or "",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=("synapse-ai.uk",),
+        ),
         campaign_kind=QualificationCampaignKind.DEVELOPMENT,
         policy_digest=policy.policy_digest or "",
         corpus_digest=identity.corpus_digest,
@@ -226,7 +234,7 @@ def test_runner_all_cases_pass(ledger_factory) -> None:
     """12/12 高冲突全部 Analyst→Planner PASS → status=PASS, E2E=12/12。"""
     ledger = ledger_factory()
     policy, corpus, identity, bundle, campaign = _init_campaign(
-        ledger, campaign_id="q-runner-all-pass",
+        ledger,
     )
     cases = _high_conflict_cases(corpus)
     now = datetime.now(timezone.utc)
@@ -279,7 +287,7 @@ def test_runner_analyst_semantic_failure_continues(ledger_factory) -> None:
     """Case 0 的 Analyst explanation 超长 → 该 case FAILED, 后 11 继续。"""
     ledger = ledger_factory()
     policy, corpus, identity, bundle, campaign = _init_campaign(
-        ledger, campaign_id="q-runner-anlys-fail",
+        ledger,
     )
     cases = _high_conflict_cases(corpus)
     now = datetime.now(timezone.utc)
@@ -330,7 +338,7 @@ def test_runner_planner_semantic_failure_continues(ledger_factory) -> None:
     """Case 0 的 Planner 遗漏 risk_flag → 该 case FAILED, 后 11 继续。"""
     ledger = ledger_factory()
     policy, corpus, identity, bundle, campaign = _init_campaign(
-        ledger, campaign_id="q-runner-plnr-fail",
+        ledger,
     )
     cases = _high_conflict_cases(corpus)
     now = datetime.now(timezone.utc)
@@ -378,7 +386,7 @@ def test_runner_transport_failure_blocks_network(ledger_factory) -> None:
     """首个 case ModelFailure(request_sent=False) → BLOCKED, 余下不再发网络。"""
     ledger = ledger_factory()
     policy, corpus, identity, bundle, campaign = _init_campaign(
-        ledger, campaign_id="q-runner-transport",
+        ledger,
     )
     cases = _high_conflict_cases(corpus)
     now = datetime.now(timezone.utc)
@@ -417,7 +425,7 @@ def test_runner_incomplete_receipt_continues(ledger_factory) -> None:
     """Case 0 的 receipt 缺 provider_response_id → case FAILED, 后 11 继续。"""
     ledger = ledger_factory()
     policy, corpus, identity, bundle, campaign = _init_campaign(
-        ledger, campaign_id="q-runner-receipt",
+        ledger,
     )
     cases = _high_conflict_cases(corpus)
     now = datetime.now(timezone.utc)
@@ -464,7 +472,7 @@ def test_runner_rejects_holdout_campaign(ledger_factory) -> None:
     """holdout campaign 没有 release loader → runner 返回 BLOCKED。"""
     ledger = ledger_factory()
     policy, corpus, identity, bundle, _campaign = _init_campaign(
-        ledger, campaign_id="q-runner-holdout-reject",
+        ledger,
     )
     # 创建 holdout campaign（但 runner 的 _cases_for_campaign 会拒绝）
     holdout = QualificationCampaign(

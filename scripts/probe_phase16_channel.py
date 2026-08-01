@@ -10,7 +10,7 @@
 设计约束:
 - 真实调用,预算约 0.3 CNY/渠道;key 只从 .env 读取,输出打码,绝不打印 key。
 - 不写执行账本、不触碰 campaign digest —— 这是渠道体检,不是正式 campaign。
-- 思考强度强制等于 .env 的 LLM_API_REASONING_EFFORT(当前 xhigh),不满足直接退出。
+- 思考强度必须为白名单内值(与正式 campaign 同参数,否则内容质量结论失真)。
 - 对照组:同一脚本 --channel synapse 重跑,数据直接可比。
 
 用法:
@@ -52,7 +52,10 @@ from src.specialist_runtime.model_port import (  # noqa: E402
     ModelRequest,
     ModelSuccess,
 )
-from src.specialist_runtime.profiles import normalize_endpoint_host  # noqa: E402
+from src.specialist_runtime.profiles import (  # noqa: E402
+    FORMAL_REASONING_EFFORTS,
+    normalize_endpoint_host,
+)
 
 #: 每个请求的独立绝对 deadline;超过即记挂死嫌疑(正式 campaign 挂死过 180s)。
 _PROBE_DEADLINE_SECONDS = 60.0
@@ -100,10 +103,11 @@ def _assert_probe_config() -> str:
         raise SystemExit("LLM_API_MODEL_ID is not set in .env")
     if not effort:
         raise SystemExit("LLM_API_REASONING_EFFORT is not set in .env")
-    if effort != "xhigh":
-        # 探针必须与正式 campaign 同思考强度,否则内容质量结论失真。
+    if effort not in FORMAL_REASONING_EFFORTS:
+        # 探针必须与正式 campaign 同思考强度(白名单内),否则内容质量结论失真。
         raise SystemExit(
-            f"LLM_API_REASONING_EFFORT must be xhigh for the probe, got {effort!r}"
+            f"LLM_API_REASONING_EFFORT must be one of "
+            f"{sorted(FORMAL_REASONING_EFFORTS)}, got {effort!r}"
         )
     return model
 

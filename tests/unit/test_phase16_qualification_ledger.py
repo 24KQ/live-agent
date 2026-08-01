@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from src.decision_support.phase16_qualification_ledger import (
     build_qualification_candidate,
     build_qualification_metric,
     corpus_identity_from_manifest,
+    qualification_campaign_id,
 )
 
 
@@ -153,3 +155,70 @@ def test_metric_rejects_inconsistent_count_or_digest() -> None:
     payload["numerator"] = 17
     with pytest.raises(ValidationError, match="metric digest"):
         QualificationMetricFact.model_validate(payload)
+
+
+def test_qualification_campaign_id_is_deterministic_and_pins_declared_combo() -> None:
+    """canonical id = kind + digest 前缀 + 声明组合；同组合幂等、异组合分裂。"""
+    kind = QualificationCampaignKind.DEVELOPMENT
+    digest = "a" * 64
+    combo = "|".join(("1", "gpt-5.6-luna", "", "synapse-ai.uk"))
+    expected_suffix = sha256(combo.encode("utf-8")).hexdigest()[:16]
+    first = qualification_campaign_id(
+        kind=kind,
+        candidate_digest=digest,
+        declared_model_id="gpt-5.6-luna",
+        declared_reasoning_effort=None,
+        declared_endpoint_hosts=("synapse-ai.uk",),
+    )
+    assert first == f"phase16-development-{digest[:16]}-{expected_suffix}"
+    # 同一组合重复声明 → 同一身份（防刷分：第二次被 UNIQUE/终态检查拒绝）。
+    assert first == qualification_campaign_id(
+        kind=kind,
+        candidate_digest=digest,
+        declared_model_id="gpt-5.6-luna",
+        declared_reasoning_effort=None,
+        declared_endpoint_hosts=("synapse-ai.uk",),
+    )
+
+
+def test_qualification_campaign_id_changes_with_each_declared_dimension() -> None:
+    """模型/强度/渠道/kind/batch 任一变化 → 新 campaign 身份（切组合零成本）。"""
+    base = dict(
+        kind=QualificationCampaignKind.DEVELOPMENT,
+        candidate_digest="a" * 64,
+        declared_model_id="gpt-5.6-luna",
+        declared_reasoning_effort=None,
+        declared_endpoint_hosts=("synapse-ai.uk",),
+    )
+    reference = qualification_campaign_id(**base)
+    variants = [
+        dict(declared_model_id="gpt-5.6-terra"),
+        dict(declared_reasoning_effort="high"),
+        dict(declared_endpoint_hosts=("synapse-ai.uk", "ai.saigou.work")),
+        # 渠道有序：顺序即优先级，顺序翻转必须是不同身份。
+        dict(declared_endpoint_hosts=("ai.saigou.work", "synapse-ai.uk")),
+        dict(kind=QualificationCampaignKind.VALIDATION),
+        dict(batch_index=2),
+        dict(candidate_digest="b" * 64),
+    ]
+    for update in variants:
+        assert qualification_campaign_id(**{**base, **update}) != reference
+
+
+def test_qualification_campaign_id_uses_only_digest_prefix() -> None:
+    """身份只依赖 candidate digest 前 16 位，后 48 位变化不改变身份。"""
+    first = qualification_campaign_id(
+        kind=QualificationCampaignKind.DEVELOPMENT,
+        candidate_digest="a" * 64,
+        declared_model_id="gpt-5.6-luna",
+        declared_reasoning_effort=None,
+        declared_endpoint_hosts=("synapse-ai.uk",),
+    )
+    second = qualification_campaign_id(
+        kind=QualificationCampaignKind.DEVELOPMENT,
+        candidate_digest="a" * 16 + "b" * 48,
+        declared_model_id="gpt-5.6-luna",
+        declared_reasoning_effort=None,
+        declared_endpoint_hosts=("synapse-ai.uk",),
+    )
+    assert first == second

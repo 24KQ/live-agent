@@ -1,26 +1,9 @@
 {
-  "manifest_id": "phase16-v5-controlled-e2e-v1",
-  "schema_version": "1.0.0",
-  "campaign_id": "phase16-v8-controlled-e2e",
-  "model_id": "deepseek-v4-pro",
-  "endpoint_host": "api.deepseek.com",
-  "thinking_mode": "disabled",
-  "parent_manifest_digest": "2d3623dee5ded97f34f32a9842759f9520e58fb7b7637808e77eebe947919f50",
-  "calibration_case_id": "phase16-v5-synthetic-calibration-001",
   "calibration_case_digest": "34093bea7eddd7a29d5fe2ec9445821519f10ba9bf697ec4d8794afbc7856e07",
+  "calibration_case_id": "phase16-v5-synthetic-calibration-001",
   "calibration_payload_digest": "28804fa5aa4fec44e45e869096d5724776628e342363b038559f1cc2c5d0c7ab",
-  "formal_case_ids": [
-    "phase16-high-conflict-paired-development-001",
-    "phase16-high-conflict-paired-development-002",
-    "phase16-high-conflict-paired-development-003",
-    "phase16-high-conflict-paired-development-004",
-    "phase16-high-conflict-paired-development-005",
-    "phase16-high-conflict-paired-development-006",
-    "phase16-high-conflict-paired-validation-007",
-    "phase16-high-conflict-paired-validation-008",
-    "phase16-high-conflict-paired-validation-009",
-    "phase16-high-conflict-paired-validation-010"
-  ],
+  "campaign_id": "phase16-v8-controlled-e2e",
+  "endpoint_host": "api.deepseek.com",
   "formal_case_digests": {
     "phase16-high-conflict-paired-development-001": "979d90b04ca16b1450b887d83740c506dbfa0172a3b861ca923077f1adbf3a1a",
     "phase16-high-conflict-paired-development-002": "eaab3b3c50b9c1d37c224680c49572fca9be2c851cd922ad2bc47d5b154189c2",
@@ -33,14 +16,29 @@
     "phase16-high-conflict-paired-validation-009": "458baf11bae10c3b98fd497096b4a4ca3743847fda8afd955e232e37e8ced9a7",
     "phase16-high-conflict-paired-validation-010": "7a33a8bd78fc681e0699c7499c6cce61e3b177f8ab8b6d85558fa7956c76caeb"
   },
+  "formal_case_ids": [
+    "phase16-high-conflict-paired-development-001",
+    "phase16-high-conflict-paired-development-002",
+    "phase16-high-conflict-paired-development-003",
+    "phase16-high-conflict-paired-development-004",
+    "phase16-high-conflict-paired-development-005",
+    "phase16-high-conflict-paired-development-006",
+    "phase16-high-conflict-paired-validation-007",
+    "phase16-high-conflict-paired-validation-008",
+    "phase16-high-conflict-paired-validation-009",
+    "phase16-high-conflict-paired-validation-010"
+  ],
+  "input_cny_per_million": "3.000000",
+  "manifest_digest": "06851597bf9c747a537071777b8c7b499828dc39a3cb7895bc202360c5d75749",
+  "manifest_id": "phase16-v5-controlled-e2e-v1",
+  "model_id": "deepseek-v4-pro",
+  "output_cny_per_million": "6.000000",
+  "parent_manifest_digest": "19eed43195fca6efa5d2be72a122820108241c386ddc00fc3c4198c9bdfc8c0c",
   "profile_digests": {
     "analyst": "df80f94e569aadb181495a7a9562299423bcef745e725db2d42999f8899988de",
     "planner": "e710bd37ec1b895e6fc6ede356fdb4bf285f630b472e090d3a6a22f02307a0d4"
   },
-  "input_cny_per_million": "3.000000",
-  "output_cny_per_million": "6.000000",
-  "stage_reservation_cny": "0.030000",
-  "total_budget_cny": "1.000000",
+  "schema_version": "1.0.0",
   "source_file_digests": {
     "docker/init_phase16_v5_controlled_e2e.sql": "efb88ca0b80420b28c695967562108d4772f1ca6b20cf0a0b97466732f501bb2",
     "scripts/run_phase16_v5_controlled_e2e.py": "d9fd81c64f592417b90f09789f524d76e4ab8bcb650cfe6c17a38ab9f40c8965",
@@ -48,5 +46,7 @@
     "src/decision_support/controlled_e2e_ledger_v5.py": "884e5e285b1601ea741ccb0954d0e6be743b1fc85cd19d97d3a701ab7c988f09",
     "src/decision_support/controlled_e2e_v5.py": "eec9479987fe0c93de9d9e1a726f9887bc37eb093cb6acd1e56f34cdbc5f0cc9"
   },
-  "manifest_digest": "a70931663e82f8fdef2258049c078e570bba0a43a34d2a0d4fc018fd3e514e83"
+  "stage_reservation_cny": "0.030000",
+  "thinking_mode": "disabled",
+  "total_budget_cny": "1.000000"
 }
