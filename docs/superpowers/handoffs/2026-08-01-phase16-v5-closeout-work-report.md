@@ -3,6 +3,8 @@
 - 报告人：Claude Code（收尾执行者）
 - 审阅人：codex（Phase 16 原始开发者）
 - 报告日期：2026-08-01
+- 修订：2026-08-02（补跑契约 A 项门禁并修正 §6 声明；补充模型切换失败形态对比
+  §3.5a、原始 V5 实现文件状态 §3.9、FAILED run 归因表 §5.2、复核点 R11/R12）
 - 审阅起点：`docs/superpowers/handoffs/2026-07-29-phase16-v5-claude-code-handoff.md`
   （commit `d60ebd4` / `b1a11ac` / `27d20b4`，2026-07-29）
 - 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`b903304`，17 个移交后 commit）
@@ -133,6 +135,23 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 - 证据：receipt `model_id` / `reasoning_effort` 列钉死实际声明值；最终组合
   `gpt-5.6-terra / high` 双 PASS
 
+#### 3.5a 模型切换历史的失败形态精确化（供审阅）
+
+"换模型"是收尾的**最后一块拼图，但不是唯一关键修复**，且严格说是"换声明组合"
+而非跨 provider 切换。三个阶段的失败形态截然不同：
+
+| 阶段 | 组合 | 失败/通过形态 | 证据 |
+|:--|:--|:--|:--|
+| deepseek-v4-pro（V1-V3） | 契约冻结模型 | V1 `ANALYST_VALIDATION_FAILED`；V2 `EXECUTED_FAILED`；V3 `MODEL_FAILURE_INVALID_OUTPUT_JSON`（字面"输出 JSON 无效"）——完整双 Agent 结构输出从未通过 | v1/v2/v3 证据文档 |
+| deepseek-v4-pro（V4） | 契约冻结模型 | `PASS / JSON_PROTOCOL_PASS`——仅最小 JSON 协议（thinking disabled），自声明不等同双 Agent 证据 | v4 证据文档 |
+| gpt-5.6-luna/xhigh | 声明别名 + 重试体系 | 间歇内容级失败：`8623a075` 24/24 PASS，数小时后 `f28d7e03` 12/12 内容级失败（3 次 INVALID_RESPONSE + 9 次语义验证失败；HTTP 200、输出短 1356 vs 2521 tokens）——"内容质量"问题，非 JSON 解析 | identity 验收文档 |
+| gpt-5.6-terra/high | 声明别名（最终） | 72/72 全 PASS（dev 24 + validation 24 + 注入 24），零内容失败、零 INVALID_RESPONSE | closeout 文档 + 账本 |
+
+三种失败形态必须区分：**JSON/结构失败**（V3 时代）≠ **内容级失败**（luna 时代，
+HTTP 200 但输出不合格）≠ **传输失败**（TRANSPORT_ERROR，由重试/failover 解决）。
+换 terra/high 解决的是"内容级失败"；传输层问题由重试体系解决——**两者缺一则最终
+PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份 + 换组合"的叠加工程。
+
 ### 3.6 身份设计：声明组合纳入 campaign_id（防刷分语义演化）
 
 - 契约原语义：同一 candidate digest 只能跑一次 dev+validation（防刷分）
@@ -163,6 +182,21 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
   （第 6 节），远端 GitHub Actions 未跑过
 - 状态：这是收尾的**下一步**（第 9 节），不把本地结果写成远端已通过
 
+### 3.9 原始 V5 实现文件状态（codex 关心其代码去向）
+
+- `src/decision_support/controlled_e2e_v5.py`：v9 矩阵重构适配演进 **±285 行**
+  （`70836ab`：新增 schema 违规坐标 / 违规码提取等失败归因辅助），原单次调用
+  语义由 qualification campaign 体系承载
+- `src/decision_support/controlled_e2e_ledger_v5.py`：**±13 行**——修复校准 run ID
+  字面量重复缺陷：原 `begin_run` 与 `calibration_passed` 两处 SQL 各写一份 run ID
+  字面量，campaign 换代易漏改、导致正式 run 误读上一代校准结论；收敛为单一常量
+  `PHASE16_V8_CALIBRATION_RUN_ID`（文件内注释有据）
+- `scripts/run_phase16_v5_controlled_e2e.py`：±10 行适配
+- `src/decision_support/controlled_e2e_adapter_v5.py`：重试/窗口/failover 包装扩展
+  （闭包内，见 3.3）
+- 原契约命令路径（`--execute-calibration` / `--execute-formal`）**从未以原形式执行**；
+  最终证据全部由 qualification campaign 体系产出（用户批准，见 3.1/3.7）
+
 ## 4. Claude 工作详解（17 个 commit，6 个主题块）
 
 移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 17 个 commit
@@ -174,6 +208,11 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 
 - 问题：V1 smoke 账本（历史审计资产）的冻结身份与 deepseek 官方定价参数化后
   的 profile 不一致（模型身份漂移），导致 V1 契约检查 fail-closed
+- 漂移根因（`scripts/run_db_migrations.py` 注释有据）：V1 表创建于 deepseek-v4-pro
+  时代；init 文件后来演进但 `CREATE TABLE IF NOT EXISTS` 从不升级已有表，真实库
+  表结构漂移（model_id CHECK、manifest 常量、缺 no-truncate 触发器）长期被
+  optional 迁移标记静默成 warning；V1 init 已回对齐（pro CHECK + 重算契约 digest）
+  并改为 required（fail-closed）
 - 做法：V1 账本身份对齐为 `deepseek-v4-pro` + 3.0/6.0 定价；新增
   `scripts/sync_phase16_smoke_ledger_digests.py`（214 行）做账本 digest 自愈与
   重同步；dataset / v1 / v2 / v5 manifest 重冻结
@@ -249,9 +288,14 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 - 注入 run：24/24 次 `attempt_count=3`（vote520 TRANSPORT_ERROR → 重试 → failover
   → synapse 成功），`responded_endpoint_host=synapse-ai.uk`——**真实 failover 全链
   证据**；ANALYST avg 10.5s / PLANNER avg 13.2s
-- 4 个 FAILED 终态：`cdd63444`、`3c10985b`、`9eda8e8a`、`f28d7e03`（dev 预案，
-  基础设施瞬态 / 上游内容级失败；`9eda8e8a` 曾 9 次重试 + 双端点，是 failover 的
-  次要旁证）；终态不可重跑（防刷分设计）
+- 4 个 FAILED 终态（终态不可重跑，防刷分设计）：
+
+| FAILED run | 组合 | receipts | 已知归因 | 归因出处 |
+|:--|:--|:--|:--|:--|
+| cdd63444 dev | luna/单渠道 | 22/24 | 早期组合 run，缺 2 张 receipt（发送级失败）；**具体归因未留存于最终报告链** | 账本 |
+| 3c10985b dev | luna/单渠道 | 23/24 | 同左，缺 1 张；**同上** | 账本 |
+| 9eda8e8a dev | luna/xhigh | 20/24（9 次重试、2 端点） | 部分调用 failover 后仍失败（传输/内容混合）；本轮最早的 failover 旁证 | 账本 |
+| f28d7e03 dev | luna/xhigh/三渠道 | 14/24 | 12/12 内容级失败（3 次 INVALID_RESPONSE + 9 次语义验证失败，HTTP 200、输出短 1356 vs 2521 tokens） | identity 验收文档 |
 
 ### 5.3 关键 digest
 
@@ -269,8 +313,10 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 - release gate（--mode pr）：`PASS`（technical 36/36，零 phase16 引用，
   external_calls = false）
 - 敏感载荷检查（--tracked）：`PASS`；文档编码检查（--docs-only）：`PASS`
-- migrations：`30/30 PASS`；`src/decision_support` 无 TODO/FIXME/NotImplemented
-- codex 契约 A 项要求（compileall、migrations dry-run、git diff --check 等）均已执行
+- migrations：实跑 `30/30 PASS`；dry-run 30 步（required=25）PASS；
+  `src/decision_support` 无 TODO/FIXME/NotImplemented
+- codex 契约 A 项补齐（2026-08-02 复核）：`python -m compileall -q src` PASS、
+  `git diff --check`（工作树 + 最近提交）PASS
 
 ## 7. 诚实边界（如实保留的已知项）
 
@@ -282,6 +328,11 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
    （默认 1 / NULL），属遗留行
 5. 批准记录在对话会话转录中，仓库内无批准记录；commit 时间戳与 run 时间戳
    可交叉验证时间线
+6. V5 smoke 原契约命令路径（`--execute-calibration` / `--execute-formal`）从未以
+   原形式执行，被 qualification campaign 体系替代（见 3.1/3.7/3.9）；原始 V5 实现
+   保留并被 v9 适配演进
+7. 4 个 FAILED run 中 `cdd63444` / `3c10985b` 的具体失败形态未留存于最终报告链
+   （§5.2 归因表如实标注），不影响最终验收（终态已 PASS 且不可重跑）
 
 ## 8. 给 codex 的复核重点清单（R1-R10）
 
@@ -297,6 +348,8 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 | R8 | 注入证据（代理制造 TRANSPORT_ERROR）是否污染账本？ | 不污染：注入只改变进程级代理环境（HTTPS_PROXY 定向拒绝 vote520），run 后 `.env` 恢复；账本记录的是**真实**失败→重试→成功序列；probe 预检（vote520 TRANSPORT ×3 / synapse 健康）已入证据 |
 | R9 | 诚实边界（429/5xx/DEADLINE 仅单测）是否认可？ | 已如实声明（closeout 补充项 A + 本报告第 7 节）；不把单测证明冒充真实触发 |
 | R10 | PR gate 从未远端执行——本地全绿能否视为完成？ | 不能，也未被这样声称：契约 B 项（创建 PR + 远端全绿）是下一步待办（第 9 节），closeout 文档明确"最终由 PR 运行确认" |
+| R11 | 4 个 FAILED run 中 2 个（cdd63444/3c10985b）归因未深究——是否影响验收？ | 不影响：终态定义即"如实记录失败"，二者为早期组合 run 的发送级失败；归因缺失已在 §5.2/§7 如实标注，未改写任何账本 |
+| R12 | 原始 V5 实现被 v9 演进 ±285 行——是否超出"只推进 V5"授权边界？ | 未超出：改动为矩阵参数化适配 + 失败归因辅助 + 修复校准 run ID 字面量重复缺陷（ledger ±13 行），全部经用户批准；原命令路径保留未执行，未破坏原语义（§3.9） |
 
 ## 9. 剩余事项与 merge 计划
 
@@ -343,6 +396,9 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
   v9-vote520-channel-probe、controlled-multi-agent-acceptance、campaign-identity-declared-combo-acceptance、
   final-closeout-acceptance
 - 探针 JSON（probe-channel-*，12 份）与迁移（docker/alter_phase16_qualification_*，6 份）
+- 原始 V5 实现入口（状态见 §3.9）：`scripts/run_phase16_v5_controlled_e2e.py`、
+  `src/decision_support/controlled_e2e_v5.py`、`controlled_e2e_ledger_v5.py`、
+  `controlled_e2e_adapter_v5.py`、`evaluation/manifests/phase16-v5-controlled-e2e-*.json`
 
 ## 附录 C：关键 digest 速查
 
