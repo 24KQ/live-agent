@@ -60,12 +60,12 @@
     "src/specialist_runtime/evidence.py": "173cf24ca005235e0613d7ccfe6868cebb2e6e51e2c20331f3b7e175944764d7",
     "src/specialist_runtime/model_port.py": "486a3c3ed61a00680f8e15a380d6add78d85048d610070d63b506ebd322daf25",
     "src/specialist_runtime/models.py": "9dd89f54c36fb31c98d27d2dd4905ce9a8a6ec6f97b69d2b88f046baa0f5c4d2",
-    "src/specialist_runtime/profiles.py": "3df14088c0296275c2d9992d4328d47c3c539cf83f85381eb7043f552401bd62",
+    "src/specialist_runtime/profiles.py": "87af5d1937dcaf5d61e43da07202da9748d8366823500c89b9016de8ae5ce15f",
     "src/specialist_runtime/registry.py": "b8ba944fa2f256515234624fcab7d0a01010afa8d774e7b5da212b1ad5dfa090",
     "src/specialist_runtime/runner.py": "8cecbe24a62697de2c4e28542f94bd7305b7c0a4dcaa8cade7556d35093a4cd6",
     "src/specialist_runtime/scripted_model.py": "69fdd10d3190c89ccaa4aade6053de2ab97bbef4e32cea987d498d681b4cec2d",
     "src/state/models.py": "72f5e299e2120692576c98612224b60a16ff34cf61686c93d2452e44de85f6fe"
   },
   "runner_contract_digest": "94fdc18da71779c2ac5dfedfa6589410369d5af4f4750be20c39a022c660f61e",
-  "manifest_digest": "84aab23cb8e24d1364a8c0ac91a6904237014c5880c97fc1b58f563b4c067e1f"
+  "manifest_digest": "2d3623dee5ded97f34f32a9842759f9520e58fb7b7637808e77eebe947919f50"
 }
