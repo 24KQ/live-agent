@@ -44,9 +44,9 @@
   "source_file_digests": {
     "docker/init_phase16_v5_controlled_e2e.sql": "efb88ca0b80420b28c695967562108d4772f1ca6b20cf0a0b97466732f501bb2",
     "scripts/run_phase16_v5_controlled_e2e.py": "d9fd81c64f592417b90f09789f524d76e4ab8bcb650cfe6c17a38ab9f40c8965",
-    "src/decision_support/controlled_e2e_adapter_v5.py": "141f8509d28a1a5e96305fa1f387df6f0a0aa8ba1f708fccc15881ebdeb93f1b",
+    "src/decision_support/controlled_e2e_adapter_v5.py": "e256692433cf8e510aa8336bb560b433e561112ed76f1fb92b0623396e93bbb8",
     "src/decision_support/controlled_e2e_ledger_v5.py": "884e5e285b1601ea741ccb0954d0e6be743b1fc85cd19d97d3a701ab7c988f09",
     "src/decision_support/controlled_e2e_v5.py": "eec9479987fe0c93de9d9e1a726f9887bc37eb093cb6acd1e56f34cdbc5f0cc9"
   },
-  "manifest_digest": "73195f0d9fdfd71a4868af1e32888bd5c74e835cff275290c2252662e260acad"
+  "manifest_digest": "a70931663e82f8fdef2258049c078e570bba0a43a34d2a0d4fc018fd3e514e83"
 }
