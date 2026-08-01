@@ -32,7 +32,7 @@ DEEPSEEK_V4_PRO_MODEL_ID = "deepseek-v4-pro"
 GPT_5_6_LUNA_MODEL_ID = "gpt-5.6-luna"
 GPT_5_6_SOL_MODEL_ID = "gpt-5.6-sol"
 GPT_5_6_TERRA_MODEL_ID = "gpt-5.6-terra"
-FORMAL_ENDPOINT_HOSTS = frozenset({"api.deepseek.com", "synapse-ai.uk", "api.imagebridge.top"})
+FORMAL_ENDPOINT_HOSTS = frozenset({"api.deepseek.com", "synapse-ai.uk", "api.imagebridge.top", "ai.vote520.com"})
 FORMAL_MODEL_IDS = frozenset({
     DEEPSEEK_V4_FLASH_MODEL_ID,
     DEEPSEEK_V4_PRO_MODEL_ID,
