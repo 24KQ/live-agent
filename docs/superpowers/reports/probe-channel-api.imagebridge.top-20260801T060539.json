@@ -1,0 +1,40 @@
+{
+  "host": "api.imagebridge.top",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L3": [
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "ANALYST",
+        "label": "HTTP_ERROR",
+        "latency_ms": 36215.501899998344,
+        "wall_ms": 74147,
+        "http_status": 502
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 17178.006900001492,
+        "wall_ms": 17178,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 663
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "PLANNER",
+        "label": "SUCCESS",
+        "latency_ms": 13053.29100000381,
+        "wall_ms": 13053,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 357
+      }
+    ]
+  }
+}
