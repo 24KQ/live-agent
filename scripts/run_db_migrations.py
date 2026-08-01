@@ -216,6 +216,12 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 16 资格账本 campaigns 补矩阵配置声明列（model/effort/endpoint 列表）",
     ),
+    MigrationStep(
+        phase="phase16_qualification_campaign_identity",
+        sql_file="alter_phase16_qualification_campaign_identity.sql",
+        required=True,
+        description="Phase 16 资格账本 campaigns 唯一约束收敛为 campaign_id 身份（组合是身份的一部分）",
+    ),
 ]
 
 

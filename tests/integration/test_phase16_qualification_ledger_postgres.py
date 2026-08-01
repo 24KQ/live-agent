@@ -261,3 +261,72 @@ def test_qualification_result_hmac_fails_closed_for_wrong_process_key(qualificat
     assert wrong_key_report.status is QualificationRunStatus.BLOCKED
     assert wrong_key_report.reason_code == "RESULT_AUTHENTICATION_FAILED"
     assert wrong_key_report.authenticated is False
+
+
+def test_qualification_same_digest_distinct_declared_combos_are_separate_campaigns(
+    qualification_ledger_factory,
+) -> None:
+    """同一 digest 下不同声明组合必须并存为两个 campaign（组合是身份的一部分）。
+
+    回归：遗留 UNIQUE (policy_digest, campaign_kind, candidate_digest, batch_index)
+    不含组合，会把本测试第二个 campaign 误判为重复并抛 UniqueViolation；身份修复
+    后 campaign_id PRIMARY KEY 才是唯一后盾（alter_phase16_qualification_campaign_identity.sql）。
+    """
+    ledger = qualification_ledger_factory()
+    policy, corpus, candidate = _parents(ledger)
+    first = _campaign(
+        policy=policy,
+        corpus=corpus,
+        candidate=candidate,
+        kind=QualificationCampaignKind.DEVELOPMENT,
+    )
+    second = QualificationCampaign(
+        campaign_id=qualification_campaign_id(
+            kind=QualificationCampaignKind.DEVELOPMENT,
+            candidate_digest=candidate.candidate_digest or "",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=("synapse-ai.uk", "api.imagebridge.top"),
+        ),
+        campaign_kind=QualificationCampaignKind.DEVELOPMENT,
+        policy_digest=policy.policy_digest or "",
+        corpus_digest=corpus.corpus_digest,
+        candidate_digest=candidate.candidate_digest or "",
+        manifest_digest="d" * 64,
+        reservation_cny="0.500000",
+        declared_model_id="gpt-5.6-luna",
+        declared_reasoning_effort=None,
+        declared_endpoint_hosts=("synapse-ai.uk", "api.imagebridge.top"),
+    )
+    assert second.campaign_id != first.campaign_id
+    ledger.ensure_campaign(first)
+    ledger.ensure_campaign(second)
+    with psycopg.connect(**qualification_ledger_factory.settings.postgres_connection_kwargs) as connection:
+        for campaign in (first, second):
+            row = connection.execute(
+                "SELECT 1 FROM phase16_qualification_campaigns WHERE campaign_id=%s",
+                (campaign.campaign_id,),
+            ).fetchone()
+            assert row is not None, campaign.campaign_id
+
+
+def test_qualification_same_digest_same_declared_combo_is_idempotent_single_row(
+    qualification_ledger_factory,
+) -> None:
+    """同一 digest 同一组合重复 ensure_campaign 幂等返回既有行，不产生第二行。"""
+    ledger = qualification_ledger_factory()
+    policy, corpus, candidate = _parents(ledger)
+    campaign = _campaign(
+        policy=policy,
+        corpus=corpus,
+        candidate=candidate,
+        kind=QualificationCampaignKind.DEVELOPMENT,
+    )
+    ledger.ensure_campaign(campaign)
+    ledger.ensure_campaign(campaign)
+    with psycopg.connect(**qualification_ledger_factory.settings.postgres_connection_kwargs) as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM phase16_qualification_campaigns WHERE campaign_id=%s",
+            (campaign.campaign_id,),
+        ).fetchone()[0]
+    assert count == 1

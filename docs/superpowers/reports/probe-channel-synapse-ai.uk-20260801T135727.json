@@ -1,0 +1,117 @@
+{
+  "host": "synapse-ai.uk",
+  "model_id": "gpt-5.6-terra",
+  "reasoning_effort": "high",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L1": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3667.7331999962917,
+        "http_status": 200
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5895.449700008612,
+        "http_status": 200
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 1897.5919999938924,
+        "http_status": 200
+      }
+    ],
+    "L2": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4521.596300008241,
+        "wall_ms": 4521,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 130
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5173.6012999899685,
+        "wall_ms": 5173,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 111
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4828.223299991805,
+        "wall_ms": 4828,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 147
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5701.31110001239,
+        "wall_ms": 5701,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 132
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5151.149900004384,
+        "wall_ms": 5151,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 115
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5030.886599997757,
+        "wall_ms": 5031,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 142
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3654.4108999951277,
+        "wall_ms": 3655,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 100
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5806.007999999565,
+        "wall_ms": 5806,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 140
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6019.475500012049,
+        "wall_ms": 6019,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 140
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4804.190599999856,
+        "wall_ms": 4805,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 99
+      }
+    ]
+  }
+}

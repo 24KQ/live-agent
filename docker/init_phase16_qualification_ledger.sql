@@ -73,7 +73,10 @@ CREATE TABLE IF NOT EXISTS phase16_qualification_campaigns (
     declared_reasoning_effort TEXT,
     declared_endpoint_hosts TEXT NOT NULL DEFAULT 'synapse-ai.uk',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (policy_digest, campaign_kind, candidate_digest, batch_index),
+    -- 身份 = campaign_id（kind + digest[:16] + sha256(组合)[:16]）。不设
+    -- UNIQUE (policy_digest, campaign_kind, candidate_digest, batch_index)：
+    -- 该旧约束不含声明组合，会把同一 digest 下不同组合误判为重复（见
+    -- alter_phase16_qualification_campaign_identity.sql）。
     CHECK ((campaign_kind = 'HOLDOUT') OR batch_index = 1)
 );
 
