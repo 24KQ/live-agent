@@ -9,7 +9,7 @@ merge 就绪"两类缺口。报告同时记录补强 run 暴露并修复的真�
 - Candidate digest: `1b4323655808df44ce7f83b3...`（补强 run 未触发新重冻结）
 - Policy digest: `1aa9ca6fe5a85702a256e29f...`（执行契约，v2）
 - V9 评价契约（2026-08-02）：`evaluation/manifests/phase16-qualification-policy-v3.json`
-  digest `d0df3a79...`，批准记录见
+  digest `f286114f...`，批准记录见
   `docs/superpowers/reports/phase-16-v9-contract-approval-record.md`
   —— 本报告为 **V9 = `DEVELOPMENT_VALIDATION_QUALIFIED`**（高 reasoning 模式资格
   认证）的证据基座，≠ 原始 V5 PASS（V5 保持「未通过、未恢复」）

@@ -31,19 +31,21 @@
 ## 2. 新政策 manifest
 
 - `evaluation/manifests/phase16-qualification-policy-v3.json`
-- policy_digest：`d0df3a79543a6edaaf5082e9c7ca0f7e909f670f4d734cefe872a4db0fe8935f`
-- 双层语义：
-  - `execution_policy_digest` = v2 最终重冻结 digest
+- policy_digest：`f286114f23d638a7c6aba3300ab6d9b0fc62fc1638596e151d9a55f86da6df16`
+- 三角色 digest 字段（codex 第 3 轮要求：一个字段不得同时承担两个角色）：
+  - `historical_execution_policy_digest` = v2 最终重冻结 digest
     `1aa9ca6fe5a85702a256e29fb5d6f3d22334bfeb55c6b0ab02300ba62e4926d7`
     （历史 campaign 实际引用的执行契约，不可修改）；
-  - `policy_digest`（自身）= 用于**回溯评价**这批历史证据的评价契约。
+  - `v9_evaluation_policy_digest` = v3 自身 digest（本文件 `policy_digest`），
+    用于**回溯评价**这批历史证据的评价契约；
+  - `policy_digest`（自身）= v3 的**执行**契约 digest，未来新 campaign 直接引用。
 - 未来新 campaign 必须直接引用 v3 digest；**回溯阶段禁止新增 candidate**。
 
 ## 3. v2 → v3 参数差异表（每项：声明 / 事实 / v3 语义）
 
 | 参数 | v2 声明 | 执行事实（账本） | v3 语义 |
 |:--|:--|:--|:--|
-| `project_budget_cny` | 5.000000 | 实际 6.604131 | 未来约束 **10.000000**（2026-08-02 用户明确批准的新上界）；另记 `retrospective_budget_actual_cny` = 6.604131 |
+| `project_budget_cny` | 5.000000 | 实际 6.604131 | 未来约束 **10.000000**（2026-08-02 用户明确批准的新上界，**含历史成本**）；另记 `retrospective_budget_actual_cny` = 6.604131、`forward_budget_remaining_cny` = **3.395869**（= 10 − 6.604131，未来可用余额） |
 | `campaign_budget_cny` | 4.000000 | 单 run 最高 0.622227，未触顶 | 4.000000（不变） |
 | `retry_allowed` | false（未强制） | TRANSPORT 重试 + 换端已执行（注入 run 24 receipts / 72 attempts） | **true** + `retry_semantics`：TRANSPORT_ERROR/HTTP_5XX/DEADLINE_EXCEEDED 可重试、每端点 ≤2 次、90s/次、窗口 ≥1.0s、429 换端不重试 |
 | `fallback_allowed` | false | 渠道链 failover 已执行 | **true** + `fallback_semantics`：仅限声明渠道白名单有序尝试，`attempt_count`/`responded_endpoint_host` 入账 |
@@ -101,14 +103,17 @@
 - **holdout**：30 例生产泛化验证未执行，延后 phase17，不得在 V9 结论中声称
   「生产就绪」。
 - **预算**：执行期超出 v2 声明 5.0 至实际 6.604131，每次预算变更均经用户逐次
-  批准（对话转录）；v3 以 **10.0** 为未来约束（2026-08-02 用户批准）。
+  批准（对话转录）；v3 以 **10.0** 为未来约束（2026-08-02 用户批准，**含历史
+  成本**），未来可用余额 = 10.0 − 6.604131 = **3.395869**（`forward_budget_remaining_cny`）。
 
 ## 7. 批准项清单（用户逐项确认后本记录生效）
 
 1. V9 = `DEVELOPMENT_VALIDATION_QUALIFIED`（高 reasoning 模式资格认证），
    ≠ `PHASE16_V5 CONTROLLED_E2E_QUALIFIED`；V5 保持「未通过、未恢复」。
-2. v3 policy（`d0df3a79...`）作为新契约；未来 `project_budget_cny` = 10.0、
-   `maximum_future_development_candidates` = 2、retry/fallback 正式化为受控语义。
+2. v3 policy（`f286114f...`）作为新契约；未来 `project_budget_cny` = 10.0
+   （含历史，余额 `forward_budget_remaining_cny` = 3.395869）、
+   `maximum_future_development_candidates` = 2（运行时强制，ledger 层）、
+   retry/fallback 正式化为受控语义。
 3. 回溯评价范围 = 13 campaigns / 12 runs（第 4 节清单）；回溯阶段禁止新增 candidate。
 4. holdout 延后 phase17，V9 结论标注「未完成生产泛化验证」。
 5. merge 前提：v3 + 本记录 + 账本闭合 + 远端 PR Gate 全绿 + 用户最终 merge 审批。
