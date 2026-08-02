@@ -8,6 +8,9 @@
 - 修订：2026-08-02（codex 第七轮复核对齐：E2E 证据链确认充分；统一 unit 计数
   为 1703、§4/附录 A commit 计数修正为 29（HEAD `217d3b5`）、12/12 措辞澄清
   为「每个通过 run 内部」；codex 准确结论措辞入档 approval record）
+- 修订：2026-08-02（codex 第八轮终验前：报告 HEAD 计数改为以
+  `git log 27d20b4..HEAD` 为准，不再逐字回写——文档同步提交不改变内容，
+  消除报告自引用循环；内容终态锚定 tag `phase16-v9-closed` = `217d3b5`）
 - V9 契约（2026-08-02）：与 codex 多轮讨论后定稿，正式化为
   `evaluation/manifests/phase16-qualification-policy-v3.json`（**纯回溯评价契约**，
   digest `75319a4a...`，codex 第 5 轮确认收敛）与
@@ -15,7 +18,9 @@
   （本报告统计已按账本核验修正：271 receipts / 全精度 6.604131）
 - 审阅起点：`docs/superpowers/handoffs/2026-07-29-phase16-v5-claude-code-handoff.md`
   （commit `d60ebd4` / `b1a11ac` / `27d20b4`，2026-07-29）
-- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`217d3b5`，29 个移交后 commit）
+- 工作分支：`codex/phase16-v5-controlled-e2e`（内容终态 `217d3b5`，29 个实质
+  commit；最新完整提交列表以 `git log 27d20b4..HEAD` 为准，文档同步提交不
+  改变内容、不再回写计数；终态锚点 tag `phase16-v9-closed`）
 - 复验方式：本报告所有 commit / 文件 / digest / 账本数字均可对照仓库与
   PostgreSQL append-only 账本逐项复核；真实模型证据见
   `docs/superpowers/reports/phase-16-final-closeout-acceptance.md`
@@ -207,14 +212,15 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 - 原契约命令路径（`--execute-calibration` / `--execute-formal`）**从未以原形式执行**；
   最终证据全部由 qualification campaign 体系产出（用户批准，见 3.1/3.7）
 
-## 4. Claude 工作详解（29 个 commit，6 个主题块）
+## 4. Claude 工作详解（截至内容终态 29 个 commit，6 个主题块）
 
-移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 29 个 commit
-均为 Claude 的工作，按时间正序为：`70836ab` → `fce4722` → `ef15d4d` → `02749a5` →
+移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。内容终态
+`217d3b5` 前共 29 个实质 commit，按时间正序为：`70836ab` → `fce4722` → `ef15d4d` → `02749a5` →
 `e664edc` → `57aaa5e` → `5417de7` → `5b194a6` → `22d0b93` → `7448b40` → `e0b6f55` →
 `03644a5` → `d4d4b25` → `41497ea` → `63539d7` → `1b54346` → `b903304` → `42548ed` →
 `194e081` → `55d28ab` → `e3757ca` → `407b43c` → `9d03b30` → `c8abf49` → `93755a0` →
-`6e9529a` → `b602290` → `d730fda` → `217d3b5`。
+`6e9529a` → `b602290` → `d730fda` → `217d3b5`；此后仅文档同步提交
+（见修订行与 `git log 27d20b4..HEAD`）。
 
 ### 4.1 V1 smoke 账本身份对齐与 digest 自愈（02749a5, e664edc, 57aaa5e, 5417de7, 5b194a6）
 
@@ -376,7 +382,10 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
    Acceptance 写入 PASS 终态
 3. 按用户此前明确指示：**merge 是最后一步，等待用户审批**，本报告不触发任何 merge
 
-## 附录 A：commit 边界表（27d20b4 之后，29 个）
+## 附录 A：commit 边界表（27d20b4 之后，截至内容终态 29 个）
+
+> 最新完整提交列表以 `git log 27d20b4..HEAD` 为准；本表截至内容终态
+> `217d3b5`（tag `phase16-v9-closed`），此后仅文档同步提交。
 
 | hash | 说明 | 改动范围 |
 |:--|:--|:--|
