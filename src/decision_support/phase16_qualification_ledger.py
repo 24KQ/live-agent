@@ -37,6 +37,11 @@ from src.specialist_runtime.profiles import (
 _HASH_PATTERN = r"^[0-9a-f]{64}$"
 _REASON_CODE_PATTERN = r"^[A-Z][A-Z0-9_]*$"
 
+# V9：maximum_future_development_candidates 的运行时强制上界。与
+# Phase16QualificationPolicy.maximum_development_candidates 默认值一致；
+# 仅约束同一 policy digest 下新建的 DEVELOPMENT campaign（历史行不受影响）。
+_MAX_DEVELOPMENT_CAMPAIGNS_PER_POLICY = 2
+
 
 class Phase16QualificationLedgerError(RuntimeError):
     """账本稳定失败码，不向调用方泄漏 SQL、密钥或模型正文。"""
@@ -565,6 +570,20 @@ class PostgresPhase16QualificationLedger:
                         raise Phase16QualificationLedgerError(
                             "qualification campaign identity conflicts"
                         )
+                    # V9：maximum_future_development_candidates=2 运行时强制。全新
+                    # DEVELOPMENT campaign 才计数（幂等 ensure 与 VALIDATION/HOLDOUT
+                    # 不受影响），防止未来通过不断换模型/渠道刷 dev 名额。
+                    if existing is None and campaign.campaign_kind is QualificationCampaignKind.DEVELOPMENT:
+                        cursor.execute(
+                            """SELECT COUNT(*) AS dev_count
+                                 FROM phase16_qualification_campaigns
+                                WHERE policy_digest=%s AND campaign_kind='DEVELOPMENT'""",
+                            (campaign.policy_digest,),
+                        )
+                        if int(cursor.fetchone()["dev_count"]) >= _MAX_DEVELOPMENT_CAMPAIGNS_PER_POLICY:
+                            raise Phase16QualificationLedgerError(
+                                "qualification development campaign limit exceeded"
+                            )
                     cursor.execute(
                         """SELECT project_budget_cny, campaign_budget_cny, holdout_batch_count
                              FROM phase16_qualification_policies

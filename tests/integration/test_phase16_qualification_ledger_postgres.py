@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -13,8 +14,9 @@ import pytest
 from src.config.settings import get_settings
 from src.decision_support.phase16_qualification import (
     PHASE16_QUALIFICATION_ASSET_DIRECTORY,
-    build_phase16_qualification_policy,
-    load_phase16_qualification_corpus,
+    PHASE16_QUALIFICATION_POLICY_PATH,
+    Phase16QualificationManifest,
+    Phase16QualificationPolicy,
 )
 from src.decision_support.phase16_qualification_ledger import (
     Phase16QualificationLedgerError,
@@ -64,13 +66,18 @@ def qualification_ledger_factory():
 
 
 def _parents(ledger: PostgresPhase16QualificationLedger):
-    policy = build_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
-    corpus = load_phase16_qualification_corpus(
-        _PROJECT_ROOT / PHASE16_QUALIFICATION_ASSET_DIRECTORY,
-        repository_root=_PROJECT_ROOT,
-        policy=policy,
+    # 账本行为测试固定使用冻结的 v2 资产（直接 model_validate，跳过
+    # load_* 的源码闭包 rebuild 校验）：闭包一致性由 CI release gate 与真实 run
+    # 的 load 路径负责，本测试不依赖实时闭包哈希。
+    policy = Phase16QualificationPolicy.model_validate(
+        json.loads((_PROJECT_ROOT / PHASE16_QUALIFICATION_POLICY_PATH).read_bytes())
     )
-    identity = corpus_identity_from_manifest(corpus.manifest)
+    manifest = Phase16QualificationManifest.model_validate(
+        json.loads(
+            (_PROJECT_ROOT / PHASE16_QUALIFICATION_ASSET_DIRECTORY / "manifest.json").read_bytes()
+        )
+    )
+    identity = corpus_identity_from_manifest(manifest)
     candidate = build_qualification_candidate(
         candidate_id="phase16-qualification-candidate-development-001",
         policy=policy,
@@ -330,3 +337,60 @@ def test_qualification_same_digest_same_declared_combo_is_idempotent_single_row(
             (campaign.campaign_id,),
         ).fetchone()[0]
     assert count == 1
+
+
+def test_qualification_development_campaign_limit_is_enforced_per_policy(
+    qualification_ledger_factory,
+) -> None:
+    """V9：maximum_future_development_candidates=2 运行时强制。
+
+    同一 policy digest 下最多 2 个 DEVELOPMENT campaign；第 3 个全新组合被拒绝；
+    幂等重复 ensure 不受计数影响；VALIDATION 不受 DEVELOPMENT 上限约束。
+    """
+    ledger = qualification_ledger_factory()
+    policy, corpus, candidate = _parents(ledger)
+
+    def dev_campaign(*, hosts):
+        return QualificationCampaign(
+            campaign_id=qualification_campaign_id(
+                kind=QualificationCampaignKind.DEVELOPMENT,
+                candidate_digest=candidate.candidate_digest or "",
+                declared_model_id="gpt-5.6-luna",
+                declared_reasoning_effort=None,
+                declared_endpoint_hosts=hosts,
+            ),
+            campaign_kind=QualificationCampaignKind.DEVELOPMENT,
+            policy_digest=policy.policy_digest or "",
+            corpus_digest=corpus.corpus_digest,
+            candidate_digest=candidate.candidate_digest or "",
+            manifest_digest="d" * 64,
+            reservation_cny="0.500000",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=hosts,
+        )
+
+    first = dev_campaign(hosts=("synapse-ai.uk",))
+    second = dev_campaign(hosts=("synapse-ai.uk", "api.imagebridge.top"))
+    third = dev_campaign(hosts=("synapse-ai.uk", "ai.vote520.com"))
+    ledger.ensure_campaign(first)
+    ledger.ensure_campaign(second)
+    # 幂等：同一组合重复 ensure 命中既有行，不触发上限。
+    ledger.ensure_campaign(second)
+    with pytest.raises(Phase16QualificationLedgerError, match="development campaign limit"):
+        ledger.ensure_campaign(third)
+    # VALIDATION 不受 DEVELOPMENT 上限约束。
+    ledger.ensure_campaign(
+        _campaign(
+            policy=policy,
+            corpus=corpus,
+            candidate=candidate,
+            kind=QualificationCampaignKind.VALIDATION,
+        )
+    )
+    with psycopg.connect(**qualification_ledger_factory.settings.postgres_connection_kwargs) as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM phase16_qualification_campaigns WHERE policy_digest=%s",
+            (policy.policy_digest or "",),
+        ).fetchone()[0]
+    assert count == 3  # 2 dev + 1 val
