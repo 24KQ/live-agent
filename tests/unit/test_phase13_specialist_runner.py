@@ -210,6 +210,29 @@ class _OutputTokenOverrunPort(_ScriptedPort):
         )
 
 
+class _ReasoningInflatedPort(_ScriptedPort):
+    """模拟网关把思维链计入 completion_tokens：原始输出超限但可见输出合规。"""
+
+    async def complete(self, request):
+        """计费 output_tokens 远超上限，但 reasoning_tokens 解释全部超出部分。"""
+
+        self.requests.append(request)
+        self.calls += 1
+        return ModelSuccess(
+            request_id=request.request_id,
+            model_id=request.model_id,
+            output={"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}},
+            usage=ModelUsage(
+                input_tokens=10,
+                output_tokens=5000,
+                total_tokens=5010,
+                reasoning_tokens=4990,
+            ),
+            response_digest=HASH_A,
+            latency_ms=Decimal("1"),
+        )
+
+
 class _SkillPort:
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -441,6 +464,25 @@ def test_runner_rejects_provider_usage_that_exceeds_frozen_output_limit() -> Non
     assert result.failure is not None
     assert result.failure.code == "OUTPUT_TOKEN_LIMIT_EXCEEDED"
     assert overrun_port.requests[0].max_output_tokens == 17
+
+
+def test_runner_ignores_gateway_counted_reasoning_for_output_and_token_limits() -> None:
+    """网关把思维链计入 completion_tokens 时，输出与总 token 上限按可见输出判定。
+
+    计费仍按原始 output_tokens 结算；只有受限 AgentAction 面使用可见 token。
+    """
+
+    runner, reasoning_port, _skill = _runner(
+        [{"kind": "FINAL", "final_output": {"decision": "NO_ACTION"}}],
+        max_output_tokens=17,
+        model_port=_ReasoningInflatedPort([]),
+    )
+
+    result = asyncio.run(runner.run(_task()))
+
+    assert result.status is AgentResultStatus.SUCCEEDED
+    assert result.output_tokens == 5000  # 账本保留计费真值
+    assert reasoning_port.requests[0].max_output_tokens == 17
 
 
 def test_first_model_call_may_use_more_than_average_but_not_case_cap() -> None:

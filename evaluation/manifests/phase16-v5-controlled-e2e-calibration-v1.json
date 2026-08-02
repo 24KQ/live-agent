@@ -1,0 +1,22 @@
+{
+  "calibration_case_id": "phase16-v5-synthetic-calibration-001",
+  "case": {
+    "case_id": "phase16-high-conflict-paired-development-999",
+    "split": "development",
+    "kind": "HIGH_CONFLICT_PAIRED",
+    "logical_case_id": "phase16-v5-synthetic-calibration-logical-001",
+    "input": {
+      "scenario": "high_conflict_sold_out",
+      "include_availability_noise": true,
+      "pause_required": true,
+      "valid_backup_count": 2,
+      "backup_inventory": 19,
+      "pace_score": 79,
+      "reconciliation_required": false,
+      "side_effect_unknown": false,
+      "stale": false
+    }
+  },
+  "case_digest": "34093bea7eddd7a29d5fe2ec9445821519f10ba9bf697ec4d8794afbc7856e07",
+  "calibration_payload_digest": "28804fa5aa4fec44e45e869096d5724776628e342363b038559f1cc2c5d0c7ab"
+}

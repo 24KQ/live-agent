@@ -19,6 +19,15 @@
 
 如果实时状态与 Git 冲突，以已提交 Git 事实和实际工作树为准，并先修正实时状态；不得通过还原用户文件来制造“干净”状态。
 
+## 2026-07-29 当前优先覆盖
+
+- 当前阶段是 Phase 16 V5 受控 E2E 证据收口，而不是下方历史的 Phase 14/15 游标。
+- 工作必须在 `codex/phase16-v5-controlled-e2e` 隔离分支内执行；V1 至 V4 历史证据不可修改或重试。
+- V5 固定 DeepSeek V4 Pro、`thinking.disabled` 与 JSON mode，先执行独立合成校准，再在同一一元
+  campaign 内执行正式十例。没有通过离线门禁、提交和推送之前，不得调用真实模型。
+- V5 即使严格通过，也只表示 `PASS: CONTROLLED_E2E_QUALIFIED`；默认路由仍为
+  `DETERMINISTIC_ONLY`，不得自动开始 Phase 17 或生产上线。
+
 ## 项目定位
 
 项目覆盖播前、播中、播后三场景，技术目标是人机协同决策支持与受控执行 Runtime：

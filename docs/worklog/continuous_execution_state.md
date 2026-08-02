@@ -1,5 +1,21 @@
 # LiveAgent 连续执行实时状态
 
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence / Offline Gate Complete
+
+```text
+Phase / Task: Phase 16 / V5 controlled real-model E2E evidence / offline implementation verified
+状态: COMMIT_PENDING / AWAITING_PHASE_17_GATE
+分支: codex/phase16-v5-controlled-e2e，基线 origin/main@281cea6
+固定边界: V5 是新的一元 campaign，校准与正式十例共享预算；V1 至 V4 历史不可修改。
+模型协议: deepseek-v4-pro + thinking.disabled + JSON mode；模型只处理受控 ID、分析与选项。
+校准隔离: 独立合成 input 的 case/payload digest 已冻结；校准不复用正式十例的 case、bundle、digest 或 slot。
+已验证: unit 1644 passed；integration 233 passed, 7 deselected；V5 PostgreSQL 9 passed；coverage
+91.956%/85.130%；36 PR release cases PASS；compileall、迁移 dry-run、敏感和文档门禁通过。
+账本范围: 仅 append-only、CAS、恢复和不重发；权限/账号/GRANT/REVOKE/lease/fencing 扩展已停止。
+真实调用门: 当前禁止真实调用，直至 V5 代码、Manifest、PostgreSQL、完整门禁和提交推送均完成，且用户另行授权校准。
+执行门: 校准 2/2 PASS 后才能运行正式 10/10；已发送失败立即停止，默认路由 DETERMINISTIC_ONLY。
+```
+
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 
 ```text
@@ -12,7 +28,8 @@ V4 事实: 唯一无业务请求已发送；完整 Provider receipt/usage，rece
 范围限制: V4 只证明禁思考最小 JSON 协议可被 Adapter 消费，不证明真实双 Agent 10/10、AgentAction、Planner 或经营决策通过。
 工程证据: unit 1621 passed；integration 224 passed, 7 deselected；coverage 91.914% line / 85.043% branch；36 release cases PASS。
 默认路由: DETERMINISTIC_ONLY；不得自动开始 Phase 17、重试 V1/V2/V3/V4 或打开 DECISION_SUPPORT。
-下一条精确操作: 生成并验证 V4 脱敏报告/Acceptance/状态文档；提交、推送、创建 PR，Gate 全绿后 merge commit。
+Git 收口: PR #3 已通过 Gate 并以 merge commit 281cea6 合并到 origin/main；不重试 V4。
+下一条精确操作: 以顶部 V5 Task 0 游标完成独立受控 E2E 实现和离线门禁。
 ```
 
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout

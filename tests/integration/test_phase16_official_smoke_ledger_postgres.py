@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import psycopg
@@ -18,6 +20,7 @@ import pytest
 from psycopg import sql
 
 from src.config.settings import get_settings
+from src.decision_support import official_smoke_ledger as ledger_module
 from src.decision_support.official_smoke_evidence import (
     load_phase16_official_smoke_evidence_manifest,
 )
@@ -56,6 +59,25 @@ def postgres_official_smoke_ledger_factory():
     )
     initialize_phase16_official_smoke_ledger_schema(settings)
 
+    # V1 冻结身份按 Manifest 统一为 flash 全链（SQL run/cost 触发器与 receipts CHECK
+    # 均按 flash 封印，真实历史 pro receipts 只作为既有 append-only 事实存在）。账本
+    # 当前源码仍对齐 pro，因此演练期间把 Ledger 的模型身份与计费常量局部还原为 flash，
+    # 使经 Ledger API 写入的 claim/receipt 与 SQL 冻结触发器自洽；退出后恢复。
+    ledger_stack = ExitStack()
+    ledger_stack.enter_context(
+        patch.object(ledger_module, "FORMAL_MODEL_ID", "deepseek-v4-flash")
+    )
+    ledger_stack.enter_context(
+        patch.object(
+            ledger_module, "FORMAL_INPUT_PRICE_CNY_PER_MILLION", Decimal("1.000000")
+        )
+    )
+    ledger_stack.enter_context(
+        patch.object(
+            ledger_module, "FORMAL_OUTPUT_PRICE_CNY_PER_MILLION", Decimal("2.000000")
+        )
+    )
+
     def build_ledger() -> PostgresPhase16OfficialSmokeLedger:
         """用同一隔离 schema 构造新实例，供并发与重启测试复用。"""
 
@@ -73,6 +95,7 @@ def postgres_official_smoke_ledger_factory():
         # 每次调用构造新的 Python 对象，验证事实来自 PostgreSQL 而非进程内缓存。
         yield build_ledger
     finally:
+        ledger_stack.close()
         with psycopg.connect(**base_kwargs) as connection:
             connection.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE;").format(sql.Identifier(schema_name)))
             connection.commit()

@@ -1,6 +1,6 @@
 # LiveAgent Agent Runtime Phase-Gated 总控计划
 
-文档状态：`PHASE_16_DOUBLE_AGENT_E2E_FAILED_V4_PROTOCOL_PASS_AWAITING_PHASE_17_GATE`
+文档状态：`PHASE_16_V5_CONTROLLED_E2E_IMPLEMENTATION_AUTHORIZED_AWAITING_PHASE_17_GATE`
 
 最后更新：2026-07-28
 
@@ -11,6 +11,11 @@
 2026-07-22 的补充授权只收口 Phase 16 的真实模型外部证据，不开始 Phase 17。它以独立分支和
 版本化正式账本执行一轮严格 10/10 DeepSeek smoke；正式 `PASS` 不改变生产默认
 `DETERMINISTIC_ONLY`，而 `BLOCKED` 或 `FAILED` 也不回写历史 Phase 16 本地技术验收。
+
+2026-07-29 的 V5 授权建立新的独立真实模型 campaign：先用合成校准 case 验证禁思考 JSON 协议下的完整
+Analyst/Planner 路径，再以冻结十例执行严格 10/10 验收。V5 与 V1 至 V4 使用不同账本、Manifest、
+Profile 和执行身份；校准与正式调用共享新的 `1.00 CNY` 硬上限。V5 `PASS` 只表示受控 E2E 合格，
+默认路由仍为 `DETERMINISTIC_ONLY`，不自动启动 Phase 17 或生产上线。
 
 2026-07-28 的独立 V2 run 已在正式账本中收口：首个 case 的 Analyst receipt 与结构验证通过，
 但 Planner 请求已发送后无可消费 outcome，稳定结论为 `FAILED / MODEL_OUTCOME_UNAVAILABLE`。V1 的

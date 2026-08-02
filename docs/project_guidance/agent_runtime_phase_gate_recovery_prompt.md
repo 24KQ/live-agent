@@ -6,8 +6,8 @@
 2. `docs/project_guidance/agent_runtime_completion_master_plan.md`
 3. `docs/project_guidance/agent_runtime_business_closed_loop_track.md`
 4. 当前 Phase 的 Acceptance、Design 和 Implementation Plan
-   - 对 Phase 16，额外读取 `docs/superpowers/reports/phase-16-official-smoke-evidence.md` 与
-     `docs/superpowers/reports/phase-16-v2-official-smoke-evidence.md`，区分本地 Demo、V1 和 V2 真实证据。
+   - 对 Phase 16，额外读取 V1 至 V4 evidence reports，以及当前 V5 Design/Plan；区分本地 Demo、
+     历史失败、V4 协议探针和当前未执行的 V5 受控 E2E 证据。
 5. `docs/project_guidance/agent_runtime_evolution_decisions.md`
 6. `docs/worklog/task_plan.md`、`findings.md`、`progress.md`
 7. `git status` 与 `git log -5 --oneline`
@@ -16,8 +16,9 @@
 
 - 只在实时状态标明的当前已授权 Phase 内，按 Task 执行 RED -> GREEN -> REFACTOR -> REVIEW -> VERIFY -> COMMIT -> PUSH。
 - Phase Acceptance 通过后，状态必须变为 `AWAITING_PHASE_<N>_GATE`。不得自动开始下一 Phase，也不得直接使用下一 Phase 的旧详细计划。
-- Phase 16 的 V1 与 V2 真实 smoke 均已以 `FAILED` 收口；不得在同一 run 上重试、修补模型文本或把
-  ScriptedModel 结果写成真实通过。新的模型证据实验必须先以独立 run/Manifest/账本重新设计并获得授权。
+- Phase 16 的 V1 与 V2 真实 smoke 已以 `FAILED` 收口，V3 也已 FAILED，V4 仅为协议 PASS；不得在同一
+  run 上重试、修补模型文本或把 ScriptedModel 结果写成真实通过。V5 已获授权但必须使用独立
+  run/Manifest/账本和新的 V5 campaign，且在离线门禁前不得发送请求。
 - Gate 必须比较前一 Phase 的 Acceptance、当前预算、基础设施、风险和已有讨论基线；更新或重生下一 Phase Design/Plan 后，等待用户明确授权。
 - Phase 14 Human-Centered Decision Support 的 Design/Plan 已审核持久化，但仍不是实施授权；Phase 15 Golden/CI 只有讨论基线。
 

@@ -58,7 +58,7 @@ def _config(**updates) -> Phase16SmokeConfig:
         "decision_planner_profile_digest": planner,
         "official_price_digest": "a" * 64,
         "smoke_runtime_digest": phase16_smoke_runtime_digest(),
-        "model_id": "deepseek-v4-flash",
+        "model_id": "deepseek-v4-pro",
         "endpoint_host": "api.deepseek.com",
         "max_smoke_cases": 10,
         "budget_cny": Decimal("1.00"),
@@ -73,10 +73,10 @@ def _official_price() -> Phase16OfficialPriceEvidence:
     """使用冻结官方价格摘要，而非让测试或运行时猜测模型计费。"""
 
     return Phase16OfficialPriceEvidence(
-        model_id="deepseek-v4-flash",
+        model_id="deepseek-v4-pro",
         endpoint_host="api.deepseek.com",
-        input_cny_per_million=Decimal("1.000000"),
-        output_cny_per_million=Decimal("2.000000"),
+        input_cny_per_million=Decimal("3.000000"),
+        output_cny_per_million=Decimal("6.000000"),
         official_price_digest="a" * 64,
     )
 
@@ -236,7 +236,7 @@ def test_smoke_runner_reserves_one_complete_dual_agent_case_before_exact_profile
         build_decision_planner_profile().result_schema_hash,
     ]
     assert all(
-        request.model_id == "deepseek-v4-flash"
+        request.model_id == "deepseek-v4-pro"
         and request.endpoint_host == "api.deepseek.com"
         and request.temperature == Decimal("0")
         and request.deadline_at.tzinfo is not None

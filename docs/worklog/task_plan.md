@@ -1,5 +1,14 @@
 # LiveAgent 工作日志计划
 
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Closeout
+
+- [x] 冻结 V5 独立 campaign、V4 Pro 禁思考 JSON 协议、隔离校准和正式 10/10 验收边界。
+- [x] 新建 V5 Adapter/Profile/Manifest、共享一元 campaign ledger、Runner 和 CLI；校准使用独立合成输入，
+  不复用正式十例。
+- [x] 完成单元、PostgreSQL、迁移、coverage 和安全门禁；真实调用前提交推送冻结实现。
+- [ ] 执行 1 例隔离校准；仅在 2/2 PASS 后执行正式十例，任何已发送失败立即停止。
+- [ ] 更新证据报告与 Acceptance，PR Gate 全绿后 merge commit；保持 `DETERMINISTIC_ONLY`。
+
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 
 - [x] 将 `thinking=disabled` 与 JSON 解析诊断隔离到 V4 专属 Adapter，恢复 V1/V2/V3 的共享
@@ -8,8 +17,8 @@
   line/branch `91.914%/85.043%`、36 release cases、敏感载荷和迁移预览均通过。
 - [x] 唯一 V4 JSON probe：`PASS / JSON_PROTOCOL_PASS`，完整 receipt/usage、HMAC 和 outcome digest
   可复验；它只证明禁思考最小 JSON 协议可消费，不代表真实双 Agent `10/10`。
-- [ ] 仅剩 Git 收口：提交、推送、创建 PR、通过 Gate 后 merge commit；阶段继续
-  `AWAITING_PHASE_17_GATE`，不自动开始 Phase 17 或新模型实验。
+- [x] PR #3 的 Gate 已通过并以 merge commit `281cea6` 合并到 `origin/main`；V4 的历史收口完成。
+- [x] 2026-07-29 已建立独立 V5 收口，不重试 V4；后续状态以 V5 Task 0 游标为准。
 
 ## 2026-07-28 Phase 16 V3 Planner Diagnostic Closeout
 

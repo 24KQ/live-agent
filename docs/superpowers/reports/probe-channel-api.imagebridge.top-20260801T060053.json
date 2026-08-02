@@ -1,0 +1,124 @@
+{
+  "host": "api.imagebridge.top",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L2": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6544.578100001672,
+        "wall_ms": 6546,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 153
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 2965.854299996863,
+        "wall_ms": 2965,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 99
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3566.60670000565,
+        "wall_ms": 3566,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 124
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4022.0700000063516,
+        "wall_ms": 4023,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 112
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 9981.127499995637,
+        "wall_ms": 9981,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 113
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4091.6023000027053,
+        "wall_ms": 4091,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 141
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5084.376499995415,
+        "wall_ms": 5085,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 111
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4133.732000002055,
+        "wall_ms": 4134,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 155
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4565.727100001823,
+        "wall_ms": 4565,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 137
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4051.2959999978193,
+        "wall_ms": 4051,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 121
+      }
+    ],
+    "L3": [
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 14197.886599999038,
+        "wall_ms": 14198,
+        "http_status": 200,
+        "schema_ok": false,
+        "schema_error": "schema violation: Additional properties are not allowed ('final_output', 'kind' were unexpected)",
+        "output_tokens": 666
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 26665.329800001928,
+        "wall_ms": 26665,
+        "http_status": 200,
+        "schema_ok": false,
+        "schema_error": "schema violation: Additional properties are not allowed ('final_output', 'kind' were unexpected)",
+        "output_tokens": 1161
+      }
+    ]
+  }
+}

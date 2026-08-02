@@ -1,0 +1,25 @@
+{
+  "host": "ai.vote520.com",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L1": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3619.2694999990636,
+        "http_status": 200
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 2792.0988999976544,
+        "http_status": 200
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 1489.221899995755,
+        "http_status": 200
+      }
+    ]
+  }
+}

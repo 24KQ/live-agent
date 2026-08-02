@@ -21,6 +21,7 @@ from src.decision_support.multi_agent_evaluation import (
 from src.decision_support.official_smoke_evidence import (
     Phase16OfficialPriceEvidence,
     Phase16OfficialSmokeEnvironment,
+    build_phase16_official_smoke_evidence_manifest,
     load_phase16_official_smoke_evidence_manifest,
     preflight_phase16_official_smoke_evidence,
 )
@@ -37,8 +38,77 @@ from src.decision_support.official_smoke_runner import (
     Phase16OfficialSmokeExecutionStatus,
     Phase16OfficialSmokeRunner,
 )
+from src.decision_support import official_smoke_runner as runner_module
+from src.decision_support import official_smoke_ledger as ledger_module
+from src.decision_support.multi_agent import (
+    build_phase16_smoke_evidence_analyst_profile,
+    build_phase16_smoke_evidence_planner_profile,
+)
 from src.specialist_runtime.model_port import ModelSuccess, ModelUsage
 from src.specialist_runtime.models import canonical_json_sha256
+from src.specialist_runtime.profiles import SpecialistProfile
+
+
+def _frozen_profile(profile: SpecialistProfile) -> SpecialistProfile:
+    """把当前 Smoke Profile 的唯一漂移字段还原为历史 flash 身份，digest 随之重算。
+
+    冻结 Manifest 与 SQL 触发器常量按 V1 执行时代的 flash 身份（415b3314/40423dd6）
+    封印；当前源码已对齐 pro。本集成演练只验证账本/Runner 组合语义，因此把两个
+    Profile 构造器局部还原为冻结版，使 claim 行与冻结 run 完全自洽。
+    """
+
+    data = profile.model_dump(mode="json")
+    data["model_id"] = "deepseek-v4-flash"
+    data.pop("profile_digest", None)
+    return SpecialistProfile.model_validate(data)
+
+
+def _frozen_runner_profiles():
+    """把 Runner/Ledger 的模型身份与计费局部还原为 V1 冻结世界。
+
+    真实 V1 账本形态 = flash 冻结身份（Manifest d75b8dce + Smoke Profile）+ 真实
+    receipts 的历史 pro 计费（3.0/6.0，已 append-only 落库）。V1 已 fail-closed 不再
+    产生新写入，因此 SQL 触发器的冻结身份按 Manifest 统一为 flash 全链（cost 1.0/2.0、
+    模型 CHECK 放行 {flash, pro}）。本集成演练在冻结世界内闭环，因此把 Profile 构造
+    器、ledger 模型身份与计费常量全部还原为 flash；退出后恢复当前 pro 源码漂移阻断，
+    不影响任何真实发送路径。
+    """
+
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    stack.enter_context(
+        patch.object(
+            runner_module,
+            "build_phase16_smoke_evidence_analyst_profile",
+            lambda: _frozen_profile(build_phase16_smoke_evidence_analyst_profile()),
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            runner_module,
+            "build_phase16_smoke_evidence_planner_profile",
+            lambda: _frozen_profile(build_phase16_smoke_evidence_planner_profile()),
+        )
+    )
+    stack.enter_context(
+        patch.object(ledger_module, "FORMAL_MODEL_ID", "deepseek-v4-flash")
+    )
+    stack.enter_context(
+        patch.object(
+            ledger_module,
+            "FORMAL_INPUT_PRICE_CNY_PER_MILLION",
+            Decimal("1.000000"),
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            ledger_module,
+            "FORMAL_OUTPUT_PRICE_CNY_PER_MILLION",
+            Decimal("2.000000"),
+        )
+    )
+    return stack
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -136,7 +206,11 @@ class _ValidFormalSmokePort:
 
 
 def _official_price() -> Phase16OfficialPriceEvidence:
-    """返回用户批准的 DeepSeek V4 Flash cache-miss 价格，不读取本机 API 配置。"""
+    """返回 V1 冻结 Manifest 的官方 cache-miss 价格（flash 时代 1.0/2.0），不读取本机 API 配置。
+
+    磁盘冻结 Manifest（d75b8dce）与 SQL 触发器常量按历史 flash 身份对齐，本集成演练必须
+    在冻结世界内闭环；pro 身份与 3.0/6.0 计费由 unit 契约和 V1 真实 receipt 审计覆盖。
+    """
 
     return Phase16OfficialPriceEvidence.create(
         model_id="deepseek-v4-flash",
@@ -150,16 +224,35 @@ def _historically_matching_preflight(*, dataset, official_price, manifest):
     """为 PostgreSQL Runner 演练签发历史执行前的可信 READY 预检。
 
     真实 v1 run 已结束，当前工作树的安全整改必须令正式 CLI 对旧 Manifest fail-closed；
-    本集成测试只验证冻结代码仍一致时的账本/Runner 组合语义。因此仅在局部 patch 中让真实
-    预检工厂读取已冻结 Manifest，退出后恢复当前源码漂移阻断，不影响任何真实发送路径。
+    本集成测试只验证冻结代码仍一致时的账本/Runner 组合语义。冻结 Manifest 与 SQL 触发器
+    常量按历史 flash 身份对齐，因此演练时把预检工厂连同模块常量一并局部恢复为冻结世界，
+    退出后恢复当前 pro 源码漂移阻断，不影响任何真实发送路径。
     """
 
     from src.decision_support import official_smoke_evidence as evidence_module
 
-    with patch.object(
-        evidence_module,
-        "build_phase16_official_smoke_evidence_manifest",
-        lambda **_kwargs: manifest,
+    with (
+        patch.object(
+            evidence_module,
+            "load_phase16_official_smoke_evidence_manifest",
+            lambda **_kwargs: manifest,
+        ),
+        patch.object(
+            evidence_module,
+            "build_phase16_official_smoke_evidence_manifest",
+            lambda **_kwargs: manifest,
+        ),
+        patch.object(evidence_module, "FORMAL_MODEL_ID", "deepseek-v4-flash"),
+        patch.object(
+            evidence_module,
+            "FORMAL_INPUT_PRICE_CNY_PER_MILLION",
+            Decimal("1.000000"),
+        ),
+        patch.object(
+            evidence_module,
+            "FORMAL_OUTPUT_PRICE_CNY_PER_MILLION",
+            Decimal("2.000000"),
+        ),
     ):
         preflight = preflight_phase16_official_smoke_evidence(
             dataset=dataset,
@@ -183,23 +276,26 @@ def test_postgres_formal_runner_writes_ten_authenticated_two_stage_pass_chains(
         _PROJECT_ROOT / "evaluation" / "phase16_controlled_multi_agent"
     )
     price = _official_price()
-    manifest = load_phase16_official_smoke_evidence_manifest(repository_root=_PROJECT_ROOT)
+    manifest = load_phase16_official_smoke_evidence_manifest(
+        repository_root=_PROJECT_ROOT
+    )
     preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=price,
         manifest=manifest,
     )
     port = _ValidFormalSmokePort()
-    report = asyncio.run(
-        Phase16OfficialSmokeRunner(
-            dataset=dataset,
-            manifest=manifest,
-            preflight=preflight,
-            official_price=price,
-            ledger=postgres_formal_runner_ledger,
-            model_port=port,
-        ).execute()
-    )
+    with _frozen_runner_profiles():
+        report = asyncio.run(
+            Phase16OfficialSmokeRunner(
+                dataset=dataset,
+                manifest=manifest,
+                preflight=preflight,
+                official_price=price,
+                ledger=postgres_formal_runner_ledger,
+                model_port=port,
+            ).execute()
+        )
 
     assert report.reason_codes == (), report
     assert report.status is Phase16OfficialSmokeExecutionStatus.PASS
@@ -224,7 +320,9 @@ def test_postgres_formal_runner_recovers_unknown_attempt_before_any_new_dispatch
         _PROJECT_ROOT / "evaluation" / "phase16_controlled_multi_agent"
     )
     price = _official_price()
-    manifest = load_phase16_official_smoke_evidence_manifest(repository_root=_PROJECT_ROOT)
+    manifest = load_phase16_official_smoke_evidence_manifest(
+        repository_root=_PROJECT_ROOT
+    )
     preflight = _historically_matching_preflight(
         dataset=dataset,
         official_price=price,
@@ -240,16 +338,17 @@ def test_postgres_formal_runner_recovers_unknown_attempt_before_any_new_dispatch
     )
     port = _ValidFormalSmokePort()
 
-    report = asyncio.run(
-        Phase16OfficialSmokeRunner(
-            dataset=dataset,
-            manifest=manifest,
-            preflight=preflight,
-            official_price=price,
-            ledger=postgres_formal_runner_ledger,
-            model_port=port,
-        ).execute()
-    )
+    with _frozen_runner_profiles():
+        report = asyncio.run(
+            Phase16OfficialSmokeRunner(
+                dataset=dataset,
+                manifest=manifest,
+                preflight=preflight,
+                official_price=price,
+                ledger=postgres_formal_runner_ledger,
+                model_port=port,
+            ).execute()
+        )
 
     assert report.status is Phase16OfficialSmokeExecutionStatus.FAILED
     assert report.evidence_conclusion is Phase16OfficialSmokeEvidenceConclusion.FAILED

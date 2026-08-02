@@ -2,13 +2,18 @@
 
 用途：当后续多轮对话或上下文压缩导致注意力丢失时，把本文内容直接发给执行者，用于恢复项目定位、当前阶段、关键决策和执行约束。
 
-## 2026-07-22 最新恢复覆盖
+## 2026-07-29 最新恢复覆盖
 
 本文件较早章节保留 Phase 11A 历史上下文；恢复当前任务时，以下事实优先于其中任何“下一步”为早期
 Phase 的表述：
 
 - Phase 16 Controlled Multi-Agent 的确定性工程验收、覆盖率整改和 PR merge 已完成，当前阶段状态为
   `AWAITING_PHASE_17_GATE`；不得自动开始 Phase 17。
+- V5 受控 E2E 证据收口已获实施授权，分支为 `codex/phase16-v5-controlled-e2e`，基线为
+  `origin/main@281cea6`。它使用新的 Profile、Manifest、账本和 CLI，绝不修改或重试 V1 至 V4。
+- V5 固定 DeepSeek V4 Pro、`thinking.disabled` 和已有 JSON mode；先运行一个独立合成校准 case，只有
+  Analyst/Planner `2/2 PASS` 才允许执行正式冻结十例。校准与正式 run 共享新的 `1.00 CNY` 硬上限，
+  每阶段最大预约 `0.030000 CNY`，任何已发送失败立即停止。
 - 正式 run `phase16-official-smoke-v1` 已执行一次。首个 Analyst 请求有完整脱敏 receipt/usage，随后
   validation/outcome 为 `FAILED / ANALYST_VALIDATION_FAILED`；Planner 与剩余九个 slot 未发送。
 - D-170 的零重试规则已生效：不得再次执行 `scripts/run_phase16_real_smoke.py --execute`、清空账本、修补

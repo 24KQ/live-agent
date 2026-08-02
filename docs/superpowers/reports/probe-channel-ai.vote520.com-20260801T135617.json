@@ -1,0 +1,25 @@
+{
+  "host": "ai.vote520.com",
+  "model_id": "gpt-5.6-terra",
+  "reasoning_effort": "high",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L1": [
+      {
+        "label": "TRANSPORT_ERROR",
+        "latency_ms": 2051.571400006651,
+        "http_status": null
+      },
+      {
+        "label": "TRANSPORT_ERROR",
+        "latency_ms": 2030.4547999985516,
+        "http_status": null
+      },
+      {
+        "label": "TRANSPORT_ERROR",
+        "latency_ms": 2039.2622999934247,
+        "http_status": null
+      }
+    ]
+  }
+}

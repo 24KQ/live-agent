@@ -582,7 +582,7 @@ BEGIN
                 OR NEW.payload->>'analyst_profile_digest' IS DISTINCT FROM NEW.analyst_profile_digest
                 OR NEW.analyst_profile_id IS DISTINCT FROM 'evidence_analyst'
                 OR NEW.analyst_profile_version IS DISTINCT FROM '1.0.0'
-                OR NEW.analyst_profile_digest IS DISTINCT FROM 'aeafd9bfcc519d17e05ab8361be3c65aa16e8b4eb6a506bb0fa3d258ff5026ef' THEN
+                OR NEW.analyst_profile_digest IS DISTINCT FROM '0de062677e38856b8d6834932f2785b63d44aabc9545bc622092e4382eddea46' THEN
                 RAISE EXCEPTION 'phase16 analysis payload identity mismatch';
             END IF;
             IF NOT EXISTS (

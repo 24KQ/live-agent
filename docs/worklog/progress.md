@@ -1,5 +1,14 @@
 # LiveAgent 工作进度记录
 
+## 2026-07-29 Phase 16 V5 Controlled E2E Evidence Closeout
+
+- V5 的独立 Adapter/Profile/Manifest、最小 append-only campaign 账本、Runner、CLI 和独立合成校准输入
+  已完成。校准不复用正式十例的 case、Evidence Bundle、digest 或账本 slot。
+- 离线验证已通过：unit `1644 passed`、integration `233 passed, 7 deselected`、V5 PostgreSQL `9 passed`、
+  coverage `91.956% line / 85.130% branch`、36 个 PR release case PASS、迁移 dry-run、敏感扫描与文档检查。
+- 尚未发送 V5 真实模型请求，费用为 `0.000000 CNY`。下一步是提交、推送和 PR Gate；校准与正式十例
+  均仍需单独用户授权。默认路由为 `DETERMINISTIC_ONLY`；V1 至 V4 不重试。
+
 ## 2026-07-28 Phase 16 V4 Disabled-Thinking JSON Protocol Probe
 
 - 已完成 V4 专属 append-only ledger、禁思考 Adapter、脱敏解析诊断、命令入口和 PostgreSQL 契约测试；

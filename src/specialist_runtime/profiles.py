@@ -21,12 +21,28 @@ from src.specialist_runtime.models import (
 
 
 FORMAL_ENDPOINT_HOST = "api.deepseek.com"
-FORMAL_MODEL_ID = "deepseek-v4-flash"
-# 兼容历史的 Flash 常量仍是默认值；只允许列出的模型进入冻结 Profile，避免调用方
+# 正式 smoke（V1/V2 账本）模型身份：真实历史 run 的 receipts 均为 deepseek-v4-pro
+# （2026-07-24 封印证据，成本按 3.0/6.0 定价），V1 账本 CHECK 与成本触发器同源，
+# Python 侧身份常量必须与其一致，否则 Python 校验（flash）与 SQL 校验（pro）漂移。
+FORMAL_MODEL_ID = "deepseek-v4-pro"
+# 兼容历史的 Flash 常量仍是独立白名单成员；只允许列出的模型进入冻结 Profile，避免调用方
 # 通过自由字符串把未审计的供应商或模型送入正式运行时。
-DEEPSEEK_V4_FLASH_MODEL_ID = FORMAL_MODEL_ID
+DEEPSEEK_V4_FLASH_MODEL_ID = "deepseek-v4-flash"
 DEEPSEEK_V4_PRO_MODEL_ID = "deepseek-v4-pro"
-FORMAL_MODEL_IDS = frozenset({DEEPSEEK_V4_FLASH_MODEL_ID, DEEPSEEK_V4_PRO_MODEL_ID})
+GPT_5_6_LUNA_MODEL_ID = "gpt-5.6-luna"
+GPT_5_6_SOL_MODEL_ID = "gpt-5.6-sol"
+GPT_5_6_TERRA_MODEL_ID = "gpt-5.6-terra"
+FORMAL_ENDPOINT_HOSTS = frozenset({"api.deepseek.com", "synapse-ai.uk", "api.imagebridge.top", "ai.vote520.com"})
+FORMAL_MODEL_IDS = frozenset({
+    DEEPSEEK_V4_FLASH_MODEL_ID,
+    DEEPSEEK_V4_PRO_MODEL_ID,
+    GPT_5_6_LUNA_MODEL_ID,
+    GPT_5_6_SOL_MODEL_ID,
+    GPT_5_6_TERRA_MODEL_ID,
+})
+# 思考强度白名单：digest 认证集合，运行时只能在集合内挑选（env 透传到网关）。
+# 集合之外的值由闭包内 V5 adapter 与 campaign 校验共同 fail-fast 拒绝。
+FORMAL_REASONING_EFFORTS = frozenset({"medium", "high", "xhigh", "max"})
 
 
 class FinalEvidenceBindingMode(StrEnum):
@@ -93,8 +109,8 @@ class SpecialistProfile(StrictFrozenModel):
         # 这里只接受 DNS hostname，不接受 URL authority、用户信息、端口、查询或锚点。
         # Task 2 Adapter 会在此可信值外拼接固定 HTTPS scheme 与固定 API path。
         normalized = normalize_endpoint_host(value)
-        if normalized != FORMAL_ENDPOINT_HOST:
-            raise ValueError(f"endpoint_host must be {FORMAL_ENDPOINT_HOST}")
+        if normalized not in FORMAL_ENDPOINT_HOSTS:
+            raise ValueError(f"endpoint_host must be one of {sorted(FORMAL_ENDPOINT_HOSTS)}")
         return normalized
 
     @field_validator("model_id")

@@ -36,3 +36,4 @@ docs/study/
 
 # Editable install artifact
 src/live_agent.egg-info/
+coverage.json

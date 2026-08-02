@@ -29,7 +29,7 @@ from src.decision_support.multi_agent import (
 from src.decision_support.official_smoke_evidence import (
     Phase16OfficialPriceEvidence,
     Phase16OfficialSmokeEnvironment,
-    load_phase16_official_smoke_evidence_manifest,
+    build_phase16_official_smoke_evidence_manifest,
     preflight_phase16_official_smoke_evidence,
 )
 from src.decision_support.official_smoke_ledger import (
@@ -68,13 +68,13 @@ def _dataset():
 
 
 def _official_price() -> Phase16OfficialPriceEvidence:
-    """构造用户批准的 DeepSeek V4 Flash cache-miss 官方价格快照。"""
+    """构造用户批准的 DeepSeek V4 Pro cache-miss 官方价格快照（3.0/6.0，与真实 receipts 一致）。"""
 
     return Phase16OfficialPriceEvidence.create(
-        model_id="deepseek-v4-flash",
+        model_id="deepseek-v4-pro",
         endpoint_host="api.deepseek.com",
-        input_cny_per_million=Decimal("1.000000"),
-        output_cny_per_million=Decimal("2.000000"),
+        input_cny_per_million=Decimal("3.000000"),
+        output_cny_per_million=Decimal("6.000000"),
     )
 
 
@@ -91,14 +91,14 @@ def _historically_matching_preflight(*, dataset, official_price, manifest):
 
     with patch.object(
         evidence_module,
-        "build_phase16_official_smoke_evidence_manifest",
+        "load_phase16_official_smoke_evidence_manifest",
         lambda **_kwargs: manifest,
     ):
         preflight = preflight_phase16_official_smoke_evidence(
             dataset=dataset,
             official_price=official_price,
             environment=Phase16OfficialSmokeEnvironment(
-                model_id="deepseek-v4-flash",
+                model_id="deepseek-v4-pro",
                 endpoint_host="api.deepseek.com",
                 credential_configured=True,
             ),
@@ -382,8 +382,10 @@ def _ready_formal_runner(*, ledger, model_port, clock=None) -> Phase16OfficialSm
 
     dataset = _dataset()
     official_price = _official_price()
-    manifest = load_phase16_official_smoke_evidence_manifest(
-        repository_root=_repository_root()
+    manifest = build_phase16_official_smoke_evidence_manifest(
+        repository_root=_repository_root(),
+        dataset=dataset,
+        official_price=official_price,
     )
     preflight = _historically_matching_preflight(
         dataset=dataset,
@@ -446,8 +448,10 @@ def test_formal_runner_uses_bounded_runner_for_each_frozen_two_stage_case(
 
     dataset = _dataset()
     official_price = _official_price()
-    manifest = load_phase16_official_smoke_evidence_manifest(
-        repository_root=_repository_root()
+    manifest = build_phase16_official_smoke_evidence_manifest(
+        repository_root=_repository_root(),
+        dataset=dataset,
+        official_price=official_price,
     )
     preflight = _historically_matching_preflight(
         dataset=dataset,
@@ -573,8 +577,10 @@ def test_formal_runner_marks_pre_send_block_as_inconclusive_without_dispatch(
 
     dataset = _dataset()
     official_price = _official_price()
-    manifest = load_phase16_official_smoke_evidence_manifest(
-        repository_root=_repository_root()
+    manifest = build_phase16_official_smoke_evidence_manifest(
+        repository_root=_repository_root(),
+        dataset=dataset,
+        official_price=official_price,
     )
     preflight = _historically_matching_preflight(
         dataset=dataset,
@@ -620,8 +626,10 @@ def test_formal_runner_reports_ledger_initialization_block_without_dispatch() ->
 
     dataset = _dataset()
     official_price = _official_price()
-    manifest = load_phase16_official_smoke_evidence_manifest(
-        repository_root=_repository_root()
+    manifest = build_phase16_official_smoke_evidence_manifest(
+        repository_root=_repository_root(),
+        dataset=dataset,
+        official_price=official_price,
     )
     preflight = _historically_matching_preflight(
         dataset=dataset,

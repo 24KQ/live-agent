@@ -1,0 +1,54 @@
+{
+  "host": "synapse-ai.uk",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L3": [
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 14800.34500000329,
+        "wall_ms": 14801,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 656
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "PLANNER",
+        "label": "SUCCESS",
+        "latency_ms": 8214.110000000801,
+        "wall_ms": 8220,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 371
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 41270.155400001386,
+        "wall_ms": 41270,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 2219
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "PLANNER",
+        "label": "SUCCESS",
+        "latency_ms": 7220.54819999903,
+        "wall_ms": 7220,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 325
+      }
+    ]
+  }
+}

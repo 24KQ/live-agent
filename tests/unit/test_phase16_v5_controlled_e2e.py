@@ -1,0 +1,1739 @@
+"""Phase 16 V5 受控 E2E Runner 的纯离线契约测试。
+
+本模块只经过公开的 V5 Profile、Manifest、Runner 和账本协议运行。所有模型端口均为确定性
+Fake，不读取 ``.env``、不连接 PostgreSQL，也绝不向 DeepSeek 发送请求。
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+import json
+from pathlib import Path
+import re
+from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, cast
+from uuid import NAMESPACE_URL, uuid5
+
+import pytest
+
+import src.decision_support.controlled_e2e_v5 as controlled_e2e_v5
+from src.decision_support.controlled_e2e_ledger_v5 import (
+    Phase16V5CaseClaim,
+    Phase16V5CaseOutcomeStatus,
+    Phase16V5DispatchAttempt,
+    Phase16V5DispatchStage,
+    Phase16V5RunKind,
+    PostgresPhase16V5CampaignLedger,
+)
+from src.decision_support.controlled_e2e_v5 import (
+    PHASE16_V5_ANALYST_PROFILE_ID,
+    PHASE16_V5_CALIBRATION_RUN_ID,
+    PHASE16_V5_DEADLINE_SECONDS,
+    PHASE16_V5_MAX_OUTPUT_TOKENS,
+    PHASE16_V5_MAX_TOTAL_TOKENS,
+    PHASE16_V5_PLANNER_PROFILE_ID,
+    PHASE16_V5_STAGE_RESERVATION_CNY,
+    Phase16V5ControlledE2ERunner,
+    Phase16V5ExecutionStatus,
+    Phase16V5Manifest,
+    _NoSkillPort,
+    _StageExecution,
+    _V5BudgetAdapter,
+    _V5PricingPolicy,
+    build_phase16_v5_analyst_profile,
+    build_phase16_v5_calibration_projection,
+    build_phase16_v5_manifest,
+    build_phase16_v5_planner_profile,
+    load_phase16_v5_manifest,
+    load_phase16_v5_parent_dataset,
+    preflight_phase16_v5,
+)
+from src.decision_support.official_smoke_evidence_v2 import (
+    build_phase16_smoke_evidence_v2_analyst_profile,
+)
+from src.decision_support.controlled_e2e_adapter_v5 import (
+    DeepSeekV5ControlledE2EAdapter,
+    DeepSeekV5ThinkingMode,
+)
+from src.decision_support.models import ConflictRiskCode
+from src.specialist_runtime.model_port import (
+    ModelFailure,
+    ModelFailureCategory,
+    ModelMessage,
+    ModelRequest,
+    ModelSuccess,
+    ModelUsage,
+)
+from src.specialist_runtime.models import canonical_json_sha256
+from src.specialist_runtime.runner import BoundedSpecialistRunner
+from src.specialist_runtime.deepseek_adapter import AsyncHttpResponse
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def _isolate_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """渠道链构造会读取 LLM_API_REASONING_EFFORT / LLM_API_MODEL_ID 做白名单校验。
+
+    单测必须不依赖开发机 shell 或 .env 的既有值，保证确定性。
+    """
+
+    monkeypatch.delenv("LLM_API_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv("LLM_API_MODEL_ID", raising=False)
+
+
+class _RecordingLedger:
+    """最小追加型账本 Fake，记录 Runner 的公开调用顺序而不模拟 PostgreSQL 实现。"""
+
+    def __init__(self) -> None:
+        """初始化空的事实记录；校准 run 不依赖已有校准 PASS。"""
+
+        # 该开关只模拟 PostgreSQL 已认证的校准事实；正式路径仍由专门的集成测试验证。
+        self.calibration_is_passed = False
+        self.receipt_complete = True
+        self.claims: list[Phase16V5CaseClaim] = []
+        self.attempts: list[Phase16V5DispatchAttempt] = []
+        self.receipts: list[dict[str, object]] = []
+        self.validations: list[dict[str, object]] = []
+        self.case_outcomes: list[dict[str, object]] = []
+        self.run_outcomes: list[dict[str, object]] = []
+
+    def ensure_campaign(self, _manifest: object) -> None:
+        """Fake 接受已由 Runner 预检过的冻结 Manifest。"""
+
+    def begin_run(self, **_kwargs: object) -> None:
+        """Fake 不复制数据库的 slot 持久化，只验证 Runner 走到公开初始化边界。"""
+
+    def recover_open_attempts(self) -> tuple[object, ...]:
+        """本测试从全新账本开始，不存在需要按未知外部结果封口的历史 intent。"""
+
+        return ()
+
+    def recover_incomplete_cases(self) -> tuple[object, ...]:
+        """本测试没有进程崩溃遗留的 claim，因此不向 Runner 注入恢复终态。"""
+
+        return ()
+
+    def calibration_passed(self) -> bool:
+        """该测试执行校准路径，因此返回值不会放宽正式 run 的真实数据库门禁。"""
+
+        return self.calibration_is_passed
+
+    def claim_case(self, *, run_id: str, case_id: str, case_digest: str) -> Phase16V5CaseClaim:
+        """为当前冻结 case 生成确定性 claim，防止测试通过自由随机身份掩盖串案错误。"""
+
+        assert len(case_digest) == 64
+        claim = Phase16V5CaseClaim(
+            claim_id=str(uuid5(NAMESPACE_URL, f"v5-unit-claim:{run_id}:{case_id}")),
+            run_id=run_id,
+            case_id=case_id,
+        )
+        self.claims.append(claim)
+        return claim
+
+    def begin_dispatch(self, **kwargs: object) -> Phase16V5DispatchAttempt:
+        """记录网络前 intent；返回值与 PostgreSQL 账本的公开 attempt 值对象一致。"""
+
+        run_id = str(kwargs["run_id"])
+        claim_id = str(kwargs["claim_id"])
+        stage = kwargs["stage"]
+        assert isinstance(stage, Phase16V5DispatchStage)
+        attempt = Phase16V5DispatchAttempt(
+            attempt_id=str(uuid5(NAMESPACE_URL, f"v5-unit-attempt:{claim_id}:{stage.value}")),
+            run_id=run_id,
+            claim_id=claim_id,
+            stage=stage,
+            internal_request_id=str(kwargs["internal_request_id"]),
+            reservation_cny=kwargs["reservation_cny"],  # type: ignore[arg-type]
+        )
+        self.attempts.append(attempt)
+        return attempt
+
+    def append_receipt(self, **kwargs: object) -> bool:
+        """记录脱敏 receipt 入口；返回值可模拟 Provider 回执不完整的严格失败路径。"""
+
+        self.receipts.append(dict(kwargs))
+        return self.receipt_complete
+
+    def append_validation(self, **kwargs: object) -> None:
+        """保留脱敏验证结论，便于断言失败不会被误报为未发送阻断。"""
+
+        self.validations.append(dict(kwargs))
+
+    def close_case(self, **kwargs: object) -> None:
+        """记录唯一 case 终态，模拟 append-only 账本对 Runner 可见的边界。"""
+
+        self.case_outcomes.append(dict(kwargs))
+
+    def close_run(self, **kwargs: object) -> None:
+        """记录唯一 run 终态，验证 Runner 在首个发送失败后立即停止。"""
+
+        self.run_outcomes.append(dict(kwargs))
+
+
+class _SentFailurePort:
+    """模拟已发出但网络层没有可用模型结果的单次调用，不访问任何外部服务。"""
+
+    thinking_mode = DeepSeekV5ThinkingMode.DISABLED
+
+    def __init__(self) -> None:
+        """记录共享 Runner 真正尝试构造的请求数量。"""
+
+        self.requests: list[object] = []
+
+    async def complete(self, request: object) -> ModelFailure:
+        """返回 ``request_sent=True``，证明后续必须 FAILED 而不是可重试或 BLOCKED。"""
+
+        self.requests.append(request)
+        return ModelFailure(
+            request_id=request.request_id,  # type: ignore[attr-defined]
+            category=ModelFailureCategory.TRANSPORT_ERROR,
+            request_sent=True,
+            response_digest=None,
+            http_status=None,
+            retry_after_seconds=None,
+        )
+
+
+class _UnsentFailurePort:
+    """模拟请求在 Provider 接收前失败，验证 V5 不把本地阻断误记成外部调用失败。"""
+
+    thinking_mode = DeepSeekV5ThinkingMode.DISABLED
+
+    async def complete(self, request: object) -> ModelFailure:
+        """返回未发送的模型失败，保留共享 Runner 的正常预算释放路径。"""
+
+        return ModelFailure(
+            request_id=request.request_id,  # type: ignore[attr-defined]
+            category=ModelFailureCategory.TRANSPORT_ERROR,
+            request_sent=False,
+            response_digest=None,
+            http_status=None,
+            retry_after_seconds=None,
+        )
+
+
+class _ValidV5Port:
+    """按共享 Runner 公开上下文构造合法 FINAL，用于离线覆盖 V5 的成功与回执分支。"""
+
+    thinking_mode = DeepSeekV5ThinkingMode.DISABLED
+
+    def __init__(
+        self,
+        *,
+        invalid_analyst_evidence: bool = False,
+        planner_drops_required_risk: bool = False,
+    ) -> None:
+        """可选伪造未知证据 ID，专门检验语义验证不能因 JSON 合法而放行。
+
+        ``planner_drops_required_risk`` 复现 V5 真实校准的失败形状：Analyst 返回两个
+        risk_code，Planner 只回其中一个。用来锁死 Prompt 修正没有放松覆盖校验。
+        """
+
+        self._invalid_analyst_evidence = invalid_analyst_evidence
+        self._planner_drops_required_risk = planner_drops_required_risk
+        self.requests: list[object] = []
+
+    async def complete(self, request: object) -> ModelSuccess:
+        """只读取共享 Runner 已解析的受控 ID，绝不加载环境变量或发送网络请求。"""
+
+        self.requests.append(request)
+        context = json.loads(request.messages[-1].content)  # type: ignore[attr-defined]
+        evidence_ids = [item["evidence_id"] for item in context["resolved_evidence"]]
+        if self._invalid_analyst_evidence and "trigger_codes" in context["input_snapshot"]:
+            evidence_ids = ["forged-v5-evidence"]
+        if "trigger_codes" in context["input_snapshot"]:
+            risk_codes = ["HUMAN_CONFIRMATION_REQUIRED"]
+            if self._planner_drops_required_risk:
+                risk_codes = ["HUMAN_CONFIRMATION_REQUIRED", "RHYTHM_PAUSE_REQUIRED"]
+            final_output = {
+                "constraint_codes": [],
+                "risk_codes": risk_codes,
+                "explanation": "离线契约验证要求人工确认。",
+                "evidence_ids": evidence_ids,
+            }
+        else:
+            final_output = {
+                "options": [
+                    {
+                        "option_id": "hold-for-review",
+                        "product_strategy": "HOLD_AND_ESCALATE",
+                        "backup_product_id": None,
+                        "host_prompt": "等待人工确认。",
+                        "timing": "AFTER_OPERATOR_CONFIRMATION",
+                        "risk_flags": ["HUMAN_CONFIRMATION_REQUIRED"],
+                        "evidence_ids": evidence_ids,
+                    }
+                ]
+            }
+        output = {
+            "kind": "FINAL",
+            "final_output": final_output,
+            "reason_summary": "V5_UNIT_CONTRACT",
+        }
+        return ModelSuccess(
+            request_id=request.request_id,  # type: ignore[attr-defined]
+            model_id="deepseek-v4-pro",
+            output=output,
+            usage=ModelUsage(input_tokens=100, output_tokens=100, total_tokens=200),
+            provider_response_id=f"phase16-v5-unit-{len(self.requests):03d}",
+            finish_reason="stop",
+            response_digest=canonical_json_sha256(output),
+            latency_ms=Decimal("2.000"),
+        )
+
+
+class _AnalysisStub:
+    """仅模拟已经通过 Analyst 语义验证后的公开分析接口，避免 Planner 测试借用原始模型正文。"""
+
+    risk_codes: tuple[object, ...] = ()
+
+    def as_model_input(self) -> dict[str, object]:
+        """提供 Planner 任务构造所需的最小受控投影。"""
+
+        return {"constraint_codes": [], "risk_codes": []}
+
+
+class _V5AdapterTransport:
+    """记录 V5 专属 Adapter 的出站 payload，并返回固定 JSON，测试不产生网络请求。"""
+
+    def __init__(self) -> None:
+        """初始化空请求记录；响应仅含无业务含义的 Provider 协议字段。"""
+
+        self.payloads: list[dict[str, Any]] = []
+
+    async def post_json(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        timeout_seconds: float,
+    ) -> AsyncHttpResponse:
+        """保留待断言的 payload 副本，绝不记录 Authorization 头或访问外部端点。"""
+
+        _ = (url, headers, timeout_seconds)
+        self.payloads.append(dict(payload))
+        return AsyncHttpResponse(
+            status_code=200,
+            headers={},
+            body=json.dumps(
+                {
+                    "id": "v5-adapter-unit",
+                    "model": "deepseek-v4-pro",
+                    "choices": [{"message": {"content": '{"status":"ok"}'}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+                }
+            ).encode("utf-8"),
+        )
+
+
+def test_v5_profiles_are_isolated_from_v2_and_freeze_controlled_e2e_limits() -> None:
+    """V5 必须是新身份，且只允许禁思考 E2E 所需的零 Skill、单调用受限 Profile。"""
+
+    analyst = build_phase16_v5_analyst_profile()
+    planner = build_phase16_v5_planner_profile()
+    v2_analyst = build_phase16_smoke_evidence_v2_analyst_profile()
+
+    assert analyst.profile_id == PHASE16_V5_ANALYST_PROFILE_ID
+    assert planner.profile_id == PHASE16_V5_PLANNER_PROFILE_ID
+    assert analyst.profile_digest != v2_analyst.profile_digest
+    assert {
+        (profile.deadline_seconds, profile.max_total_tokens, profile.max_output_tokens)
+        for profile in (analyst, planner)
+    } == {
+        (
+            PHASE16_V5_DEADLINE_SECONDS,
+            PHASE16_V5_MAX_TOTAL_TOKENS,
+            PHASE16_V5_MAX_OUTPUT_TOKENS,
+        )
+    }
+    assert all(
+        profile.allowed_skill_ids == () and profile.max_model_calls == 1
+        for profile in (analyst, planner)
+    )
+    assert "finding_codes" not in analyst.result_schema["properties"]
+    assert "evidence_refs" not in analyst.result_schema["properties"]
+
+
+def test_v5_adapter_is_independent_and_forces_disabled_thinking() -> None:
+    """V5 专属 Adapter 必须不经 V4 运行路径，并为每个共享请求固定 thinking.disabled。"""
+
+    transport = _V5AdapterTransport()
+    adapter = DeepSeekV5ControlledE2EAdapter(
+        endpoints=(("api.deepseek.com", "test-secret"),),
+        transport=transport,
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        monotonic=lambda: 1.0,
+    )
+    request = ModelRequest(
+        request_id=str(uuid5(NAMESPACE_URL, "v5-adapter-request")),
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-pro",
+        temperature=Decimal("0"),
+        prompt_hash="a" * 64,
+        result_schema_hash="b" * 64,
+        messages=(ModelMessage(role="user", content="Return JSON."),),
+        max_output_tokens=64,
+        deadline_at=datetime(2026, 7, 18, 12, 1, tzinfo=timezone.utc),
+    )
+
+    outcome = asyncio.run(adapter.complete(request))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert adapter.thinking_mode is DeepSeekV5ThinkingMode.DISABLED
+    assert transport.payloads[0]["thinking"] == {"type": "disabled"}
+    # V9 重试事实：首次即成功保持 attempts==1，并 stamp 实际响应端点。
+    assert outcome.attempts == 1
+    assert outcome.endpoint_host == "api.deepseek.com"
+
+
+def _v5_adapter_request() -> ModelRequest:
+    """V9 重试单测的标准请求：固定时钟 12:00，deadline 12:01（60s 余量）。"""
+
+    return ModelRequest(
+        request_id=str(uuid5(NAMESPACE_URL, "v5-retry-request")),
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-pro",
+        temperature=Decimal("0"),
+        prompt_hash="a" * 64,
+        result_schema_hash="b" * 64,
+        messages=(ModelMessage(role="user", content="Return JSON."),),
+        max_output_tokens=64,
+        deadline_at=datetime(2026, 7, 18, 12, 1, tzinfo=timezone.utc),
+    )
+
+
+def _v5_long_deadline_request() -> ModelRequest:
+    """per-attempt 窗口单测的请求：总 deadline 12:10（600s 兜底），
+    90s 每尝试窗口才能独立起算，不会被单次尝试耗尽。"""
+
+    return ModelRequest(
+        request_id=str(uuid5(NAMESPACE_URL, "v5-per-attempt-request")),
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-pro",
+        temperature=Decimal("0"),
+        prompt_hash="c" * 64,
+        result_schema_hash="d" * 64,
+        messages=(ModelMessage(role="user", content="Return JSON."),),
+        max_output_tokens=64,
+        deadline_at=datetime(2026, 7, 18, 12, 10, tzinfo=timezone.utc),
+    )
+
+
+def _v5_http_error_response(status_code: int) -> AsyncHttpResponse:
+    """构造 Provider 非 2xx 响应；正文无业务含义，只驱动状态码分类。"""
+
+    return AsyncHttpResponse(status_code=status_code, headers={}, body=b"{}")
+
+
+def _v5_http_success_response() -> AsyncHttpResponse:
+    """构造合法 200 响应，返回内容无业务含义，仅验证重试后的成功路径。"""
+
+    return AsyncHttpResponse(
+        status_code=200,
+        headers={},
+        body=json.dumps(
+            {
+                "id": "v5-retry-unit",
+                "model": "deepseek-v4-pro",
+                "choices": [{"message": {"content": '{"status":"ok"}'}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+            }
+        ).encode("utf-8"),
+    )
+
+
+class _ScriptedV5AdapterTransport:
+    """按脚本队列返回响应或抛传输异常，用于离线覆盖 V9 重试决策。"""
+
+    def __init__(self, script: list[object]) -> None:
+        """保存脚本副本；每条目对应一次 post_json（响应或异常）。"""
+
+        self._script = list(script)
+        self.calls: list[str] = []
+        #: 每次调用收到的 timeout_seconds = delegate 计算的尝试窗口剩余，用于
+        #: 断言 per-attempt 90s 独立窗口不随渠道链共享衰减。
+        self.timeouts: list[float] = []
+
+    async def post_json(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        timeout_seconds: float,
+    ) -> AsyncHttpResponse:
+        """消费脚本下一步：异常模拟传输层故障，响应模拟 Provider 状态码。"""
+
+        _ = (headers, payload)
+        self.calls.append(url)
+        self.timeouts.append(timeout_seconds)
+        step = self._script.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+
+def _sleep_recorder(record: list[float]) -> Callable[[float], Awaitable[None]]:
+    """注入式假 sleep：只记录退避时长，不真正等待墙钟。"""
+
+    async def _record(seconds: float) -> None:
+        record.append(seconds)
+
+    return _record
+
+
+def _v5_adapter(
+    transport: _ScriptedV5AdapterTransport,
+    *,
+    clock: Callable[[], datetime] | None = None,
+    record: list[float] | None = None,
+) -> DeepSeekV5ControlledE2EAdapter:
+    """组装固定时钟（或注入时钟）与假 sleep 的 V9 Adapter。"""
+
+    return DeepSeekV5ControlledE2EAdapter(
+        endpoints=(("api.deepseek.com", "test-secret"),),
+        transport=transport,
+        clock=clock or (lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)),
+        monotonic=lambda: 1.0,
+        sleep=_sleep_recorder(record) if record is not None else None,
+    )
+
+
+def test_v5_adapter_retries_transport_error_once_and_succeeds() -> None:
+    """TRANSPORT_ERROR 必须立即重试一次并成功，attempts==2 且不虚构退避。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [RuntimeError("deterministic connection reset"), _v5_http_success_response()]
+    )
+    sleeps: list[float] = []
+    adapter = _v5_adapter(transport, record=sleeps)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 2
+    assert outcome.endpoint_host == "api.deepseek.com"
+    assert len(transport.calls) == 2
+    assert sleeps == []
+
+
+def test_v5_adapter_backs_off_one_second_before_http_5xx_retry() -> None:
+    """HTTP 503 必须退避 1.0s（受剩余 deadline 约束）后重试并成功。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [_v5_http_error_response(503), _v5_http_success_response()]
+    )
+    sleeps: list[float] = []
+    adapter = _v5_adapter(transport, record=sleeps)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 2
+    assert sleeps == [1.0]
+    assert len(transport.calls) == 2
+
+
+def test_v5_adapter_never_retries_rate_limited_same_endpoint() -> None:
+    """429（RATE_LIMITED）不得在同一端点重试；attempts 必须保持 1。"""
+
+    transport = _ScriptedV5AdapterTransport([_v5_http_error_response(429)])
+    adapter = _v5_adapter(transport)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.RATE_LIMITED
+    assert outcome.http_status == 429
+    assert outcome.attempts == 1
+    assert outcome.endpoint_host == "api.deepseek.com"
+    assert len(transport.calls) == 1
+
+
+def test_v5_adapter_returns_last_failure_after_capped_retries() -> None:
+    """两次 TRANSPORT_ERROR 后必须返回最后一次失败，attempts==2，不隐藏失败。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [RuntimeError("first reset"), RuntimeError("second reset")]
+    )
+    adapter = _v5_adapter(transport)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.TRANSPORT_ERROR
+    assert outcome.attempts == 2
+    assert len(transport.calls) == 2
+
+
+def test_v5_adapter_single_success_keeps_attempts_one() -> None:
+    """首次即成功必须保留 attempts==1，不得虚构重试事实。"""
+
+    transport = _ScriptedV5AdapterTransport([_v5_http_success_response()])
+    adapter = _v5_adapter(transport)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 1
+    assert outcome.endpoint_host == "api.deepseek.com"
+    assert len(transport.calls) == 1
+
+
+def test_v5_adapter_skips_retry_when_deadline_already_passed() -> None:
+    """第一次失败后剩余 deadline <=0 时必须立即停止，不得消耗下一次调用。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _TimeAdvancingTransport(_ScriptedV5AdapterTransport):
+        """第一次调用即把时钟推到 deadline 之后，模拟重试时刻已无剩余时间。"""
+
+        def __init__(self) -> None:
+            super().__init__([RuntimeError("late transport failure")])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            state["now"] = datetime(2026, 7, 18, 12, 2, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _TimeAdvancingTransport()
+    adapter = _v5_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.TRANSPORT_ERROR
+    assert outcome.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_v5_adapter_skips_retry_when_window_insufficient() -> None:
+    """第一次 TRANSPORT_ERROR 后剩余不足最小窗口时必须停止，不得发出注定失败的
+    第二次调用；attempts 保持 1。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _ShortWindowTransport(_ScriptedV5AdapterTransport):
+        """第一次调用即把时钟推到 deadline 前 0.6s（< 1s 最小重试窗口）。"""
+
+        def __init__(self) -> None:
+            super().__init__([RuntimeError("late transport failure")])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            state["now"] = datetime(2026, 7, 18, 12, 0, 0, 400000, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _ShortWindowTransport()
+    adapter = _v5_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(
+        adapter.complete(
+            ModelRequest(
+                request_id=str(uuid5(NAMESPACE_URL, "v5-short-window-request")),
+                endpoint_host="api.deepseek.com",
+                model_id="deepseek-v4-pro",
+                temperature=Decimal("0"),
+                prompt_hash="a" * 64,
+                result_schema_hash="b" * 64,
+                messages=(ModelMessage(role="user", content="Return JSON."),),
+                max_output_tokens=64,
+                deadline_at=datetime(2026, 7, 18, 12, 0, 1, tzinfo=timezone.utc),
+            )
+        )
+    )
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.TRANSPORT_ERROR
+    assert outcome.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_v5_adapter_backs_off_without_consuming_retry_window() -> None:
+    """5xx 退避必须保留最小重试窗口：总剩余 < 2s 时压缩退避而非压掉窗口。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _ShortWindowTransport(_ScriptedV5AdapterTransport):
+        """第一次调用把时钟推到 deadline 前 1.4s；退避后重试仍持有完整 1s 窗口。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_error_response(503), _v5_http_success_response()])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            if not self.calls:
+                state["now"] = datetime(2026, 7, 18, 12, 0, 0, 600000, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _ShortWindowTransport()
+    sleeps: list[float] = []
+    adapter = _v5_adapter(transport, clock=lambda: state["now"], record=sleeps)
+
+    outcome = asyncio.run(
+        adapter.complete(
+            ModelRequest(
+                request_id=str(uuid5(NAMESPACE_URL, "v5-short-window-request")),
+                endpoint_host="api.deepseek.com",
+                model_id="deepseek-v4-pro",
+                temperature=Decimal("0"),
+                prompt_hash="a" * 64,
+                result_schema_hash="b" * 64,
+                messages=(ModelMessage(role="user", content="Return JSON."),),
+                max_output_tokens=64,
+                deadline_at=datetime(2026, 7, 18, 12, 0, 2, tzinfo=timezone.utc),
+            )
+        )
+    )
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 2
+    # 退避 = min(1.0, 1.4 - 1.0) ≈ 0.4s：sleep 后重试调用仍持有 1s 完整窗口。
+    assert len(sleeps) == 1
+    assert sleeps[0] == pytest.approx(0.4)
+    assert len(transport.calls) == 2
+
+
+def test_v5_adapter_retries_deadline_exceeded_once_and_succeeds() -> None:
+    """单次尝试超时（DEADLINE_EXCEEDED）在同一端点可重试，且重试拿到全新 90s 窗口。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _FirstCallAdvancesPastAttemptWindow(_ScriptedV5AdapterTransport):
+        """第一次调用把时钟推到尝试窗口（12:01:30）之后，触发 delegate 的 deadline 检查。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_success_response(), _v5_http_success_response()])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            if not self.calls:
+                state["now"] = datetime(2026, 7, 18, 12, 1, 31, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _FirstCallAdvancesPastAttemptWindow()
+    adapter = _v5_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(adapter.complete(_v5_long_deadline_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    # 第一次尝试的 90s 窗口在调用期间耗尽 → DEADLINE_EXCEEDED；同端点重试获新窗口后成功。
+    assert outcome.attempts == 2
+    assert len(transport.calls) == 2
+    # 两次尝试都是完整 90s 独立窗口（总 deadline 12:10 兜底未参与收缩）。
+    assert transport.timeouts == [90.0, 90.0]
+
+
+def test_v5_adapter_grants_fresh_90s_window_per_attempt_across_chain() -> None:
+    """渠道链的每一次尝试都获得独立 90s 窗口：前面端点的消耗不衰减后续窗口。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [_v5_http_error_response(500), _v5_http_error_response(503), _v5_http_success_response()]
+    )
+    sleeps: list[float] = []
+    adapter = _v5_channel_adapter(transport, record=sleeps)
+
+    outcome = asyncio.run(adapter.complete(_v5_long_deadline_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 3
+    assert outcome.endpoint_host == "synapse-ai.uk"
+    # 三次调用全部是完整 90s 独立窗口：换端与退避都不衰减尝试预算。
+    assert transport.timeouts == [90.0, 90.0, 90.0]
+    assert sleeps == [1.0, 1.0]
+
+
+def test_v5_preflight_rebuilds_the_versioned_manifest_without_environment_or_network() -> None:
+    """本地预检必须从源码和冻结父数据重建同一身份，不能依赖 ``.env`` 或数据库。"""
+
+    dataset = load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT)
+    rebuilt = build_phase16_v5_manifest(repository_root=_PROJECT_ROOT, dataset=dataset)
+    stored = load_phase16_v5_manifest(repository_root=_PROJECT_ROOT)
+    manifest, reasons = preflight_phase16_v5(repository_root=_PROJECT_ROOT)
+
+    assert rebuilt.manifest_digest == stored.manifest_digest
+    assert manifest == stored
+    assert reasons == ()
+
+
+def test_v5_preflight_blocks_a_tampered_synthetic_calibration_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """校准输入的摘要一旦被替换，预检必须在联网前拒绝重建 campaign。"""
+
+    payload = json.loads(
+        (_PROJECT_ROOT / "evaluation/manifests/phase16-v5-controlled-e2e-calibration-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    # 仅破坏已冻结的 case 摘要，保持其余合成事实原样，精确验证加载器的防篡改边界。
+    payload["case_digest"] = "0" * 64
+    tampered_input = tmp_path / "tampered-calibration.json"
+    tampered_input.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+    monkeypatch.setattr(
+        controlled_e2e_v5,
+        "PHASE16_V5_CALIBRATION_INPUT_PATH",
+        tampered_input,
+    )
+
+    manifest, reasons = preflight_phase16_v5(repository_root=_PROJECT_ROOT)
+
+    assert manifest is None
+    assert reasons == ("MANIFEST_REBUILD_FAILED",)
+
+
+def test_v5_calibration_projection_is_disjoint_from_all_formal_slots() -> None:
+    """合成校准只验证协议链路，绝不能复用十个正式 case 的身份或证据投影。"""
+
+    dataset = load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT)
+    calibration = build_phase16_v5_calibration_projection(
+        repository_root=_PROJECT_ROOT,
+        now=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+    runner = Phase16V5ControlledE2ERunner(
+        dataset=dataset,
+        manifest=load_phase16_v5_manifest(repository_root=_PROJECT_ROOT),
+        ledger=_RecordingLedger(),
+        model_port=_ValidV5Port(),
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+    formal = runner._projections(run_kind=Phase16V5RunKind.FORMAL)
+
+    assert calibration.case_id not in dataset.manifest.smoke_eligible_case_ids
+    assert all(
+        calibration.case_digest != formal_projection.case_digest
+        and calibration.evidence_bundle_digest != formal_projection.evidence_bundle_digest
+        and calibration.analyst_task.task_id != formal_projection.analyst_task.task_id
+        for _, _, formal_projection in formal
+    )
+
+
+def test_v5_manifest_rejects_a_profile_digest_changed_without_resigning_identity() -> None:
+    """攻击者不能替换 Profile 摘要后复用旧 Manifest 摘要取得发送资格。"""
+
+    stored = load_phase16_v5_manifest(repository_root=_PROJECT_ROOT)
+    tampered = stored.model_dump(mode="json")
+    tampered["profile_digests"]["analyst"] = "0" * 64
+
+    with pytest.raises(ValueError, match="manifest_digest"):
+        Phase16V5Manifest.model_validate(tampered)
+
+
+def test_v5_sent_analyst_failure_prevents_planner_and_closes_calibration() -> None:
+    """已发送的 Analyst 失败必须立即结束校准，Planner 既不能发送也不能被伪报为成功。"""
+
+    dataset = load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT)
+    manifest = load_phase16_v5_manifest(repository_root=_PROJECT_ROOT)
+    ledger = _RecordingLedger()
+    port = _SentFailurePort()
+    runner = Phase16V5ControlledE2ERunner(
+        dataset=dataset,
+        manifest=manifest,
+        ledger=ledger,
+        model_port=port,
+        # 父数据的证据有效期绑定在 2026-07-18，测试使用同一冻结参考时间而非当前墙钟。
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+
+    report = asyncio.run(runner.execute(run_kind=Phase16V5RunKind.CALIBRATION))
+
+    assert report.status is Phase16V5ExecutionStatus.FAILED
+    assert report.reason_codes == ("MODEL_OUTCOME_UNAVAILABLE",)
+    assert report.model_calls == len(port.requests) == 1
+    assert len(ledger.attempts) == 1
+    assert ledger.attempts[0].stage is Phase16V5DispatchStage.ANALYST
+    assert ledger.validations[0]["reason_code"] == "MODEL_OUTCOME_UNAVAILABLE"
+    assert ledger.case_outcomes[0]["reason_code"] == "MODEL_OUTCOME_UNAVAILABLE"
+    assert len(ledger.run_outcomes) == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement", "message"),
+    [
+        ("model_id", "another-model", "identity is frozen"),
+        ("formal_case_ids", ("duplicate",) * 10, "slots must be unique"),
+        ("formal_case_digests", {}, "digests must exactly cover"),
+        ("profile_digests", {"analyst": "0" * 64}, "requires analyst and planner"),
+        ("input_cny_per_million", "0", "budget or price facts are frozen"),
+        ("source_file_digests", {}, "source closure is incomplete"),
+    ],
+)
+def test_v5_manifest_rejects_each_frozen_campaign_identity_surface(
+    field: str,
+    replacement: object,
+    message: str,
+) -> None:
+    """任何可公开的模型、slot、价格或源码闭包变更都必须在发送前被 Manifest 拒绝。"""
+
+    tampered = load_phase16_v5_manifest(repository_root=_PROJECT_ROOT).model_dump(mode="json")
+    tampered[field] = replacement
+    # 使用形状合法但事实不匹配的摘要，使模型级检查能先到达冻结协议验证器。
+    tampered["manifest_digest"] = "0" * 64
+
+    with pytest.raises(ValueError, match=message):
+        Phase16V5Manifest.model_validate(tampered)
+
+
+def _runner(*, ledger: _RecordingLedger, model_port: object) -> Phase16V5ControlledE2ERunner:
+    """组装固定时钟的离线 V5 Runner，避免墙钟导致父数据证据在测试中自然过期。"""
+
+    return Phase16V5ControlledE2ERunner(
+        dataset=load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT),
+        manifest=load_phase16_v5_manifest(repository_root=_PROJECT_ROOT),
+        ledger=ledger,
+        model_port=cast(object, model_port),
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+
+
+def test_v5_runner_blocks_bad_static_identity_thinking_and_missing_calibration() -> None:
+    """本地身份、禁思考和正式校准门均须在首个账本 intent 前阻断。"""
+
+    dataset = load_phase16_v5_parent_dataset(repository_root=_PROJECT_ROOT)
+    manifest = load_phase16_v5_manifest(repository_root=_PROJECT_ROOT)
+    # dry-run 只读取 formal_case_ids；用极小只读替身精确触发调用方不可覆盖的静态门禁。
+    identity_mismatch = SimpleNamespace(formal_case_ids=("wrong-slot",))
+    blocked = Phase16V5ControlledE2ERunner(
+        dataset=dataset,
+        manifest=identity_mismatch,
+        ledger=_RecordingLedger(),
+        model_port=_ValidV5Port(),
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+    )
+    assert blocked.dry_run(run_kind=Phase16V5RunKind.CALIBRATION).reason_codes == (
+        "FORMAL_SLOT_IDENTITY_MISMATCH",
+    )
+    valid_runner = _runner(ledger=_RecordingLedger(), model_port=_ValidV5Port())
+    assert valid_runner.dry_run(run_kind=cast(Phase16V5RunKind, "INVALID")).reason_codes == (
+        "RUN_KIND_INVALID",
+    )
+
+    wrong_thinking = _ValidV5Port()
+    wrong_thinking.thinking_mode = "enabled"
+    report = asyncio.run(_runner(ledger=_RecordingLedger(), model_port=wrong_thinking).execute(run_kind=Phase16V5RunKind.CALIBRATION))
+    assert report.status is Phase16V5ExecutionStatus.BLOCKED
+    assert report.reason_codes == ("THINKING_MODE_MISMATCH",)
+
+    formal_report = asyncio.run(_runner(ledger=_RecordingLedger(), model_port=_ValidV5Port()).execute(run_kind=Phase16V5RunKind.FORMAL))
+    assert formal_report.reason_codes == ("CALIBRATION_PASS_REQUIRED",)
+    assert formal_report.model_calls == 0
+
+
+def test_v5_runner_preserves_recovery_terminal_and_never_resends() -> None:
+    """恢复到当前 run 的历史终态必须优先返回，不能被新的校准或发送覆盖。"""
+
+    class _RecoveredLedger(_RecordingLedger):
+        """仅返回当前校准 run 的恢复事实，模拟进程在前一次执行后重启。"""
+
+        def recover_open_attempts(self) -> tuple[object, ...]:
+            return (
+                SimpleNamespace(
+                    run_id=PHASE16_V5_CALIBRATION_RUN_ID,
+                    status=Phase16V5CaseOutcomeStatus.FAILED,
+                    reason_code="UNKNOWN_ATTEMPT_AFTER_RESTART",
+                ),
+            )
+
+    port = _ValidV5Port()
+    report = asyncio.run(_runner(ledger=_RecoveredLedger(), model_port=port).execute(run_kind=Phase16V5RunKind.CALIBRATION))
+
+    assert report.status is Phase16V5ExecutionStatus.FAILED
+    assert report.reason_codes == ("UNKNOWN_ATTEMPT_AFTER_RESTART",)
+    assert report.model_calls == len(port.requests) == 0
+
+
+def test_v5_runner_formal_success_uses_exactly_twenty_stage_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """正式 PASS 只能来自十个固定 slot 的 Analyst、Planner 各一次，且结论为受控 E2E 合格。"""
+
+    ledger = _RecordingLedger()
+    ledger.calibration_is_passed = True
+    runner = _runner(ledger=ledger, model_port=_ValidV5Port())
+    calls: list[Phase16V5DispatchStage] = []
+
+    async def _stage(**kwargs: object) -> _StageExecution:
+        """隔离编排循环本身；共享 Runner 的真实协议路径由下方和 PostgreSQL 测试覆盖。"""
+
+        stage = cast(Phase16V5DispatchStage, kwargs["stage"])
+        calls.append(stage)
+        if stage is Phase16V5DispatchStage.ANALYST:
+            return _StageExecution(True, True, "ANALYST_VALIDATION_PASS", "analyst-attempt", _AnalysisStub())
+        return _StageExecution(True, True, "PLANNER_VALIDATION_PASS", "planner-attempt")
+
+    monkeypatch.setattr(runner, "_execute_stage", _stage)
+    report = asyncio.run(runner.execute(run_kind=Phase16V5RunKind.FORMAL))
+
+    assert report.status is Phase16V5ExecutionStatus.PASS
+    assert report.evidence_conclusion.value == "CONTROLLED_E2E_QUALIFIED"
+    assert report.model_calls == len(calls) == 20
+    assert len(report.case_executions) == len(ledger.claims) == 10
+    assert all(item.status is Phase16V5ExecutionStatus.PASS for item in report.case_executions)
+    assert ledger.run_outcomes[-1]["reason_code"] == "CONTROLLED_E2E_QUALIFIED"
+
+
+@pytest.mark.parametrize(
+    ("stage_results", "expected_status", "expected_reason"),
+    [
+        (
+            (_StageExecution(False, False, "MODEL_REQUEST_NOT_SENT", "analyst-attempt"),),
+            Phase16V5ExecutionStatus.BLOCKED,
+            "MODEL_REQUEST_NOT_SENT",
+        ),
+        (
+            (
+                _StageExecution(True, True, "ANALYST_VALIDATION_PASS", "analyst-attempt", _AnalysisStub()),
+                _StageExecution(False, True, "PLANNER_VALIDATION_FAILED", "planner-attempt"),
+            ),
+            Phase16V5ExecutionStatus.FAILED,
+            "PLANNER_VALIDATION_FAILED",
+        ),
+    ],
+)
+def test_v5_runner_closes_first_stage_or_planner_failure_without_later_case_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    stage_results: tuple[_StageExecution, ...],
+    expected_status: Phase16V5ExecutionStatus,
+    expected_reason: str,
+) -> None:
+    """首个未发送阻断或已发送 Planner 失败都必须把当前 case 封成对应终态并上升为 run 终态。
+
+    校准只有一个 slot，因此这里同时锁定"一个 case 恰好写一次 claim/outcome/run 终态"。
+    正式 run 走满全部 slot 的语义由 ``test_v5_runner_walks_every_formal_slot_...`` 覆盖。
+    """
+
+    ledger = _RecordingLedger()
+    runner = _runner(ledger=ledger, model_port=_ValidV5Port())
+    results = iter(stage_results)
+
+    async def _stage(**_kwargs: object) -> _StageExecution:
+        return next(results)
+
+    monkeypatch.setattr(runner, "_execute_stage", _stage)
+    report = asyncio.run(runner.execute(run_kind=Phase16V5RunKind.CALIBRATION))
+
+    assert report.status is expected_status
+    assert report.reason_codes == (expected_reason,)
+    assert len(ledger.claims) == len(ledger.case_outcomes) == len(ledger.run_outcomes) == 1
+
+
+def test_v5_runner_walks_every_formal_slot_after_a_sent_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已发送失败只封当前 case，正式 run 必须继续走完全部十个 slot 以测出真实通过率。
+
+    V7 在 case 1 中止，后九例从未被观测，run 的产出退化成 1 bit 而终态不可重开使同一
+    campaign 无法补测。这里锁定新语义：case 1 FAILED，其余九例照常 PASS，run 终态仍为
+    FAILED——验收判据没有被放宽，只是终于能测量。
+    """
+
+    ledger = _RecordingLedger()
+    ledger.calibration_is_passed = True
+    runner = _runner(ledger=ledger, model_port=_ValidV5Port())
+    seen: list[str] = []
+
+    async def _stage(**kwargs: object) -> _StageExecution:
+        stage = cast(Phase16V5DispatchStage, kwargs["stage"])
+        case_id = cast(object, kwargs["projection"]).case_id  # type: ignore[attr-defined]
+        seen.append(f"{case_id}:{stage.value}")
+        if stage is Phase16V5DispatchStage.ANALYST:
+            if case_id.endswith("-001"):
+                return _StageExecution(False, True, "ANALYST_VALIDATION_FAILED", "analyst-attempt")
+            return _StageExecution(True, True, "ANALYST_VALIDATION_PASS", "analyst-attempt", _AnalysisStub())
+        return _StageExecution(True, True, "PLANNER_VALIDATION_PASS", "planner-attempt")
+
+    monkeypatch.setattr(runner, "_execute_stage", _stage)
+    report = asyncio.run(runner.execute(run_kind=Phase16V5RunKind.FORMAL))
+
+    # 十个 slot 全部被 claim 并各自写入唯一终态；run 终态只写一次。
+    assert len(ledger.claims) == len(ledger.case_outcomes) == 10
+    assert len(ledger.run_outcomes) == 1
+    assert len(report.case_executions) == 10
+
+    # case 1 的 Planner 绝不能被派发：Analyst 失败后该 case 立即封口。
+    assert "phase16-high-conflict-paired-development-001:PLANNER" not in seen
+    assert len(seen) == 19
+
+    statuses = [item.status for item in report.case_executions]
+    assert statuses[0] is Phase16V5ExecutionStatus.FAILED
+    assert all(item is Phase16V5ExecutionStatus.PASS for item in statuses[1:])
+
+    # 判据未放宽：只要有一例已发送失败，run 终态即 FAILED，结论不得升为受控 E2E 合格。
+    assert report.status is Phase16V5ExecutionStatus.FAILED
+    assert report.reason_codes == ("ANALYST_VALIDATION_FAILED",)
+    assert report.evidence_conclusion.value == "FAILED"
+    assert ledger.run_outcomes[-1]["reason_code"] == "ANALYST_VALIDATION_FAILED"
+
+
+def test_v5_stage_protocol_rejects_unsent_failure_bad_receipt_and_semantic_forgery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """共享 Runner 的本地失败、回执不完整和未知 evidence ID 都必须落为不同的严格终态。"""
+
+    ledger = _RecordingLedger()
+    runner = _runner(ledger=ledger, model_port=_UnsentFailurePort())
+    projection = runner._projections(run_kind=Phase16V5RunKind.CALIBRATION)[0][2]
+    claim = ledger.claim_case(run_id=PHASE16_V5_CALIBRATION_RUN_ID, case_id=projection.case_id, case_digest="a" * 64)
+    unsent = asyncio.run(
+        runner._execute_stage(
+            run_id=claim.run_id,
+            claim_id=claim.claim_id,
+            projection=projection,
+            stage=Phase16V5DispatchStage.ANALYST,
+            task=runner._analyst_task(projection),
+        )
+    )
+    assert (unsent.passed, unsent.network_sent, unsent.reason_code) == (False, False, "MODEL_REQUEST_NOT_SENT")
+
+    receipt_ledger = _RecordingLedger()
+    receipt_ledger.receipt_complete = False
+    receipt_runner = _runner(ledger=receipt_ledger, model_port=_ValidV5Port())
+    receipt_projection = receipt_runner._projections(run_kind=Phase16V5RunKind.CALIBRATION)[0][2]
+    receipt_claim = receipt_ledger.claim_case(run_id=PHASE16_V5_CALIBRATION_RUN_ID, case_id=receipt_projection.case_id, case_digest="b" * 64)
+    invalid_receipt = asyncio.run(
+        receipt_runner._execute_stage(
+            run_id=receipt_claim.run_id,
+            claim_id=receipt_claim.claim_id,
+            projection=receipt_projection,
+            stage=Phase16V5DispatchStage.ANALYST,
+            task=receipt_runner._analyst_task(receipt_projection),
+        )
+    )
+    assert invalid_receipt.reason_code == "PROVIDER_RECEIPT_INVALID"
+
+    forged_ledger = _RecordingLedger()
+    forged_runner = _runner(ledger=forged_ledger, model_port=_ValidV5Port(invalid_analyst_evidence=True))
+    forged_projection = forged_runner._projections(run_kind=Phase16V5RunKind.CALIBRATION)[0][2]
+    forged_claim = forged_ledger.claim_case(run_id=PHASE16_V5_CALIBRATION_RUN_ID, case_id=forged_projection.case_id, case_digest="c" * 64)
+    forged = asyncio.run(
+        forged_runner._execute_stage(
+            run_id=forged_claim.run_id,
+            claim_id=forged_claim.claim_id,
+            projection=forged_projection,
+            stage=Phase16V5DispatchStage.ANALYST,
+            task=forged_runner._analyst_task(forged_projection),
+        )
+    )
+    assert forged.reason_code == "ANALYST_VALIDATION_FAILED"
+    # stage 返回值保持粗粒度（它会成为 case/run 终态），账本 fact 记到具体原因：
+    # 伪造包外证据 ID 会先被共享 Runner 以 RESULT_EVIDENCE_MISMATCH 拦下，V2 校验器
+    # 只会笼统报"identity or status invalid"，所以账本必须优先记 Runner 的码。
+    assert (
+        forged_ledger.validations[-1]["reason_code"]
+        == "ANALYST_VALIDATION_FAILED_RUNNER_RESULT_EVIDENCE_MISMATCH"
+    )
+
+    async def _raise_before_budget(self, _task):
+        """在预算预约前抛错，验证 V5 不能杜撰一个已发送 attempt。"""
+
+        raise RuntimeError("deterministic pre-send test failure")
+
+    monkeypatch.setattr(BoundedSpecialistRunner, "run", _raise_before_budget)
+    pre_send_ledger = _RecordingLedger()
+    pre_send_runner = _runner(ledger=pre_send_ledger, model_port=_ValidV5Port())
+    pre_send_projection = pre_send_runner._projections(run_kind=Phase16V5RunKind.CALIBRATION)[0][2]
+    pre_send_claim = pre_send_ledger.claim_case(run_id=PHASE16_V5_CALIBRATION_RUN_ID, case_id=pre_send_projection.case_id, case_digest="d" * 64)
+    pre_send = asyncio.run(
+        pre_send_runner._execute_stage(
+            run_id=pre_send_claim.run_id,
+            claim_id=pre_send_claim.claim_id,
+            projection=pre_send_projection,
+            stage=Phase16V5DispatchStage.ANALYST,
+            task=pre_send_runner._analyst_task(pre_send_projection),
+        )
+    )
+    assert pre_send.reason_code == "RUNNER_PRE_SEND_BLOCKED"
+
+
+def test_v5_budget_adapter_and_pricing_reject_dynamic_or_over_budget_inputs() -> None:
+    """共享 Runner 适配器不得接收自由候选、重复结算或超过冻结 0.03 元的请求。"""
+
+    ledger = _RecordingLedger()
+    profile = build_phase16_v5_analyst_profile()
+    adapter = _V5BudgetAdapter(
+        ledger=ledger,
+        run_id=PHASE16_V5_CALIBRATION_RUN_ID,
+        claim_id=str(uuid5(NAMESPACE_URL, "v5-unit-budget-claim")),
+        stage=Phase16V5DispatchStage.ANALYST,
+        profile=profile,
+    )
+    request_id = str(uuid5(NAMESPACE_URL, "v5-unit-budget-request"))
+    with pytest.raises(Exception, match="candidate"):
+        adapter.reserve(request_id, "wrong", Decimal("0.001"))
+    with pytest.raises(Exception, match="stage cap"):
+        adapter.reserve(request_id, Phase16V5DispatchStage.ANALYST.value, PHASE16_V5_STAGE_RESERVATION_CNY + Decimal("0.000001"))
+    adapter.reserve(request_id, Phase16V5DispatchStage.ANALYST.value, Decimal("0.001"))
+    assert adapter.settle(request_id, Decimal("0.000100")).created is False
+    assert adapter.release(request_id).created is False
+    with pytest.raises(Exception, match="matching attempt"):
+        adapter.settle(str(uuid5(NAMESPACE_URL, "v5-unit-other-request")), None)
+    with pytest.raises(Exception, match="matching attempt"):
+        adapter.release(str(uuid5(NAMESPACE_URL, "v5-unit-other-release")))
+
+    request = ModelRequest(
+        request_id=str(uuid5(NAMESPACE_URL, "v5-unit-pricing-request")),
+        endpoint_host="api.deepseek.com",
+        model_id="deepseek-v4-pro",
+        temperature=Decimal("0"),
+        prompt_hash="a" * 64,
+        result_schema_hash="b" * 64,
+        messages=(ModelMessage(role="system", content="offline pricing contract"),),
+        max_output_tokens=6000,
+        deadline_at=datetime(2026, 7, 18, 12, 1, tzinfo=timezone.utc),
+    )
+    with pytest.raises(Exception, match="frozen stage reservation"):
+        _V5PricingPolicy().worst_case_cost(request, profile)
+    with pytest.raises(RuntimeError, match="does not permit Skills"):
+        asyncio.run(_NoSkillPort().invoke())
+    with pytest.raises(ValueError, match="reason code"):
+        PostgresPhase16V5CampaignLedger._require_reason("not-safe")
+    with pytest.raises(ValueError, match="must be a UUID"):
+        PostgresPhase16V5CampaignLedger._require_uuid("not-a-uuid", "attempt_id")
+
+
+def test_v5_planner_stage_requires_a_validated_analysis_even_after_valid_model_json() -> None:
+    """Planner 的 JSON 与 Provider receipt 完整也不足够，缺少 Analyst 语义载荷必须失败。"""
+
+    ledger = _RecordingLedger()
+    runner = _runner(ledger=ledger, model_port=_ValidV5Port())
+    projection = runner._projections(run_kind=Phase16V5RunKind.CALIBRATION)[0][2]
+    claim = ledger.claim_case(
+        run_id=PHASE16_V5_CALIBRATION_RUN_ID,
+        case_id=projection.case_id,
+        case_digest="e" * 64,
+    )
+    result = asyncio.run(
+        runner._execute_stage(
+            run_id=claim.run_id,
+            claim_id=claim.claim_id,
+            projection=projection,
+            stage=Phase16V5DispatchStage.PLANNER,
+            task=runner._planner_task(projection, _AnalysisStub()),
+            analysis=None,
+        )
+    )
+
+    assert result.passed is False
+    assert result.network_sent is True
+    assert result.reason_code == "PLANNER_VALIDATION_FAILED"
+
+
+def test_v5_planner_prompt_states_every_semantic_rule_the_validator_enforces() -> None:
+    """V5 校准失败的根因是校验器强制的语义规则从未写进 Prompt，此处锁死该缺陷不再复现。
+
+    ``validate_v2_live_decision_planner_result`` 强制三条 JSON Schema 无法表达的规则：
+    risk_flags 必须覆盖 analysis 的全部 risk_codes、必须含 HUMAN_CONFIRMATION_REQUIRED、
+    选备品时必须给出可用 backup_product_id 并附 BACKUP_PRODUCT_REQUIRES_CONFIRMATION。
+    Prompt 不告知模型这些规则，就等于要求模型猜测不可观测的验收条件。
+    """
+
+    prompt = build_phase16_v5_planner_profile().prompt_text
+
+    assert "risk_codes" in prompt
+    assert "HUMAN_CONFIRMATION_REQUIRED" in prompt
+    assert "SWITCH_TO_BACKUP" in prompt
+    assert "backup_product_id" in prompt
+    assert "BACKUP_PRODUCT_REQUIRES_CONFIRMATION" in prompt
+    # 原示例只给单个 risk_flag，会把模型引向必然违反覆盖规则的输出；Prompt 中出现的
+    # 每个 risk_flags 数组都必须至少含两项，避免示例再次与规则自相矛盾。
+    for fragment in re.findall(r'"risk_flags":\s*\[[^\]]*\]', prompt):
+        assert fragment.count('"') >= 6, fragment
+
+
+def test_v5_planner_validator_still_rejects_incomplete_risk_coverage() -> None:
+    """Prompt 修正不得放松校验：漏掉 analysis 任一 risk_code 仍须整体判为失败。"""
+
+    ledger = _RecordingLedger()
+    runner = _runner(
+        ledger=ledger, model_port=_ValidV5Port(planner_drops_required_risk=True)
+    )
+    projection = runner._projections(run_kind=Phase16V5RunKind.CALIBRATION)[0][2]
+    claim = ledger.claim_case(
+        run_id=PHASE16_V5_CALIBRATION_RUN_ID,
+        case_id=projection.case_id,
+        case_digest="f" * 64,
+    )
+    analyst = asyncio.run(
+        runner._execute_stage(
+            run_id=claim.run_id,
+            claim_id=claim.claim_id,
+            projection=projection,
+            stage=Phase16V5DispatchStage.ANALYST,
+            task=runner._analyst_task(projection),
+            analysis=None,
+        )
+    )
+    assert analyst.passed is True
+    assert analyst.analysis is not None
+    assert analyst.analysis.risk_codes
+
+    planner = asyncio.run(
+        runner._execute_stage(
+            run_id=claim.run_id,
+            claim_id=claim.claim_id,
+            projection=projection,
+            stage=Phase16V5DispatchStage.PLANNER,
+            task=runner._planner_task(projection, analyst.analysis),
+            analysis=analyst.analysis,
+        )
+    )
+
+    assert planner.passed is False
+    assert planner.network_sent is True
+    assert planner.reason_code == "PLANNER_VALIDATION_FAILED"
+    # 覆盖规则违规必须在账本里可辨认，否则事后无法区分它与其他 Planner 语义失败。
+    assert (
+        ledger.validations[-1]["reason_code"]
+        == "PLANNER_VALIDATION_FAILED_PLANNER_RISK_COVERAGE"
+    )
+
+
+def test_v5_validation_rule_code_maps_every_known_validator_message() -> None:
+    """账本必须能说清失败在哪：每条已知校验消息都要落到互不相同的受控枚举码。"""
+
+    codes = list(controlled_e2e_v5._PHASE16_V5_VALIDATION_RULE_CODES.values())
+    suffix_codes = [code for _, code in controlled_e2e_v5._PHASE16_V5_VALIDATION_RULE_CODE_SUFFIXES]
+    assert len(set(codes)) == len(codes)
+    assert set(codes).isdisjoint(suffix_codes)
+
+    for message, expected in controlled_e2e_v5._PHASE16_V5_VALIDATION_RULE_CODES.items():
+        assert controlled_e2e_v5._phase16_v5_validation_rule_code(ValueError(message)) == expected
+
+    # 表未覆盖的消息只能退化为 UNMAPPED；猜测某条规则比记录"未知"更糟。
+    assert controlled_e2e_v5._phase16_v5_validation_rule_code(ValueError("brand new message")) == "UNMAPPED"
+
+
+def test_v5_validation_rule_code_walks_the_whole_cause_chain() -> None:
+    """校验器用 ``raise ... from error`` 多层包装，只读外层会把不同违规记成同一个粗码。"""
+
+    inner = ValueError("V2 evidence_ids contain an untrusted reference")
+    middle = ValueError("V2 analysis output fields are invalid")
+    middle.__cause__ = inner
+    outer = ValueError("V2 analysis output fields are invalid")
+    outer.__cause__ = middle
+
+    assert controlled_e2e_v5._phase16_v5_validation_rule_code(outer) == "EVIDENCE_IDS_UNTRUSTED"
+
+    # 最内层不可识别时退回到最内层可识别的那一层，而不是直接 UNMAPPED。
+    unknown = ValueError("some pydantic detail we never froze")
+    wrapper = ValueError("V2 analysis output fields are invalid")
+    wrapper.__cause__ = unknown
+    assert controlled_e2e_v5._phase16_v5_validation_rule_code(wrapper) == "ANALYSIS_FIELD_VALUE"
+
+
+def test_v5_stage_failure_code_prefers_shared_runner_failure_over_validator_message() -> None:
+    """Runner 先于校验器拒绝时，账本必须记 Runner 的具体码而不是笼统的身份不符。"""
+
+    generic = ValueError("V2 agent result identity or status is invalid")
+    denied = SimpleNamespace(
+        failure=SimpleNamespace(code="RESULT_EVIDENCE_MISMATCH", retryable=False, details={})
+    )
+    assert (
+        controlled_e2e_v5._phase16_v5_stage_failure_code(denied, generic)
+        == "RUNNER_RESULT_EVIDENCE_MISMATCH"
+    )
+
+    # 没有 Runner 失败事实时回落到校验器规则映射。
+    assert controlled_e2e_v5._phase16_v5_stage_failure_code(None, generic) == "RESULT_IDENTITY"
+    assert (
+        controlled_e2e_v5._phase16_v5_stage_failure_code(SimpleNamespace(failure=None), generic)
+        == "RESULT_IDENTITY"
+    )
+
+    # 形状不合法的码绝不能拼进落库值，否则会被账本 CHECK 拒收。
+    malformed = SimpleNamespace(failure=SimpleNamespace(code="lower case leak"))
+    assert controlled_e2e_v5._phase16_v5_stage_failure_code(malformed, generic) == "RESULT_IDENTITY"
+
+
+def test_v5_validation_rule_code_never_leaks_model_text_and_stays_sql_safe() -> None:
+    """枚举拒绝消息内嵌了模型返回的取值，reason_code 只能落我们自己持有的枚举。"""
+
+    leaky = "SECRET_MODEL_TEXT_XYZ"
+    try:
+        ConflictRiskCode(leaky)
+    except ValueError as error:
+        code = controlled_e2e_v5._phase16_v5_validation_rule_code(error)
+    assert code == "ANALYSIS_RISK_CODE_UNKNOWN"
+    assert leaky not in code
+
+    all_codes = (
+        set(controlled_e2e_v5._PHASE16_V5_VALIDATION_RULE_CODES.values())
+        | {item for _, item in controlled_e2e_v5._PHASE16_V5_VALIDATION_RULE_CODE_SUFFIXES}
+        | {"UNMAPPED"}
+    )
+    # 账本列上的 CHECK 是 ``^[A-Z][A-Z0-9_]*$``；带 stage 前缀后仍须整体合法，
+    # 否则细化后的码会在真实 run 里被数据库拒收。
+    for candidate in all_codes:
+        for prefix in ("ANALYST_VALIDATION_FAILED_", "PLANNER_VALIDATION_FAILED_"):
+            assert re.fullmatch(r"[A-Z][A-Z0-9_]*", prefix + candidate)
+
+
+def test_v5_schema_violation_code_pins_the_violated_constraint() -> None:
+    """Schema 拒绝必须落到具体字段与具体关键字，否则仍无法定位违反了哪条约束。"""
+
+    assert (
+        controlled_e2e_v5._phase16_v5_schema_violation_code(("maxItems", "$.risk_codes"))
+        == "RISK_CODES_MAX_ITEMS"
+    )
+    # 数组下标来自模型输出，不得落库；取路径里最深的已知属性名。
+    assert (
+        controlled_e2e_v5._phase16_v5_schema_violation_code(("pattern", "$.options[2].host_prompt"))
+        == "HOST_PROMPT_PATTERN"
+    )
+    # 根级违规（例如缺字段）没有属性段，记 ROOT 而不是猜一个字段。
+    assert (
+        controlled_e2e_v5._phase16_v5_schema_violation_code(("required", "$")) == "ROOT_REQUIRED"
+    )
+
+    # 关键字未命中白名单或坐标缺失时一律退回粗码，绝不落未确认的字符串。
+    assert controlled_e2e_v5._phase16_v5_schema_violation_code(("dependentRequired", "$")) is None
+    assert controlled_e2e_v5._phase16_v5_schema_violation_code(None) is None
+
+
+def test_v5_schema_violation_coordinates_recompute_from_the_rejected_output() -> None:
+    """坐标必须由 V5 自己从被拒 FINAL 输出重算，不依赖共享 Runner 的任何改动。
+
+    共享 ``specialist_runtime/runner.py`` 的源码摘要被钉在 V2 冻结 Manifest 的 source
+    closure 里，改它会让 V1 至 V4 的历史身份重建失败——重签那些 Manifest 等于改写既有
+    真实调用的审计事实。所以 V5 在自己这一侧重跑同一个校验器。
+    """
+
+    schema = controlled_e2e_v5._SMOKE_V2_CONFLICT_ANALYSIS_RESULT_SCHEMA
+
+    def result(final_output: object) -> SimpleNamespace:
+        return SimpleNamespace(actions=(SimpleNamespace(final_output=final_output),))
+
+    ok = {"constraint_codes": [], "risk_codes": [], "explanation": "ok", "evidence_ids": ["e1"]}
+    assert controlled_e2e_v5._phase16_v5_schema_violation_coordinates(result(ok), schema) is None
+
+    coordinates = controlled_e2e_v5._phase16_v5_schema_violation_coordinates(
+        result({**ok, "risk_codes": [f"R{index}" for index in range(9)]}), schema
+    )
+    assert coordinates == ("maxItems", "$.risk_codes")
+
+    # 取不到 FINAL 动作时不得猜测：Runner 的拒因可能根本不是 Schema。
+    assert controlled_e2e_v5._phase16_v5_schema_violation_coordinates(None, schema) is None
+    assert controlled_e2e_v5._phase16_v5_schema_violation_coordinates(SimpleNamespace(actions=()), schema) is None
+    assert (
+        controlled_e2e_v5._phase16_v5_schema_violation_coordinates(result(None), schema) is None
+    )
+    # Schema 本身不可用时同样退回粗码，绝不抛异常打断落库。
+    assert controlled_e2e_v5._phase16_v5_schema_violation_coordinates(result(ok), object()) is None
+
+    # 多处违规时按 json_path 取确定性的第一条，同一输出必须稳定映射到同一个码。
+    messy = {**ok, "explanation": "", "risk_codes": ["NOPE"]}
+    first = controlled_e2e_v5._phase16_v5_schema_violation_coordinates(result(messy), schema)
+    for _ in range(3):
+        assert (
+            controlled_e2e_v5._phase16_v5_schema_violation_coordinates(result(messy), schema)
+            == first
+        )
+
+
+def test_v5_schema_field_table_covers_both_result_schemas() -> None:
+    """Schema 新增字段而映射表未同步时必须失败，不能静默退化成无法定位的粗码。"""
+
+    def field_names(node: object) -> set[str]:
+        found: set[str] = set()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    found |= set(value)
+                    for sub in value.values():
+                        found |= field_names(sub)
+                else:
+                    found |= field_names(value)
+        elif isinstance(node, list):
+            for sub in node:
+                found |= field_names(sub)
+        return found
+
+    declared = field_names(controlled_e2e_v5._SMOKE_V2_CONFLICT_ANALYSIS_RESULT_SCHEMA) | field_names(
+        controlled_e2e_v5._SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA
+    )
+    assert declared, "两个 RESULT Schema 都应声明属性，否则本测试失去意义"
+    assert declared == set(controlled_e2e_v5._PHASE16_V5_SCHEMA_FIELD_CODES)
+    codes = set(controlled_e2e_v5._PHASE16_V5_SCHEMA_FIELD_CODES.values())
+    assert len(codes) == len(controlled_e2e_v5._PHASE16_V5_SCHEMA_FIELD_CODES)
+    assert "ROOT" not in codes
+
+
+def test_v5_schema_violation_codes_stay_sql_safe_and_leak_no_model_text() -> None:
+    """完整落库值（stage 前缀 + Runner 码 + 坐标）必须整体通过账本 CHECK。"""
+
+    leaky = "secret-model-value-xyz"
+    option = {
+        "option_id": "o1",
+        "product_strategy": "KEEP_CURRENT",
+        "backup_product_id": None,
+        "host_prompt": "ok",
+        # 非法取值来自模型正文，绝不能经由 reason_code 落库。
+        "timing": leaky,
+        "risk_flags": ["STALE_EVIDENCE"],
+        "evidence_ids": ["e1"],
+    }
+    denied = SimpleNamespace(
+        failure=SimpleNamespace(code="RESULT_SCHEMA_INVALID", details={}),
+        actions=(SimpleNamespace(final_output={"options": [option]}),),
+    )
+    stage_code = controlled_e2e_v5._phase16_v5_stage_failure_code(
+        denied,
+        ValueError("V2 agent result identity or status is invalid"),
+        controlled_e2e_v5._SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
+    )
+    assert stage_code == "RUNNER_RESULT_SCHEMA_INVALID_TIMING_ENUM"
+    assert leaky not in stage_code
+
+    # 不传 Schema 时（例如非 Schema 类拒绝）必须沿用粗码，绝不猜测约束。
+    assert (
+        controlled_e2e_v5._phase16_v5_stage_failure_code(
+            denied, ValueError("V2 agent result identity or status is invalid")
+        )
+        == "RUNNER_RESULT_SCHEMA_INVALID"
+    )
+
+    for field_code in controlled_e2e_v5._PHASE16_V5_SCHEMA_FIELD_CODES.values():
+        for keyword_code in controlled_e2e_v5._PHASE16_V5_SCHEMA_KEYWORD_CODES.values():
+            for prefix in ("ANALYST_VALIDATION_FAILED_", "PLANNER_VALIDATION_FAILED_"):
+                candidate = f"{prefix}RUNNER_RESULT_SCHEMA_INVALID_{field_code}_{keyword_code}"
+                assert re.fullmatch(r"[A-Z][A-Z0-9_]*", candidate)
+
+
+# ── V9 Phase B：渠道有序列表（优先级链）单测 ──────────────────────────────────
+
+
+def _v5_channel_adapter(
+    transport: _ScriptedV5AdapterTransport,
+    *,
+    hosts: tuple[str, ...] = ("api.imagebridge.top", "synapse-ai.uk"),
+    clock: Callable[[], datetime] | None = None,
+    record: list[float] | None = None,
+) -> DeepSeekV5ControlledE2EAdapter:
+    """组装渠道有序列表 Adapter；hosts 顺序即优先级，各渠道独立 API Key。"""
+
+    return DeepSeekV5ControlledE2EAdapter(
+        endpoints=tuple((host, f"test-secret-{index}") for index, host in enumerate(hosts)),
+        transport=transport,
+        clock=clock or (lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)),
+        monotonic=lambda: 1.0,
+        sleep=_sleep_recorder(record) if record is not None else None,
+    )
+
+
+def test_v5_channel_chain_switches_after_both_primary_attempts_fail() -> None:
+    """渠道 A 两次 5xx 后必须切到渠道 B；attempts 为全链调用总数，URL 序列按优先级。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [_v5_http_error_response(500), _v5_http_error_response(503), _v5_http_success_response()]
+    )
+    sleeps: list[float] = []
+    adapter = _v5_channel_adapter(transport, record=sleeps)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 3
+    assert outcome.endpoint_host == "synapse-ai.uk"
+    assert transport.calls == [
+        "https://api.imagebridge.top/v1/chat/completions",
+        "https://api.imagebridge.top/v1/chat/completions",
+        "https://synapse-ai.uk/v1/chat/completions",
+    ]
+    assert sleeps == [1.0, 1.0]
+
+
+def test_v5_channel_never_touches_secondary_on_first_success() -> None:
+    """渠道 A 首次成功不得触碰后续渠道；attempts 保持 1。"""
+
+    transport = _ScriptedV5AdapterTransport([_v5_http_success_response()])
+    adapter = _v5_channel_adapter(transport)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 1
+    assert outcome.endpoint_host == "api.imagebridge.top"
+    assert len(transport.calls) == 1
+
+
+def test_v5_channel_rate_limited_switches_channel_without_retrying() -> None:
+    """429 不重试同渠道，直接按优先级换下一渠道；attempts==2 且不消耗 A 第二次尝试。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [_v5_http_error_response(429), _v5_http_success_response()]
+    )
+    adapter = _v5_channel_adapter(transport)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert outcome.attempts == 2
+    assert outcome.endpoint_host == "synapse-ai.uk"
+    assert transport.calls == [
+        "https://api.imagebridge.top/v1/chat/completions",
+        "https://synapse-ai.uk/v1/chat/completions",
+    ]
+
+
+def test_v5_channel_skips_rest_when_deadline_already_passed() -> None:
+    """渠道 A 失败后剩余 deadline <=0 必须立即停止，绝不触碰后续渠道。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _DeadlineAdvancingTransport(_ScriptedV5AdapterTransport):
+        """第一次调用即把时钟推到 deadline 之后，模拟渠道 A 已耗尽剩余时间。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_error_response(503)])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            state["now"] = datetime(2026, 7, 18, 12, 2, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _DeadlineAdvancingTransport()
+    adapter = _v5_channel_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelFailure)
+    # 时钟在渠道 A 调用期间已越过 deadline：delegate 的 deadline 后检查优先判
+    # DEADLINE_EXCEEDED（而不是 503），adapter 不得把超时当作可重试/可换端失败。
+    assert outcome.category is ModelFailureCategory.DEADLINE_EXCEEDED
+    assert outcome.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_v5_channel_skips_rest_when_window_insufficient() -> None:
+    """渠道 A 429 后剩余不足最小窗口时必须停止，绝不触碰渠道 B。"""
+
+    state = {"now": datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)}
+
+    class _ShortWindowTransport(_ScriptedV5AdapterTransport):
+        """第一次调用即把时钟推到 deadline 前 0.6s（< 1s 最小窗口）。"""
+
+        def __init__(self) -> None:
+            super().__init__([_v5_http_error_response(429)])
+
+        async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+            state["now"] = datetime(2026, 7, 18, 12, 0, 0, 400000, tzinfo=timezone.utc)
+            return await super().post_json(**kwargs)
+
+    transport = _ShortWindowTransport()
+    adapter = _v5_channel_adapter(transport, clock=lambda: state["now"])
+
+    outcome = asyncio.run(
+        adapter.complete(
+            ModelRequest(
+                request_id=str(uuid5(NAMESPACE_URL, "v5-short-window-request")),
+                endpoint_host="api.deepseek.com",
+                model_id="deepseek-v4-pro",
+                temperature=Decimal("0"),
+                prompt_hash="a" * 64,
+                result_schema_hash="b" * 64,
+                messages=(ModelMessage(role="user", content="Return JSON."),),
+                max_output_tokens=64,
+                deadline_at=datetime(2026, 7, 18, 12, 0, 1, tzinfo=timezone.utc),
+            )
+        )
+    )
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.RATE_LIMITED
+    assert outcome.attempts == 1
+    assert len(transport.calls) == 1
+
+
+def test_v5_channel_reports_last_failure_after_full_chain_exhausted() -> None:
+    """两渠道各两次失败后返回最后一次失败，attempts==4，不隐藏整链失败。"""
+
+    transport = _ScriptedV5AdapterTransport(
+        [
+            RuntimeError("channel a reset 1"),
+            RuntimeError("channel a reset 2"),
+            _v5_http_error_response(502),
+            _v5_http_error_response(503),
+        ]
+    )
+    adapter = _v5_channel_adapter(transport)
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelFailure)
+    assert outcome.category is ModelFailureCategory.HTTP_ERROR
+    assert outcome.http_status == 503
+    assert outcome.attempts == 4
+    assert outcome.endpoint_host == "synapse-ai.uk"
+    assert len(transport.calls) == 4
+
+
+def test_v5_channel_rejects_empty_unknown_duplicate_or_keyless_configuration() -> None:
+    """渠道列表必须非空、host 归一化后 ∈ FORMAL 白名单且不重复、每个渠道必须带 Key。"""
+
+    with pytest.raises(ValueError, match="non-empty"):
+        DeepSeekV5ControlledE2EAdapter(endpoints=())
+    with pytest.raises(ValueError, match="must be one of"):
+        DeepSeekV5ControlledE2EAdapter(
+            endpoints=(("example.com", "k1"),),
+        )
+    with pytest.raises(ValueError, match="unique"):
+        DeepSeekV5ControlledE2EAdapter(
+            endpoints=(
+                ("Synapse-AI.UK", "k1"),
+                ("synapse-ai.uk", "k2"),
+            ),
+        )
+    with pytest.raises(ValueError, match="non-empty api key"):
+        DeepSeekV5ControlledE2EAdapter(
+            endpoints=(("synapse-ai.uk", ""),),
+        )
+
+
+def test_v5_channel_rejects_whitelist_out_effort_and_model_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """env 的思考强度 / 模型 ID 必须 ∈ 白名单，白名单外装配立即 fail-fast。"""
+
+    monkeypatch.setenv("LLM_API_REASONING_EFFORT", "ultra")
+    with pytest.raises(ValueError, match="LLM_API_REASONING_EFFORT"):
+        DeepSeekV5ControlledE2EAdapter(
+            endpoints=(("synapse-ai.uk", "k1"),),
+        )
+    monkeypatch.delenv("LLM_API_REASONING_EFFORT")
+    monkeypatch.setenv("LLM_API_MODEL_ID", "gpt-5.6-omega")
+    with pytest.raises(ValueError, match="LLM_API_MODEL_ID"):
+        DeepSeekV5ControlledE2EAdapter(
+            endpoints=(("synapse-ai.uk", "k1"),),
+        )
+
+
+def test_v5_channel_pins_whitelist_effort_into_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """白名单内思考强度必须由 V5 闭包固定进请求 payload（不依赖共享 Adapter 的 env 直读）。"""
+
+    monkeypatch.setenv("LLM_API_REASONING_EFFORT", "max")
+    transport = _V5AdapterTransport()
+    adapter = DeepSeekV5ControlledE2EAdapter(
+        endpoints=(("api.deepseek.com", "test-secret"),),
+        transport=transport,
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        monotonic=lambda: 1.0,
+    )
+
+    outcome = asyncio.run(adapter.complete(_v5_adapter_request()))
+
+    assert isinstance(outcome, ModelSuccess)
+    assert transport.payloads[0]["reasoning_effort"] == "max"
+    # 未设置 env 时（显式清除后）不得注入 reasoning_effort 键。
+    monkeypatch.delenv("LLM_API_REASONING_EFFORT")
+    transport2 = _V5AdapterTransport()
+    adapter2 = DeepSeekV5ControlledE2EAdapter(
+        endpoints=(("api.deepseek.com", "test-secret"),),
+        transport=transport2,
+        clock=lambda: datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        monotonic=lambda: 1.0,
+    )
+    asyncio.run(adapter2.complete(_v5_adapter_request()))
+    assert "reasoning_effort" not in transport2.payloads[0]

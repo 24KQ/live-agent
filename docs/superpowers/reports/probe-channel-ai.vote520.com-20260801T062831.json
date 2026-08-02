@@ -1,0 +1,40 @@
+{
+  "host": "ai.vote520.com",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L3": [
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "ANALYST",
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 59190.78309999895,
+        "wall_ms": 120007,
+        "http_status": null
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "ANALYST",
+        "label": "SUCCESS",
+        "latency_ms": 59666.59680000157,
+        "wall_ms": 59666,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 3038
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "PLANNER",
+        "label": "SUCCESS",
+        "latency_ms": 9718.259999994189,
+        "wall_ms": 9719,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 410
+      }
+    ]
+  }
+}

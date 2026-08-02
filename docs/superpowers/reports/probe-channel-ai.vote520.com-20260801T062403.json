@@ -1,0 +1,82 @@
+{
+  "host": "ai.vote520.com",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L2": [
+      {
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60010.263700001815,
+        "wall_ms": 60010,
+        "http_status": null
+      },
+      {
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60015.19189999817,
+        "wall_ms": 60015,
+        "http_status": null
+      },
+      {
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60001.28649999533,
+        "wall_ms": 60002,
+        "http_status": null
+      },
+      {
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60010.8212999985,
+        "wall_ms": 60011,
+        "http_status": null
+      },
+      {
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60017.62469999812,
+        "wall_ms": 60017,
+        "http_status": null
+      },
+      {
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60013.6971000029,
+        "wall_ms": 60014,
+        "http_status": null
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 42151.536600002146,
+        "wall_ms": 42152,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 169
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3795.7371000011335,
+        "wall_ms": 3795,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 138
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6072.183599993878,
+        "wall_ms": 6072,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 186
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5439.266100001987,
+        "wall_ms": 5439,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 153
+      }
+    ]
+  }
+}

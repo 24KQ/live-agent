@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
+import os
 import re
 from types import MappingProxyType
 from typing import Any, Protocol
@@ -212,10 +213,16 @@ class _RunAudit:
     skill_calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
     cost_cny: Decimal = Decimal("0")
     started_at: datetime | None = None
     actions: list[AgentAction] = field(default_factory=list)
     evidence_refs: list[Any] = field(default_factory=list)
+
+    @property
+    def visible_output_tokens(self) -> int:
+        """预算边界使用可见输出：网关计入 completion 的思维链不占 AgentAction 面。"""
+        return max(self.output_tokens - self.reasoning_tokens, 0)
 
 
 class BoundedSpecialistRunner:
@@ -310,7 +317,7 @@ class BoundedSpecialistRunner:
 
         for model_index in range(profile.max_model_calls):
             remaining_seconds = (deadline_at - self._clock()).total_seconds()
-            remaining_tokens = profile.max_total_tokens - audit.input_tokens - audit.output_tokens
+            remaining_tokens = profile.max_total_tokens - audit.input_tokens - audit.visible_output_tokens
             if remaining_seconds <= 0:
                 return self._failure(task, AgentResultStatus.MODEL_ERROR, "DEADLINE_EXCEEDED", audit)
             if remaining_tokens <= 0:
@@ -409,7 +416,9 @@ class BoundedSpecialistRunner:
                 if not self._settle_unknown(request.request_id, per_call_reservation, audit):
                     return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "BUDGET_RECONCILIATION_REQUIRED", audit)
                 return self._failure(task, AgentResultStatus.MODEL_ERROR, "INVALID_MODEL_OUTCOME", audit)
-            if outcome.request_id != request.request_id or outcome.model_id != profile.model_id:
+            # V9 矩阵配置：请求级 model_id 已由 env 覆写（LLM_API_MODEL_ID）时，身份校验
+            # 以"实际发送的请求"为准，而不是 profile 的冻结默认值；无覆写时两者相同。
+            if outcome.request_id != request.request_id or outcome.model_id != request.model_id:
                 if not self._settle_unknown(request.request_id, per_call_reservation, audit):
                     return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "BUDGET_RECONCILIATION_REQUIRED", audit)
                 return self._failure(task, AgentResultStatus.MODEL_ERROR, "MODEL_IDENTITY_MISMATCH", audit)
@@ -418,8 +427,11 @@ class BoundedSpecialistRunner:
                     return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "BUDGET_RECONCILIATION_REQUIRED", audit)
                 return self._failure(task, AgentResultStatus.MODEL_ERROR, "USAGE_REQUIRED", audit)
             audit.input_tokens += outcome.usage.input_tokens
+            # output_tokens 保持提供方计费真值（成本与账本都基于它）；reasoning_tokens
+            # 单独累计，使 max_total_tokens 预算检查只约束可见 AgentAction 面。
             audit.output_tokens += outcome.usage.output_tokens
-            if audit.input_tokens + audit.output_tokens > profile.max_total_tokens:
+            audit.reasoning_tokens += outcome.usage.reasoning_tokens or 0
+            if audit.input_tokens + audit.visible_output_tokens > profile.max_total_tokens:
                 if not self._settle_unknown(request.request_id, per_call_reservation, audit):
                     return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "BUDGET_RECONCILIATION_REQUIRED", audit)
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "TOKEN_BUDGET_EXCEEDED", audit)
@@ -440,9 +452,10 @@ class BoundedSpecialistRunner:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "BUDGET_RECONCILIATION_REQUIRED", audit)
             if actual_cost > per_call_reservation:
                 return self._failure(task, AgentResultStatus.BUDGET_EXCEEDED, "PRICE_RESERVATION_OVERRUN", audit)
-            if outcome.usage.output_tokens > request.max_output_tokens:
+            if outcome.usage.visible_output_tokens > request.max_output_tokens:
                 # 模型服务端可能忽略客户端的 max_tokens 参数。此时 usage 已完整返回，
                 # 费用必须按真实用量结算，但该输出不能继续作为受限 AgentAction 使用。
+                # 上限按可见输出判定：网关计入 completion_tokens 的思维链不占动作面。
                 return self._failure(
                     task,
                     AgentResultStatus.BUDGET_EXCEEDED,
@@ -734,8 +747,8 @@ class BoundedSpecialistRunner:
         }
         return ModelRequest(
             request_id=request_id,
-            endpoint_host=profile.endpoint_host,
-            model_id=profile.model_id,
+            endpoint_host=os.environ.get("LLM_API_ENDPOINT_HOST", "").strip() or profile.endpoint_host,
+            model_id=os.environ.get("LLM_API_MODEL_ID", "").strip() or profile.model_id,
             temperature=profile.temperature,
             prompt_hash=profile.prompt_hash,
             result_schema_hash=profile.result_schema_hash,

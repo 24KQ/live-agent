@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
+import os
 import time
 from typing import Any, Callable, Protocol
 
@@ -53,9 +54,16 @@ class HttpxAsyncHttpTransport:
 
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         # Client 与连接池由该 Transport 独占，调用方在生命周期结束时调用 aclose。
+        # 显式连接池限制：最多 5 条 keep-alive 连接、10 条总连接；
+        # 60s 无活动后释放 keep-alive，减少与 DeepSeek 服务端的连接重建。
         self._client = httpx.AsyncClient(
             transport=transport,
             follow_redirects=False,
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10,
+                keepalive_expiry=60.0,
+            ),
         )
 
     async def post_json(
@@ -130,10 +138,15 @@ class DeepSeekAgentModelAdapter:
             "max_tokens": request.max_output_tokens,
             "response_format": {"type": "json_object"},
         }
+        # 通过环境变量覆写 reasoning_effort（max / high / medium / low），
+        # 不设置则按 API 默认行为（不传此参数）。
+        reasoning_effort = os.environ.get("LLM_API_REASONING_EFFORT", "").strip()
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
         try:
             response = await asyncio.wait_for(
                 self._transport.post_json(
-                    url=f"https://{request.endpoint_host}/chat/completions",
+                    url=f"https://{request.endpoint_host}/v1/chat/completions",
                     headers={
                         "Content-Type": "application/json",
                         "Authorization": f"Bearer {self._api_key}",
@@ -150,7 +163,8 @@ class DeepSeekAgentModelAdapter:
                 request_sent=True,
                 started=started,
             )
-        except Exception:  # noqa: BLE001 - 外部异常只转换为稳定分类，不能泄露正文。
+        except (Exception, asyncio.CancelledError):  # noqa: BLE001 - asyncio.CancelledError 是 BaseException 子类（Python ≥3.8），
+            # 必须显式捕获，否则外层 wait_for 超时时 CancelledError 穿透并泄漏正文。
             return self._failure(
                 request,
                 ModelFailureCategory.TRANSPORT_ERROR,
@@ -200,6 +214,8 @@ class DeepSeekAgentModelAdapter:
             response_model = envelope["model"]
             choice = envelope["choices"][0]
             content = choice["message"]["content"]
+            if content is None:
+                content = ""
             # OpenAI-compatible 返回中的 id/finish_reason 对普通调用保持可选；
             # Phase 16 正式 smoke 会在更窄的 receipt 门禁中把两者提升为必填。
             provider_response_id = envelope.get("id")
@@ -233,13 +249,20 @@ class DeepSeekAgentModelAdapter:
         try:
             output = json.loads(content)
         except (TypeError, json.JSONDecodeError, RecursionError):
-            return self._failure(
-                request,
-                ModelFailureCategory.INVALID_OUTPUT_JSON,
-                request_sent=True,
-                started=started,
-                response_digest=response_digest,
-            )
+            recovered = self._recover_json(content)
+            if recovered is not None:
+                output = recovered
+            else:
+                # 诊断：输出失败内容的片段和长度，帮助定位 JSON 模式返回非 JSON 的原因
+                snippet = content[:200].replace("\r", "\\r").replace("\n", "\\n")
+                print(f"  [JSON DECODE FAILED] len={len(content)} snippet={snippet}")
+                return self._failure(
+                    request,
+                    ModelFailureCategory.INVALID_OUTPUT_JSON,
+                    request_sent=True,
+                    started=started,
+                    response_digest=response_digest,
+                )
         output_issue = self._inspect_output(output)
         if output_issue is not None:
             return self._failure(
@@ -277,11 +300,54 @@ class DeepSeekAgentModelAdapter:
             return None
         if not isinstance(value, dict):
             raise ValueError("usage must be an object")
+        # 网关把 reasoning_content（思维链）计入 completion_tokens，同时在该明细里
+        # 如实上报 reasoning_tokens。只接受整数，避免网关以浮点或缺失形式上报时
+        # 误伤响应：拿不到明细就按历史语义视为未上报（reasoning_tokens=None）。
+        details = value.get("completion_tokens_details")
+        reasoning_tokens = None
+        if isinstance(details, dict) and isinstance(details.get("reasoning_tokens"), int):
+            reasoning_tokens = details["reasoning_tokens"]
         return ModelUsage(
             input_tokens=value["prompt_tokens"],
             output_tokens=value["completion_tokens"],
             total_tokens=value["total_tokens"],
+            reasoning_tokens=reasoning_tokens,
         )
+
+    @classmethod
+    def _recover_json(cls, content: str) -> dict[str, Any] | list[Any] | None:
+        """尝试从模型返回的原始文本中恢复 JSON 对象。
+
+        DeepSeek JSON mode 仍偶有返回空 content 或 markdown 包裹的情况。
+        这些是已知的 API 边界行为，Adpater 应在放弃前尝试一次恢复，
+        使 downstream 获得更大的有效样本量。
+        """
+        stripped = content.strip()
+        if not stripped:
+            return None
+
+        # 尝试剥离 markdown 代码块标记（```json / ```）
+        if stripped.startswith("```"):
+            for delim in ("```json\n", "```json\r\n", "```\n", "```\r\n"):
+                if stripped.startswith(delim):
+                    inner = stripped.removeprefix(delim).removesuffix("```").strip()
+                    if inner:
+                        try:
+                            return json.loads(inner)
+                        except (json.JSONDecodeError, TypeError, RecursionError):
+                            pass
+                    break
+
+            # 更宽泛：找到第一个 { 或 [，忽略前面的内容
+            for start_idx in range(len(stripped)):
+                ch = stripped[start_idx]
+                if ch in ("{", "["):
+                    try:
+                        return json.loads(stripped[start_idx:])
+                    except (json.JSONDecodeError, TypeError, RecursionError):
+                        break
+
+        return None
 
     @classmethod
     def _inspect_output(cls, value: Any) -> ModelFailureCategory | None:

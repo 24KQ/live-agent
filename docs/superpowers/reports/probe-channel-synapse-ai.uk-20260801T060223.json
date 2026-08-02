@@ -1,0 +1,115 @@
+{
+  "host": "synapse-ai.uk",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L2": [
+      {
+        "label": "HTTP_ERROR",
+        "latency_ms": 1809.8366999984137,
+        "wall_ms": 6041,
+        "http_status": 503
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 9881.717600001139,
+        "wall_ms": 9882,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 206
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 11166.117300002952,
+        "wall_ms": 11165,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 159
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5498.769300000276,
+        "wall_ms": 5506,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 163
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4739.542399998754,
+        "wall_ms": 4740,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 149
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4710.944799997378,
+        "wall_ms": 4710,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 179
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4437.504599998647,
+        "wall_ms": 4437,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 151
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3846.496800004388,
+        "wall_ms": 3846,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 125
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4730.327600002056,
+        "wall_ms": 4731,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 141
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4529.773100002785,
+        "wall_ms": 4530,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 139
+      }
+    ],
+    "L3": [
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-001",
+        "stage": "ANALYST",
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60007.49050000013,
+        "wall_ms": 60008,
+        "http_status": null
+      },
+      {
+        "case_id": "phase16-qualification-high-conflict-paired-development-002",
+        "stage": "ANALYST",
+        "label": "DEADLINE_EXCEEDED",
+        "latency_ms": 60008.79440000426,
+        "wall_ms": 60009,
+        "http_status": null
+      }
+    ]
+  }
+}

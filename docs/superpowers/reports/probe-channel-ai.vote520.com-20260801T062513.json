@@ -1,0 +1,100 @@
+{
+  "host": "ai.vote520.com",
+  "model_id": "gpt-5.6-luna",
+  "reasoning_effort": "xhigh",
+  "deadline_seconds": 60.0,
+  "results": {
+    "L2": [
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6860.67109999567,
+        "wall_ms": 6860,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 155
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4596.479799998633,
+        "wall_ms": 4595,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 178
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4816.593299998203,
+        "wall_ms": 4816,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 189
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3952.263599996513,
+        "wall_ms": 3952,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 148
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 3971.2956000003032,
+        "wall_ms": 3970,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 147
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 6774.2995000007795,
+        "wall_ms": 6774,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 198
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5684.319899999537,
+        "wall_ms": 5684,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 172
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 5205.887600001006,
+        "wall_ms": 5206,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 166
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 8773.131200003263,
+        "wall_ms": 8773,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 152
+      },
+      {
+        "label": "SUCCESS",
+        "latency_ms": 4687.509700001101,
+        "wall_ms": 4687,
+        "http_status": 200,
+        "schema_ok": true,
+        "schema_error": null,
+        "output_tokens": 168
+      }
+    ]
+  }
+}

@@ -21,9 +21,9 @@
 - Dual-Agent calls: `CONFLICT_ANALYSIS, LIVE_DECISION_PLANNING`
 - Analyst / Planner calls: `1 / 1`
 - Escalation: `phase16-escalation:automatic:bundle-phase16-demo` / `6c2b63c2f449898a66d175626e22fb8d5eb3358692cad27343da8d4e2ae2918d`
-- Analysis: `phase16-analysis:phase16-escalation:automatic:bundle-phase16-demo` / `69c0307b18a6682c674690cee1bb14ac10dfe5f8016b4acca49b0257c1682750`
-- Proposal: `phase16-proposal:phase16-escalation:automatic:bundle-phase16-demo` / `1c276f0e16ec73953d4985e1795c4863c1803cee9c8eec1aac9f4154bea8e6ca`
-- Outcome: `phase16-outcome:phase16-escalation:automatic:bundle-phase16-demo` / `56167aa373b74e1809030ddb9b4bb3881b726c1f3da828b24eb858d6f9150117`
+- Analysis: `phase16-analysis:phase16-escalation:automatic:bundle-phase16-demo` / `a569f73ce2ff87e2588f1a6789a6dfe774f597859ea3ad16117649d1724bddcc`
+- Proposal: `phase16-proposal:phase16-escalation:automatic:bundle-phase16-demo` / `bb784d0d5faea1505993a8586977753d098b8a0dbef16f2948d99c3020605503`
+- Outcome: `phase16-outcome:phase16-escalation:automatic:bundle-phase16-demo` / `08da14524f4ce42b63bced7bd8e7d0843ddfc58a6e25a30e3d10ead5131d1cd7`
 - READY proposal origin: `MULTI_AGENT`
 - READY outcome: `READY`
 - Exact lineage complete: `true`
@@ -43,14 +43,14 @@
 - Replay stable: `true`
 - Store reconstructed from append-only facts: `true`
 - Replay Agent calls: `none`
-- Initial audit digest: `d4150a5ddabce4781022c090650b29623efeca31f0089651c1b044e288db7b7b`
-- Replay audit digest: `d4150a5ddabce4781022c090650b29623efeca31f0089651c1b044e288db7b7b`
+- Initial audit digest: `a7791ae680824b74ae411355cd9a14b8dbaed3d71781bc2601313249bb689851`
+- Replay audit digest: `a7791ae680824b74ae411355cd9a14b8dbaed3d71781bc2601313249bb689851`
 
 ## Frozen Scripted Evaluation
 
-- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `ec8c30acc9c2eb5ab69cada4ee75df23366bebad5229c27ed13ba96363b5a396`
-- Source closure digest: `f786929e9a832a26aa9132b51d90e8cc1c595d3a63a4e6a0bda2eeae4786feea`
-- Profile digests: `{"decision_planner": "70d9a6c3cedd2d571b6794b31983b0e20d9bb1d6f7c5c97cbd4e95b3c64c9183", "evidence_analyst": "aeafd9bfcc519d17e05ab8361be3c65aa16e8b4eb6a506bb0fa3d258ff5026ef"}`
+- Dataset / Manifest: `phase16-controlled-multi-agent-v1` / `69dce8ee66f611e169fe18168c5f6fa75e351526a217f868b85835aba488d55d`
+- Source closure digest: `015e203020dc76019cc70ba160dd6e0faa2d1882c28c8f063f252afeb10025de`
+- Profile digests: `{"decision_planner": "5ab24657effc5f2c6dc71c3ea34395be1c4b7a717f9a7452efb4ba5b395d4206", "evidence_analyst": "0de062677e38856b8d6834932f2785b63d44aabc9545bc622092e4382eddea46"}`
 - Cases / route-correct / paired identity: `48 / 48 / 24`
 - Analyst / Planner / READY / DEGRADED / no-send: `30 / 26 / 24 / 6 / 18`
 - Scripted reserved cost: `2.72 CNY`
