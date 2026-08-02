@@ -188,6 +188,12 @@
 4. holdout 延后 phase17，V9 结论标注「未完成生产泛化验证」。
 5. merge 前提：v3 + 本记录 + 账本闭合 + 远端 PR Gate 全绿 + 用户最终 merge 审批。
 6. V9 报告与 Acceptance 文档同步更新（本仓库 `codex/phase16-v5-controlled-e2e`）。
+7. **2026-08-02 用户批准新建 Phase 17 总预算封装 15 CNY（对话），不改写 Phase 16
+   历史预算事实**：Phase 17 独立执行契约
+   （`evaluation/manifests/phase17-holdout-execution-v1.json`，`PHASE17_HOLDOUT_EXECUTION_V1`）
+   以 `project_budget_cny = 15.000000` 为总盘（含历史 6.604131），未来可用余额
+   `forward_budget_remaining_cny = 8.395869`；v3 的 `forward_contract_draft`
+   （10.0 草案 / 3.395869）保持原样不动，v2 历史预算事实不受影响。
 
 ## 8. 相关文件
 
