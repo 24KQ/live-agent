@@ -39,7 +39,7 @@
 - **意图**：考察工具抽象与治理设计。
 - **一句话**：模型能调用的必须是受治理的 Skill；Tool 是可见性/权限层；普通函数不允许
   被 Agent 绕过治理直接调用。
-- **展开**：Skill = 能力单元（`skill_runtime/catalog.py` 25+ 项），带 lifecycle ×
+- **展开**：Skill = 能力单元（`skill_runtime/catalog.py` 17 个 SkillManifest），带 lifecycle ×
   risk_level × gate_decision 三重治理 + attempt_store 审计；Tool = trust_score 可见性
   mask（`memory/tool_mask_policy.py`）；函数 = 无模型参与的确定性实现。
 - **追问"为什么 Skill 要版本化"**：`skill_versions` 随 profile 冻结，保证同一契约下
@@ -49,8 +49,9 @@
 
 - **意图**：考察对 LLM 幻觉/越权的防御工程。
 - **一句话**：输出 schema 冻结 + 证据身份绑定 + 动作归属校验 + 预算/权限双重门禁。
-- **展开**：模型只能产出 schema 内输出（`additionalProperties: false`）；证据只以
-  `EvidenceRef` 身份注入与回传（模型拿不到证据正文）；runner 校验动作引用的证据必须
+- **展开**：模型只能产出 schema 内输出（`additionalProperties: false`）；模型收到的是
+  经过 Resolver 身份、摘要和作用域校验的**冻结证据投影**（不能自行查询 Store、不能
+  修改权威事实、不能伪造通过校验的 EvidenceRef）；runner 校验动作引用的证据必须
   属于任务初始证据集（归属校验）；Skill 调用受 `allowed_skill_ids` 白名单 + 预算预留约束。
 - **追问"模型传一个不存在的 evidence_id 呢"**：`_collect_result_evidence_ids` +
   归属校验会拒收未授权引用，run 标记失败入账。
@@ -87,11 +88,12 @@
 ## Q9. 失败调用和 retry 是否会污染评分？
 
 - **意图**：考察评估管线的防污染设计。
-- **一句话**：append-only 账本按 attempt 记账，transport 重试与逻辑 stage 分离计数，
-  失败如实入账，不重跑不洗绿。
+- **一句话**：append-only 账本按逻辑 stage 保存 receipt 并在其中记录聚合的 transport
+  `attempt_count`（独立网络 attempt 不单独占一行）；失败如实入账，不重跑不洗绿。
 - **展开**：三计数分离（logical_stage / transport_attempt / receipt）；retry 有受控
   语义（TRANSPORT/5xx 可重试、429 换端不重试、窗口/次数上限）；历史 FAILED run 终态
-  保留；V9 receipt 必须带实际端点与尝试次数才算完整回执。
+  保留；V9 新迁移写入的 receipt 必须带实际端点与尝试次数才算完整回执，46 条迁移前
+  legacy receipt（host 缺失）保留原始语义并标 `PROVIDER_IDENTITY_UNVERIFIED`。
 
 ## Q10. 记忆是检索，还是模型真的在线学习？
 
@@ -123,9 +125,11 @@
 ## Q13. 如果模型完全不可用，业务是否仍能安全运行？
 
 - **意图**：考察降级设计与容错。
-- **一句话**：能——DETERMINISTIC_ONLY 默认路由下规则引擎兜底，模型不可用自动降级。
-- **展开**：确定性售罄保护先于模型执行；模型调用失败有受控重试/渠道链/降级路径；
-  demo 与 CI 全程 `PHASE15_REAL_MODEL=0` 可跑，证明无模型时核心链路仍闭环。
+- **一句话**：能——DETERMINISTIC_ONLY 默认路由下确定性核心链路兜底，模型不可用自动降级。
+- **展开**：`DETERMINISTIC_ONLY` 下默认不调用模型；隔离 qualification adapter 有受控
+  retry/failover 观察（历史证据），但这不等于当前生产路由已承诺这些语义；确定性售罄
+  保护先于模型执行，模型不可用时确定性核心链路可继续运行；demo 与 CI 全程
+  `PHASE15_REAL_MODEL=0` 可跑，证明无模型时核心链路仍闭环。
 
 ## 使用说明
 

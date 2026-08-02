@@ -14,10 +14,10 @@ Agent 项目：工程实现和受控验证完成，但不宣称已经生产部�
 
 ## 2. 三种架构形态的区分（播前 / 播中 / 双 Agent）
 
-| 阶段 | 形态 | 为什么不是 Agent loop |
+| 阶段 | 形态 | 架构边界与设计理由 |
 |:--|:--|:--|
 | 播前（排品/手卡） | **Workflow**（LangGraph Workflow + RulesPlanner，确定性流程） | 输入确定、步骤固定、无模型决策点；用 Agent 反而引入不可控性 |
-| 播中（弹幕/告警 → 建议 → 人审） | **bounded Agent**（`BoundedSpecialistRunner`，有限循环） | 有模型决策点，但循环有硬上限（见 §3） |
+| 播中（弹幕/告警 → 建议 → 人审） | **bounded Agent**（有限模型/Skill 执行循环 + Harness 图，见 §3） | 有模型决策点，但循环有硬上限（见 §3） |
 | 高冲突证据场景 | **受控双 Agent**（EvidenceAnalyst → DecisionPlanner 顺序编排） | 分析与决策职责分离；受控顺序 + 人审，不做自主辩论（见 §4） |
 
 一句话：**流程确定用 Workflow，有决策点用 bounded Agent，高风险决策加人审，不用
@@ -25,7 +25,12 @@ Agent 的地方坚决不用**——这是刻意的架构克制，不是能力缺
 
 ## 3. Agent loop 与它的上限（为什么必须有上限）
 
-核心循环在 `src/specialist_runtime/runner.py` 的 `BoundedSpecialistRunner.run()`：
+播中的 bounded Agent 由两个运行入口共同体现：`BoundedSpecialistRunner`
+（`src/specialist_runtime/runner.py` 的有限模型/Skill 执行循环）与
+`on_live_harness_agent_graph.py`（带工具观察和 replan 的 Harness 图）——它们是
+同一设计原则的两个实例，不是同一个运行入口。
+
+核心循环在 `BoundedSpecialistRunner.run()`：
 `for model_index in range(profile.max_model_calls)`——模型调用 → 动作解析 → 经
 Skill port 执行 → 证据绑定 → 结构校验 → 继续或终止。每个 agent 的边界由
 `src/specialist_runtime/profiles.py` 的 `SpecialistProfile` 冻结：
@@ -52,7 +57,9 @@ Skill port 执行 → 证据绑定 → 结构校验 → 继续或终止。每个
 选择受控顺序编排的理由（有意设计，非能力缺失）：
 
 1. **可审计性**：每阶段产出有 schema 契约（`result_schema_hash`，`additionalProperties:
-   false`），证据只以身份引用（`EvidenceRef`）注入，模型无法伪造证据正文；
+   false`）；模型收到的是经过 Resolver 身份、摘要和作用域校验的**冻结证据投影**
+   （`resolved_evidence`），不能自行查询 Store、不能修改权威事实、也不能伪造通过
+   校验的 EvidenceRef；
 2. **可拦截性**：两阶段之间、人审节点前都有确定性校验与门禁，高风险动作不自动执行；
 3. **业务形态**：运营决策要的是"可解释、可拦截、可回滚"的建议，不是"两个模型争论
    出一个结论"；自主辩论提高自主性的同时提高不可审计性与不可预测性，与场景目标相反。
@@ -62,7 +69,7 @@ Skill port 执行 → 证据绑定 → 结构校验 → 继续或终止。每个
 
 ## 5. Skill、Tool、普通函数：边界与治理
 
-- **Skill**（`src/skill_runtime/catalog.py`，25+ 项：`query_products` /
+- **Skill**（`src/skill_runtime/catalog.py`，17 个 SkillManifest：`query_products` /
   `suggest_price_change` / `set_product_price` / `handle_sold_out_event` /
   `generate_danmaku_reply` / `retrieve_anchor_memory` 等）：**可被 Agent 调用的
   能力单元**，带生命周期（PRE/LIVE/POST）× 风险等级（LOW/MEDIUM/HIGH）× 门禁
@@ -87,8 +94,8 @@ lifecycle/risk/gate；高风险 Skill 必须过 HARD_GATE 人审。** 模型输�
   完整 replan（`src/plan_engine/`：preemption / failure_policy / emergency /
   replan / proposal）。
 
-**生产执行走 Harness 图**；基础图仅骨架与测试，不作为生产入口。这是分层设计，
-不是功能缺失。
+**受治理的完整 Harness 执行路径，作为未来生产候选路径；当前未在生产部署**；
+基础图仅骨架与测试，不作为生产入口。这是分层设计，不是功能缺失。
 
 ## 7. 记忆系统：受治理的检索与候选存储，不是自主学习
 

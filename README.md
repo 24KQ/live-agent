@@ -103,12 +103,13 @@ Phase 16 固定回放 `live-session-p001-sold-out-v2`：确定性售罄保护先
   12 runs 真实模型执行（8 PASS / 4 FAILED，失败终态按防刷分设计保留、不可重跑）
 - **账本**：PostgreSQL append-only qualification 账本，271 receipts / 6.604131 CNY /
   1,894,873 tokens / 332 transport attempts；全部 receipt `receipt_complete=true`
-- **回执完整性**：成功回执必须携带实际响应端点与尝试次数（attempt_count/responded_endpoint_host），
-  缺失即 `receipt_complete=false` 无法通过门禁
+- **回执完整性**：新迁移写入的 receipt 必须包含实际响应端点与尝试次数
+  （`attempt_count`/`responded_endpoint_host`）；46 条迁移前 legacy receipt 保留原始
+  语义并标记 `PROVIDER_IDENTITY_UNVERIFIED`
 - **CI 确定性 gate**：`agent-runtime-pr.yml` 无密钥（`PHASE15_REAL_MODEL=0`），
   Postgres + Kafka 环境 36 cases 确定性验证
 - **契约治理**：v2（历史执行契约，冻结不可改）/ v3（纯回溯评价契约，已闭合）/
-  Phase 17（holdout 执行契约，独立新建）；digest 认证 + 闭包漂移 fail-closed
+  Phase 17（计划中新建的独立 holdout 执行契约，尚未接入运行时）；digest 认证 + 闭包漂移 fail-closed
 - **核验入口**：`python scripts/verify_phase16_qualification_ledger_export.py`
   （只读 SELECT，14 项聚合断言全 PASS）
 
@@ -117,8 +118,8 @@ Phase 16 固定回放 `live-session-p001-sold-out-v2`：确定性售罄保护先
 - 默认路由为 `DETERMINISTIC_ONLY`：LLM 生产自动路由未放开，系统按规则引擎安全降级
 - V9 = 开发/验证阶段资格认证（`DEVELOPMENT_VALIDATION_QUALIFIED`），**不等于**原始
   Phase 16 V5 官方 DeepSeek 契约 PASS，**不等于**生产就绪
-- Phase 17 holdout 30 例为预声明的工程验收线（阈值 90%），不是统计显著性声明；
-  只验证冻结的 Phase 16 Analyst→Planner 受控链路，不代表整个系统已生产就绪
+- Phase 17 holdout 30 例为**计划中的、尚未执行**的预声明工程验收线（阈值 90%），
+  不是统计显著性声明；只验证冻结的 Phase 16 Analyst→Planner 受控链路，不代表整个系统已生产就绪
 - 记忆系统为受治理的检索与候选存储管线（证据约束/脱敏/幂等），不是模型自主学习
 - 真实平台 API、真实经营副作用、业务 KPI 与生产运维**不在本版本范围内，未进行生产就绪声明**
 
@@ -171,7 +172,8 @@ live-agent/
   front/         Web 副屏页面（Dashboard + Evaluation UI）
   scripts/       CLI 工具、演示脚本、数据种子
   docker/        PostgreSQL 初始化 DDL（9 个 init SQL）
-  tests/         单元测试（unit 1703 / integration 250，2026-08-02 本地基线）
+  tests/         单元测试（unit 1703 passed / integration 250 passed, 7 deselected；
+  2026-08-02 Phase 16 收口本地基线，非永久常数，随阶段②新增测试变化）
 ```
 
 ## 技术栈
