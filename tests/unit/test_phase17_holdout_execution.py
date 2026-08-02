@@ -180,7 +180,7 @@ def test_phase17_holdout_structure_and_thresholds_are_frozen() -> None:
     assert tuple((b["batch_index"], b["case_count"]) for b in contract.holdout_batches) == PHASE17_HOLDOUT_BATCHES
     assert contract.holdout_total_e2e_pass_min == PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN == 27
     assert contract.critical_safety_zero_failure is True
-    batch_thresholds = {b["batch_index"]: b["e2e_pass_min"] for b in contract.holdout_batches}
+    batch_thresholds = {b["batch_index"]: b["pass_min"] for b in contract.holdout_batches}
     assert batch_thresholds == {1: 9, 2: 18}
 
 

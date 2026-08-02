@@ -1,9 +1,11 @@
 """Phase 17 holdout 执行器端到端离线链 PostgreSQL 集成测试。
 
 用脚本化 fake model port（不联网）驱动 contract → ledger → runner 全链：
-- 全 pass / 语义失败 / hard block 三路径的 run 终态与结算断言；
-- UNKNOWN_USAGE 按最坏情况以 reservation 全额入账；
-- 身份不匹配（模型/渠道/类型）在联网前 fail-closed；
+- 全 pass / 阈值边界（9/10 达标、8/10 未达标）/ hard block 三路径；
+- 精确 batch 集合校验（子集/混合集合在账本写入前拒绝）；
+- 全链身份绑定（campaign/candidate/manifest 任一漂移在联网前 fail-closed）；
+- 逐 attempt 证据（phase17_holdout_attempts 行 + receipt_hmac）与 case 聚合对账；
+- UNKNOWN_USAGE 按最坏情况以 stage 级预留全额入账；
 - case membership 校验失败在写入任何账本行之前阻断。
 """
 
@@ -30,6 +32,7 @@ from src.decision_support.phase16_qualification_evaluator import CandidateProfil
 from src.decision_support.phase16_qualification_ledger import (
     QualificationCampaignKind,
     QualificationCandidate,
+    canonical_json_sha256,
     qualification_campaign_id,
 )
 from src.decision_support.phase17_holdout_dataset import (
@@ -43,6 +46,8 @@ from src.decision_support.phase17_holdout_ledger import (
 from src.decision_support.phase17_holdout_runner import (
     Phase17HoldoutCampaignRunner,
     Phase17HoldoutExecutionError,
+    Phase17HoldoutRunReport,
+    aggregate_phase17_holdout_reports,
 )
 from src.specialist_runtime.model_port import (
     ModelFailure,
@@ -120,36 +125,62 @@ def _bundle(
     model_id: str = "gpt-5.6-luna",
     endpoint_host: str = "synapse-ai.uk",
 ) -> CandidateProfileBundle:
-    candidate = QualificationCandidate(
-        candidate_id="phase17-candidate-luna-v1",
-        policy_digest=contract.contract_digest,
+    analyst = _profile(
+        task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
         model_id=model_id,
         endpoint_host=endpoint_host,
-        analyst_profile_digest="d" * 64,
-        planner_profile_digest="e" * 64,
-        adapter_digest="f" * 64,
+    )
+    planner = _profile(
+        task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
+        model_id=model_id,
+        endpoint_host=endpoint_host,
+    )
+    payload = {
+        "candidate_id": "phase17-candidate-luna-v1",
+        "policy_digest": contract.contract_digest,
+        "model_id": model_id,
+        "endpoint_host": endpoint_host,
+        "analyst_profile_digest": analyst.profile_digest,
+        "planner_profile_digest": planner.profile_digest,
+        "adapter_digest": "f" * 64,
+    }
+    candidate = QualificationCandidate(
+        candidate_id=payload["candidate_id"],
+        policy_digest=payload["policy_digest"],
+        model_id=payload["model_id"],
+        endpoint_host=payload["endpoint_host"],
+        analyst_profile_digest=payload["analyst_profile_digest"],
+        planner_profile_digest=payload["planner_profile_digest"],
+        adapter_digest=payload["adapter_digest"],
+        candidate_digest=canonical_json_sha256(payload),
     )
     return CandidateProfileBundle(
         candidate=candidate,
-        analyst_profile=_profile(task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS, model_id=model_id, endpoint_host=endpoint_host),
-        planner_profile=_profile(task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING, model_id=model_id, endpoint_host=endpoint_host),
+        analyst_profile=analyst,
+        planner_profile=planner,
     )
 
 
-def _campaign(*, contract, manifest: Phase17HoldoutDatasetManifest) -> Phase17HoldoutCampaign:
+def _campaign(
+    *,
+    contract,
+    manifest: Phase17HoldoutDatasetManifest,
+    bundle: CandidateProfileBundle,
+    batch_index: int = 1,
+) -> Phase17HoldoutCampaign:
     campaign_id = qualification_campaign_id(
         kind=QualificationCampaignKind.HOLDOUT,
-        candidate_digest="a" * 64,
+        candidate_digest=bundle.candidate.candidate_digest or "",
         declared_model_id="gpt-5.6-luna",
         declared_reasoning_effort=None,
         declared_endpoint_hosts=("synapse-ai.uk",),
-        batch_index=1,
+        batch_index=batch_index,
     )
     return Phase17HoldoutCampaign(
         campaign_id=campaign_id,
         contract_digest=contract.contract_digest,
-        batch_index=1,
-        candidate_digest="a" * 64,
+        batch_index=batch_index,
+        candidate_digest=bundle.candidate.candidate_digest or "",
         dataset_manifest_digest=manifest.manifest_digest,
         reservation_cny=Decimal("1.000000"),
         declared_model_id="gpt-5.6-luna",
@@ -182,6 +213,7 @@ class _ScriptedModelPort:
                 usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
                 response_digest="a" * 64,
                 latency_ms=Decimal("0"),
+                endpoint_host=request.endpoint_host,
             )
         if kind == "SEMANTIC_FAIL":
             # 已联网但结构校验失败（如 planner 未产出 risk_codes）。
@@ -190,8 +222,9 @@ class _ScriptedModelPort:
                 model_id=request.model_id,
                 output={"proposal": {"action": "HOLD"}},
                 usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
-                response_digest="a" * 64,
+                response_digest="b" * 64,
                 latency_ms=Decimal("0"),
+                endpoint_host=request.endpoint_host,
             )
         if kind == "BLOCK":
             return ModelFailure(
@@ -217,11 +250,13 @@ def runner_env():
     ledger = PostgresPhase17HoldoutLedger(settings, hmac_key=_TEST_HMAC_KEY)
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     manifest = _build_manifest()
+    bundle = _bundle(contract=contract)
     env = SimpleNamespace(
         settings=settings,
         ledger=ledger,
         contract=contract,
         manifest=manifest,
+        bundle=bundle,
     )
     try:
         yield env
@@ -242,7 +277,7 @@ def _query(settings, statement: str, params: tuple[object, ...] = ()) -> list[di
 
 def _batch_one_cases(manifest: Phase17HoldoutDatasetManifest) -> tuple[tuple[str, str], ...]:
     return tuple(
-        (case_id, f"input-{case_id}") for case_id in manifest.batch_case_ids(1)[:2]
+        (case_id, f"input-{case_id}") for case_id in manifest.batch_case_ids(1)
     )
 
 
@@ -250,7 +285,11 @@ def _execute(runner, env, cases):
     """同步入口：await 一次 execute 并返回报告（仓库既有 asyncio.run 模式）。"""
     return asyncio.run(
         runner.execute(
-            campaign=_campaign(contract=env.contract, manifest=env.manifest),
+            campaign=_campaign(
+                contract=env.contract,
+                manifest=env.manifest,
+                bundle=env.bundle,
+            ),
             run_id=_RUN_ID,
             batch_index=1,
             cases=cases,
@@ -260,27 +299,28 @@ def _execute(runner, env, cases):
 
 
 def test_phase17_runner_end_to_end_pass(runner_env) -> None:
-    """全 pass：run 终态 PASS、结算按实际成本、case 结论逐条入账。"""
+    """全 pass：run 终态 PASS、结算按实际成本、逐 attempt 证据入账。"""
     cases = _batch_one_cases(runner_env.manifest)
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
-        candidate_bundle=_bundle(contract=runner_env.contract),
-        model_port=_ScriptedModelPort(("PASS", "PASS", "PASS", "PASS")),
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(("PASS",) * (len(cases) * 2)),
     )
     report = _execute(runner, runner_env, cases)
 
     assert report.status == "PASS"
     assert report.reason_codes == ("EXECUTION_COMPLETE",)
-    assert report.pass_count == 2 and report.total == 2
-    assert report.cost_cny == Decimal("0.024000")  # 2 例 × 2 阶段 × (3M in + 6M out)/1M
+    assert report.pass_count == 10 and report.total == 10
+    assert report.pass_min == 9
+    assert report.cost_cny == Decimal("0.120000")  # 10 例 × 2 阶段 × (3M in + 6M out)/1M
 
     rows = _query(
         runner_env.settings,
         "SELECT status, reason_code FROM phase17_holdout_run_results WHERE run_id=%s",
         (_RUN_ID,),
     )
-    assert rows == [{"status": "PASS", "reason_code": "PHASE17_HOLDOUT_BATCH_COMPLETE"}]
+    assert rows == [{"status": "PASS", "reason_code": "PHASE17_HOLDOUT_BATCH_THRESHOLD_MET"}]
     case_rows = _query(
         runner_env.settings,
         "SELECT outcome, receipt_count, cost_cny FROM phase17_holdout_case_results"
@@ -288,36 +328,80 @@ def test_phase17_runner_end_to_end_pass(runner_env) -> None:
         (_RUN_ID,),
     )
     assert case_rows == [
-        {"outcome": "PASS", "receipt_count": 2, "cost_cny": Decimal("0.012000")},
-        {"outcome": "PASS", "receipt_count": 2, "cost_cny": Decimal("0.012000")},
+        {"outcome": "PASS", "receipt_count": 2, "cost_cny": Decimal("0.012000")}
+        for _ in range(10)
     ]
+    # 逐 attempt 证据：10 例 × 2 阶段 = 20 行，receipt_hmac 非空且与 case 聚合对账。
+    attempt_rows = _query(
+        runner_env.settings,
+        "SELECT stage, outcome, response_digest, endpoint_host, model_id,"
+        " cost_cny, receipt_hmac FROM phase17_holdout_attempts WHERE run_id=%s"
+        " ORDER BY case_id, attempt_index",
+        (_RUN_ID,),
+    )
+    assert len(attempt_rows) == 20
+    assert all(row["outcome"] == "PASS" for row in attempt_rows)
+    assert all(row["receipt_hmac"] and len(row["receipt_hmac"]) == 64 for row in attempt_rows)
+    assert all(row["endpoint_host"] == "synapse-ai.uk" for row in attempt_rows)
+    assert all(row["model_id"] == "gpt-5.6-luna" for row in attempt_rows)
+    assert all(row["response_digest"] == "a" * 64 for row in attempt_rows)
+    assert sum(Decimal(row["cost_cny"]) for row in attempt_rows) == report.cost_cny
     state = runner_env.ledger.budget_pool_state(runner_env.contract.contract_digest)
     assert state["reserved_cny"] == Decimal("0")
-    assert state["settled_cny"] == Decimal("0.024000")
-    assert state["available_cny"] == Decimal("8.371869")
+    assert state["settled_cny"] == Decimal("0.120000")
+    assert state["available_cny"] == Decimal("8.275869")
 
 
-def test_phase17_runner_semantic_failure_marks_failed(runner_env) -> None:
-    """语义失败（已联网但结构校验不过）：run FAILED，成本如实入账。"""
+def test_phase17_runner_threshold_met_at_9_of_10(runner_env) -> None:
+    """阈值语义（codex 第十七轮 P0-1）：9/10 达标即 batch PASS，允许 1 例失败。"""
     cases = _batch_one_cases(runner_env.manifest)
+    plan = ("PASS",) * 19 + ("SEMANTIC_FAIL",)  # case1-9 全过 + case10 planner 失败
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
-        candidate_bundle=_bundle(contract=runner_env.contract),
-        model_port=_ScriptedModelPort(("PASS", "PASS", "PASS", "SEMANTIC_FAIL")),
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(plan),
     )
     report = _execute(runner, runner_env, cases)
 
-    assert report.status == "FAILED"
+    assert report.status == "PASS"
+    assert report.pass_count == 9 and report.total == 10
     assert report.reason_codes == ("PLANNER_VALIDATION_FAILED",)
-    assert report.pass_count == 1 and report.total == 2
-    assert report.cost_cny == Decimal("0.024000")
+    assert report.cost_cny == Decimal("0.120000")
     rows = _query(
         runner_env.settings,
         "SELECT status, reason_code FROM phase17_holdout_run_results WHERE run_id=%s",
         (_RUN_ID,),
     )
-    assert rows == [{"status": "FAILED", "reason_code": "PHASE17_HOLDOUT_EXECUTION_FAILED"}]
+    assert rows == [{"status": "PASS", "reason_code": "PHASE17_HOLDOUT_BATCH_THRESHOLD_MET"}]
+
+
+def test_phase17_runner_threshold_not_met_at_8_of_10(runner_env) -> None:
+    """阈值语义：8/10 未达标 → batch FAILED（THRESHOLD_NOT_MET）。"""
+    cases = _batch_one_cases(runner_env.manifest)
+    plan = (
+        ("PASS",) * 17
+        + ("SEMANTIC_FAIL",)  # case9 planner 失败
+        + ("PASS",)  # case10 analyst 过
+        + ("SEMANTIC_FAIL",)  # case10 planner 失败
+    )  # case1-8 全过（16 次）+ case9 analyst PASS = 17 次 PASS
+    runner = Phase17HoldoutCampaignRunner(
+        contract=runner_env.contract,
+        ledger=runner_env.ledger,
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(plan),
+    )
+    report = _execute(runner, runner_env, cases)
+
+    assert report.status == "FAILED"
+    assert report.reason_codes == ("PLANNER_VALIDATION_FAILED",)
+    assert report.pass_count == 8 and report.total == 10
+    rows = _query(
+        runner_env.settings,
+        "SELECT status, reason_code FROM phase17_holdout_run_results WHERE run_id=%s",
+        (_RUN_ID,),
+    )
+    assert rows == [{"status": "FAILED", "reason_code": "PHASE17_HOLDOUT_THRESHOLD_NOT_MET"}]
 
 
 def test_phase17_runner_hard_block_settles_worst_case(runner_env) -> None:
@@ -326,26 +410,145 @@ def test_phase17_runner_hard_block_settles_worst_case(runner_env) -> None:
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
-        candidate_bundle=_bundle(contract=runner_env.contract),
-        model_port=_ScriptedModelPort(("BLOCK", "BLOCK")),
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(("BLOCK",) * len(cases)),
     )
     report = _execute(runner, runner_env, cases)
 
     assert report.status == "BLOCKED"
     assert report.reason_codes == ("MODEL_OUTCOME_UNAVAILABLE",)
-    assert report.pass_count == 0 and report.total == 2
+    assert report.pass_count == 0 and report.total == 10
     # UNKNOWN_USAGE 按最坏情况以 stage 级预留（0.1/attempt）入账，与 v2 attempt
     # reservation 口径一致：attempt 一旦建立即占用，pre-send 失败也不得结算为 0。
-    assert report.cost_cny == Decimal("0.200000")  # 2 例 × 1 stage × 0.1
+    assert report.cost_cny == Decimal("1.000000")  # 10 例 × 1 stage × 0.1
     rows = _query(
         runner_env.settings,
         "SELECT status, reason_code FROM phase17_holdout_run_results WHERE run_id=%s",
         (_RUN_ID,),
     )
     assert rows == [{"status": "BLOCKED", "reason_code": "PHASE17_HOLDOUT_HARD_BLOCKED"}]
+    attempt_rows = _query(
+        runner_env.settings,
+        "SELECT outcome, category FROM phase17_holdout_attempts WHERE run_id=%s",
+        (_RUN_ID,),
+    )
+    assert len(attempt_rows) == 10
+    assert all(row["outcome"] == "FAILED" for row in attempt_rows)
+    assert all(row["category"] == "TRANSPORT_ERROR" for row in attempt_rows)
     state = runner_env.ledger.budget_pool_state(runner_env.contract.contract_digest)
-    assert state["settled_cny"] == Decimal("0.200000")
-    assert state["available_cny"] == Decimal("8.195869")
+    assert state["settled_cny"] == Decimal("1.000000")
+    assert state["available_cny"] == Decimal("7.395869")
+
+
+def test_phase17_runner_rejects_subset_batch_before_ledger_write(runner_env) -> None:
+    """精确集合校验（codex 第十七轮 P0-1）：子集（2 例）不再是合法 batch。"""
+    cases = tuple((case_id, f"input-{case_id}") for case_id in runner_env.manifest.batch_case_ids(1)[:2])
+    runner = Phase17HoldoutCampaignRunner(
+        contract=runner_env.contract,
+        ledger=runner_env.ledger,
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(()),
+    )
+    with pytest.raises(Phase17HoldoutExecutionError, match="exact frozen case set"):
+        _execute(runner, runner_env, cases)
+    rows = _query(
+        runner_env.settings, "SELECT COUNT(*) AS n FROM phase17_holdout_runs"
+    )
+    assert rows == [{"n": 0}]
+
+
+def test_phase17_runner_rejects_mixed_batch(runner_env) -> None:
+    """精确集合校验：混入 batch2 的 case（9+1）也必须是 batch1 精确全集。"""
+    batch1_ids = runner_env.manifest.batch_case_ids(1)
+    batch2_id = runner_env.manifest.batch_case_ids(2)[0]
+    cases = tuple(
+        (case_id, f"input-{case_id}") for case_id in batch1_ids[:9]
+    ) + ((batch2_id, f"input-{batch2_id}"),)
+    runner = Phase17HoldoutCampaignRunner(
+        contract=runner_env.contract,
+        ledger=runner_env.ledger,
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(()),
+    )
+    with pytest.raises(Phase17HoldoutExecutionError, match="exact frozen case set"):
+        _execute(runner, runner_env, cases)
+
+
+def test_phase17_runner_rejects_campaign_contract_mismatch(runner_env) -> None:
+    """全链身份绑定（codex 第十七轮 P0-2）：campaign 声称的契约与实参不一致 → 拒绝。"""
+    cases = _batch_one_cases(runner_env.manifest)
+    runner = Phase17HoldoutCampaignRunner(
+        contract=runner_env.contract,
+        ledger=runner_env.ledger,
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(()),
+    )
+    bad_campaign = _campaign(
+        contract=runner_env.contract,
+        manifest=runner_env.manifest,
+        bundle=runner_env.bundle,
+    )
+    bad_campaign = SimpleNamespace(
+        **{**vars(bad_campaign), "contract_digest": "0" * 64}
+    )
+    with pytest.raises(Phase17HoldoutExecutionError, match="campaign contract identity"):
+        asyncio.run(
+            runner.execute(
+                campaign=bad_campaign,
+                run_id=_RUN_ID,
+                batch_index=1,
+                cases=cases,
+                manifest=runner_env.manifest,
+            )
+        )
+    rows = _query(
+        runner_env.settings, "SELECT COUNT(*) AS n FROM phase17_holdout_runs"
+    )
+    assert rows == [{"n": 0}]
+
+
+def test_phase17_runner_rejects_campaign_dataset_mismatch(runner_env) -> None:
+    """campaign 声称的 dataset manifest 与实参不一致 → 拒绝。"""
+    cases = _batch_one_cases(runner_env.manifest)
+    runner = Phase17HoldoutCampaignRunner(
+        contract=runner_env.contract,
+        ledger=runner_env.ledger,
+        candidate_bundle=runner_env.bundle,
+        model_port=_ScriptedModelPort(()),
+    )
+    bad_campaign = SimpleNamespace(
+        **{**vars(_campaign(contract=runner_env.contract, manifest=runner_env.manifest, bundle=runner_env.bundle)),
+           "dataset_manifest_digest": "1" * 64}
+    )
+    with pytest.raises(Phase17HoldoutExecutionError, match="campaign dataset identity"):
+        asyncio.run(
+            runner.execute(
+                campaign=bad_campaign,
+                run_id=_RUN_ID,
+                batch_index=1,
+                cases=cases,
+                manifest=runner_env.manifest,
+            )
+        )
+
+
+def test_phase17_runner_rejects_candidate_policy_mismatch(runner_env) -> None:
+    """candidate policy_digest 与契约不一致 → 构造即拒绝（联网前）。"""
+    bad_bundle = _bundle(contract=runner_env.contract)
+    bad_bundle = SimpleNamespace(
+        candidate=SimpleNamespace(
+            **{**vars(bad_bundle.candidate), "policy_digest": "2" * 64}
+        ),
+        analyst_profile=bad_bundle.analyst_profile,
+        planner_profile=bad_bundle.planner_profile,
+    )
+    with pytest.raises(Phase17HoldoutExecutionError, match="candidate policy identity"):
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=bad_bundle,
+            model_port=_ScriptedModelPort(()),
+        )
 
 
 def test_phase17_runner_rejects_identity_mismatch_before_network(runner_env) -> None:
@@ -374,23 +577,153 @@ def test_phase17_runner_rejects_non_phase17_contract(runner_env) -> None:
         Phase17HoldoutCampaignRunner(
             contract=v2_like_contract,
             ledger=runner_env.ledger,
-            candidate_bundle=_bundle(contract=runner_env.contract),
+            candidate_bundle=runner_env.bundle,
             model_port=_ScriptedModelPort(()),
         )
 
 
 def test_phase17_runner_membership_mismatch_blocks_before_ledger_write(runner_env) -> None:
-    """case 不在冻结 manifest：先于任何账本写入与模型调用阻断。"""
-    cases = (("holdout-case-099", "input-holdout-case-099"),)  # 集合外 case
+    """case 输入篡改（input digest 漂移）：精确集合校验通过后由 membership 校验阻断，
+    先于任何账本写入与模型调用。"""
+    cases = list(_batch_one_cases(runner_env.manifest))
+    last_id, _ = cases[-1]
+    cases[-1] = (last_id, "tampered-input-content")  # case_id 在集合内但输入被改
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
-        candidate_bundle=_bundle(contract=runner_env.contract),
+        candidate_bundle=runner_env.bundle,
         model_port=_ScriptedModelPort(()),
     )
-    with pytest.raises(Phase17HoldoutExecutionError, match="not in the frozen manifest"):
-        _execute(runner, runner_env, cases)
+    with pytest.raises(Phase17HoldoutExecutionError, match="input digest does not match the frozen manifest"):
+        _execute(runner, runner_env, tuple(cases))
     rows = _query(
         runner_env.settings, "SELECT COUNT(*) AS n FROM phase17_holdout_runs"
     )
     assert rows == [{"n": 0}]
+
+
+def test_phase17_aggregate_27_of_30_qualified(runner_env) -> None:
+    """27/30 聚合（codex 第十七轮 P0-1）：两批达标且总 pass >= 27 → QUALIFIED。"""
+    batch1 = _execute(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(("PASS",) * (10 * 2)),
+        ),
+        runner_env,
+        _batch_one_cases(runner_env.manifest),
+    )
+    # batch2 用 18/20 达标（18 PASS + 2 planner 语义失败）→ 总 28/30。
+    batch2_cases = tuple(
+        (case_id, f"input-{case_id}") for case_id in runner_env.manifest.batch_case_ids(2)
+    )
+    plan2 = ("PASS",) * 37 + ("SEMANTIC_FAIL",) + ("PASS",) + ("SEMANTIC_FAIL",)
+    batch2 = asyncio.run(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(plan2),
+        ).execute(
+            campaign=_campaign(
+                contract=runner_env.contract,
+                manifest=runner_env.manifest,
+                bundle=runner_env.bundle,
+                batch_index=2,
+            ),
+            run_id="phase17-holdout-run-9002",
+            batch_index=2,
+            cases=batch2_cases,
+            manifest=runner_env.manifest,
+        )
+    )
+    assert batch1.status == "PASS" and batch2.status == "PASS"
+    assert batch2.pass_count == 18 and batch2.pass_min == 18
+
+    aggregate = aggregate_phase17_holdout_reports(
+        reports=(batch1, batch2), contract=runner_env.contract
+    )
+    assert aggregate.status == "PASS"
+    assert aggregate.reason_codes == ("PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",)
+    assert aggregate.total_pass == 28
+    assert aggregate.total_cases == 30
+    assert aggregate.batch_statuses == ("PASS", "PASS")
+
+
+def test_phase17_aggregate_26_of_30_failed(runner_env) -> None:
+    """27/30 聚合：总 pass 26（9 + 17）即使两批都"达标"也不足 27 → FAILED。"""
+    batch1 = _execute(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(("PASS",) * (10 * 2)),
+        ),
+        runner_env,
+        _batch_one_cases(runner_env.manifest),
+    )
+    # batch2 精确 17/20：17 例全过 + 3 例 planner 失败（3 例 ≤ 阈值缺口，batch 仍 PASS 17>=18? 不，17 < 18 → FAILED）
+    # 构造：batch2 17/20 → batch2 FAILED（未达 18）→ 聚合 FAILED。
+    batch2_cases = tuple(
+        (case_id, f"input-{case_id}") for case_id in runner_env.manifest.batch_case_ids(2)
+    )
+    plan2 = (
+        ("PASS",) * 35
+        + ("SEMANTIC_FAIL",)  # case18 planner 失败
+        + ("PASS",)  # case19 analyst 过
+        + ("SEMANTIC_FAIL",)  # case19 planner 失败
+        + ("PASS",)  # case20 analyst 过
+        + ("SEMANTIC_FAIL",)  # case20 planner 失败
+    )  # case1-17 全过（34 次）+ case18 analyst PASS = 35 次 PASS → pass=17
+    batch2 = asyncio.run(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(plan2),
+        ).execute(
+            campaign=_campaign(
+                contract=runner_env.contract,
+                manifest=runner_env.manifest,
+                bundle=runner_env.bundle,
+                batch_index=2,
+            ),
+            run_id="phase17-holdout-run-9003",
+            batch_index=2,
+            cases=batch2_cases,
+            manifest=runner_env.manifest,
+        )
+    )
+    assert batch2.status == "FAILED"
+    assert batch2.pass_count == 17
+
+    aggregate = aggregate_phase17_holdout_reports(
+        reports=(batch1, batch2), contract=runner_env.contract
+    )
+    assert aggregate.status == "FAILED"
+    assert aggregate.reason_codes == ("PHASE17_HOLDOUT_AGGREGATE_THRESHOLD_NOT_MET",)
+    assert aggregate.total_pass == 27
+
+
+def test_phase17_aggregate_blocked_wins_over_threshold(runner_env) -> None:
+    """BLOCKED 优先（inconclusive）：任一批 BLOCKED 即聚合 BLOCKED，不进入达标判定。"""
+    batch1 = Phase17HoldoutRunReport(
+        campaign_id="c-1", run_id="r-1", status="PASS",
+        reason_codes=("EXECUTION_COMPLETE",),
+        pass_count=10, pass_min=9, total=10,
+        cost_cny=Decimal("0.120000"), case_executions=(),
+    )
+    batch2 = Phase17HoldoutRunReport(
+        campaign_id="c-2", run_id="r-2", status="BLOCKED",
+        reason_codes=("MODEL_OUTCOME_UNAVAILABLE",),
+        pass_count=0, pass_min=18, total=20,
+        cost_cny=Decimal("1.000000"), case_executions=(),
+    )
+    aggregate = aggregate_phase17_holdout_reports(
+        reports=(batch1, batch2), contract=runner_env.contract
+    )
+    assert aggregate.status == "BLOCKED"
+    assert aggregate.reason_codes == ("PHASE17_HOLDOUT_AGGREGATE_BLOCKED",)
+    assert aggregate.total_pass == 10
+    assert aggregate.batch_statuses == ("PASS", "BLOCKED")

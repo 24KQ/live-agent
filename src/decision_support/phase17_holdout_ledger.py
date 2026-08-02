@@ -377,6 +377,91 @@ class PostgresPhase17HoldoutLedger:
                 "phase17 holdout case result append failed"
             ) from error
 
+    def record_phase17_attempt(
+        self,
+        *,
+        run_id: str,
+        case_id: str,
+        stage: str,
+        attempt_index: int,
+        request_id: str,
+        endpoint_host: str,
+        model_id: str,
+        outcome: str,
+        category: str | None,
+        response_digest: str | None,
+        provider_response_id: str | None,
+        http_status: int | None,
+        latency_ms: Decimal,
+        attempts: int,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None,
+        cost_cny: Decimal,
+    ) -> None:
+        """逐 attempt 证据只追加一次（codex 第十七轮 P0-3）。
+
+        receipt_hmac 由账本用 ``_tag`` 内部计算（HMAC key 不外传），覆盖
+        请求/响应摘要与成本事实；审计时可用同一 key 重算校验，attempt 事实
+        与 case 级聚合（``receipt_count``/``cost_cny``）一一对账。
+        """
+
+        if stage not in {"ANALYST", "PLANNER"}:
+            raise Phase17HoldoutLedgerError("phase17 holdout attempt stage is invalid")
+        if outcome not in {"PASS", "FAILED"}:
+            raise Phase17HoldoutLedgerError("phase17 holdout attempt outcome is invalid")
+        if attempt_index < 1 or attempts < 1:
+            raise Phase17HoldoutLedgerError("phase17 holdout attempt counters are invalid")
+        if cost_cny < 0 or latency_ms < 0:
+            raise Phase17HoldoutLedgerError("phase17 holdout attempt cost/latency are invalid")
+        if response_digest is not None and (
+            len(response_digest) != 64 or any(ch not in _SHA256_HEX for ch in response_digest)
+        ):
+            raise Phase17HoldoutLedgerError("phase17 holdout attempt response digest must be sha256 hex")
+        attempt_id = hashlib.sha256(
+            f"{run_id}|{case_id}|{stage}|{attempt_index}".encode("utf-8")
+        ).hexdigest()
+        hmac_value = self._tag(
+            domain="attempt",
+            payload={
+                "request_id": request_id,
+                "endpoint_host": endpoint_host,
+                "model_id": model_id,
+                "outcome": outcome,
+                "category": category,
+                "response_digest": response_digest,
+                "provider_response_id": provider_response_id,
+                "http_status": http_status,
+                "latency_ms": str(latency_ms),
+                "attempts": attempts,
+                "cost_cny": str(cost_cny),
+            },
+        )
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """INSERT INTO phase17_holdout_attempts
+                           (attempt_id, run_id, case_id, stage, attempt_index, request_id,
+                            endpoint_host, model_id, outcome, category, response_digest,
+                            provider_response_id, http_status, latency_ms, attempts,
+                            input_tokens, output_tokens, total_tokens, cost_cny, receipt_hmac)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (
+                            attempt_id, run_id, case_id, stage, attempt_index, request_id,
+                            endpoint_host, model_id, outcome, category, response_digest,
+                            provider_response_id, http_status, latency_ms, attempts,
+                            input_tokens, output_tokens, total_tokens, cost_cny, hmac_value,
+                        ),
+                    )
+                connection.commit()
+        except Phase17HoldoutLedgerError:
+            raise
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 holdout attempt append failed"
+            ) from error
+
     def close_phase17_run(
         self,
         *,

@@ -794,6 +794,8 @@ PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY = Decimal("6.604131")
 PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY = Decimal("8.395869")
 PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT = 30
 PHASE17_HOLDOUT_BATCHES: tuple[tuple[int, int], ...] = ((1, 10), (2, 20))
+#: 每批通过阈值（codex 第十七轮 P0-1：阈值必须作为契约事实在运行时执行）。
+PHASE17_HOLDOUT_BATCH_PASS_MINS: tuple[tuple[int, int], ...] = ((1, 9), (2, 18))
 PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN = 27
 PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE = True
 #: Phase 17 执行身份固定值（与 candidate bundle 声明一致 + v3 retry 语义一致）：
@@ -900,8 +902,16 @@ class Phase17HoldoutExecutionContract(BaseModel):
             raise ValueError("phase17 execution contract requires zero temperature")
         if self.holdout_case_count != PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT:
             raise ValueError("phase17 holdout must contain exactly thirty high-conflict E2E cases")
-        if tuple((batch["batch_index"], batch["case_count"]) for batch in self.holdout_batches) != PHASE17_HOLDOUT_BATCHES:
+        if tuple(
+            (batch["batch_index"], batch["case_count"]) for batch in self.holdout_batches
+        ) != PHASE17_HOLDOUT_BATCHES:
             raise ValueError("phase17 holdout batches are frozen to 10 + 20 fixed subsets")
+        if tuple(
+            (batch["batch_index"], batch["pass_min"]) for batch in self.holdout_batches
+        ) != PHASE17_HOLDOUT_BATCH_PASS_MINS:
+            raise ValueError(
+                "phase17 holdout batch pass thresholds are frozen to 9/10 and 18/20"
+            )
         if sum(batch["case_count"] for batch in self.holdout_batches) != self.holdout_case_count:
             raise ValueError("phase17 holdout batches must exactly cover the thirty cases")
         if self.holdout_total_e2e_pass_min != PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN:
@@ -1003,8 +1013,8 @@ def admit_phase17_holdout_execution(
     ):
         reasons.append("BUDGET_ENVELOPE_INCONSISTENT")
     for batch in contract.holdout_batches:
-        if batch["case_count"] == 10 and batch.get("e2e_pass_min", 9) != 9:
+        if batch["case_count"] == 10 and batch.get("pass_min", 9) != 9:
             reasons.append("BATCH_1_THRESHOLD_DRIFT")
-        if batch["case_count"] == 20 and batch.get("e2e_pass_min", 18) != 18:
+        if batch["case_count"] == 20 and batch.get("pass_min", 18) != 18:
             reasons.append("BATCH_2_THRESHOLD_DRIFT")
     return (not reasons, tuple(sorted(set(reasons))))

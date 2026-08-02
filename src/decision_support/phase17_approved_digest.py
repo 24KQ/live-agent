@@ -13,5 +13,5 @@ contract digest，形成自指循环（digest 依赖文件内容、文件内容�
 """
 
 PHASE17_APPROVED_CONTRACT_DIGEST = (
-    "c2dc8b022607c80f069318eb0f6a69732647f1a27ed9c24ec5b734b381e19af4"
+    "59c618c62d7e11ce90c1f9ed747c5cacf8b3fc542b32b390337d67adfffece95"
 )

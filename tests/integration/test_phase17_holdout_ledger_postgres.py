@@ -354,3 +354,119 @@ def test_phase17_reverse_isolation_v2_digest_has_no_contract_row(ledger_factory)
         ledger.ensure_phase17_campaign(campaign)
     with pytest.raises(Phase17HoldoutLedgerError, match="contract is not registered"):
         ledger.budget_pool_state(_V2_HISTORICAL_POLICY_DIGEST)
+
+
+def _record_attempt(ledger, *, run_id: str, case_id: str = "holdout-case-001",
+                    stage: str = "ANALYST", outcome: str = "PASS") -> str:
+    """最小 attempt 记录；返回写入行的 attempt_id（无则返回空串）。"""
+    ledger.record_phase17_attempt(
+        run_id=run_id,
+        case_id=case_id,
+        stage=stage,
+        attempt_index=1,
+        request_id=f"req-{run_id}-{case_id}-{stage}",
+        endpoint_host="synapse-ai.uk",
+        model_id="gpt-5.6-luna",
+        outcome=outcome,
+        category=None if outcome == "PASS" else "PLANNER_VALIDATION_FAILED",
+        response_digest="a" * 64,
+        provider_response_id=None,
+        http_status=None,
+        latency_ms=Decimal("0"),
+        attempts=1,
+        input_tokens=1000,
+        output_tokens=500,
+        total_tokens=1500,
+        cost_cny=Decimal("0.006000"),
+    )
+
+
+def test_phase17_attempt_records_receipt_hmac_and_case_link(ledger_factory) -> None:
+    """P0-3：attempt 逐条入账，receipt_hmac 由 ledger 内部计算且不可外部伪造。"""
+    ledger = ledger_factory()
+    settings = ledger_factory.settings
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaign = _campaign(
+        contract_digest=contract.contract_digest,
+        batch_index=1,
+        reservation_cny=Decimal("1.000000"),
+    )
+    ledger.ensure_phase17_campaign(campaign)
+    run_id = "phase17-holdout-run-0031"
+    ledger.begin_phase17_run(run_id=run_id, campaign_id=campaign.campaign_id,
+                             case_ids=("holdout-case-001", "holdout-case-002"))
+    _record_attempt(ledger, run_id=run_id)
+    rows = _query(
+        settings,
+        "SELECT stage, outcome, endpoint_host, model_id, cost_cny, receipt_hmac,"
+        " response_digest FROM phase17_holdout_attempts WHERE run_id=%s",
+        (run_id,),
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["stage"] == "ANALYST" and row["outcome"] == "PASS"
+    assert row["endpoint_host"] == "synapse-ai.uk" and row["model_id"] == "gpt-5.6-luna"
+    assert row["cost_cny"] == Decimal("0.006000")
+    assert row["response_digest"] == "a" * 64
+    assert row["receipt_hmac"] and len(row["receipt_hmac"]) == 64
+    assert set(row["receipt_hmac"]) <= set("0123456789abcdef")
+    # 不同响应事实 → 不同 HMAC（内部 _tag 覆盖响应事实与成本，非恒等占位）。
+    _record_attempt(ledger, run_id=run_id, case_id="holdout-case-002", stage="PLANNER",
+                    outcome="FAILED")
+    rows2 = _query(
+        settings,
+        "SELECT receipt_hmac FROM phase17_holdout_attempts WHERE run_id=%s ORDER BY case_id",
+        (run_id,),
+    )
+    assert len(rows2) == 2
+    assert rows2[0]["receipt_hmac"] != rows2[1]["receipt_hmac"]
+
+
+def test_phase17_attempt_slot_duplicate_rejected(ledger_factory) -> None:
+    """同一 (run, case, stage, attempt_index) 不允许二次入账：UNIQUE 约束拒绝。"""
+    ledger = ledger_factory()
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaign = _campaign(
+        contract_digest=contract.contract_digest,
+        batch_index=1,
+        reservation_cny=Decimal("1.000000"),
+    )
+    ledger.ensure_phase17_campaign(campaign)
+    run_id = "phase17-holdout-run-0032"
+    ledger.begin_phase17_run(run_id=run_id, campaign_id=campaign.campaign_id,
+                             case_ids=("holdout-case-001",))
+    _record_attempt(ledger, run_id=run_id)
+    with pytest.raises(Phase17HoldoutLedgerError, match="attempt append failed"):
+        _record_attempt(ledger, run_id=run_id)
+
+
+def test_phase17_attempt_append_only_and_terminal_run_rejection(ledger_factory) -> None:
+    """attempts 表无 UPDATE/DELETE；run 终态后追加 attempt 被 SQL 触发器拒绝。"""
+    ledger = ledger_factory()
+    settings = ledger_factory.settings
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaign = _campaign(
+        contract_digest=contract.contract_digest,
+        batch_index=1,
+        reservation_cny=Decimal("1.000000"),
+    )
+    ledger.ensure_phase17_campaign(campaign)
+    run_id = "phase17-holdout-run-0033"
+    ledger.begin_phase17_run(run_id=run_id, campaign_id=campaign.campaign_id,
+                             case_ids=("holdout-case-001",))
+    _record_attempt(ledger, run_id=run_id)
+    with pytest.raises(psycopg.Error, match="append-only"):
+        _query(settings, "UPDATE phase17_holdout_attempts SET outcome='FAILED' WHERE run_id=%s",
+               (run_id,))
+    with pytest.raises(psycopg.Error, match="append-only"):
+        _query(settings, "DELETE FROM phase17_holdout_attempts WHERE run_id=%s", (run_id,))
+    # run 终态后追加 attempt：slot 触发器拒绝（run 未终态是写入前置条件）。
+    ledger.close_phase17_run(
+        run_id=run_id, status="PASS", reason_code="PHASE17_HOLDOUT_BATCH_THRESHOLD_MET",
+        payload={"pass_count": 1, "total": 1},
+    )
+    with pytest.raises(Phase17HoldoutLedgerError, match="attempt append failed"):
+        _record_attempt(ledger, run_id=run_id, case_id="holdout-case-002")

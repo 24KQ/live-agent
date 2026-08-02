@@ -77,6 +77,34 @@ CREATE TABLE IF NOT EXISTS phase17_holdout_case_results (
     PRIMARY KEY (run_id, case_id)
 );
 
+-- 逐 attempt 证据（codex 第十七轮 P0-3）：每次模型调用（或失败）一行，
+-- 记录请求/响应摘要、实际端点、token、成本与 receipt_hmac 完整性校验，
+-- 与 v2 attempt receipt 口径对齐；case_results.receipt_count = attempts 行数。
+CREATE TABLE IF NOT EXISTS phase17_holdout_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES phase17_holdout_runs(run_id),
+    case_id TEXT NOT NULL,
+    stage TEXT NOT NULL CHECK (stage IN ('ANALYST', 'PLANNER')),
+    attempt_index INTEGER NOT NULL CHECK (attempt_index >= 1),
+    request_id TEXT NOT NULL,
+    endpoint_host TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('PASS', 'FAILED')),
+    category TEXT,
+    response_digest CHAR(64),
+    provider_response_id TEXT,
+    http_status INTEGER CHECK (http_status IS NULL OR (http_status >= 100 AND http_status <= 599)),
+    latency_ms NUMERIC(20,6) NOT NULL DEFAULT 0 CHECK (latency_ms >= 0),
+    attempts INTEGER NOT NULL DEFAULT 1 CHECK (attempts >= 1),
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    total_tokens INTEGER,
+    cost_cny NUMERIC(18,6) NOT NULL CHECK (cost_cny >= 0),
+    receipt_hmac CHAR(64) NOT NULL CHECK (receipt_hmac ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (run_id, case_id, stage, attempt_index)
+);
+
 CREATE OR REPLACE FUNCTION phase17_holdout_reject_mutation()
 RETURNS trigger AS $$
 BEGIN
@@ -117,7 +145,8 @@ BEGIN
     FOREACH table_name IN ARRAY ARRAY[
         'phase17_holdout_contracts', 'phase17_holdout_campaigns',
         'phase17_holdout_budget_events', 'phase17_holdout_runs',
-        'phase17_holdout_run_results', 'phase17_holdout_case_results'
+        'phase17_holdout_run_results', 'phase17_holdout_case_results',
+        'phase17_holdout_attempts'
     ] LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_append_only ON %I', table_name, table_name);
         EXECUTE format(
@@ -137,3 +166,27 @@ DROP TRIGGER IF EXISTS trg_phase17_holdout_case_result ON phase17_holdout_case_r
 CREATE TRIGGER trg_phase17_holdout_case_result
     BEFORE INSERT ON phase17_holdout_case_results
     FOR EACH ROW EXECUTE FUNCTION phase17_holdout_validate_case_result();
+
+-- attempt 与 case result 同样的 slot/终态安全边界：run 未终态且 case 属于
+-- 冻结 slot 集合才允许追加 attempt 证据。
+CREATE OR REPLACE FUNCTION phase17_holdout_validate_attempt()
+RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM phase17_holdout_runs run
+         WHERE run.run_id = NEW.run_id
+           AND NEW.case_id = ANY (run.case_ids)
+    ) THEN
+        RAISE EXCEPTION 'phase17 holdout attempt is not in the frozen run slot set';
+    END IF;
+    IF EXISTS (SELECT 1 FROM phase17_holdout_run_results WHERE run_id = NEW.run_id) THEN
+        RAISE EXCEPTION 'phase17 holdout attempts cannot follow terminal run result';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_phase17_holdout_attempt ON phase17_holdout_attempts;
+CREATE TRIGGER trg_phase17_holdout_attempt
+    BEFORE INSERT ON phase17_holdout_attempts
+    FOR EACH ROW EXECUTE FUNCTION phase17_holdout_validate_attempt();

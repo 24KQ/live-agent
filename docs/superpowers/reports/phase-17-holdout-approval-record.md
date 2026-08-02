@@ -21,6 +21,18 @@
   8. 清理 `_disc16` 临时文件（已清理）。
 - 流程：Claude 全盘接受 codex 第十六轮裁决并落地为代码；本检查点
   `fdac72b` 提交后进入 codex 第十七轮双向讨论（讨论到一致后进入阶段③）。
+- **codex 第十七轮裁决（2026-08-03）**：仍**不通过"允许真实模型调用"Gate**，
+  但放行阶段③数据起草/离线准备；6 项 P0/P1 阻塞已全盘接受并落地（本检查点）：
+  P0-1 阈值语义（9/10、18/20 批内阈值 + 27/30 聚合 + 精确 batch 集合校验）、
+  P0-2 全链身份绑定（candidate/campaign/manifest/adapter）、
+  P0-3 逐 attempt receipt/HMAC 证据、P1-4 真实执行入口（重冻结 + registry）、
+  P1-5 migration chain、P1-6 清理 + 受控全量 integration gate。
+  放行条件原文（已全部完成，见 §6）："先补齐：精确 10/20 case-set 校验及
+  9/10、18/20、27/30 聚合；campaign/candidate/manifest/adapter 全链身份绑定；
+  逐 attempt receipt、端点、响应摘要、HMAC 和一致的成本口径；最终真实执行入口、
+  source closure、migration chain；清理未跟踪文件并完成一次受控的全量
+  integration gate。完成后，我可以放行'冻结数据集后的真实 Probe 评审'；
+  每次真实模型调用仍需用户单独批准。"
 - 关联：Phase 16 V9 批准记录 §7 第 7 项（2026-08-02 用户批准 15 CNY 总盘封装）
   的批准事实现由本记录承接；Phase 16 文件只保留引用。
 
@@ -108,22 +120,37 @@
 
 ## 6. 测试证据（2026-08-03，全部离线，无真实模型调用）
 
-- phase17 测试 **44 个全绿**：unit（契约不可变性 / 身份冻结 / 不可重签 /
-  dataset manifest 12 项）+ integration（contract 注册与准入 / 预算池预留与耗尽 /
-  结算与释放 / run 生命周期 / append-only / 反向隔离 / runner 端到端三路径
-  PASS·FAILED·BLOCKED / 身份不匹配联网前拒绝 / membership 校验先于账本写入）。
+- phase17 测试 **全绿（89 passed：unit 59 + integration 30）**：unit（契约不可变性 /
+  身份冻结 / 不可重签 / dataset manifest 12 项）+ integration（contract 注册与准入 /
+  预算池预留与耗尽 / 结算与释放 / run 生命周期 / append-only / 反向隔离 / runner
+  端到端三路径 PASS·FAILED·BLOCKED / 身份不匹配联网前拒绝 / membership 校验先于
+  账本写入）。
+- codex 第十七轮 6 项裁决全部落地并有测试证据：
+  - P0-1 阈值语义：9/10 达标即 PASS、8/10 FAILED、BLOCKED 优先；27/30 聚合器
+    （PASS / FAILED / BLOCKED 三路径）；精确 batch 集合校验（2 例子集、9+1 混合、
+    batch2 混入均先于账本写入拒绝）。
+  - P0-2 全链身份绑定：candidate policy_digest / model / endpoint / deadline 构造期
+    拒绝；campaign contract / dataset / candidate 三 digest 漂移在联网前拒绝。
+  - P0-3 逐 attempt 证据：`phase17_holdout_attempts` 20 行对账 case 聚合；
+    receipt_hmac 64 hex 由 ledger 内部计算、响应事实不同则 HMAC 不同；slot 重复 /
+    终态后追加 / UPDATE / DELETE 均被拒绝。
+  - P1-4 真实执行入口：`--execute` env 身份检查 + 预算预检 + 交互 APPROVE +
+    v5 adapter 装载 + 输入文件约定 + 池核对。
+  - P1-5 migration chain：`phase17_holdout_ledger` 已注册（required，dry-run 验证）。
 - 全量 unit 套件 **1725 passed**（基线 1713 + 新增 12）。
 - runner 端到端离线链（fake model port）证明：contract 准入 → campaign 预留 →
   run slot 冻结 → 逐 case Analyst→Planner 双阶段 → 终态判定 → 按实际成本结算；
   BLOCKED run 按 stage 预留最坏情况入账。
-- integration 全量待 codex 第十七轮 gate 通过后与本检查点一并复核。
+- **受控全量 integration gate 待 codex 第十八轮确认后与本检查点一并复核**。
 
 ## 7. 批准项清单（用户逐项确认后本记录生效）
 
 1. **Phase 17 执行契约 `PHASE17_HOLDOUT_EXECUTION_V1` 批准**（manifest
-   `phase17-holdout-execution-v1.json`，contract_digest `c2dc8b02...`，
+   `phase17-holdout-execution-v1.json`，contract_digest `59c618c6...`，
    `WIRED_INTO_RUNTIME`）：作为阶段③ holdout 30 例的唯一执行依据；
-   v2/v3 manifest 零改动。
+   v2/v3 manifest 零改动。**digest 变更记录**：`c2dc8b02...`（16 轮冻结）→
+   `59c618c6...`（17 轮裁决吸收后重冻结：holdout_batches 阈值键 `pass_min`、
+   source closure 14 路径 digest 重算）；registry 同步更新并经用户确认。
 2. **15 CNY 总盘预算封装**（2026-08-02 对话批准，承接 Phase 16 V9 批准记录 §7
    第 7 项）：`project_budget_cny = 15.000000`（含历史 6.604131）、
    `forward_budget_remaining_cny = 8.395869`；阶段③任何 run 不越过该封装。
