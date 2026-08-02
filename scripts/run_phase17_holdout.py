@@ -32,16 +32,28 @@ from src.decision_support.phase16_qualification import (  # noqa: E402
     admit_phase17_holdout_execution,
     load_phase17_holdout_execution_contract,
 )
+from src.decision_support.phase17_approved_digest import (  # noqa: E402
+    PHASE17_APPROVED_CONTRACT_DIGEST,
+)
 
 
 def _probe() -> int:
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     print(f"[phase17] contract_id={contract.contract_id} digest={contract.contract_digest}")
+    print(f"[phase17] approved_registry_digest={PHASE17_APPROVED_CONTRACT_DIGEST}")
     print(f"[phase17] parent_v3={contract.parent_v3_evaluation_digest[:12]}...")
     print(
         f"[phase17] budget project={contract.project_budget_cny} "
         f"retrospective={contract.retrospective_budget_actual_cny} "
         f"forward_remaining={contract.forward_budget_remaining_cny}"
+    )
+    identity = contract.identity_requirements
+    print(
+        f"[phase17] identity provider={identity['provider_id']} "
+        f"model={identity['model_id']} endpoints={','.join(identity['endpoint_hosts'])} "
+        f"reasoning={identity['reasoning_effort']} json_mode={identity['json_mode']} "
+        f"tokens={identity['max_total_tokens']}/{identity['max_output_tokens']} "
+        f"deadline={identity['per_attempt_deadline_seconds']}s"
     )
     batches = ", ".join(f"batch{b['batch_index']}:{b['case_count']}" for b in contract.holdout_batches)
     print(

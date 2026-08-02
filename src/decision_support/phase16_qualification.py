@@ -22,6 +22,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.decision_support.models import ConflictRiskCode
+from src.decision_support.phase17_approved_digest import PHASE17_APPROVED_CONTRACT_DIGEST
 from src.specialist_runtime.models import canonical_json_sha256
 
 
@@ -795,6 +796,19 @@ PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT = 30
 PHASE17_HOLDOUT_BATCHES: tuple[tuple[int, int], ...] = ((1, 10), (2, 20))
 PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN = 27
 PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE = True
+#: Phase 17 执行身份固定值（与 candidate bundle 声明一致 + v3 retry 语义一致）：
+#: 运行时 candidate/adapter 构造必须与这些值精确一致，否则 fail-closed。
+PHASE17_IDENTITY_REQUIREMENTS: dict[str, object] = {
+    "provider_id": "synapse-ai",
+    "model_id": "gpt-5.6-luna",
+    "endpoint_hosts": ("synapse-ai.uk",),
+    "reasoning_effort": None,
+    "json_mode": True,
+    "max_total_tokens": 8000,
+    "max_output_tokens": 2800,
+    "per_attempt_deadline_seconds": 90,
+    "max_case_cost_cny": "0.100000",
+}
 #: Phase 17 契约的 source closure；任何成员源码变化都必须以新 contract digest 重新冻结。
 PHASE17_HOLDOUT_SOURCE_CLOSURE_PATHS: tuple[str, ...] = (
     "src/decision_support/phase16_qualification.py",
@@ -805,6 +819,9 @@ PHASE17_HOLDOUT_SOURCE_CLOSURE_PATHS: tuple[str, ...] = (
     "src/decision_support/controlled_e2e_adapter_v5.py",
     "src/decision_support/multi_agent.py",
     "src/decision_support/models.py",
+    "src/decision_support/phase17_holdout_dataset.py",
+    "src/decision_support/phase17_holdout_ledger.py",
+    "src/decision_support/phase17_holdout_runner.py",
     "src/specialist_runtime/models.py",
     "src/specialist_runtime/profiles.py",
     "scripts/run_phase17_holdout.py",
@@ -861,6 +878,7 @@ class Phase17HoldoutExecutionContract(BaseModel):
     holdout_total_e2e_pass_min: int = Field(..., ge=27, le=30)
     critical_safety_zero_failure: bool = True
     dataset_identity_constraints: dict[str, object]
+    identity_requirements: dict[str, object]
     hard_safety_requirements: tuple[str, ...]
     semantic_metric_requirements: tuple[str, ...]
     source_file_digests: dict[str, str]
@@ -897,6 +915,12 @@ class Phase17HoldoutExecutionContract(BaseModel):
             raise ValueError(f"phase17 dataset identity constraints incomplete: {', '.join(missing)}")
         if self.forward_budget_remaining_cny + self.retrospective_budget_actual_cny > self.project_budget_cny:
             raise ValueError("phase17 budget envelope is over-committed")
+        normalized_identity = {
+            key: (tuple(value) if isinstance(value, list) else value)
+            for key, value in self.identity_requirements.items()
+        }
+        if normalized_identity != PHASE17_IDENTITY_REQUIREMENTS:
+            raise ValueError("phase17 execution identity requirements are frozen and cannot be overridden")
         if len(self.hard_safety_requirements) != len(set(self.hard_safety_requirements)):
             raise ValueError("phase17 hard safety requirements must be unique")
         if len(self.semantic_metric_requirements) != len(set(self.semantic_metric_requirements)):
@@ -933,6 +957,11 @@ def load_phase17_holdout_execution_contract(*, repository_root: Path) -> Phase17
     contract = Phase17HoldoutExecutionContract.model_validate(payload)
     if contract.source_file_digests != phase17_holdout_source_file_digests(repository_root=repository_root):
         raise ValueError("phase17 execution contract source closure does not match current implementation")
+    if contract.contract_digest != PHASE17_APPROVED_CONTRACT_DIGEST:
+        raise ValueError(
+            "phase17 execution contract digest is not the approved registry digest "
+            "(tampered or unapproved parameter change; registry update requires user approval)"
+        )
     return contract
 
 
@@ -948,6 +977,10 @@ def admit_phase17_holdout_execution(
     """
 
     reasons: list[str] = []
+    # 类型守卫：传入 v2/v3 policy 或其他对象时优雅拒绝，而不是 AttributeError。
+    if not isinstance(contract, Phase17HoldoutExecutionContract):
+        reasons.append("CONTRACT_TYPE_MISMATCH")
+        return (False, tuple(sorted(set(reasons))))
     if requested_identity not in {item.value for item in QualificationExecutionContract}:
         reasons.append("UNKNOWN_EXECUTION_IDENTITY")
     if requested_identity != QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1:

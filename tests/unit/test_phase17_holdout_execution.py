@@ -57,7 +57,12 @@ def test_phase17_contract_loads_and_self_authenticates() -> None:
 def test_phase17_contract_digest_rejects_tampering(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """改动任意 payload 字段必须导致 contract_digest 校验失败（参数变化需新 digest）。"""
+    """改动任意 payload 字段必须导致 contract_digest 校验失败（参数变化需新 digest）。
+
+    codex 十六轮 P0 修正：contract digest 不可任意重签——即使攻击者重算
+    digest 使 payload 自洽，approved registry 也拒绝加载（registry 更新
+    必须显式修改 PHASE17_APPROVED_CONTRACT_DIGEST 并经用户批准）。
+    """
     payload = _load_contract()
     payload["parent_v3_evaluation_digest"] = "a" * 64  # 试探：篡改父契约引用（仍为合法 hex，原 digest 失配）
     monkeypatch.setattr(
@@ -66,10 +71,41 @@ def test_phase17_contract_digest_rejects_tampering(
     )
     with pytest.raises(ValueError, match="digest does not match"):
         load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
-    # 重新生成正确 digest 后必须能通过（模拟合法的重冻结路径）
+    # 重算 digest 使 payload 自洽 → 仍必须被 approved registry 拒绝（不可重签）
     payload.pop("contract_digest", None)
     payload["contract_digest"] = canonical_json_sha256(payload)
-    _ = Phase17HoldoutExecutionContract.model_validate(payload)
+    monkeypatch.setattr(
+        "src.decision_support.phase16_qualification.PHASE17_HOLDOUT_EXECUTION_CONTRACT_PATH",
+        _write_contract(tmp_path, payload),
+    )
+    with pytest.raises(ValueError, match="not the approved registry digest"):
+        load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+
+
+def test_phase17_identity_requirements_are_frozen() -> None:
+    """模型/渠道/reasoning/deadline/token 上限必须作为契约字段冻结（codex 十六轮 P0）。"""
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    identity = contract.identity_requirements
+    assert identity["provider_id"] == "synapse-ai"
+    assert identity["model_id"] == "gpt-5.6-luna"
+    assert identity["endpoint_hosts"] == ["synapse-ai.uk"]
+    assert identity["reasoning_effort"] is None
+    assert identity["json_mode"] is True
+    assert identity["max_total_tokens"] == 8000
+    assert identity["max_output_tokens"] == 2800
+    assert identity["per_attempt_deadline_seconds"] == 90
+    assert identity["max_case_cost_cny"] == "0.100000"
+
+
+def test_phase17_identity_drift_rejected_even_with_resigned_digest() -> None:
+    """身份字段被改动后即使重签 digest，model 层也必须拒绝（冻结校验在 digest 之外）。"""
+    payload = _load_contract()
+    del payload["contract_digest"]
+    payload["identity_requirements"] = dict(payload["identity_requirements"])
+    payload["identity_requirements"]["model_id"] = "deepseek-v4-pro"
+    payload["contract_digest"] = canonical_json_sha256(payload)
+    with pytest.raises(ValueError, match="identity requirements are frozen"):
+        Phase17HoldoutExecutionContract.model_validate(payload)
 
 
 def test_phase17_contract_rejects_source_closure_drift(
