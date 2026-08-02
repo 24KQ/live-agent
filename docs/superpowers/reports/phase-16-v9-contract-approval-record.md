@@ -18,6 +18,17 @@
   policy 行锁事务边界、v3/forward draft 仅剩非执行声明后，正式裁决
   **`V9_RETROSPECTIVE_EVALUATION_CLOSED`**（契约与证据内容闭合；保留声明：
   原始 V5 未通过；V9 不代表生产就绪，不包含 holdout 泛化验证）。
+- codex 第七轮 E2E 效果评估（2026-08-02）：只读复核真实模型 12 runs（8 PASS /
+  4 FAILED）、271 receipts / 6.604131 CNY / 1,894,873 tokens / 332 attempts、
+  门禁全绿后确认**证据链充分**，准确结论措辞：
+  > V9 回溯评价证据链已基本闭合，可标记 `V9_RETROSPECTIVE_EVALUATION_CLOSED`；
+  > 它证明的是开发/验证阶段的受控集成与工程行为，不代表生产就绪、holdout
+  > 通过或原始 V5 PASS。
+  保留边界：failover 为本机注入证据（非自然 provider 故障）；429/5xx/deadline
+  无真实触发样本；46 条 legacy receipt 身份不可验证；holdout 30 例未执行；
+  使用 gpt-5.6-terra/high 及第三方渠道链（非原始 DeepSeek V5 契约）；无相对
+  确定性基线的业务 KPI 提升证明；默认路由仍 `DETERMINISTIC_ONLY` 故无生产自动
+  经营效果证据。「7 指标 12/12」仅指**每个通过 run/campaign 内部**。
 - 依据账本：`phase16_qualification_*`（PostgreSQL append-only），核验查询仅 SELECT、
   `.env` 凭据 load-into-process 不落盘不打印（2026-08-02 执行）。
 

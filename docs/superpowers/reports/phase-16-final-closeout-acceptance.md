@@ -63,7 +63,8 @@ V5 adapter 有三类可重试 / 换端路径，**真实模型证据只覆盖其�
   - 声明组合（vote520 优先）→ 合法新 campaign_id（同 digest 异组合）
 - Run: `phase16-development-1b4323655808df44-d90f9f3d7fec454b-20260801T140424`
 - Status: `PASS`（EXECUTION_COMPLETE），E2E_MULTI_AGENT_READY `12/12`，其余指标
-  12/12，ledger authenticated = `True`
+  12/12（**该 run 内部口径**；12 个 run 整体为 8 PASS / 4 FAILED），
+  ledger authenticated = `True`
 - Assessment digest: `b3f56d1f09a57c78df08552c...`；evaluation digest
   `da5e76328280a901...`
 - Receipt 分布（账本查询，24/24 行）：
@@ -182,7 +183,7 @@ FAILED 均为 development 预案 run（基础设施瞬态 / 上游内容级失�
 
 - 针对性回归（本次）：`63 passed`（V5 adapter 重试/failover 单测 + ledger 身份
   单测 + 5 项 ledger 集成测试，含 2 个新增 schema 回归用例）
-- 全量单测：unit `1702 passed`；integration `250 passed`（7 deselected）
+- 全量单测：unit `1703 passed`；integration `250 passed`（7 deselected）
 - Coverage gate：`PASS`（line 92.03% ≥ 90，branch 85.24% ≥ 85，closure 匹配）
 - Release gate（--mode pr）：`PASS`（technical 36/36，零 phase16 引用，
   external_calls = false）
