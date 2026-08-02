@@ -11,7 +11,7 @@
   （本报告统计已按账本核验修正：271 receipts / 全精度 6.604131）
 - 审阅起点：`docs/superpowers/handoffs/2026-07-29-phase16-v5-claude-code-handoff.md`
   （commit `d60ebd4` / `b1a11ac` / `27d20b4`，2026-07-29）
-- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`194e081`，19 个移交后 commit）
+- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`c8abf49`，24 个移交后 commit）
 - 复验方式：本报告所有 commit / 文件 / digest / 账本数字均可对照仓库与
   PostgreSQL append-only 账本逐项复核；真实模型证据见
   `docs/superpowers/reports/phase-16-final-closeout-acceptance.md`
@@ -184,7 +184,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 ### 3.8 尚未执行项：PR gate（契约 B 项）
 
 - 契约：推送分支、创建 PR、远端 Gate 全绿后才可申请校准
-- 实际：分支 19 个 commit 已提交但**从未创建 PR**；本地等价门禁全绿
+- 实际：分支 24 个 commit 已提交但**从未创建 PR**；本地等价门禁全绿
   （第 6 节），远端 GitHub Actions 未跑过
 - 状态：这是收尾的**下一步**（第 9 节），不把本地结果写成远端已通过
 
@@ -203,12 +203,13 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 - 原契约命令路径（`--execute-calibration` / `--execute-formal`）**从未以原形式执行**；
   最终证据全部由 qualification campaign 体系产出（用户批准，见 3.1/3.7）
 
-## 4. Claude 工作详解（19 个 commit，6 个主题块）
+## 4. Claude 工作详解（24 个 commit，6 个主题块）
 
-移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 19 个 commit
+移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 24 个 commit
 均为 Claude 的工作，按时间正序为：`70836ab` → `fce4722` → `ef15d4d` → `02749a5` →
 `e664edc` → `57aaa5e` → `5417de7` → `5b194a6` → `22d0b93` → `7448b40` → `e0b6f55` →
-`03644a5` → `d4d4b25` → `41497ea` → `63539d7` → `1b54346` → `b903304`。
+`03644a5` → `d4d4b25` → `41497ea` → `63539d7` → `1b54346` → `b903304` → `42548ed` →
+`194e081` → `55d28ab` → `e3757ca` → `407b43c` → `9d03b30` → `c8abf49`。
 
 ### 4.1 V1 smoke 账本身份对齐与 digest 自愈（02749a5, e664edc, 57aaa5e, 5417de7, 5b194a6）
 
@@ -368,7 +369,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
    Acceptance 写入 PASS 终态
 3. 按用户此前明确指示：**merge 是最后一步，等待用户审批**，本报告不触发任何 merge
 
-## 附录 A：commit 边界表（27d20b4 之后，19 个）
+## 附录 A：commit 边界表（27d20b4 之后，24 个）
 
 | hash | 说明 | 改动范围 |
 |:--|:--|:--|
@@ -389,6 +390,13 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 | 63539d7 | chore: refreeze assets for per-attempt 90s channel window | 5 个 manifest/acceptance |
 | 1b54346 | feat: fold declared model/effort/channel combo into campaign identity | ledger.py（65 行）+ identity 验收文档（122 行）+ PG 测试 + probe 证据 |
 | b903304 | fix: converge campaigns unique constraint onto campaign-id identity | 迁移 SQL + closeout 文档（189 行）+ 2 probe JSON + PG 测试 69 行 |
+| 42548ed | docs: report phase16 v5 closeout work for codex review | 工作报告（~360 行）+ 复核重点 R1-R10 |
+| 194e081 | docs: refine phase16 closeout work report for codex review | 工作报告修订（commit 数/证据索引/诚实边界） |
+| 55d28ab | docs: formalize V9 qualification contract and correct ledger stats | v3 policy JSON + approval record + report/acceptance 同步（11 处修正） |
+| e3757ca | docs: add llm stable json output experience sharing guide | 经验分享文档（642 行，docs/experiences/） |
+| 407b43c | feat: enforce maximum development candidates at runtime in ledger | ledger.py 上限检查 + PG 集成测试（91 行） |
+| 9d03b30 | feat: three-role digests and budget balance in v3 contract | v3 JSON 字段重命名 + 预算余额 + 闭包哈希刷新，digest f286114f |
+| c8abf49 | feat: commit read-only ledger export verifier and 13/12 mapping evidence | 复验脚本（175 行）+ approval record §4.3/§5.1/§6 补充 |
 
 ## 附录 B：证据与文档索引
 
