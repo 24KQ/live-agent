@@ -5,8 +5,10 @@
 - 报告日期：2026-08-01
 - 修订：2026-08-02（补跑契约 A 项门禁并修正 §6 声明；补充模型切换失败形态对比
   §3.5a、原始 V5 实现文件状态 §3.9、FAILED run 归因表 §5.2、复核点 R11/R12）
-- 修订：2026-08-02（codex 第六轮终审对齐：清理临时文件，HEAD 同步至 `b602290`，
-  §4/附录 A commit 计数修正为 27，正式裁决 `V9_RETROSPECTIVE_EVALUATION_CLOSED`）
+- 修订：2026-08-02（codex 第六轮终审对齐：清理临时文件，正式裁决
+  `V9_RETROSPECTIVE_EVALUATION_CLOSED` 入档 approval record/acceptance/work
+  report；HEAD 同步至 `d730fda`，§4/附录 A commit 计数修正为 28，
+  报告与 HEAD 一致）
 - V9 契约（2026-08-02）：与 codex 多轮讨论后定稿，正式化为
   `evaluation/manifests/phase16-qualification-policy-v3.json`（**纯回溯评价契约**，
   digest `75319a4a...`，codex 第 5 轮确认收敛）与
@@ -14,7 +16,7 @@
   （本报告统计已按账本核验修正：271 receipts / 全精度 6.604131）
 - 审阅起点：`docs/superpowers/handoffs/2026-07-29-phase16-v5-claude-code-handoff.md`
   （commit `d60ebd4` / `b1a11ac` / `27d20b4`，2026-07-29）
-- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`b602290`，27 个移交后 commit）
+- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`d730fda`，28 个移交后 commit）
 - 复验方式：本报告所有 commit / 文件 / digest / 账本数字均可对照仓库与
   PostgreSQL append-only 账本逐项复核；真实模型证据见
   `docs/superpowers/reports/phase-16-final-closeout-acceptance.md`
@@ -206,14 +208,14 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 - 原契约命令路径（`--execute-calibration` / `--execute-formal`）**从未以原形式执行**；
   最终证据全部由 qualification campaign 体系产出（用户批准，见 3.1/3.7）
 
-## 4. Claude 工作详解（27 个 commit，6 个主题块）
+## 4. Claude 工作详解（28 个 commit，6 个主题块）
 
-移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 27 个 commit
+移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 28 个 commit
 均为 Claude 的工作，按时间正序为：`70836ab` → `fce4722` → `ef15d4d` → `02749a5` →
 `e664edc` → `57aaa5e` → `5417de7` → `5b194a6` → `22d0b93` → `7448b40` → `e0b6f55` →
 `03644a5` → `d4d4b25` → `41497ea` → `63539d7` → `1b54346` → `b903304` → `42548ed` →
 `194e081` → `55d28ab` → `e3757ca` → `407b43c` → `9d03b30` → `c8abf49` → `93755a0` →
-`6e9529a` → `b602290`。
+`6e9529a` → `b602290` → `d730fda`。
 
 ### 4.1 V1 smoke 账本身份对齐与 digest 自愈（02749a5, e664edc, 57aaa5e, 5417de7, 5b194a6）
 
@@ -373,7 +375,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
    Acceptance 写入 PASS 终态
 3. 按用户此前明确指示：**merge 是最后一步，等待用户审批**，本报告不触发任何 merge
 
-## 附录 A：commit 边界表（27d20b4 之后，27 个）
+## 附录 A：commit 边界表（27d20b4 之后，28 个）
 
 | hash | 说明 | 改动范围 |
 |:--|:--|:--|
@@ -404,6 +406,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 | 93755a0 | docs: sync work report commit count to HEAD (24 since handoff) | 工作报告 §4/附录 A commit 计数同步 |
 | 6e9529a | feat: converge v3 to pure retrospective contract; fix dev-cap race | v3 JSON 定位收敛（policy_role/observed+deferred/retrospective_observations/forward_contract_draft）+ ledger 行锁串行化 + 并发测试 + approval record §2/§3/§4.3/§7 同步 |
 | b602290 | test: restore unit suite over v2 closure drift via frozen-snapshot fixture | 单测 frozen-snapshot fixture + fail-closed 漂移断言测试（全量 1703 passed） |
+| d730fda | docs: record codex round-6 verdict and sync report HEAD to b602290 | 终审裁决 `V9_RETROSPECTIVE_EVALUATION_CLOSED` 入档 approval record §0/§7 + acceptance banner + work report §4/附录 A |
 
 ## 附录 B：证据与文档索引
 
