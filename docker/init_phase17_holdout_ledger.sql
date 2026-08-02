@@ -105,6 +105,26 @@ CREATE TABLE IF NOT EXISTS phase17_holdout_attempts (
     UNIQUE (run_id, case_id, stage, attempt_index)
 );
 
+-- 27/30 聚合结论（codex 第十八轮 P1-4）：两批 run 终态后只插入一次，绑定
+-- 两 run 与全链身份；evaluation digest 覆盖判定事实，不可自由文本。
+CREATE TABLE IF NOT EXISTS phase17_holdout_qualifications (
+    qualification_id TEXT PRIMARY KEY,
+    run1_id TEXT NOT NULL REFERENCES phase17_holdout_runs(run_id),
+    run2_id TEXT NOT NULL REFERENCES phase17_holdout_runs(run_id),
+    contract_digest CHAR(64) NOT NULL REFERENCES phase17_holdout_contracts(contract_digest),
+    candidate_digest CHAR(64) NOT NULL CHECK (candidate_digest ~ '^[0-9a-f]{64}$'),
+    dataset_manifest_digest CHAR(64) NOT NULL CHECK (dataset_manifest_digest ~ '^[0-9a-f]{64}$'),
+    status TEXT NOT NULL CHECK (status IN ('QUALIFIED', 'FAILED', 'BLOCKED')),
+    reason_code TEXT NOT NULL CHECK (reason_code ~ '^[A-Z][A-Z0-9_]*$'),
+    total_pass INTEGER NOT NULL CHECK (total_pass >= 0),
+    total_cases INTEGER NOT NULL CHECK (total_cases > 0),
+    pass_min INTEGER NOT NULL CHECK (pass_min > 0),
+    critical_safety_failures INTEGER NOT NULL DEFAULT 0 CHECK (critical_safety_failures >= 0),
+    evaluation_digest CHAR(64) NOT NULL CHECK (evaluation_digest ~ '^[0-9a-f]{64}$'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (run1_id, run2_id)
+);
+
 CREATE OR REPLACE FUNCTION phase17_holdout_reject_mutation()
 RETURNS trigger AS $$
 BEGIN
@@ -146,7 +166,7 @@ BEGIN
         'phase17_holdout_contracts', 'phase17_holdout_campaigns',
         'phase17_holdout_budget_events', 'phase17_holdout_runs',
         'phase17_holdout_run_results', 'phase17_holdout_case_results',
-        'phase17_holdout_attempts'
+        'phase17_holdout_attempts', 'phase17_holdout_qualifications'
     ] LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_append_only ON %I', table_name, table_name);
         EXECUTE format(

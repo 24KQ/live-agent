@@ -59,6 +59,11 @@ from src.specialist_runtime.model_port import (
 from src.specialist_runtime.models import (
     SpecialistTaskKind,
 )
+from src.specialist_runtime.phase17_v5_adapter import (
+    Phase17AdapterOutcome,
+    Phase17AttemptDetail,
+    phase17_adapter_digest,
+)
 from src.specialist_runtime.profiles import SpecialistProfile
 
 
@@ -142,7 +147,8 @@ def _bundle(
         "endpoint_host": endpoint_host,
         "analyst_profile_digest": analyst.profile_digest,
         "planner_profile_digest": planner.profile_digest,
-        "adapter_digest": "f" * 64,
+        # 18 轮后 runner 校验 adapter digest 必须等于当前 phase17 adapter 源码 digest。
+        "adapter_digest": phase17_adapter_digest(repository_root=_PROJECT_ROOT),
     }
     candidate = QualificationCandidate(
         candidate_id=payload["candidate_id"],
@@ -206,31 +212,87 @@ class _ScriptedModelPort:
                 if stage == "ANALYST"
                 else {"risk_codes": ["RISK_PRICE_DRIFT"], "proposal": {"action": "HOLD"}}
             )
-            return ModelSuccess(
-                request_id=request.request_id,
-                model_id=request.model_id,
-                output=output,
-                usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
-                response_digest="a" * 64,
-                latency_ms=Decimal("0"),
-                endpoint_host=request.endpoint_host,
+            return Phase17AdapterOutcome(
+                outcome=ModelSuccess(
+                    request_id=request.request_id,
+                    model_id=request.model_id,
+                    output=output,
+                    usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
+                    response_digest="a" * 64,
+                    latency_ms=Decimal("0"),
+                    endpoint_host=request.endpoint_host,
+                ),
+                attempt_details=(),
             )
         if kind == "SEMANTIC_FAIL":
             # 已联网但结构校验失败（如 planner 未产出 risk_codes）。
-            return ModelSuccess(
-                request_id=request.request_id,
-                model_id=request.model_id,
-                output={"proposal": {"action": "HOLD"}},
-                usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
-                response_digest="b" * 64,
-                latency_ms=Decimal("0"),
-                endpoint_host=request.endpoint_host,
+            return Phase17AdapterOutcome(
+                outcome=ModelSuccess(
+                    request_id=request.request_id,
+                    model_id=request.model_id,
+                    output={"proposal": {"action": "HOLD"}},
+                    usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
+                    response_digest="b" * 64,
+                    latency_ms=Decimal("0"),
+                    endpoint_host=request.endpoint_host,
+                ),
+                attempt_details=(),
             )
         if kind == "BLOCK":
-            return ModelFailure(
-                request_id=request.request_id,
-                category=ModelFailureCategory.TRANSPORT_ERROR,
-                request_sent=False,
+            return Phase17AdapterOutcome(
+                outcome=ModelFailure(
+                    request_id=request.request_id,
+                    category=ModelFailureCategory.TRANSPORT_ERROR,
+                    request_sent=False,
+                ),
+                attempt_details=(),
+            )
+        if kind == "RETRY_OK":
+            # 18 轮 P0-3：第一次网络尝试失败（TRANSPORT_ERROR）后同端点重试成功，
+            # 返回 attempt_details 两行（FAILED → PASS）验证逐 attempt 入账。
+            return Phase17AdapterOutcome(
+                outcome=ModelSuccess(
+                    request_id=request.request_id,
+                    model_id=request.model_id,
+                    output=(
+                        {"trigger_codes": ["PRICE_CONFLICT"], "analysis": {"severity": "HIGH"}}
+                        if request.messages[-1].content.startswith("input-")
+                        else {"risk_codes": ["RISK_PRICE_DRIFT"], "proposal": {"action": "HOLD"}}
+                    ),
+                    usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
+                    response_digest="c" * 64,
+                    latency_ms=Decimal("0"),
+                    endpoint_host=request.endpoint_host,
+                    attempts=2,
+                ),
+                attempt_details=(
+                    Phase17AttemptDetail(
+                        attempt_index=1,
+                        endpoint_host=request.endpoint_host,
+                        outcome="FAILED",
+                        category=ModelFailureCategory.TRANSPORT_ERROR,
+                        http_status=None,
+                        latency_ms=Decimal("0"),
+                        response_digest=None,
+                        provider_response_id=None,
+                        input_tokens=None,
+                        output_tokens=None,
+                        total_tokens=None,
+                    ),
+                    Phase17AttemptDetail(
+                        attempt_index=2,
+                        endpoint_host=request.endpoint_host,
+                        outcome="PASS",
+                        category=None,
+                        http_status=None,
+                        latency_ms=Decimal("0"),
+                        response_digest="c" * 64,
+                        provider_response_id="retry-ok-receipt",
+                        input_tokens=1000,
+                        output_tokens=500,
+                        total_tokens=1500,
+                    ),
+                ),
             )
         raise AssertionError(f"unexpected plan entry: {kind}")
 
@@ -709,15 +771,25 @@ def test_phase17_aggregate_26_of_30_failed(runner_env) -> None:
 def test_phase17_aggregate_blocked_wins_over_threshold(runner_env) -> None:
     """BLOCKED 优先（inconclusive）：任一批 BLOCKED 即聚合 BLOCKED，不进入达标判定。"""
     batch1 = Phase17HoldoutRunReport(
-        campaign_id="c-1", run_id="r-1", status="PASS",
+        campaign_id="c-1", run_id="r-1", batch_index=1,
+        contract_digest=runner_env.contract.contract_digest,
+        dataset_manifest_digest=runner_env.manifest.manifest_digest,
+        candidate_digest="c" * 64,
+        status="PASS",
         reason_codes=("EXECUTION_COMPLETE",),
         pass_count=10, pass_min=9, total=10,
+        critical_safety_failures=0,
         cost_cny=Decimal("0.120000"), case_executions=(),
     )
     batch2 = Phase17HoldoutRunReport(
-        campaign_id="c-2", run_id="r-2", status="BLOCKED",
+        campaign_id="c-2", run_id="r-2", batch_index=2,
+        contract_digest=runner_env.contract.contract_digest,
+        dataset_manifest_digest=runner_env.manifest.manifest_digest,
+        candidate_digest="c" * 64,
+        status="BLOCKED",
         reason_codes=("MODEL_OUTCOME_UNAVAILABLE",),
         pass_count=0, pass_min=18, total=20,
+        critical_safety_failures=0,
         cost_cny=Decimal("1.000000"), case_executions=(),
     )
     aggregate = aggregate_phase17_holdout_reports(
@@ -727,3 +799,182 @@ def test_phase17_aggregate_blocked_wins_over_threshold(runner_env) -> None:
     assert aggregate.reason_codes == ("PHASE17_HOLDOUT_AGGREGATE_BLOCKED",)
     assert aggregate.total_pass == 10
     assert aggregate.batch_statuses == ("PASS", "BLOCKED")
+
+
+def test_phase17_critical_safety_zero_failure_enforced(runner_env) -> None:
+    """18 轮 P0-1：9 PASS + 1 analyst 失败 → 通过率达标但关键安全红线触发 FAILED。
+
+    证明 critical safety 与 9/10 阈值是两条独立线：analyst 未产出可用证据
+    （ANALYST_VALIDATION_FAILED）即使 pass 数达标也必须 FAILED。
+    """
+    plan = ("PASS",) * 18 + ("SEMANTIC_FAIL",)  # case10 analyst 结构失败 → 短路
+    report = _execute(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(plan),
+        ),
+        runner_env,
+        _batch_one_cases(runner_env.manifest),
+    )
+    assert report.pass_count == 9
+    assert report.critical_safety_failures == 1
+    assert report.status == "FAILED"
+    # reason_codes 是 case 级失败原因集合；run 级红线 reason 在账本终态行。
+    assert report.reason_codes == ("ANALYST_VALIDATION_FAILED",)
+    run_row = _query(
+        runner_env.settings,
+        "SELECT status, reason_code FROM phase17_holdout_run_results WHERE run_id=%s",
+        (_RUN_ID,),
+    )
+    assert run_row[0]["status"] == "FAILED"
+    assert run_row[0]["reason_code"] == "PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE_VIOLATED"
+
+
+def test_phase17_critical_safety_blocked_wins_over_critical(runner_env) -> None:
+    """18 轮 P0-1：BLOCKED 优先——critical 失败与 BLOCKED 并存时终态为 BLOCKED。"""
+    plan = ("BLOCK",) + ("PASS",) * 18  # case1 analyst pre-send 失败 → 短路
+    report = _execute(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(plan),
+        ),
+        runner_env,
+        _batch_one_cases(runner_env.manifest),
+    )
+    assert report.critical_safety_failures == 0
+    assert report.status == "BLOCKED"
+    # case 级失败集合是 MODEL_OUTCOME_UNAVAILABLE；run 级 BLOCKED reason 在账本。
+    assert report.reason_codes == ("MODEL_OUTCOME_UNAVAILABLE",)
+    run_row = _query(
+        runner_env.settings,
+        "SELECT status, reason_code FROM phase17_holdout_run_results WHERE run_id=%s",
+        (_RUN_ID,),
+    )
+    assert run_row[0]["status"] == "BLOCKED"
+    assert run_row[0]["reason_code"] == "PHASE17_HOLDOUT_HARD_BLOCKED"
+
+
+def test_phase17_attempt_rows_per_network_attempt(runner_env) -> None:
+    """18 轮 P0-3：重试后成功 → 每次网络 attempt 独立一行；中间失败行 0 成本、
+    最终成功行按 usage 定价；receipt_count 对账真实行数而非 stage 数。"""
+    report = _execute(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(("RETRY_OK",) * 20),
+        ),
+        runner_env,
+        _batch_one_cases(runner_env.manifest),
+    )
+    assert report.status == "PASS"
+    # 20 次调用 × 2 attempt = 40 行；每行最终 PASS usage (1000,500) → 0.006。
+    assert report.cost_cny == Decimal("0.120000")
+    rows = _query(
+        runner_env.settings,
+        """SELECT case_id, stage, attempt_index, outcome, cost_cny, receipt_hmac
+             FROM phase17_holdout_attempts
+            ORDER BY case_id, stage, attempt_index""",
+    )
+    assert len(rows) == 40
+    for index in range(0, len(rows), 2):
+        assert rows[index]["outcome"] == "FAILED"
+        assert rows[index]["cost_cny"] == Decimal("0")
+        assert rows[index]["attempt_index"] == 1
+        assert rows[index + 1]["outcome"] == "PASS"
+        assert rows[index + 1]["cost_cny"] == Decimal("0.006000")
+        assert rows[index + 1]["attempt_index"] == 2
+        assert rows[index]["receipt_hmac"] != rows[index + 1]["receipt_hmac"]
+        assert len(rows[index]["receipt_hmac"]) == 64
+    # 每 case 每 stage 的真实 receipt 数为 2，非 stage 数 1。
+    case_rows = _query(
+        runner_env.settings,
+        "SELECT receipt_count FROM phase17_holdout_case_results ORDER BY case_id",
+    )
+    assert [row["receipt_count"] for row in case_rows] == [4] * 10
+
+
+def test_phase17_attempt_unknown_usage_last_row_reservation(runner_env) -> None:
+    """18 轮 P0-3 + cost bug：全网络失败无 usage → 每 stage 一行记 stage 级预留
+    全额（0.1），绝不使用 campaign 级预留（多 case 失败不得重复全额占用池）。"""
+    report = _execute(
+        Phase17HoldoutCampaignRunner(
+            contract=runner_env.contract,
+            ledger=runner_env.ledger,
+            candidate_bundle=runner_env.bundle,
+            model_port=_ScriptedModelPort(("BLOCK",) * 10),
+        ),
+        runner_env,
+        _batch_one_cases(runner_env.manifest),
+    )
+    assert report.status == "BLOCKED"
+    assert report.cost_cny == Decimal("1.000000")  # 10 analyst 行 × 0.1 stage 预留
+    rows = _query(
+        runner_env.settings,
+        "SELECT stage, cost_cny FROM phase17_holdout_attempts ORDER BY case_id",
+    )
+    assert len(rows) == 10
+    assert all(row["stage"] == "ANALYST" for row in rows)
+    assert all(row["cost_cny"] == Decimal("0.100000") for row in rows)
+
+
+def test_phase17_aggregate_identity_checks(runner_env) -> None:
+    """18 轮 P0-1：聚合前身份校验——batch 归属、contract/dataset/candidate
+    身份任一漂移或缺失都必须拒绝，防伪造 report。"""
+    base = dict(
+        campaign_id="c-1",
+        run_id="r-1",
+        batch_index=1,
+        contract_digest=runner_env.contract.contract_digest,
+        dataset_manifest_digest=runner_env.manifest.manifest_digest,
+        candidate_digest="c" * 64,
+        status="PASS",
+        reason_codes=("EXECUTION_COMPLETE",),
+        pass_count=10,
+        pass_min=9,
+        total=10,
+        critical_safety_failures=0,
+        cost_cny=Decimal("0.120000"),
+        case_executions=(),
+    )
+    batch1 = Phase17HoldoutRunReport(**base)
+    batch2 = Phase17HoldoutRunReport(
+        **{**base, "campaign_id": "c-2", "run_id": "r-2", "batch_index": 2,
+           "pass_count": 18, "pass_min": 18, "total": 20}
+    )
+    with pytest.raises(Phase17HoldoutExecutionError):
+        aggregate_phase17_holdout_reports(
+            reports=(batch2, batch1), contract=runner_env.contract
+        )  # 错序：batch(2,1)
+    with pytest.raises(Phase17HoldoutExecutionError):
+        aggregate_phase17_holdout_reports(
+            reports=(
+                batch1,
+                Phase17HoldoutRunReport(
+                    **{**base, "campaign_id": "c-2", "run_id": "r-2", "batch_index": 2,
+                       "pass_count": 18, "pass_min": 18, "total": 20,
+                       "candidate_digest": "d" * 64}
+                ),
+            ),
+            contract=runner_env.contract,
+        )  # candidate 身份漂移
+    with pytest.raises(Phase17HoldoutExecutionError):
+        aggregate_phase17_holdout_reports(
+            reports=(
+                batch1,
+                Phase17HoldoutRunReport(
+                    **{**base, "campaign_id": "c-2", "run_id": "r-2", "batch_index": 2,
+                       "pass_count": 18, "pass_min": 18, "total": 20,
+                       "dataset_manifest_digest": "e" * 64}
+                ),
+            ),
+            contract=runner_env.contract,
+        )  # dataset 身份漂移
+    with pytest.raises(Phase17HoldoutExecutionError):
+        aggregate_phase17_holdout_reports(
+            reports=(batch1,), contract=runner_env.contract
+        )  # 缺 batch2

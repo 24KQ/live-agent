@@ -35,13 +35,38 @@
   每次真实模型调用仍需用户单独批准。"
 - 关联：Phase 16 V9 批准记录 §7 第 7 项（2026-08-02 用户批准 15 CNY 总盘封装）
   的批准事实现由本记录承接；Phase 16 文件只保留引用。
+- **codex 第十八轮裁决（2026-08-03，verbatim 裁决摘要）**：「允许进入数据起草、
+  用户终审、manifest 冻结，并在冻结后提交真实 Probe 评审；**不授权当前版本直接
+  执行真实模型调用**」。9 项修正已全盘接受并落地（本检查点）：
+  - P0-1：精确集合校验去重（`len(set)` 而非 set 比较）；聚合前校验 batch 1/2
+    归属 + contract/dataset/candidate 身份 + 总 case 数；`RunReport` 增加
+    batch_index / 全链 digest / critical_safety_failures 字段；
+    `critical_safety_zero_failure` 在 runner/aggregator 中执行（
+    ANALYST_VALIDATION_FAILED = 关键安全失败，独立于 9/10 阈值线；BLOCKED 优先）。
+  - P0-2：`campaign.batch_index == execute(batch_index)` + campaign 声明
+    model/endpoint/reasoning 校验；candidate profile digest 与 adapter digest
+    源码级校验；`PHASE17_APPROVED_DATASET_MANIFEST_DIGEST` 注册机制
+    （未获批 = fail-closed）；dev 隔离与真实 dev 数据集独立交叉验证。
+  - P0-3：逐网络 attempt 独立行（`attempt_details` 协议扩展 + runner 逐行入账，
+    中间失败行 0 成本、成功行 usage 定价、全失败时最后一行记 stage 预留）；
+    HMAC payload 覆盖 token 字段；cost bug 修复（stage 级预留而非 campaign 级）。
+  - P1-4：CLI schema 存在性检查（统一 migration 入口，消除双路径）；异常统一
+    终态化（attempts 成本 settle 或 release）；`--aggregate` 27/30 结论持久化
+    （新增第 8 张表 `phase17_holdout_qualifications`）。
+  - P1-5：source closure 14 → **18 路径**（+`docker/init_phase17_holdout_ledger.sql`、
+    `scripts/run_db_migrations.py`、`src/specialist_runtime/deepseek_adapter.py`、
+    `src/specialist_runtime/model_port.py`）；随后 Phase 17 逐 attempt 审计
+    改为独立 adapter（`src/specialist_runtime/phase17_v5_adapter.py`，不触碰
+    phase16 冻结闭包）→ closure **19 路径**。
+  - P1-6：文档 6→8 张表修正；gate 证据带原始命令输出；工作树清理。
 
 ## 1. Phase 17 执行契约定义
 
 - manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
-- contract_digest：`c2dc8b022607c80f069318eb0f6a69732647f1a27ed9c24ec5b734b381e19af4`
-  （2026-08-03 定稿重冻结；contract_digest 自校验 =
-  `canonical_json_sha256(model_dump(exclude={"contract_digest"}))`）
+- contract_digest：`183af27c35f3c6f82f267c7ea589057cfd6b1f076329d624c665803585af8bb5`
+  （2026-08-03 十八轮裁决吸收后定稿重冻结；contract_digest 自校验 =
+  `canonical_json_sha256(model_dump(exclude={"contract_digest"}))`；
+  source closure 18 路径 digest 重算）
 - 执行身份：`PHASE17_HOLDOUT_EXECUTION_V1`（v2 历史入口只接受
   `V2_HISTORICAL_EXECUTION`；v3 回溯契约无执行身份）
 - `implementation_status = WIRED_INTO_RUNTIME`（兑现 v3「未来执行契约由 phase17
@@ -87,6 +112,10 @@
   registry 更新 = 显式修改注册文件 = 用户批准事件。
 - 语义：参数变化 → closure 文件变 → 重新冻结 manifest（新 contract digest）→
   更新注册值并经用户批准；只改注册值不重冻结 → 旧 manifest 与注册值失配 → fail-closed。
+- **数据集注册（codex 第十八轮 P0-2）**：`PHASE17_APPROVED_DATASET_MANIFEST_DIGEST`
+  是 30 例 holdout 数据集 manifest 的批准事实；未批准（`None`）时 CLI `--execute`
+  拒绝任何 manifest（fail-closed）；数据起草完成、用户终审并冻结后才填入真实
+  digest。`--manifest` 不得指向任意自洽 manifest。
 
 ## 4. 数据集 manifest 机制（阶段②交付机制，真实数据阶段③）
 
@@ -103,10 +132,11 @@
 
 ## 5. 独立账本与预算池（codex 十六轮 P0）
 
-- 独立表族（`docker/init_phase17_holdout_ledger.sql`，6 张表全部 append-only，
+- 独立表族（`docker/init_phase17_holdout_ledger.sql`，**8 张表**全部 append-only，
   UPDATE/DELETE/TRUNCATE 触发器拒绝）：contracts / campaigns（batch_index ∈ (1,2)、
   UNIQUE(contract_digest, batch_index)）/ budget_events / runs / run_results /
-  case_results。
+  case_results / **attempts**（逐网络尝试证据，UNIQUE(run,case,stage,attempt_index)）/
+  **qualifications**（27/30 聚合结论，UNIQUE(run1_id, run2_id)，codex 十八轮 P1-4）。
 - 预算池 = 纯事件记账（无 UPDATE）：RESERVE（campaign 建立）、SETTLE（run 结算）、
   RELEASE（未产生成本时释放预留）；`reserved = Σ RESERVE − Σ RELEASE`、
   `settled = Σ SETTLE`、`available = forward − reserved − settled`。
@@ -141,16 +171,52 @@
 - runner 端到端离线链（fake model port）证明：contract 准入 → campaign 预留 →
   run slot 冻结 → 逐 case Analyst→Planner 双阶段 → 终态判定 → 按实际成本结算；
   BLOCKED run 按 stage 预留最坏情况入账。
-- **受控全量 integration gate 待 codex 第十八轮确认后与本检查点一并复核**。
+- **受控全量 integration gate 待 codex 第十九轮确认后与本检查点一并复核**。
+- **codex 第十八轮 9 项修正落地证据（2026-08-03，全部离线）**：
+  - P0-1：精确集合校验去重；aggregate 校验 batch 1/2 归属 + contract/dataset/
+    candidate 身份 + 总 case 数（测试 `aggregate_identity_checks`：错序、候选
+    漂移、数据集漂移、缺 batch 全部拒绝）；critical safety 红线执行——
+    `critical_safety_zero_failure_enforced`（9 PASS + 1 analyst 失败 → FAILED
+    CRITICAL_SAFETY 红线，证明与 9/10 阈值是独立线）、
+    `critical_safety_blocked_wins_over_critical`（BLOCKED 优先）。
+  - P0-3：`attempt_rows_per_network_attempt`（重试后成功 → 40 行 receipt，
+    中间失败行 0 成本、最终行 usage 定价 0.006、HMAC 逐行不同、case
+    receipt_count=4 对账真实网络调用数）；`attempt_unknown_usage_last_row_reservation`
+    （全失败 → 每 stage 一行 stage 预留 0.1，共 1.0，绝不使用 campaign 级预留）；
+    `attempt_hmac_covers_token_fields`（payload 含 token 字段，tokens 伪造
+    必然 HMAC 失配）。
+  - P1-4：`schema_ready_and_run_ledger_state`（schema 存在性检查 +
+    `phase17_run_ledger_state` 未终态成本累计）；`batch_run_report_identity_and_cases`
+    （--aggregate 输入身份）；`qualification_record_unique_and_identity`
+    （27/30 结论只入账一次、batch 归属错误拒绝、未终态拒绝）。
+  - P1-5：source closure 18 → **19 路径**重冻结（+`phase17_v5_adapter.py`
+    独立 adapter）→ contract_digest `183af27c...`。
+  - **回归发现与修复（2026-08-03，gate 前置检查）**：受控全量 unit gate 发现
+    37 个 phase16 测试 fail-closed（MANIFEST_IDENTITY_MISMATCH / source code
+    digest drift）。根因：P0-3 的 attempt_details 协议扩展曾修改 phase16
+    历史冻结闭包内文件——`controlled_e2e_adapter_v5.py` 位于 V5 身份路径、
+    `model_port.py` 位于 multi_agent source closure，字节变更即闭包漂移
+    （机制正确，暴露的是设计冲突）。修复：逐 attempt 审计**独立化**到
+    `src/specialist_runtime/phase17_v5_adapter.py`（继承 V5 受控语义 + 逐
+    尝试收集 + 拒绝身份 env 覆盖 + 自有 `phase17_adapter_digest`），
+    phase16 两文件零改动恢复冻结；phase17 closure 相应 18→19 路径。
+    验证：phase16 回归 126 passed 恢复全绿，phase17 unit/integration
+    全绿，契约重冻结 4803f021 → 183af27c。
+  - 本检查点测试数字：phase17 runner 20 + ledger 19 + phase16 qualification
+    34（含 unit）= **73 passed**；全量 unit/integration 见 §6 上文。
 
 ## 7. 批准项清单（用户逐项确认后本记录生效）
 
 1. **Phase 17 执行契约 `PHASE17_HOLDOUT_EXECUTION_V1` 批准**（manifest
-   `phase17-holdout-execution-v1.json`，contract_digest `59c618c6...`，
+   `phase17-holdout-execution-v1.json`，contract_digest `183af27c...`，
    `WIRED_INTO_RUNTIME`）：作为阶段③ holdout 30 例的唯一执行依据；
    v2/v3 manifest 零改动。**digest 变更记录**：`c2dc8b02...`（16 轮冻结）→
    `59c618c6...`（17 轮裁决吸收后重冻结：holdout_batches 阈值键 `pass_min`、
-   source closure 14 路径 digest 重算）；registry 同步更新并经用户确认。
+   source closure 14 路径 digest 重算）→ `4803f021...`（18 轮裁决吸收后
+   重冻结：source closure 14→18 路径、ledger 8 张表、CLI 终态化）→
+   `183af27c...`（逐 attempt 审计独立化：`phase17_v5_adapter.py` 不触碰
+   phase16 冻结闭包，source closure 18→19 路径）；registry 同步更新并经
+   用户确认。
 2. **15 CNY 总盘预算封装**（2026-08-02 对话批准，承接 Phase 16 V9 批准记录 §7
    第 7 项）：`project_budget_cny = 15.000000`（含历史 6.604131）、
    `forward_budget_remaining_cny = 8.395869`；阶段③任何 run 不越过该封装。
@@ -158,9 +224,12 @@
    90s 截止 / json_mode / 8000+2800 token 上限；任何身份变更 = 新 contract digest
    = 用户重新批准，不挂原 Phase 17 结果。
 4. **approved digest registry 机制**：`PHASE17_APPROVED_CONTRACT_DIGEST` 更新
-   必须经用户明确批准（对话确认）；不可重签。
+   必须经用户明确批准（对话确认）；不可重签。`PHASE17_APPROVED_DATASET_MANIFEST_DIGEST`
+   （18 轮新增）同理：数据集冻结后用户批准填入，未批准时任何 manifest fail-closed。
 5. **数据集 manifest 机制**：阶段③真实 30 例起草 → 用户终审 → 冻结 manifest →
-   新 dataset digest；探路结果不得反向修改 Prompt/代码/案例/阈值。
+   新 dataset digest 并经用户批准入 registry；探路结果不得反向修改 Prompt/代码/案例/阈值；
+   CLI 与真实 dev 数据集（`evaluation/phase16_qualification/development_cases.jsonl`）
+   独立交叉验证排除列表。
 6. **预算池纪律**：RESERVE/SETTLE/RELEASE append-only 事件记账；UNKNOWN_USAGE
    按 stage 预留最坏情况入账；失败如实入账、不重跑不刷分。
 7. **阶段③每次真实模型 run 前用户单独批准**；成本、receipts、tokens 入账后

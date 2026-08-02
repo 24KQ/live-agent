@@ -43,7 +43,44 @@ from src.decision_support.phase16_qualification import (  # noqa: E402
 )
 from src.decision_support.phase17_approved_digest import (  # noqa: E402
     PHASE17_APPROVED_CONTRACT_DIGEST,
+    PHASE17_APPROVED_DATASET_MANIFEST_DIGEST,
 )
+
+
+def _check_dev_isolation(manifest) -> str | None:
+    """codex 第十八轮 P0-2：与真实 dev 数据集的独立交叉验证。
+
+    manifest 自声明的 ``dev_excluded_case_ids`` 不得单独充当防泄漏证据——
+    必须精确等于 ``evaluation/phase16_qualification/development_cases.jsonl``
+    的真实 case 集合，且 holdout 30 例与之零重叠。
+    """
+
+    dev_path = _PROJECT_ROOT / "evaluation" / "phase16_qualification" / "development_cases.jsonl"
+    if not dev_path.exists():
+        return f"dev corpus missing at {dev_path}; cannot cross-validate dev isolation"
+    import json as _json
+
+    dev_case_ids = set()
+    for raw in dev_path.read_text(encoding="utf-8").splitlines():
+        if not raw.strip():
+            continue
+        payload = _json.loads(raw)
+        case_id = payload.get("case_id")
+        if not case_id:
+            return f"dev corpus entry without case_id: {raw[:120]}"
+        dev_case_ids.add(case_id)
+    if not dev_case_ids:
+        return f"dev corpus is empty at {dev_path}"
+    declared = set(manifest.dev_excluded_case_ids)
+    if declared != dev_case_ids:
+        return (
+            "manifest dev_excluded_case_ids does not equal the real dev corpus: "
+            f"missing={sorted(dev_case_ids - declared)[:5]} extra={sorted(declared - dev_case_ids)[:5]}"
+        )
+    overlap = sorted(set(manifest.case_id_to_input_digest) & dev_case_ids)
+    if overlap:
+        return f"holdout cases overlap the real dev corpus: {overlap[:5]}"
+    return None
 
 
 def _probe() -> int:
@@ -139,13 +176,13 @@ def _build_candidate_bundle(contract):
 
     from src.decision_support.phase16_qualification_candidate import (
         build_phase17_holdout_profiles,
-        qualification_adapter_digest,
     )
     from src.decision_support.phase16_qualification_evaluator import CandidateProfileBundle
     from src.decision_support.phase16_qualification_ledger import (
         QualificationCandidate,
         canonical_json_sha256,
     )
+    from src.specialist_runtime.phase17_v5_adapter import phase17_adapter_digest
 
     analyst, planner = build_phase17_holdout_profiles()
     payload = {
@@ -155,7 +192,7 @@ def _build_candidate_bundle(contract):
         "endpoint_host": "synapse-ai.uk",
         "analyst_profile_digest": analyst.profile_digest,
         "planner_profile_digest": planner.profile_digest,
-        "adapter_digest": qualification_adapter_digest(repository_root=_PROJECT_ROOT),
+        "adapter_digest": phase17_adapter_digest(repository_root=_PROJECT_ROOT),
     }
     candidate = QualificationCandidate(
         candidate_id=payload["candidate_id"],
@@ -186,16 +223,49 @@ def _execute(args) -> int:
         return 1
 
     from src.decision_support.phase17_holdout_dataset import (
+        Phase17DatasetIdentityError,
         load_phase17_holdout_dataset_manifest,
     )
 
-    manifest = load_phase17_holdout_dataset_manifest(
-        repository_root=_PROJECT_ROOT, path=Path(args.manifest)
-    )
+    manifest_path = Path(args.manifest)
+    if not manifest_path.is_absolute():
+        manifest_path = _PROJECT_ROOT / manifest_path
+    if not manifest_path.exists():
+        print(
+            f"[DATASET] BLOCKED: manifest not found at {manifest_path}; "
+            "the 30-case dataset is not drafted/frozen yet"
+        )
+        return 1
+    try:
+        manifest = load_phase17_holdout_dataset_manifest(
+            repository_root=_PROJECT_ROOT, path=manifest_path
+        )
+    except Phase17DatasetIdentityError as exc:
+        print(
+            f"[DATASET] BLOCKED: {exc}; the dataset manifest is not a frozen "
+            "30-case manifest (draft during stage ③ and freeze before real runs)"
+        )
+        return 1
     print(
         f"[DATASET] {manifest.dataset_id} v{manifest.dataset_version} "
         f"digest={manifest.manifest_digest[:24]}..."
     )
+    if (
+        PHASE17_APPROVED_DATASET_MANIFEST_DIGEST is None
+        or manifest.manifest_digest != PHASE17_APPROVED_DATASET_MANIFEST_DIGEST
+    ):
+        print(
+            "[DATASET] BLOCKED: manifest digest is not the user-approved frozen dataset "
+            "(registry is empty or digest mismatch); freeze the dataset and record its "
+            "digest in phase17_approved_digest.py first"
+        )
+        return 1
+    print("[DATASET] approved dataset digest match")
+    dev_error = _check_dev_isolation(manifest)
+    if dev_error:
+        print(f"[DEV] BLOCKED: {dev_error}")
+        return 1
+    print("[DEV] ok: holdout cases are disjoint from the real dev corpus (independent check)")
     if args.batch not in manifest.batch_case_ids:
         print(f"[DATASET] BLOCKED: batch {args.batch} is not a frozen subset")
         return 1
@@ -231,10 +301,17 @@ def _execute(args) -> int:
     from src.decision_support.phase17_holdout_ledger import (
         Phase17HoldoutCampaign,
         PostgresPhase17HoldoutLedger,
-        initialize_phase17_holdout_schema,
+        phase17_holdout_schema_ready,
     )
 
-    initialize_phase17_holdout_schema(settings)
+    # codex 第十八轮 P1-4：schema 走统一 migration 入口（run_db_migrations.py），
+    # CLI 只检查存在性，不再内联执行 DDL（消除双路径）。
+    if not phase17_holdout_schema_ready(settings):
+        print(
+            "[SCHEMA] BLOCKED: phase17 holdout tables are not migrated; "
+            "run `python -u scripts/run_db_migrations.py` first"
+        )
+        return 1
     ledger = PostgresPhase17HoldoutLedger(settings, hmac_key=hmac_key)
     ledger.ensure_phase17_contract(contract)
     pool = ledger.budget_pool_state(contract.contract_digest)
@@ -268,11 +345,13 @@ def _execute(args) -> int:
         return 1
     print("[APPROVAL] confirmed")
 
-    from src.decision_support.controlled_e2e_adapter_v5 import DeepSeekV5ControlledE2EAdapter
+    from src.specialist_runtime.phase17_v5_adapter import (
+        Phase17V5ControlledE2EAdapter,
+    )
 
     hosts = [h.strip() for h in os.environ["LLM_API_CHANNEL_HOSTS"].split(",")]
     keys = [k.strip() for k in os.environ["LLM_API_CHANNEL_KEYS"].split(",")]
-    model_port = DeepSeekV5ControlledE2EAdapter(endpoints=tuple(zip(hosts, keys)))
+    model_port = Phase17V5ControlledE2EAdapter(endpoints=tuple(zip(hosts, keys)))
 
     campaign_id = qualification_campaign_id(
         kind=QualificationCampaignKind.HOLDOUT,
@@ -331,7 +410,48 @@ def _execute(args) -> int:
             )
         )
     except Exception as exc:  # noqa: BLE001 - 前置失败如实报告，不吞没
+        # codex 第十八轮 P1-4：真实调用中途异常也必须统一终态化——已入账的
+        # attempt 成本 settle 为实际支出，未产生成本则释放整个预留，账本与
+        # 预算池不留下悬空 run / 占用。
         print(f"[RUN] FAILED before/within execution: {exc}")
+        try:
+            state = ledger.phase17_run_ledger_state(run_id=run_id)
+            if not state["run_exists"]:
+                ledger.release_phase17_campaign(campaign_id=campaign_id)
+                print("[RUN] no run recorded; campaign reservation released")
+            elif state["terminal"]:
+                print("[RUN] run already terminal; nothing to terminalize")
+            elif state["attempt_cost_cny"] > 0:
+                from src.decision_support.phase17_holdout_ledger import (
+                    Phase17HoldoutLedgerError,
+                )
+
+                try:
+                    ledger.close_phase17_run(
+                        run_id=run_id,
+                        status="FAILED",
+                        reason_code="PHASE17_RUN_ABORTED",
+                        payload={
+                            "campaign_id": campaign_id,
+                            "run_id": run_id,
+                            "aborted_before_terminal_evaluation": True,
+                            "settled_attempt_cost_cny": str(state["attempt_cost_cny"]),
+                        },
+                    )
+                except Phase17HoldoutLedgerError:
+                    print("[RUN] terminalization conflict; run state left for manual review")
+                ledger.settle_phase17_campaign(
+                    campaign_id=campaign_id, actual_cny=state["attempt_cost_cny"]
+                )
+                print(
+                    f"[RUN] terminalized FAILED/PHASE17_RUN_ABORTED; "
+                    f"settled {state['attempt_cost_cny']} CNY of recorded attempts"
+                )
+            else:
+                ledger.release_phase17_campaign(campaign_id=campaign_id)
+                print("[RUN] no attempt cost recorded; campaign reservation released")
+        except Exception as ledger_exc:  # noqa: BLE001 - 终态化自身失败如实报告
+            print(f"[RUN] terminalization failed: {ledger_exc}")
         return 1
 
     print(
@@ -356,6 +476,158 @@ def _execute(args) -> int:
     return 0
 
 
+def _aggregate(args) -> int:
+    """codex 第十八轮 P1-4：读两批终态 run → 全链身份校验 → 27/30 结论入账。
+
+    ``--aggregate`` 不调用模型：从账本读 batch 1/2 终态 run，重算 case 级
+    事实（critical safety 计数由 reason_code 确定性重算），经 runner 聚合器
+    校验身份后把 QUALIFIED / FAILED / BLOCKED 结论持久化到
+    ``phase17_holdout_qualifications``（每 contract 至多一条，不重跑不刷分）。
+    """
+
+    from src.config.settings import get_settings
+
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    allowed, reasons = admit_phase17_holdout_execution(
+        requested_identity=QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1,
+        contract=contract,
+    )
+    if not allowed:
+        print(f"[phase17] ADMISSION_REJECTED reasons={','.join(reasons)}")
+        return 1
+
+    hmac_hex = os.environ.get("PHASE17_HOLDOUT_RECEIPT_HMAC_HEX", "").strip()
+    try:
+        hmac_key = bytes.fromhex(hmac_hex)
+    except (ValueError, TypeError):
+        print("[HMAC] BLOCKED: PHASE17_HOLDOUT_RECEIPT_HMAC_HEX must be hex")
+        return 1
+    if len(hmac_key) < 32:
+        print("[HMAC] BLOCKED: HMAC key must contain at least 256 bits (64 hex chars)")
+        return 1
+
+    settings = get_settings()
+    from src.decision_support.phase16_qualification_ledger import canonical_json_sha256
+    from src.decision_support.phase17_holdout_ledger import (
+        PostgresPhase17HoldoutLedger,
+        phase17_holdout_schema_ready,
+    )
+
+    if not phase17_holdout_schema_ready(settings):
+        print("[SCHEMA] BLOCKED: run `python -u scripts/run_db_migrations.py` first")
+        return 1
+    ledger = PostgresPhase17HoldoutLedger(settings, hmac_key=hmac_key)
+    existing = ledger.phase17_qualification_records(
+        contract_digest=contract.contract_digest
+    )
+    if existing:
+        for record in existing:
+            print(
+                f"[AGGREGATE] already recorded: {record['status']} "
+                f"pass={record['total_pass']}/{record['total_cases']} "
+                f"(min {record['pass_min']}) {record['reason_code']}"
+            )
+        print("[AGGREGATE] BLOCKED: this contract already has a qualification record; no re-record")
+        return 1
+
+    from src.decision_support.phase17_holdout_runner import (
+        Phase17HoldoutCaseExecution,
+        Phase17HoldoutRunReport,
+        aggregate_phase17_holdout_reports,
+    )
+
+    reports: list[Phase17HoldoutRunReport] = []
+    for batch_index in (1, 2):
+        data = ledger.phase17_batch_run_report(
+            contract_digest=contract.contract_digest, batch_index=batch_index
+        )
+        if data is None:
+            print(f"[AGGREGATE] BLOCKED: batch {batch_index} has no terminal run on the ledger")
+            return 1
+        executions = tuple(
+            Phase17HoldoutCaseExecution(
+                case_id=case["case_id"],
+                outcome=case["outcome"],
+                reason_code=case["reason_code"],
+                cost_cny=case["cost_cny"],
+                receipt_count=case["receipt_count"],
+            )
+            for case in data["cases"]
+        )
+        reports.append(
+            Phase17HoldoutRunReport(
+                campaign_id=data["campaign_id"],
+                run_id=data["run_id"],
+                batch_index=batch_index,
+                contract_digest=contract.contract_digest,
+                dataset_manifest_digest=data["dataset_manifest_digest"],
+                candidate_digest=data["candidate_digest"],
+                status=data["status"],
+                reason_codes=(data["reason_code"],),
+                pass_count=sum(1 for c in executions if c.outcome == "PASS"),
+                pass_min=next(
+                    batch["pass_min"]
+                    for batch in contract.holdout_batches
+                    if batch["batch_index"] == batch_index
+                ),
+                total=len(executions),
+                critical_safety_failures=sum(
+                    1 for c in executions if c.reason_code == "ANALYST_VALIDATION_FAILED"
+                ),
+                cost_cny=sum((c.cost_cny for c in executions), Decimal("0")),
+                case_executions=executions,
+            )
+        )
+        print(
+            f"[AGGREGATE] batch {batch_index} run={data['run_id'][:20]}... "
+            f"status={data['status']} cases={len(executions)}"
+        )
+    try:
+        aggregate = aggregate_phase17_holdout_reports(
+            reports=tuple(reports), contract=contract
+        )
+    except Exception as exc:  # noqa: BLE001 - 身份/一致性拒绝如实报告
+        print(f"[AGGREGATE] BLOCKED: identity/consistency rejected: {exc}")
+        return 1
+    status_map = {"PASS": "QUALIFIED", "FAILED": "FAILED", "BLOCKED": "BLOCKED"}
+    qualification_id = f"phase17-holdout-qualification-{uuid4().hex}"
+    ledger.record_phase17_qualification(
+        qualification_id=qualification_id,
+        run1_id=reports[0].run_id,
+        run2_id=reports[1].run_id,
+        contract_digest=contract.contract_digest,
+        candidate_digest=reports[0].candidate_digest,
+        dataset_manifest_digest=reports[0].dataset_manifest_digest,
+        status=status_map[aggregate.status],
+        reason_code=aggregate.reason_codes[0],
+        total_pass=aggregate.total_pass,
+        total_cases=aggregate.total_cases,
+        pass_min=aggregate.pass_min_total,
+        critical_safety_failures=sum(r.critical_safety_failures for r in reports),
+        evaluation_digest=canonical_json_sha256(
+            {
+                "run1_id": reports[0].run_id,
+                "run2_id": reports[1].run_id,
+                "status": status_map[aggregate.status],
+                "reason_code": aggregate.reason_codes[0],
+                "total_pass": aggregate.total_pass,
+                "total_cases": aggregate.total_cases,
+                "pass_min": aggregate.pass_min_total,
+                "critical_safety_failures": sum(
+                    r.critical_safety_failures for r in reports
+                ),
+            }
+        ),
+    )
+    print(
+        f"[AGGREGATE] recorded {status_map[aggregate.status]} "
+        f"pass={aggregate.total_pass}/{aggregate.total_cases} "
+        f"(min {aggregate.pass_min_total}) reason={aggregate.reason_codes[0]}"
+    )
+    print(f"[AGGREGATE] qualification_id={qualification_id}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -373,6 +645,11 @@ def main() -> int:
         action="store_true",
         help="真实执行单个 holdout batch（需交互 APPROVE 批准）",
     )
+    parser.add_argument(
+        "--aggregate",
+        action="store_true",
+        help="读两批终态 run，做全链身份校验后持久化 27/30 聚合结论（不调用模型）",
+    )
     parser.add_argument("--batch", type=int, choices=[1, 2], default=1)
     parser.add_argument(
         "--manifest",
@@ -384,6 +661,8 @@ def main() -> int:
         return _reject_wrong_identity()
     if args.execute:
         return _execute(args)
+    if args.aggregate:
+        return _aggregate(args)
     return _probe()
 
 

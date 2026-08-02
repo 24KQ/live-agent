@@ -434,6 +434,9 @@ class PostgresPhase17HoldoutLedger:
                 "http_status": http_status,
                 "latency_ms": str(latency_ms),
                 "attempts": attempts,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
                 "cost_cny": str(cost_cny),
             },
         )
@@ -598,6 +601,247 @@ class PostgresPhase17HoldoutLedger:
             raise
         except psycopg.Error as error:
             raise Phase17HoldoutLedgerError("phase17 holdout campaign release failed") from error
+
+    def phase17_run_ledger_state(self, *, run_id: str) -> dict[str, object]:
+        """异常终态化查询（codex 第十八轮 P1-4）：run 存在性、终态与已入账成本。
+
+        未终态 run 的 attempt 成本累计就是实际已发生费用；CLI 据此决定
+        settle（>0）或 release（=0），保证真实调用中途异常也有统一终态。
+        """
+
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT campaign_id FROM phase17_holdout_runs WHERE run_id=%s""",
+                        (run_id,),
+                    )
+                    run_row = cursor.fetchone()
+                    if run_row is None:
+                        return {"run_exists": False}
+                    cursor.execute(
+                        """SELECT 1 FROM phase17_holdout_run_results WHERE run_id=%s""",
+                        (run_id,),
+                    )
+                    terminal = cursor.fetchone() is not None
+                    cursor.execute(
+                        """SELECT COALESCE(SUM(cost_cny), 0) AS cost
+                             FROM phase17_holdout_attempts WHERE run_id=%s""",
+                        (run_id,),
+                    )
+                    cost_row = cursor.fetchone()
+                    return {
+                        "run_exists": True,
+                        "terminal": terminal,
+                        "attempt_cost_cny": Decimal(cost_row["cost"]),
+                        "campaign_id": run_row["campaign_id"],
+                    }
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 holdout run ledger state query failed"
+            ) from error
+
+    def phase17_batch_run_report(
+        self, *, contract_digest: str, batch_index: int
+    ) -> dict[str, object] | None:
+        """读取某 contract 某 batch 的终态 run 事实（--aggregate 输入）。
+
+        返回 None 表示该 batch 尚无终态 run；返回 dict 含全链身份（campaign
+        的 candidate / dataset digest）、终态、case 级结果与总成本。case 级
+        reason_code 用于重算 critical safety 计数（判定规则确定性可复算）。
+        """
+
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT campaign_id, candidate_digest, dataset_manifest_digest
+                             FROM phase17_holdout_campaigns
+                            WHERE contract_digest=%s AND batch_index=%s""",
+                        (contract_digest, batch_index),
+                    )
+                    campaign_row = cursor.fetchone()
+                    if campaign_row is None:
+                        return None
+                    cursor.execute(
+                        """SELECT run_id FROM phase17_holdout_runs
+                            WHERE campaign_id=%s""",
+                        (campaign_row["campaign_id"],),
+                    )
+                    run_rows = cursor.fetchall()
+                    for run_row in run_rows:
+                        cursor.execute(
+                            """SELECT status, reason_code, evaluation_digest
+                                 FROM phase17_holdout_run_results
+                                WHERE run_id=%s""",
+                            (run_row["run_id"],),
+                        )
+                        terminal = cursor.fetchone()
+                        if terminal is None:
+                            continue
+                        cursor.execute(
+                            """SELECT case_id, outcome, reason_code,
+                                      receipt_count, cost_cny
+                                 FROM phase17_holdout_case_results
+                                WHERE run_id=%s""",
+                            (run_row["run_id"],),
+                        )
+                        case_rows = cursor.fetchall()
+                        return {
+                            "run_id": run_row["run_id"],
+                            "campaign_id": campaign_row["campaign_id"],
+                            "candidate_digest": campaign_row["candidate_digest"],
+                            "dataset_manifest_digest": campaign_row["dataset_manifest_digest"],
+                            "status": terminal["status"],
+                            "reason_code": terminal["reason_code"],
+                            "cases": [
+                                {
+                                    "case_id": case_row["case_id"],
+                                    "outcome": case_row["outcome"],
+                                    "reason_code": case_row["reason_code"],
+                                    "receipt_count": case_row["receipt_count"],
+                                    "cost_cny": Decimal(case_row["cost_cny"]),
+                                }
+                                for case_row in case_rows
+                            ],
+                        }
+                    return None
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 holdout batch run report query failed"
+            ) from error
+
+    def record_phase17_qualification(
+        self,
+        *,
+        qualification_id: str,
+        run1_id: str,
+        run2_id: str,
+        contract_digest: str,
+        candidate_digest: str,
+        dataset_manifest_digest: str,
+        status: str,
+        reason_code: str,
+        total_pass: int,
+        total_cases: int,
+        pass_min: int,
+        critical_safety_failures: int,
+        evaluation_digest: str,
+    ) -> None:
+        """27/30 聚合结论只入账一次（codex 第十八轮 P1-4 持久化）。
+
+        两 run 必须分属 batch 1 / batch 2 且都已终态；身份与判定由 CLI 在
+        内存聚合时校验，本方法做 SQL 层最后防线（run 存在且终态、digest
+        形状），UNIQUE(run1_id, run2_id) 兜底重复记录。
+        """
+
+        if status not in {"QUALIFIED", "FAILED", "BLOCKED"}:
+            raise Phase17HoldoutLedgerError("phase17 holdout qualification status is invalid")
+        if not qualification_id or not run1_id or not run2_id:
+            raise Phase17HoldoutLedgerError("phase17 holdout qualification ids are required")
+        for digest in (contract_digest, candidate_digest, dataset_manifest_digest, evaluation_digest):
+            if len(digest) != 64 or any(ch not in _SHA256_HEX for ch in digest):
+                raise Phase17HoldoutLedgerError(
+                    "phase17 holdout qualification digest must be sha256 hex"
+                )
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    for run_id, expected_batch in ((run1_id, 1), (run2_id, 2)):
+                        cursor.execute(
+                            """SELECT cam.batch_index FROM phase17_holdout_runs run
+                                JOIN phase17_holdout_campaigns cam
+                                  ON cam.campaign_id = run.campaign_id
+                               WHERE run.run_id=%s""",
+                            (run_id,),
+                        )
+                        row = cursor.fetchone()
+                        if row is None or row["batch_index"] != expected_batch:
+                            raise Phase17HoldoutLedgerError(
+                                "phase17 holdout qualification run batch identity mismatch"
+                            )
+                        cursor.execute(
+                            """SELECT 1 FROM phase17_holdout_run_results
+                                WHERE run_id=%s""",
+                            (run_id,),
+                        )
+                        if cursor.fetchone() is None:
+                            raise Phase17HoldoutLedgerError(
+                                "phase17 holdout qualification requires terminal runs"
+                            )
+                    cursor.execute(
+                        """INSERT INTO phase17_holdout_qualifications
+                           (qualification_id, run1_id, run2_id, contract_digest,
+                            candidate_digest, dataset_manifest_digest, status,
+                            reason_code, total_pass, total_cases, pass_min,
+                            critical_safety_failures, evaluation_digest)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (
+                            qualification_id, run1_id, run2_id, contract_digest,
+                            candidate_digest, dataset_manifest_digest, status,
+                            reason_code, total_pass, total_cases, pass_min,
+                            critical_safety_failures, evaluation_digest,
+                        ),
+                    )
+                connection.commit()
+        except Phase17HoldoutLedgerError:
+            raise
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 holdout qualification record failed"
+            ) from error
+
+    def phase17_qualification_records(
+        self, *, contract_digest: str
+    ) -> tuple[dict[str, object], ...]:
+        """某 contract 已入账的聚合结论（--aggregate 幂等提示用）。"""
+
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT qualification_id, run1_id, run2_id, status,
+                                  reason_code, total_pass, total_cases, pass_min
+                             FROM phase17_holdout_qualifications
+                            WHERE contract_digest=%s
+                            ORDER BY created_at""",
+                        (contract_digest,),
+                    )
+                    return tuple(
+                        {
+                            "qualification_id": row["qualification_id"],
+                            "run1_id": row["run1_id"],
+                            "run2_id": row["run2_id"],
+                            "status": row["status"],
+                            "reason_code": row["reason_code"],
+                            "total_pass": row["total_pass"],
+                            "total_cases": row["total_cases"],
+                            "pass_min": row["pass_min"],
+                        }
+                        for row in cursor.fetchall()
+                    )
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 holdout qualification records query failed"
+            ) from error
+
+
+def phase17_holdout_schema_ready(settings: Any) -> bool:
+    """检查 phase17 表族是否已建（CLI 准入；建表走统一 migration 入口）。
+
+    codex 第十八轮 P1-4：CLI 不再直接执行 ``initialize_phase17_holdout_schema``
+    （避免绕过 ``scripts/run_db_migrations.py`` 的双路径），未就绪时提示
+    先跑 migration。
+    """
+
+    with psycopg.connect(**settings.postgres_connection_kwargs) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT 1 FROM information_schema.tables
+                    WHERE table_schema=current_schema()
+                      AND table_name='phase17_holdout_attempts'"""
+            )
+            return cursor.fetchone() is not None
 
 
 def initialize_phase17_holdout_schema(settings: Any) -> None:

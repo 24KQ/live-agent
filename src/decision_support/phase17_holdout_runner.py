@@ -4,10 +4,10 @@
 - v2 runner 由 v2 policy 驱动并写入 v2 execution ledger；phase17 runner 由
   已批准的 Phase 17 契约驱动并写入独立 phase17 表族（预算池隔离）。
 - 执行协议与 v2 保持一致：每 case 走 Analyst → Planner 双阶段，模型调用
-  通过注入的 ``AgentModelPort``（真实路径为
-  ``DeepSeekV5ControlledE2EAdapter``，受控渠道链 + JSON mode + 90s/尝试）；
-  结构判定与 v2 相同：analyst 需产出 trigger codes，planner 需产出 risk
-  coverage 与 proposal。
+  通过注入的 ``Phase17ModelPort``（真实路径为
+  ``Phase17V5ControlledE2EAdapter``，V5 受控渠道链语义 + JSON mode +
+  90s/尝试 + 逐尝试审计明细）；结构判定与 v2 相同：analyst 需产出 trigger
+  codes，planner 需产出 risk coverage 与 proposal。
 
 身份断言（构造时 fail-closed）：
 - contract 已准入（``admit_phase17_holdout_execution``）；
@@ -29,6 +29,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_EVEN
+from pathlib import Path
 from typing import Any, Callable
 from uuid import NAMESPACE_URL, uuid5
 
@@ -42,13 +43,17 @@ from src.decision_support.phase17_holdout_dataset import (
     validate_phase17_holdout_case,
 )
 from src.specialist_runtime.model_port import (
-    AgentModelPort,
     ModelFailure,
     ModelMessage,
     ModelRequest,
     ModelSuccess,
 )
 from src.specialist_runtime.models import _plain_json
+from src.specialist_runtime.phase17_v5_adapter import (
+    Phase17AdapterOutcome,
+    Phase17ModelPort,
+    phase17_adapter_digest,
+)
 
 
 class Phase17HoldoutExecutionError(ValueError):
@@ -68,11 +73,16 @@ class Phase17HoldoutCaseExecution:
 class Phase17HoldoutRunReport:
     campaign_id: str
     run_id: str
+    batch_index: int
+    contract_digest: str
+    dataset_manifest_digest: str
+    candidate_digest: str
     status: str  # PASS / FAILED / BLOCKED
     reason_codes: tuple[str, ...]
     pass_count: int
     pass_min: int
     total: int
+    critical_safety_failures: int
     cost_cny: Decimal
     case_executions: tuple[Phase17HoldoutCaseExecution, ...]
 
@@ -105,6 +115,30 @@ def aggregate_phase17_holdout_reports(
     total_pass = sum(report.pass_count for report in reports)
     total_cases = sum(report.total for report in reports)
     total_cost = sum((report.cost_cny for report in reports), Decimal("0"))
+    # codex 第十八轮 P0-1：聚合前校验 batch 归属与全链身份。防缺失/重复 batch、
+    # 身份漂移（contract/dataset/candidate 任一不一致）或伪造 report。
+    if tuple(report.batch_index for report in reports) != (1, 2):
+        raise Phase17HoldoutExecutionError(
+            "phase17 aggregate requires exactly batch 1 and batch 2 reports"
+        )
+    if any(report.contract_digest != contract.contract_digest for report in reports):
+        raise Phase17HoldoutExecutionError(
+            "phase17 aggregate contract identity does not match the contract"
+        )
+    if len({report.dataset_manifest_digest for report in reports}) != 1:
+        raise Phase17HoldoutExecutionError(
+            "phase17 aggregate dataset identity mismatch across batches"
+        )
+    if len({report.candidate_digest for report in reports}) != 1:
+        raise Phase17HoldoutExecutionError(
+            "phase17 aggregate candidate identity mismatch across batches"
+        )
+    if total_cases != contract.holdout_case_count:
+        raise Phase17HoldoutExecutionError(
+            f"phase17 aggregate case total {total_cases} "
+            f"!= frozen {contract.holdout_case_count}"
+        )
+    critical_failures = sum(report.critical_safety_failures for report in reports)
     if any(status == "BLOCKED" for status in batch_statuses):
         return Phase17HoldoutAggregateReport(
             status="BLOCKED",
@@ -116,9 +150,19 @@ def aggregate_phase17_holdout_reports(
             cost_cny=total_cost,
         )
     if all(status == "PASS" for status in batch_statuses) and total_pass >= contract.holdout_total_e2e_pass_min:
+        if critical_failures == 0:
+            return Phase17HoldoutAggregateReport(
+                status="PASS",
+                reason_codes=("PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",),
+                total_pass=total_pass,
+                total_cases=total_cases,
+                pass_min_total=contract.holdout_total_e2e_pass_min,
+                batch_statuses=batch_statuses,
+                cost_cny=total_cost,
+            )
         return Phase17HoldoutAggregateReport(
-            status="PASS",
-            reason_codes=("PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",),
+            status="FAILED",
+            reason_codes=("PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE_VIOLATED",),
             total_pass=total_pass,
             total_cases=total_cases,
             pass_min_total=contract.holdout_total_e2e_pass_min,
@@ -145,7 +189,7 @@ class Phase17HoldoutCampaignRunner:
         contract: Any,
         ledger: Any,
         candidate_bundle: Any,
-        model_port: AgentModelPort,
+        model_port: Phase17ModelPort,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         admission = admit_phase17_holdout_execution(
@@ -192,6 +236,24 @@ class Phase17HoldoutCampaignRunner:
                 raise Phase17HoldoutExecutionError(
                     "phase17 candidate deadline does not match the frozen contract"
                 )
+        # codex 第十八轮 P0-2：candidate 声明的 profile digest 必须与实际注入的
+        # profile 一致；adapter digest 必须与实际发送实现的源文件一致（防"换
+        # 实现仍复用 profile 成绩"）。
+        if candidate.analyst_profile_digest != candidate_bundle.analyst_profile.profile_digest:
+            raise Phase17HoldoutExecutionError(
+                "phase17 candidate analyst profile digest does not match the bundle"
+            )
+        if candidate.planner_profile_digest != candidate_bundle.planner_profile.profile_digest:
+            raise Phase17HoldoutExecutionError(
+                "phase17 candidate planner profile digest does not match the bundle"
+            )
+        expected_adapter_digest = phase17_adapter_digest(
+            repository_root=Path(__file__).resolve().parents[2]
+        )
+        if candidate.adapter_digest != expected_adapter_digest:
+            raise Phase17HoldoutExecutionError(
+                "phase17 candidate adapter digest does not match the current adapter source"
+            )
         self._contract = contract
         self._identity = identity
         self._candidate = candidate
@@ -208,6 +270,23 @@ class Phase17HoldoutCampaignRunner:
     @staticmethod
     def _prompt_digest(prompt_text: str) -> str:
         return hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _attempt_cost(
+        *,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        outcome: str,
+    ) -> Decimal:
+        """单 attempt 行成本：成功行按 v2 定价公式，失败行 0（codex 第十八轮 P0-3）。"""
+
+        if outcome != "PASS" or input_tokens is None or output_tokens is None:
+            return Decimal("0")
+        raw = (
+            Decimal(input_tokens) * Decimal("3.000000")
+            + Decimal(output_tokens) * Decimal("6.000000")
+        ) / Decimal("1000000")
+        return raw.quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
 
     def _cost(self, usage: Any | None, reservation_cny: Decimal) -> Decimal:
         """实际成本：usage 已知按 v2 相同定价；UNKNOWN_USAGE 按最坏情况全额占用。"""
@@ -231,8 +310,8 @@ class Phase17HoldoutCampaignRunner:
     ) -> Phase17HoldoutRunReport:
         """执行一个 holdout batch；每 case 先过 manifest membership 校验再联网。"""
 
-        # 0. campaign/候选/数据集全链身份绑定（codex 第十七轮 P0-2）：
-        #    campaign 声称的 contract、dataset、candidate 身份必须与实参精确一致。
+        # 0. campaign/候选/数据集全链身份绑定（codex 第十七轮 P0-2 + 第十八轮）：
+        #    campaign 声称的 contract、dataset、candidate、batch 与执行实参必须精确一致。
         if campaign.contract_digest != self._contract.contract_digest:
             raise Phase17HoldoutExecutionError(
                 "phase17 campaign contract identity does not match the contract"
@@ -245,18 +324,36 @@ class Phase17HoldoutCampaignRunner:
             raise Phase17HoldoutExecutionError(
                 "phase17 campaign candidate identity does not match the candidate bundle"
             )
+        if campaign.batch_index != batch_index:
+            raise Phase17HoldoutExecutionError(
+                "phase17 campaign batch_index does not match the executed batch"
+            )
+        if campaign.declared_model_id != self._identity["model_id"]:
+            raise Phase17HoldoutExecutionError(
+                "phase17 campaign declared model identity does not match the contract"
+            )
+        if campaign.declared_reasoning_effort != self._identity["reasoning_effort"]:
+            raise Phase17HoldoutExecutionError(
+                "phase17 campaign declared reasoning effort does not match the contract"
+            )
+        if tuple(campaign.declared_endpoint_hosts) != tuple(self._identity["endpoint_hosts"]):
+            raise Phase17HoldoutExecutionError(
+                "phase17 campaign declared endpoint hosts do not match the contract"
+            )
 
-        # 1. 精确 batch 集合校验（codex 第十七轮 P0-1）：cases 必须是该 batch 在
-        #    frozen manifest 中的精确全集（order-insensitive），不允许子集/混合。
+        # 1. 精确 batch 集合校验（codex 第十七轮 P0-1 + 第十八轮去重）：cases 必须是
+        #    该 batch 在 frozen manifest 中的精确全集（order-insensitive，无重复），
+        #    不允许子集/混合/重复。
         if batch_index not in {1, 2}:
             raise Phase17HoldoutExecutionError("phase17 holdout batch_index must be 1 or 2")
         expected_case_ids = set(manifest.batch_case_ids(batch_index))
         actual_case_ids = {case_id for case_id, _ in cases}
-        if actual_case_ids != expected_case_ids:
+        if len(cases) != len(actual_case_ids) or actual_case_ids != expected_case_ids:
             raise Phase17HoldoutExecutionError(
                 "phase17 holdout batch must be the exact frozen case set "
-                f"(batch {batch_index} expected {len(expected_case_ids)} cases, "
-                f"got {len(actual_case_ids)}; missing={sorted(expected_case_ids - actual_case_ids)[:3]} "
+                f"(batch {batch_index} expected {len(expected_case_ids)} unique cases, "
+                f"got {len(cases)} entries / {len(actual_case_ids)} unique; "
+                f"missing={sorted(expected_case_ids - actual_case_ids)[:3]} "
                 f"extra={sorted(actual_case_ids - expected_case_ids)[:3]})"
             )
 
@@ -318,9 +415,20 @@ class Phase17HoldoutCampaignRunner:
             for batch in self._contract.holdout_batches
             if batch["batch_index"] == batch_index
         )
+        # 关键安全红线（codex 第十八轮）：``critical_safety_zero_failure`` 必须在
+        # runner 执行。语义：ANALYST_VALIDATION_FAILED（分析阶段未产出可用证据，
+        # 无法安全继续 → "NO_UNSAFE_FALSE_ALLOW" 红线风险）计入关键安全失败；
+        # BLOCKED 是外部证据不足（inconclusive），已使 run BLOCKED 优先；
+        # PLANNER 语义失败是计划质量维度，由批内通过率阈值承接（9/10 语义保留）。
+        critical_failures = sum(
+            1 for e in executions if e.reason_code == "ANALYST_VALIDATION_FAILED"
+        )
         if any(e.outcome == "BLOCKED" for e in executions):
             status = "BLOCKED"
             reason_code = "PHASE17_HOLDOUT_HARD_BLOCKED"
+        elif critical_failures > 0:
+            status = "FAILED"
+            reason_code = "PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE_VIOLATED"
         elif pass_count >= batch_pass_min:
             status = "PASS"
             reason_code = "PHASE17_HOLDOUT_BATCH_THRESHOLD_MET"
@@ -338,6 +446,7 @@ class Phase17HoldoutCampaignRunner:
                 "pass_count": pass_count,
                 "pass_min": batch_pass_min,
                 "total": len(cases),
+                "critical_safety_failures": critical_failures,
                 "case_executions": [
                     {"case_id": e.case_id, "outcome": e.outcome, "reason_code": e.reason_code}
                     for e in executions
@@ -351,11 +460,16 @@ class Phase17HoldoutCampaignRunner:
         return Phase17HoldoutRunReport(
             campaign_id=campaign.campaign_id,
             run_id=run_id,
+            batch_index=batch_index,
+            contract_digest=self._contract.contract_digest,
+            dataset_manifest_digest=manifest.manifest_digest,
+            candidate_digest=self._candidate.candidate_digest or "",
             status=status,
             reason_codes=reasons or ("EXECUTION_COMPLETE",),
             pass_count=pass_count,
             pass_min=batch_pass_min,
             total=len(cases),
+            critical_safety_failures=critical_failures,
             cost_cny=total_cost,
             case_executions=tuple(executions),
         )
@@ -432,102 +546,175 @@ class Phase17HoldoutCampaignRunner:
             profile=profile,
             user_prompt=user_prompt,
         )
-        outcome = await self._model_port.complete(request)
-        if isinstance(outcome, ModelFailure):
-            # UNKNOWN_USAGE 按最坏情况以 stage 级预留全额入账（与 v2 attempt
-            # reservation 口径一致）：attempt 一旦建立即占用，pre-send 失败
-            # 也不得结算为 0；绝不使用 campaign 级预留，避免多 case 失败
-            # 重复全额占用预算池。
-            cost_cny = self._cost(None, self._stage_reservation_cny)
-            # codex 第十七轮 P0-3：逐 attempt 证据入账（含 receipt_hmac）。
+        result = await self._model_port.complete(request)
+        return self._record_attempts(
+            request=request,
+            result=result,
+            run_id=run_id,
+            case_id=case_id,
+            stage=stage,
+        )
+
+    def _record_attempts(
+        self,
+        *,
+        request: ModelRequest,
+        result: Phase17AdapterOutcome,
+        run_id: str,
+        case_id: str,
+        stage: str,
+    ) -> "_StageOutcome":
+        """把一次 stage 的逐网络 attempt 事实入账（codex 第十八轮 P0-3）。
+
+        行来源：``result.attempt_details``（phase17 adapter 按真实调用顺序收集，
+        含同端点重试与渠道换端）；无明细的调用方 fallback 单行（attempt_index=1）。
+        成本分配：成功 attempt 按 usage 定价；失败 attempt 记 0；整 stage 无 usage
+        （UNKNOWN_USAGE 结算）时最后一行记 stage 级预留全额 —— 绝不使用 campaign
+        级预留，避免多 case 失败重复全额占用预算池。
+        """
+
+        outcome = result.outcome
+        valid = (
+            isinstance(outcome, ModelSuccess)
+            and self._structure_valid(stage=stage, output=outcome.output)
+        )
+        failure = isinstance(outcome, ModelFailure)
+        details = result.attempt_details
+        rows: list[dict[str, Any]] = []
+        for index, detail in enumerate(details):
+            final_row = index == len(details) - 1
+            if final_row and not failure:
+                row_outcome = "PASS" if valid else "FAILED"
+                row_category = (
+                    None
+                    if valid
+                    else (
+                        "ANALYST_VALIDATION_FAILED"
+                        if stage == "ANALYST"
+                        else "PLANNER_VALIDATION_FAILED"
+                    )
+                )
+            else:
+                row_outcome = detail.outcome
+                row_category = str(detail.category) if detail.category is not None else None
+            rows.append(
+                {
+                    "attempt_index": detail.attempt_index,
+                    "endpoint_host": detail.endpoint_host,
+                    "outcome": row_outcome,
+                    "category": row_category,
+                    "response_digest": detail.response_digest,
+                    "provider_response_id": detail.provider_response_id,
+                    "http_status": detail.http_status,
+                    "latency_ms": detail.latency_ms,
+                    "input_tokens": detail.input_tokens,
+                    "output_tokens": detail.output_tokens,
+                    "total_tokens": detail.total_tokens,
+                    "cost_cny": self._attempt_cost(
+                        input_tokens=detail.input_tokens,
+                        output_tokens=detail.output_tokens,
+                        outcome=row_outcome,
+                    ),
+                }
+            )
+        if not rows:
+            rows.append(
+                {
+                    "attempt_index": 1,
+                    "endpoint_host": request.endpoint_host,
+                    "outcome": "FAILED" if failure else ("PASS" if valid else "FAILED"),
+                    "category": (
+                        str(outcome.category)
+                        if failure
+                        else (
+                            None
+                            if valid
+                            else (
+                                "ANALYST_VALIDATION_FAILED"
+                                if stage == "ANALYST"
+                                else "PLANNER_VALIDATION_FAILED"
+                            )
+                        )
+                    ),
+                    "response_digest": outcome.response_digest,
+                    "provider_response_id": (
+                        outcome.provider_response_id if not failure else None
+                    ),
+                    "http_status": outcome.http_status if failure else None,
+                    "latency_ms": outcome.latency_ms,
+                    "input_tokens": (
+                        outcome.usage.input_tokens
+                        if isinstance(outcome, ModelSuccess) and outcome.usage
+                        else None
+                    ),
+                    "output_tokens": (
+                        outcome.usage.output_tokens
+                        if isinstance(outcome, ModelSuccess) and outcome.usage
+                        else None
+                    ),
+                    "total_tokens": (
+                        outcome.usage.total_tokens
+                        if isinstance(outcome, ModelSuccess) and outcome.usage
+                        else None
+                    ),
+                    "cost_cny": self._cost(
+                        outcome.usage if isinstance(outcome, ModelSuccess) else None,
+                        self._stage_reservation_cny,
+                    ),
+                }
+            )
+        if not any(row["cost_cny"] > 0 for row in rows):
+            # 全 stage 无 usage（例如全部网络失败）：最坏情况以 stage 预留全额入账，
+            # 记在最后一行，与 v2 attempt reservation 口径一致。
+            rows[-1]["cost_cny"] = self._stage_reservation_cny
+        total_cost = sum(row["cost_cny"] for row in rows)
+        for row in rows:
             self._ledger.record_phase17_attempt(
                 run_id=run_id,
                 case_id=case_id,
                 stage=stage,
-                attempt_index=1,
+                attempt_index=row["attempt_index"],
                 request_id=request.request_id,
-                endpoint_host=request.endpoint_host,
+                endpoint_host=row["endpoint_host"],
                 model_id=request.model_id,
-                outcome="FAILED",
-                category=str(outcome.category),
-                response_digest=outcome.response_digest,
-                provider_response_id=None,
-                http_status=outcome.http_status,
-                latency_ms=outcome.latency_ms,
+                outcome=row["outcome"],
+                category=row["category"],
+                response_digest=row["response_digest"],
+                provider_response_id=row["provider_response_id"],
+                http_status=row["http_status"],
+                latency_ms=row["latency_ms"],
                 attempts=outcome.attempts,
-                input_tokens=None,
-                output_tokens=None,
-                total_tokens=None,
-                cost_cny=cost_cny,
+                input_tokens=row["input_tokens"],
+                output_tokens=row["output_tokens"],
+                total_tokens=row["total_tokens"],
+                cost_cny=row["cost_cny"],
             )
+        if failure:
             return _StageOutcome(
                 passed=False,
                 network_sent=bool(outcome.request_sent),
                 reason_code="MODEL_OUTCOME_UNAVAILABLE",
                 output=None,
-                cost_cny=cost_cny,
-                receipt_count=1,
-            )
-        if not isinstance(outcome, ModelSuccess):
-            return _StageOutcome(
-                passed=False,
-                network_sent=False,
-                reason_code="MODEL_OUTCOME_UNAVAILABLE",
-                output=None,
-                cost_cny=Decimal("0"),
-                receipt_count=0,
-            )
-        cost = self._cost(outcome.usage, campaign.reservation_cny)
-        valid = self._structure_valid(stage=stage, output=outcome.output)
-        # codex 第十七轮 P0-3：成功（含语义失败）同样逐 attempt 入账。
-        self._ledger.record_phase17_attempt(
-            run_id=run_id,
-            case_id=case_id,
-            stage=stage,
-            attempt_index=1,
-            request_id=request.request_id,
-            endpoint_host=request.endpoint_host,
-            model_id=request.model_id,
-            outcome="PASS" if valid else "FAILED",
-            category=(
-                None
-                if valid
-                else (
-                    "ANALYST_VALIDATION_FAILED"
-                    if stage == "ANALYST"
-                    else "PLANNER_VALIDATION_FAILED"
-                )
-            ),
-            response_digest=outcome.response_digest,
-            provider_response_id=outcome.provider_response_id,
-            http_status=None,
-            latency_ms=outcome.latency_ms,
-            attempts=outcome.attempts,
-            input_tokens=outcome.usage.input_tokens if outcome.usage else None,
-            output_tokens=outcome.usage.output_tokens if outcome.usage else None,
-            total_tokens=outcome.usage.total_tokens if outcome.usage else None,
-            cost_cny=cost,
-        )
-        if not valid:
-            return _StageOutcome(
-                passed=False,
-                network_sent=True,
-                reason_code=(
-                    "ANALYST_VALIDATION_FAILED"
-                    if stage == "ANALYST"
-                    else "PLANNER_VALIDATION_FAILED"
-                ),
-                output=None,
-                cost_cny=cost,
-                receipt_count=1,
+                cost_cny=total_cost,
+                receipt_count=len(rows),
             )
         return _StageOutcome(
-            passed=True,
+            passed=valid,
             network_sent=True,
-            reason_code="ANALYST_VALIDATION_PASS" if stage == "ANALYST" else "PLANNER_VALIDATION_PASS",
-            output=outcome.output,
-            cost_cny=cost,
-            receipt_count=1,
+            reason_code=(
+                "ANALYST_VALIDATION_PASS"
+                if stage == "ANALYST"
+                else "PLANNER_VALIDATION_PASS"
+            )
+            if valid
+            else (
+                "ANALYST_VALIDATION_FAILED"
+                if stage == "ANALYST"
+                else "PLANNER_VALIDATION_FAILED"
+            ),
+            output=outcome.output if valid else None,
+            cost_cny=total_cost,
+            receipt_count=len(rows),
         )
 
     def _build_request(

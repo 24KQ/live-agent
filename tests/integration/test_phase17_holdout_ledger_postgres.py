@@ -470,3 +470,249 @@ def test_phase17_attempt_append_only_and_terminal_run_rejection(ledger_factory) 
     )
     with pytest.raises(Phase17HoldoutLedgerError, match="attempt append failed"):
         _record_attempt(ledger, run_id=run_id, case_id="holdout-case-002")
+
+
+
+def test_phase17_schema_ready_and_run_ledger_state(ledger_factory) -> None:
+    """18 轮 P1-4：schema 存在性检查 + 异常终态化查询（run 未终态成本累计）。"""
+    from src.decision_support.phase17_holdout_ledger import (
+        phase17_holdout_schema_ready,
+    )
+
+    settings = ledger_factory.settings
+    assert phase17_holdout_schema_ready(settings) is True
+    ledger = ledger_factory()
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaign = _campaign(
+        contract_digest=contract.contract_digest,
+        batch_index=1,
+        reservation_cny=Decimal("1.000000"),
+    )
+    ledger.ensure_phase17_campaign(campaign)
+    run_id = "phase17-holdout-run-state-1"
+    ledger.begin_phase17_run(run_id=run_id, campaign_id=campaign.campaign_id, case_ids=("holdout-case-001",))
+    _record_attempt(ledger, run_id=run_id)
+    _record_attempt(ledger, run_id=run_id, case_id="holdout-case-001", stage="PLANNER")
+
+    state = ledger.phase17_run_ledger_state(run_id=run_id)
+    assert state["run_exists"] is True
+    assert state["terminal"] is False
+    assert state["attempt_cost_cny"] == Decimal("0.012000")
+    assert state["campaign_id"] == campaign.campaign_id
+
+    ledger.close_phase17_run(
+        run_id=run_id, status="FAILED", reason_code="PHASE17_RUN_ABORTED",
+        payload={"run_id": run_id},
+    )
+    assert ledger.phase17_run_ledger_state(run_id=run_id)["terminal"] is True
+    assert ledger.phase17_run_ledger_state(run_id="unknown-run")["run_exists"] is False
+
+
+def test_phase17_batch_run_report_identity_and_cases(ledger_factory) -> None:
+    """18 轮 P1-4：--aggregate 输入——终态 run 返回全链身份与 case 级事实。"""
+    ledger = ledger_factory()
+    settings = ledger_factory.settings
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaign = _campaign(
+        contract_digest=contract.contract_digest,
+        batch_index=1,
+        reservation_cny=Decimal("1.000000"),
+    )
+    ledger.ensure_phase17_campaign(campaign)
+    assert (
+        ledger.phase17_batch_run_report(
+            contract_digest=contract.contract_digest, batch_index=1
+        )
+        is None
+    )
+    run_id = "phase17-holdout-run-report-1"
+    ledger.begin_phase17_run(
+        run_id=run_id, campaign_id=campaign.campaign_id, case_ids=("holdout-case-001",)
+    )
+    ledger.record_phase17_case_result(
+        run_id=run_id, case_id="holdout-case-001",
+        input_digest="c" * 64, outcome="PASS",
+        reason_code="EXECUTION_COMPLETE", receipt_count=2, cost_cny=Decimal("0.006000"),
+    )
+    ledger.close_phase17_run(
+        run_id=run_id, status="PASS", reason_code="PHASE17_HOLDOUT_BATCH_THRESHOLD_MET",
+        payload={"run_id": run_id},
+    )
+    data = ledger.phase17_batch_run_report(
+        contract_digest=contract.contract_digest, batch_index=1
+    )
+    assert data is not None
+    assert data["run_id"] == run_id
+    assert data["campaign_id"] == campaign.campaign_id
+    assert data["candidate_digest"] == "a" * 64
+    assert data["dataset_manifest_digest"] == "b" * 64
+    assert data["status"] == "PASS"
+    assert len(data["cases"]) == 1
+    assert data["cases"][0]["outcome"] == "PASS"
+    assert data["cases"][0]["receipt_count"] == 2
+    assert data["cases"][0]["cost_cny"] == Decimal("0.006000")
+
+
+def test_phase17_qualification_record_unique_and_identity(ledger_factory) -> None:
+    """18 轮 P1-4：27/30 结论只入账一次；batch 归属/终态/重复记录全部拒绝。"""
+    ledger = ledger_factory()
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaigns = {}
+    for batch_index in (1, 2):
+        campaign = _campaign(
+            contract_digest=contract.contract_digest,
+            batch_index=batch_index,
+            reservation_cny=Decimal("1.000000"),
+        )
+        ledger.ensure_phase17_campaign(campaign)
+        campaigns[batch_index] = campaign
+    run_ids = {}
+    for batch_index in (1, 2):
+        run_id = f"phase17-holdout-run-qual-{batch_index}"
+        run_ids[batch_index] = run_id
+        ledger.begin_phase17_run(
+            run_id=run_id,
+            campaign_id=campaigns[batch_index].campaign_id,
+            case_ids=(f"holdout-case-00{batch_index}",),
+        )
+        ledger.close_phase17_run(
+            run_id=run_id, status="PASS",
+            reason_code="PHASE17_HOLDOUT_BATCH_THRESHOLD_MET",
+            payload={"run_id": run_id},
+        )
+    ledger.record_phase17_qualification(
+        qualification_id="phase17-holdout-qualification-1",
+        run1_id=run_ids[1], run2_id=run_ids[2],
+        contract_digest=contract.contract_digest,
+        candidate_digest="a" * 64,
+        dataset_manifest_digest="b" * 64,
+        status="QUALIFIED",
+        reason_code="PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",
+        total_pass=28, total_cases=30, pass_min=27,
+        critical_safety_failures=0,
+        evaluation_digest="d" * 64,
+    )
+    records = ledger.phase17_qualification_records(contract_digest=contract.contract_digest)
+    assert len(records) == 1
+    assert records[0]["status"] == "QUALIFIED"
+    assert records[0]["total_pass"] == 28
+    with pytest.raises(Phase17HoldoutLedgerError, match="qualification record failed"):
+        ledger.record_phase17_qualification(
+            qualification_id="phase17-holdout-qualification-2",
+            run1_id=run_ids[1], run2_id=run_ids[2],
+            contract_digest=contract.contract_digest,
+            candidate_digest="a" * 64,
+            dataset_manifest_digest="b" * 64,
+            status="QUALIFIED",
+            reason_code="PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",
+            total_pass=28, total_cases=30, pass_min=27,
+            critical_safety_failures=0,
+            evaluation_digest="d" * 64,
+        )  # UNIQUE(run1_id, run2_id) 兜底
+
+    # batch 归属错误：batch2 的 run 冒充 batch1。
+    with pytest.raises(Phase17HoldoutLedgerError, match="batch identity mismatch"):
+        ledger.record_phase17_qualification(
+            qualification_id="phase17-holdout-qualification-3",
+            run1_id=run_ids[2], run2_id=run_ids[1],
+            contract_digest=contract.contract_digest,
+            candidate_digest="a" * 64,
+            dataset_manifest_digest="b" * 64,
+            status="QUALIFIED",
+            reason_code="PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",
+            total_pass=28, total_cases=30, pass_min=27,
+            critical_safety_failures=0,
+            evaluation_digest="d" * 64,
+        )
+
+    # 未终态 run 拒绝。
+    ledger.begin_phase17_run(
+        run_id="phase17-holdout-run-qual-open",
+        campaign_id=campaigns[1].campaign_id,
+        case_ids=("holdout-case-001",),
+    )
+    with pytest.raises(Phase17HoldoutLedgerError, match="requires terminal runs"):
+        ledger.record_phase17_qualification(
+            qualification_id="phase17-holdout-qualification-4",
+            run1_id="phase17-holdout-run-qual-open", run2_id=run_ids[2],
+            contract_digest=contract.contract_digest,
+            candidate_digest="a" * 64,
+            dataset_manifest_digest="b" * 64,
+            status="QUALIFIED",
+            reason_code="PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",
+            total_pass=28, total_cases=30, pass_min=27,
+            critical_safety_failures=0,
+            evaluation_digest="d" * 64,
+        )
+
+
+def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
+    """18 轮 P0-3：attempt receipt_hmac 的 payload 必须覆盖 token 字段——
+    tokens 变化必然改变 HMAC（审计可复算，防 token 事后漂移）。"""
+    ledger = ledger_factory()
+    settings = ledger_factory.settings
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    ledger.ensure_phase17_contract(contract)
+    campaign = _campaign(
+        contract_digest=contract.contract_digest,
+        batch_index=1,
+        reservation_cny=Decimal("1.000000"),
+    )
+    ledger.ensure_phase17_campaign(campaign)
+    run_id = "phase17-holdout-run-hmac-tokens"
+    ledger.begin_phase17_run(run_id=run_id, campaign_id=campaign.campaign_id, case_ids=("holdout-case-001",))
+    _record_attempt(ledger, run_id=run_id)  # tokens 1000/500/1500
+    _record_attempt(ledger, run_id=run_id, case_id="holdout-case-001", stage="PLANNER")
+
+    rows = _query(
+        settings,
+        "SELECT stage, receipt_hmac FROM phase17_holdout_attempts WHERE run_id=%s ORDER BY stage",
+        (run_id,),
+    )
+    assert len(rows) == 2
+    assert rows[0]["receipt_hmac"] != rows[1]["receipt_hmac"]
+    # 与 ledger 内部 _tag 重算比对：payload 含 token 字段。
+    expected_1 = ledger._tag(
+        domain="attempt",
+        payload={
+            "request_id": f"req-{run_id}-holdout-case-001-ANALYST",
+            "endpoint_host": "synapse-ai.uk",
+            "model_id": "gpt-5.6-luna",
+            "outcome": "PASS",
+            "category": None,
+            "response_digest": "a" * 64,
+            "provider_response_id": None,
+            "http_status": None,
+            "latency_ms": "0",
+            "attempts": 1,
+            "input_tokens": 1000,
+            "output_tokens": 500,
+            "total_tokens": 1500,
+            "cost_cny": "0.006000",
+        },
+    )
+    assert rows[0]["receipt_hmac"] == expected_1
+    # 若 payload 不覆盖 tokens，伪造不同 tokens 也会算同 HMAC；这里验证差异。
+    forged = ledger._tag(
+        domain="attempt",
+        payload={
+            "request_id": f"req-{run_id}-holdout-case-001-ANALYST",
+            "endpoint_host": "synapse-ai.uk",
+            "model_id": "gpt-5.6-luna",
+            "outcome": "PASS",
+            "category": None,
+            "response_digest": "a" * 64,
+            "provider_response_id": None,
+            "http_status": None,
+            "latency_ms": "0",
+            "attempts": 1,
+            "input_tokens": 999,
+            "output_tokens": 500,
+            "total_tokens": 1499,
+            "cost_cny": "0.006000",
+        },
+    )
+    assert forged != rows[0]["receipt_hmac"]

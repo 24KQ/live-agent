@@ -812,21 +812,28 @@ PHASE17_IDENTITY_REQUIREMENTS: dict[str, object] = {
     "max_case_cost_cny": "0.100000",
 }
 #: Phase 17 契约的 source closure；任何成员源码变化都必须以新 contract digest 重新冻结。
+#: codex 第十八轮 P1-5 追加 4 个文件：DDL 安全边界（init SQL）、统一 migration 入口、
+#: 真实 HTTP payload（deepseek_adapter）、模型结果协议（model_port）。
 PHASE17_HOLDOUT_SOURCE_CLOSURE_PATHS: tuple[str, ...] = (
+    "docker/init_phase17_holdout_ledger.sql",
+    "scripts/run_db_migrations.py",
+    "scripts/run_phase17_holdout.py",
+    "src/decision_support/controlled_e2e_adapter_v5.py",
+    "src/decision_support/models.py",
+    "src/decision_support/multi_agent.py",
     "src/decision_support/phase16_qualification.py",
     "src/decision_support/phase16_qualification_candidate.py",
-    "src/decision_support/phase16_qualification_runner.py",
-    "src/decision_support/phase16_qualification_ledger.py",
     "src/decision_support/phase16_qualification_execution_ledger.py",
-    "src/decision_support/controlled_e2e_adapter_v5.py",
-    "src/decision_support/multi_agent.py",
-    "src/decision_support/models.py",
+    "src/decision_support/phase16_qualification_ledger.py",
+    "src/decision_support/phase16_qualification_runner.py",
     "src/decision_support/phase17_holdout_dataset.py",
     "src/decision_support/phase17_holdout_ledger.py",
     "src/decision_support/phase17_holdout_runner.py",
+    "src/specialist_runtime/deepseek_adapter.py",
+    "src/specialist_runtime/model_port.py",
     "src/specialist_runtime/models.py",
+    "src/specialist_runtime/phase17_v5_adapter.py",
     "src/specialist_runtime/profiles.py",
-    "scripts/run_phase17_holdout.py",
 )
 
 _PHASE17_IDENTITY_PATTERN = r"^(V2_HISTORICAL_EXECUTION|PHASE17_HOLDOUT_EXECUTION_V1)$"
