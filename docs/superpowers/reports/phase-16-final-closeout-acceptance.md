@@ -7,12 +7,18 @@ merge 就绪"两类缺口。报告同时记录补强 run 暴露并修复的真�
 
 - Acceptance status: `PASS`
 - Candidate digest: `1b4323655808df44ce7f83b3...`（补强 run 未触发新重冻结）
-- Policy digest: `1aa9ca6fe5a85702a256e29f...`
+- Policy digest: `1aa9ca6fe5a85702a256e29f...`（执行契约，v2）
+- V9 评价契约（2026-08-02）：`evaluation/manifests/phase16-qualification-policy-v3.json`
+  digest `d0df3a79...`，批准记录见
+  `docs/superpowers/reports/phase-16-v9-contract-approval-record.md`
+  —— 本报告为 **V9 = `DEVELOPMENT_VALIDATION_QUALIFIED`**（高 reasoning 模式资格
+  认证）的证据基座，≠ 原始 V5 PASS（V5 保持「未通过、未恢复」）
 - Corpus manifest: `31d05088a2901fb3ad9472e7...`
 - Model / Effort: `gpt-5.6-terra` / `high`
 - 渠道链（顺序即优先级）: `synapse-ai.uk,api.imagebridge.top,ai.vote520.com`
   - 补强 run 声明组合: `ai.vote520.com,synapse-ai.uk,api.imagebridge.top`（vote520 优先）
-- 账本总成本（12 runs）: `6.6041 CNY` / `1,894,873 tokens`
+- 账本总成本（12 runs）: `6.6041 CNY`（全精度 **6.604131**）/ `1,894,873 tokens`
+  / `271 receipts` / `332 transport attempts`（Σ attempt_count）
 
 ## 1. 补充项 A —— 重试路径证明边界（诚实声明）
 
@@ -142,7 +148,9 @@ FAILED 均为 development 预案 run（基础设施瞬态 / 上游内容级失�
 
 ### 5.1 总成本
 
-- 资格账本口径（本报告 12 runs 全量）：**6.6041 CNY**，1,894,873 tokens。
+- 资格账本口径（本报告 12 runs 全量）：**6.6041 CNY**（全精度 6.604131），
+  1,894,873 tokens；271 张 receipt、332 次 transport attempts（Σ attempt_count，
+  含注入 run 24 receipts × attempt_count=3 = 72 attempts）。
 - 更早 V1/V2/V3/V4 smoke 与探针成本记录于各自验收文档（smoke 账本独立）。
 - 预算约束：policy `project_budget_cny` 内；每 run 4.00 CNY 预算上限、0.10 CNY
   stage 预约，未触顶。
@@ -184,6 +192,7 @@ FAILED 均为 development 预案 run（基础设施瞬态 / 上游内容级失�
 
 - 三个补充项全部落实：重试路径证明边界诚实声明（第 1 节）、完整账本清单
   （第 4 节）、总成本 + merge 就绪声明（第 5 节）。
-- 真实 failover 证据补强完成：24 次调用全链「失败 → 重试 → 换渠道 → 成功」，
-  含 schema 缺陷发现与修复闭环。
+- 真实 failover 证据补强完成：24 张 stage receipt × `attempt_count=3` = 72 次
+  transport attempts 全链「失败 → 重试 → 换渠道 → 成功」（attempt 级聚合证据，
+  逐次网络 receipt 不存在于账本，v3 已定义三计数口径），含 schema 缺陷发现与修复闭环。
 - Phase 16 收口证据链完整；merge 到 main 是用户审批的最终步骤。

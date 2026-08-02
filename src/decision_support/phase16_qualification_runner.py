@@ -759,4 +759,3 @@ class Phase16QualificationCampaignRunner:
                 denominator=max(planner_attempted, 1),
             ),
         )
-

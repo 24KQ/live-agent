@@ -5,9 +5,13 @@
 - 报告日期：2026-08-01
 - 修订：2026-08-02（补跑契约 A 项门禁并修正 §6 声明；补充模型切换失败形态对比
   §3.5a、原始 V5 实现文件状态 §3.9、FAILED run 归因表 §5.2、复核点 R11/R12）
+- V9 契约（2026-08-02）：与 codex 两轮讨论后定稿，正式化为
+  `evaluation/manifests/phase16-qualification-policy-v3.json` 与
+  `docs/superpowers/reports/phase-16-v9-contract-approval-record.md`
+  （本报告统计已按账本核验修正：271 receipts / 全精度 6.604131）
 - 审阅起点：`docs/superpowers/handoffs/2026-07-29-phase16-v5-claude-code-handoff.md`
   （commit `d60ebd4` / `b1a11ac` / `27d20b4`，2026-07-29）
-- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`b903304`，17 个移交后 commit）
+- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`194e081`，19 个移交后 commit）
 - 复验方式：本报告所有 commit / 文件 / digest / 账本数字均可对照仓库与
   PostgreSQL append-only 账本逐项复核；真实模型证据见
   `docs/superpowers/reports/phase-16-final-closeout-acceptance.md`
@@ -64,7 +68,8 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 
 - 最终终态：**PASS**（以 qualification campaign 口径，见第 5 节与最终验收文档）
 - 执行范围：dev + validation campaign（12 cases × 2 stages = 24 次调用/run），
-  加 1 次注入 failover 证据 run；共 12 个真实 run、267 张 receipt、总成本 `6.6041 CNY`
+  加 1 次注入 failover 证据 run；共 12 个真实 run、271 张 receipt、总成本 `6.6041 CNY`
+  （全精度 6.604131；含 46 张 attempt 列迁移前遗留行）
 - 契约遵守项：V1-V4 历史事实只读未改写；`DETERMINISTIC_ONLY` 未放开；
   `AWAITING_PHASE_17_GATE` 未变；账本 append-only；`thinking disabled` 语义沿用；
   `.env` 只读、无 key 提交
@@ -109,8 +114,9 @@ stage 仅一次调用**，任何失败写 append-only 事实并终止 run，不�
 - 理由：真实 run 的 5s 连接断（TRANSPORT_ERROR）暴露零重试设计的脆弱性——一次
   基础设施瞬态即可终结一个合法 campaign 且不可重跑。重试不会重放账本（append-only
   每 attempt 一行 receipt，`attempt_count` 记录全链调用次数），防重放语义保持
-- 证据：注入 failover run 24/24 次 `attempt_count=3`（真实 TRANSPORT_ERROR →
-  重试 → 换端 → 成功）；`receipt.attempt_count` / `receipt.responded_endpoint_host`
+- 证据：注入 failover run 24 张 stage receipt × `attempt_count=3` = 72 次 transport
+  attempts（真实 TRANSPORT_ERROR → 重试 → 换端 → 成功）；`receipt.attempt_count` /
+  `receipt.responded_endpoint_host`
   列为迁移新增并写满真实值
 
 ### 3.4 预算：≤1.0 CNY → 每 run 4.0 CNY（总 6.6041 CNY）
@@ -178,7 +184,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 ### 3.8 尚未执行项：PR gate（契约 B 项）
 
 - 契约：推送分支、创建 PR、远端 Gate 全绿后才可申请校准
-- 实际：分支 17 个 commit 已提交但**从未创建 PR**；本地等价门禁全绿
+- 实际：分支 19 个 commit 已提交但**从未创建 PR**；本地等价门禁全绿
   （第 6 节），远端 GitHub Actions 未跑过
 - 状态：这是收尾的**下一步**（第 9 节），不把本地结果写成远端已通过
 
@@ -197,9 +203,9 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 - 原契约命令路径（`--execute-calibration` / `--execute-formal`）**从未以原形式执行**；
   最终证据全部由 qualification campaign 体系产出（用户批准，见 3.1/3.7）
 
-## 4. Claude 工作详解（17 个 commit，6 个主题块）
+## 4. Claude 工作详解（19 个 commit，6 个主题块）
 
-移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 17 个 commit
+移交边界：`27d20b4`（2026-07-29 18:38，最后一份移交文档 commit）。其后 19 个 commit
 均为 Claude 的工作，按时间正序为：`70836ab` → `fce4722` → `ef15d4d` → `02749a5` →
 `e664edc` → `57aaa5e` → `5417de7` → `5b194a6` → `22d0b93` → `7448b40` → `e0b6f55` →
 `03644a5` → `d4d4b25` → `41497ea` → `63539d7` → `1b54346` → `b903304`。
@@ -272,7 +278,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 ### 5.1 账本总览（PostgreSQL append-only，全部可复验）
 
 - campaigns：**13 行**（含 FAILED 预案 `f28d7e03` 与新增同 digest 异渠道序
-  `d90f9f3d`）；runs：**12 行**（8 PASS / 4 FAILED）；receipts：**267 张**
+  `d90f9f3d`）；runs：**12 行**（8 PASS / 4 FAILED）；receipts：**271 张**
 - 总成本：**6.6041 CNY** / 1,894,873 tokens（4 个 FAILED run 亦如实计费）
 - 账本认证：PASS（`authenticated=True`）；迁移 30/30
 
@@ -285,9 +291,9 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 | dev `1b432365-d90f9f3d`（注入） | 20260801T140424 | PASS | 24/24 | 0.5370 | 168,393 |
 
 - 7 项指标全部 12/12；全部 receipt `finish_reason=stop`、`receipt_complete=True`
-- 注入 run：24/24 次 `attempt_count=3`（vote520 TRANSPORT_ERROR → 重试 → failover
-  → synapse 成功），`responded_endpoint_host=synapse-ai.uk`——**真实 failover 全链
-  证据**；ANALYST avg 10.5s / PLANNER avg 13.2s
+- 注入 run：24 张 stage receipt × `attempt_count=3` = 72 次 transport attempts
+  （vote520 TRANSPORT_ERROR → 重试 → failover → synapse 成功），
+  `responded_endpoint_host=synapse-ai.uk`——**真实 failover 的 attempt 级聚合证据**；ANALYST avg 10.5s / PLANNER avg 13.2s
 - 4 个 FAILED 终态（终态不可重跑，防刷分设计）：
 
 | FAILED run | 组合 | receipts | 已知归因 | 归因出处 |
@@ -341,7 +347,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 | R1 | 身份设计变化：声明组合纳入 campaign_id（同 digest 异组合 = 新名额）——防刷分核心语义是否仍成立？ | 成立：同组合仍被终态检查 + PRIMARY KEY 双重拒绝；异组合是**合法新名额**而非重跑。见 3.6 + identity 验收文档 + `test_qualification_same_digest_same_declared_combo_is_idempotent_single_row` |
 | R2 | campaigns 遗留 UNIQUE 约束被 DROP——原设计缺陷确认？ | 确认：注入 run 首启真实 UniqueViolation（唯一约束不含声明组合，与 R1 身份设计直接冲突）。见 3.6/4.6 + 迁移文件 + 2 个回归测试 |
 | R3 | V1 smoke 账本身份对齐是否篡改历史审计？ | 未篡改：只修正身份声明（deepseek-v4-pro + 3.0/6.0 定价）与 digest 自愈，结论事实未改；"源码漂移 fail-closed"单测有意保留 |
-| R4 | 预算 1.0 → 6.60 CNY 的批准链是否完整？ | 每步均在对话中获用户明确批准（会话转录可查）；政策参数化后 policy 表为唯一权威；总成本 6.6041 CNY 有 267 张 receipt 支撑 |
+| R4 | 预算 1.0 → 6.60 CNY 的批准链是否完整？ | 每步均在对话中获用户明确批准（会话转录可查）；政策参数化后 policy 表为唯一权威；总成本 6.6041 CNY（全精度 6.604131）有 271 张 receipt 支撑 |
 | R5 | 模型别名矩阵（gpt-5.6-*）与 deepseek 定价参数化——provider 映射是否仍 deepseek 官方？ | 是：定价 3.0/6.0 参数化进 profile（`c9e49cb`）；别名仅是白名单内部声明，API 参数由 `.env` 提供（未打印）；receipt 钉死声明值 |
 | R6 | 零重试契约被推翻——append-only 账本 + attempt_count 是否保住审计不可重放？ | 保住：每 attempt 一行 receipt（`attempt_count` 记全链调用次数），失败→重试→成功全序列可审计；注入 run 24/24 attempt=3 是完整证据 |
 | R7 | 验收标准从三态表变为 campaign 指标口径——新标准是否可接受？ | 用户拍板（"证据补强版"计划批准，含 3 补充项）；旧契约的校准/正式路径已随 3.1-3.6 整体演进，无法原样执行 |
@@ -362,7 +368,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
    Acceptance 写入 PASS 终态
 3. 按用户此前明确指示：**merge 是最后一步，等待用户审批**，本报告不触发任何 merge
 
-## 附录 A：commit 边界表（27d20b4 之后，17 个）
+## 附录 A：commit 边界表（27d20b4 之后，19 个）
 
 | hash | 说明 | 改动范围 |
 |:--|:--|:--|
