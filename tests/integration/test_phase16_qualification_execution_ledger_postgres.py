@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -14,6 +15,7 @@ import pytest
 from src.config.settings import get_settings
 from src.decision_support.phase16_qualification import (
     PHASE16_QUALIFICATION_ASSET_DIRECTORY,
+    PHASE16_QUALIFICATION_POLICY_PATH,
     build_phase16_qualification_policy,
     load_phase16_qualification_corpus,
 )
@@ -39,6 +41,24 @@ from src.specialist_runtime.models import canonical_json_sha256
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _TEST_HMAC_KEY = bytes.fromhex("1c" * 32)
+
+
+@pytest.fixture(autouse=True)
+def frozen_v2_closure(monkeypatch: pytest.MonkeyPatch):
+    """v2 冻结闭包快照（与 unit 侧同一模式）。
+
+    ledger.py 演进（407b43c 运行时强制、并发竞态修复）后当前工作树相对 v2
+    冻结闭包漂移，真实 load 路径 fail-closed（正确行为，由 unit 测试
+    test_qualification_policy_rejects_source_closure_drift 断言）。本 fixture
+    让聚焦执行语义的集成测试在 v2 时刻闭包下运行，不改变被测行为。
+    """
+    frozen = json.loads(
+        (_PROJECT_ROOT / PHASE16_QUALIFICATION_POLICY_PATH).read_bytes()
+    )["source_file_digests"]
+    monkeypatch.setattr(
+        "src.decision_support.phase16_qualification.qualification_source_file_digests",
+        lambda *, repository_root: frozen,
+    )
 
 
 @pytest.fixture()
