@@ -5,13 +5,14 @@
 - 报告日期：2026-08-01
 - 修订：2026-08-02（补跑契约 A 项门禁并修正 §6 声明；补充模型切换失败形态对比
   §3.5a、原始 V5 实现文件状态 §3.9、FAILED run 归因表 §5.2、复核点 R11/R12）
-- V9 契约（2026-08-02）：与 codex 两轮讨论后定稿，正式化为
-  `evaluation/manifests/phase16-qualification-policy-v3.json` 与
+- V9 契约（2026-08-02）：与 codex 多轮讨论后定稿，正式化为
+  `evaluation/manifests/phase16-qualification-policy-v3.json`（**纯回溯评价契约**，
+  digest `75319a4a...`，codex 第 5 轮确认收敛）与
   `docs/superpowers/reports/phase-16-v9-contract-approval-record.md`
   （本报告统计已按账本核验修正：271 receipts / 全精度 6.604131）
 - 审阅起点：`docs/superpowers/handoffs/2026-07-29-phase16-v5-claude-code-handoff.md`
   （commit `d60ebd4` / `b1a11ac` / `27d20b4`，2026-07-29）
-- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`c8abf49`，24 个移交后 commit）
+- 工作分支：`codex/phase16-v5-controlled-e2e`（截至本报告：`93755a0`，24 个移交后 commit）
 - 复验方式：本报告所有 commit / 文件 / digest / 账本数字均可对照仓库与
   PostgreSQL append-only 账本逐项复核；真实模型证据见
   `docs/superpowers/reports/phase-16-final-closeout-acceptance.md`
@@ -395,7 +396,7 @@ PASS 不可达**，这也解释了为什么收尾是"重试 + 渠道链 + 身份
 | 55d28ab | docs: formalize V9 qualification contract and correct ledger stats | v3 policy JSON + approval record + report/acceptance 同步（11 处修正） |
 | e3757ca | docs: add llm stable json output experience sharing guide | 经验分享文档（642 行，docs/experiences/） |
 | 407b43c | feat: enforce maximum development candidates at runtime in ledger | ledger.py 上限检查 + PG 集成测试（91 行） |
-| 9d03b30 | feat: three-role digests and budget balance in v3 contract | v3 JSON 字段重命名 + 预算余额 + 闭包哈希刷新，digest f286114f |
+| 9d03b30 | feat: three-role digests and budget balance in v3 contract | v3 JSON 字段重命名 + 预算余额 + 闭包哈希刷新（当时 digest f286114f，后续收敛为 75319a4a） |
 | c8abf49 | feat: commit read-only ledger export verifier and 13/12 mapping evidence | 复验脚本（175 行）+ approval record §4.3/§5.1/§6 补充 |
 
 ## 附录 B：证据与文档索引

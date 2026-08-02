@@ -53,6 +53,13 @@ _AUTHORITATIVE = {
     "policy_digest_variants": 8,
 }
 
+#: v3 回溯评价契约（13/12 映射断言的数据源）。
+_V3_POLICY_PATH = (
+    _PROJECT_ROOT / "evaluation" / "manifests" / "phase16-qualification-policy-v3.json"
+)
+#: 唯一无 run 的 campaign（V1 身份对齐期占位，无证据负载）。
+_RUN_LESS_CAMPAIGN_ID = "phase16-validation-candidate-1"
+
 
 def _aggregate(connection) -> dict:
     """纯 SELECT 聚合；返回与 _AUTHORITATIVE 同键的统计。"""
@@ -110,10 +117,48 @@ def _aggregate(connection) -> dict:
     return result
 
 
+def _verify_mapping(connection) -> list[str]:
+    """13/12 映射断言（approval record §4.3）：v3 声明的评价范围与账本一致。
+
+    返回失败描述列表；空 = 全通过。
+    """
+    failures = []
+    v3 = json.loads(_V3_POLICY_PATH.read_text(encoding="utf-8"))
+    declared = set(v3["retrospective_campaign_ids"])
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT campaign_id FROM phase16_qualification_campaigns")
+        ledger_ids = {row[0] for row in cursor.fetchall()}
+        cursor.execute(
+            """SELECT c.campaign_id
+                 FROM phase16_qualification_campaigns c
+                 LEFT JOIN phase16_qualification_runs r ON r.campaign_id = c.campaign_id
+                GROUP BY c.campaign_id HAVING count(r.run_id) = 0"""
+        )
+        run_less = {row[0] for row in cursor.fetchall()}
+        cursor.execute(
+            """SELECT campaign_id FROM phase16_qualification_runs
+                GROUP BY campaign_id HAVING count(*) > 1"""
+        )
+        duplicated = {row[0] for row in cursor.fetchall()}
+    if declared != ledger_ids:
+        failures.append(
+            f"retrospective_campaign_ids != ledger campaigns "
+            f"(declared {len(declared)}, ledger {len(ledger_ids)})"
+        )
+    if run_less != {_RUN_LESS_CAMPAIGN_ID}:
+        failures.append(
+            f"run-less campaigns != {{{_RUN_LESS_CAMPAIGN_ID}}}: {sorted(run_less)}"
+        )
+    if duplicated:
+        failures.append(f"campaigns with >1 run: {sorted(duplicated)}")
+    return failures
+
+
 def main() -> int:
     kwargs = dict(get_settings().postgres_connection_kwargs)
     with psycopg.connect(**kwargs) as connection:
         actual = _aggregate(connection)
+        mapping_failures = _verify_mapping(connection)
 
     failures = []
     for key, expected in _AUTHORITATIVE.items():
@@ -121,6 +166,13 @@ def main() -> int:
         if status == "FAIL":
             failures.append(key)
         print(f"{status}  {key:<32} actual={actual[key]!s:>12}  expected={expected!s:>12}")
+
+    if mapping_failures:
+        failures.append("13/12 mapping")
+        for detail in mapping_failures:
+            print(f"FAIL  13/12 mapping            {detail}")
+    else:
+        print("PASS  mapping 13/12              declared ids == ledger; sole run-less campaign = validation-candidate-1")
 
     self_digest = sha256(Path(__file__).read_bytes()).hexdigest()
     print(f"INFO script_sha256={self_digest}")

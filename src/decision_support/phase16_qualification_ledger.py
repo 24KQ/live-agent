@@ -549,6 +549,18 @@ class PostgresPhase16QualificationLedger:
                         raise Phase16QualificationLedgerError(
                             "qualification campaign id does not match declared identity"
                         )
+                    # 先取 policy 行锁（同一 policy_digest 的串行化点）：existing 查重、
+                    # dev 候选计数与 INSERT 必须与并发事务串行，否则两个事务可能同时
+                    # 读到 dev_count=1 双双插入第 2/3 个 dev campaign 突破上限 2。
+                    cursor.execute(
+                        """SELECT project_budget_cny, campaign_budget_cny, holdout_batch_count
+                             FROM phase16_qualification_policies
+                            WHERE policy_digest=%s FOR UPDATE""",
+                        (campaign.policy_digest,),
+                    )
+                    policy = cursor.fetchone()
+                    if policy is None or campaign.reservation_cny > Decimal(policy["campaign_budget_cny"]):
+                        raise Phase16QualificationLedgerError("qualification campaign policy is unavailable")
                     # 同一 digest 下同一声明组合只能有一个 campaign（防刷分核心）：
                     # 切换组合才开新名额；campaign_id 格式迁移不能重开已跑过的组合。
                     cursor.execute(
@@ -572,7 +584,8 @@ class PostgresPhase16QualificationLedger:
                         )
                     # V9：maximum_future_development_candidates=2 运行时强制。全新
                     # DEVELOPMENT campaign 才计数（幂等 ensure 与 VALIDATION/HOLDOUT
-                    # 不受影响），防止未来通过不断换模型/渠道刷 dev 名额。
+                    # 不受影响），防止未来通过不断换模型/渠道刷 dev 名额；此时已持有
+                    # policy 行锁，计数与并发事务串行，无竞态。
                     if existing is None and campaign.campaign_kind is QualificationCampaignKind.DEVELOPMENT:
                         cursor.execute(
                             """SELECT COUNT(*) AS dev_count
@@ -584,15 +597,6 @@ class PostgresPhase16QualificationLedger:
                             raise Phase16QualificationLedgerError(
                                 "qualification development campaign limit exceeded"
                             )
-                    cursor.execute(
-                        """SELECT project_budget_cny, campaign_budget_cny, holdout_batch_count
-                             FROM phase16_qualification_policies
-                            WHERE policy_digest=%s FOR UPDATE""",
-                        (campaign.policy_digest,),
-                    )
-                    policy = cursor.fetchone()
-                    if policy is None or campaign.reservation_cny > Decimal(policy["campaign_budget_cny"]):
-                        raise Phase16QualificationLedgerError("qualification campaign policy is unavailable")
                     cursor.execute(
                         """SELECT policy_digest FROM phase16_qualification_corpora WHERE corpus_digest=%s""",
                         (campaign.corpus_digest,),

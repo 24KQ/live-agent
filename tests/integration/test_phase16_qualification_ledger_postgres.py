@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -394,3 +395,71 @@ def test_qualification_development_campaign_limit_is_enforced_per_policy(
             (policy.policy_digest or "",),
         ).fetchone()[0]
     assert count == 3  # 2 dev + 1 val
+
+
+def test_qualification_development_campaign_limit_is_concurrency_safe(
+    qualification_ledger_factory,
+) -> None:
+    """V9：dev 候选上限在并发 ensure 下仍成立（计数在 policy 行锁内）。
+
+    回归：此前 dev COUNT 检查在 policy 行锁（FOR UPDATE）之前执行，两个并发
+    事务可同时读到 dev_count=1 并双双插入第 2 个 campaign 突破上限 2；修复后
+    「查重 → 计数 → INSERT」与并发事务在 policy 行上串行，终态 dev 数 ≤2。
+    """
+    ledger = qualification_ledger_factory()
+    policy, corpus, candidate = _parents(ledger)
+
+    def dev_campaign(*, hosts):
+        return QualificationCampaign(
+            campaign_id=qualification_campaign_id(
+                kind=QualificationCampaignKind.DEVELOPMENT,
+                candidate_digest=candidate.candidate_digest or "",
+                declared_model_id="gpt-5.6-luna",
+                declared_reasoning_effort=None,
+                declared_endpoint_hosts=hosts,
+            ),
+            campaign_kind=QualificationCampaignKind.DEVELOPMENT,
+            policy_digest=policy.policy_digest or "",
+            corpus_digest=corpus.corpus_digest,
+            candidate_digest=candidate.candidate_digest or "",
+            manifest_digest="d" * 64,
+            reservation_cny="0.500000",
+            declared_model_id="gpt-5.6-luna",
+            declared_reasoning_effort=None,
+            declared_endpoint_hosts=hosts,
+        )
+
+    ledger.ensure_campaign(dev_campaign(hosts=("synapse-ai.uk",)))
+    # 两个独立连接并发竞争第 2 个名额（不同组合），至多一个成功。
+    contenders = [
+        ("synapse-ai.uk", "api.imagebridge.top"),
+        ("synapse-ai.uk", "ai.vote520.com"),
+    ]
+    outcomes = []
+    barrier = threading.Barrier(3)
+
+    def worker(hosts):
+        local = qualification_ledger_factory()
+        barrier.wait()
+        try:
+            local.ensure_campaign(dev_campaign(hosts=hosts))
+            outcomes.append(("ok", hosts))
+        except Phase16QualificationLedgerError as error:
+            outcomes.append(("limit", str(error)))
+
+    threads = [threading.Thread(target=worker, args=(hosts,)) for hosts in contenders]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sum(1 for kind, _ in outcomes if kind == "ok") == 1
+    assert sum(1 for kind, _ in outcomes if kind == "limit") == 1
+    with psycopg.connect(**qualification_ledger_factory.settings.postgres_connection_kwargs) as connection:
+        dev_count = connection.execute(
+            """SELECT count(*) FROM phase16_qualification_campaigns
+                WHERE policy_digest=%s AND campaign_kind='DEVELOPMENT'""",
+            (policy.policy_digest or "",),
+        ).fetchone()[0]
+    assert dev_count == 2  # 1 既有 + 1 并发胜出

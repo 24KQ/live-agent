@@ -31,26 +31,39 @@
 ## 2. 新政策 manifest
 
 - `evaluation/manifests/phase16-qualification-policy-v3.json`
-- policy_digest：`f286114f23d638a7c6aba3300ab6d9b0fc62fc1638596e151d9a55f86da6df16`
-- 三角色 digest 字段（codex 第 3 轮要求：一个字段不得同时承担两个角色）：
+- policy_digest：`75319a4a1ce75f34134feb65a75e05857588fb3c368faf8837113ccd35746ddd`
+- 定位：**纯回溯评价契约**（`policy_role = RETROSPECTIVE_EVALUATION`，codex 第 5 轮
+  确认的收敛形态）——评价历史 13 campaigns / 12 runs，**不是执行契约**；运行时仍
+  使用当前可运行的 v2 契约（`phase16_qualification.py` 零改动，冻结闭包未破坏）。
+- 三角色 digest 字段（一个字段不得同时承担两个角色）：
   - `historical_execution_policy_digest` = v2 最终重冻结 digest
     `1aa9ca6fe5a85702a256e29fb5d6f3d22334bfeb55c6b0ab02300ba62e4926d7`
     （历史 campaign 实际引用的执行契约，不可修改）；
-  - `v9_evaluation_policy_digest` = v3 自身 digest（本文件 `policy_digest`），
-    用于**回溯评价**这批历史证据的评价契约；
-  - `policy_digest`（自身）= v3 的**执行**契约 digest，未来新 campaign 直接引用。
-- 未来新 campaign 必须直接引用 v3 digest；**回溯阶段禁止新增 candidate**。
+  - `v9_evaluation_policy_digest` = v3 自身 digest，回溯评价契约 digest；
+  - `policy_digest` = v3 自身 digest（不再声称未来执行语义）。
+- claim levels 拆分：`observed_claim_levels` =
+  `[ENGINEERING_SAFETY_CONFORMANCE, VALIDATION_PERFORMANCE]`（V9 已闭合）；
+  `deferred_claim_levels` = `[HOLDOUT_QUALIFICATION]`（未执行，延后 phase17，
+  V9 不得声称生产就绪）。
+- retry/fallback 顶层仅记**历史观察**（`retrospective_observations`：注入 run
+  24/24 × attempt_count=3、渠道链 failover 等证据），**不构成对 v2 的追认允许**；
+  正式允许规则只在 `forward_contract_draft`。
+- 未来执行参数（`project_budget_cny`=10、`forward_budget_remaining_cny`=3.395869、
+  `maximum_future_development_candidates`=2、retry/fallback semantics、
+  identity_requirements 含 provider_id）收于 `forward_contract_draft`（phase17 草案，
+  `implementation_status = NOT_WIRED_INTO_RUNTIME`，不承诺运行时行为）。
+- **回溯阶段禁止新增 candidate**；未来执行契约由 phase17 定义并接入运行时。
 
 ## 3. v2 → v3 参数差异表（每项：声明 / 事实 / v3 语义）
 
 | 参数 | v2 声明 | 执行事实（账本） | v3 语义 |
 |:--|:--|:--|:--|
-| `project_budget_cny` | 5.000000 | 实际 6.604131 | 未来约束 **10.000000**（2026-08-02 用户明确批准的新上界，**含历史成本**）；另记 `retrospective_budget_actual_cny` = 6.604131、`forward_budget_remaining_cny` = **3.395869**（= 10 − 6.604131，未来可用余额） |
+| `project_budget_cny` | 5.000000 | 实际 6.604131 | 未来约束 **10.000000**（2026-08-02 用户明确批准的新上界，**含历史成本**）在 `forward_contract_draft`（phase17 草案，未接入运行时）；回溯层另记 `retrospective_budget_actual_cny` = 6.604131、`forward_budget_remaining_cny` = **3.395869**（= 10 − 6.604131，未来可用余额） |
 | `campaign_budget_cny` | 4.000000 | 单 run 最高 0.622227，未触顶 | 4.000000（不变） |
-| `retry_allowed` | false（未强制） | TRANSPORT 重试 + 换端已执行（注入 run 24 receipts / 72 attempts） | **true** + `retry_semantics`：TRANSPORT_ERROR/HTTP_5XX/DEADLINE_EXCEEDED 可重试、每端点 ≤2 次、90s/次、窗口 ≥1.0s、429 换端不重试 |
-| `fallback_allowed` | false | 渠道链 failover 已执行 | **true** + `fallback_semantics`：仅限声明渠道白名单有序尝试，`attempt_count`/`responded_endpoint_host` 入账 |
-| `maximum_development_candidates` | 2（未强制） | 9 个 dev campaign | `maximum_future_development_candidates` = **2**（未来强制）+ `historical_development_candidates_in_scope` = **9**（仅这 9 个可进回溯评价） |
-| 身份字段 | kind + candidate_digest + 模型/强度/渠道 | 同左 | 未来须含 `provider_id + endpoint_host + model_id + reasoning + profile/prompt/schema/source/dataset digest + split`（9 项）；历史无法独立证明 provider → 标 `PROVIDER_IDENTITY_UNVERIFIED`，不作身份链闭合 PASS |
+| `retry_allowed` | false（未强制） | TRANSPORT 重试 + 换端已执行（注入 run 24 receipts / 72 attempts） | 顶层仅记**历史观察**（`retrospective_observations.retry`，非对 v2 的追认允许）；允许规则（TRANSPORT_ERROR/HTTP_5XX/DEADLINE_EXCEEDED 可重试、每端点 ≤2 次、90s/次、窗口 ≥1.0s、429 换端不重试）在 `forward_contract_draft.retry_semantics` |
+| `fallback_allowed` | false | 渠道链 failover 已执行 | 顶层仅记**历史观察**（`retrospective_observations.fallback`）；正式语义在 `forward_contract_draft.fallback_semantics`（仅限声明渠道白名单有序尝试，`attempt_count`/`responded_endpoint_host` 入账） |
+| `maximum_development_candidates` | 2（未强制） | 9 个 dev campaign | `forward_contract_draft.maximum_future_development_candidates` = **2**（运行时强制已落地于 ledger 层，行锁内计数）+ `historical_development_candidates_in_scope` = **9**（仅这 9 个可进回溯评价） |
+| 身份字段 | kind + candidate_digest + 模型/强度/渠道 | 同左 | `forward_contract_draft.identity_requirements`（provider_id + endpoint_host + model_id + reasoning + profile/prompt/schema/source/dataset digest + split，**待 phase17 实现**）；历史无法独立证明 provider → 标 `PROVIDER_IDENTITY_UNVERIFIED`，不作身份链闭合 PASS |
 | 调用计数 | receipts | 271 receipts / 332 transport attempts / 24 logical stages per run | 三计数分离：`logical_stage_count` / `transport_attempt_count` / `receipt_count` |
 | 使用量口径 | — | 全部 receipt 有 usage（`receipt_complete=true` 0 缺失） | usage 未知记 `UNKNOWN_USAGE`，保留预算占用，不得结算为 0 |
 | holdout | 30 PASS 要求 | 未执行 | 保留要求；V9 结论标注「未完成生产泛化验证」 |
@@ -121,9 +134,10 @@
 
     python -u scripts/verify_phase16_qualification_ledger_export.py
 
-- 脚本 sha256：`cfbb4689dc48b3b45e700bd396faf52ab36db021faf29658b3b23699c51741ac`
-  （2026-08-02 入库版；重跑结果与上表逐项一致的数据库即为本记录核验的同一账本）。
-- 2026-08-02 实测：13/13 项断言全 PASS（输出见上表）。
+- 脚本 sha256：`7b4d8a4b00516d73a92bb47e33c28b1283f90e72c7ddafa0c7413808078184ac`
+  （2026-08-02 入库版，含 13/12 映射断言；重跑结果与上表逐项一致的数据库即为
+  本记录核验的同一账本）。
+- 2026-08-02 实测：13 项聚合断言 + 13/12 映射断言全 PASS（输出见上表与 §4.3）。
 
 ## 6. 诚实声明
 
@@ -149,10 +163,11 @@
 
 1. V9 = `DEVELOPMENT_VALIDATION_QUALIFIED`（高 reasoning 模式资格认证），
    ≠ `PHASE16_V5 CONTROLLED_E2E_QUALIFIED`；V5 保持「未通过、未恢复」。
-2. v3 policy（`f286114f...`）作为新契约；未来 `project_budget_cny` = 10.0
-   （含历史，余额 `forward_budget_remaining_cny` = 3.395869）、
-   `maximum_future_development_candidates` = 2（运行时强制，ledger 层）、
-   retry/fallback 正式化为受控语义。
+2. v3 policy（`75319a4a...`）作为**纯回溯评价契约**（codex 第 5 轮确认，V9 回溯
+   评价闭合的依据）；未来执行参数（`project_budget_cny` = 10.0 含历史、余额
+   `forward_budget_remaining_cny` = 3.395869、`maximum_future_development_candidates` = 2、
+   retry/fallback 受控语义）收于 `forward_contract_draft`（phase17 草案，未接入运行时）；
+   dev 候选上限运行时强制已落地（ledger 层，policy 行锁内计数 + 并发测试）。
 3. 回溯评价范围 = 13 campaigns / 12 runs（第 4 节清单）；回溯阶段禁止新增 candidate。
 4. holdout 延后 phase17，V9 结论标注「未完成生产泛化验证」。
 5. merge 前提：v3 + 本记录 + 账本闭合 + 远端 PR Gate 全绿 + 用户最终 merge 审批。
