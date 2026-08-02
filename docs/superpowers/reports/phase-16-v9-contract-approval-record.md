@@ -11,9 +11,13 @@
 - 触发：codex（OpenAI Codex，原始开发者）对
   `docs/superpowers/handoffs/2026-08-01-phase16-v5-closeout-work-report.md` 的审查
   （R1–R12），指出 v2 政策声明与实际执行之间存在系统性偏差。
-- 流程：Claude 与 codex 经两轮直接讨论（codex session
+- 流程：Claude 与 codex 经六轮直接讨论（codex session
   `019f5166-5aef-7653-8b9b-3805ab96e409`，gpt-5.6-luna / max）达成共识；
   用户拍板「以现在的为准」（= 以实际执行且跑通的现状为新契约，旧契约舍弃）。
+- codex 第六轮终审（2026-08-02）：只读复验 v2 冻结闭包未破坏、并发锁位于
+  policy 行锁事务边界、v3/forward draft 仅剩非执行声明后，正式裁决
+  **`V9_RETROSPECTIVE_EVALUATION_CLOSED`**（契约与证据内容闭合；保留声明：
+  原始 V5 未通过；V9 不代表生产就绪，不包含 holdout 泛化验证）。
 - 依据账本：`phase16_qualification_*`（PostgreSQL append-only），核验查询仅 SELECT、
   `.env` 凭据 load-into-process 不落盘不打印（2026-08-02 执行）。
 
@@ -163,7 +167,8 @@
 
 1. V9 = `DEVELOPMENT_VALIDATION_QUALIFIED`（高 reasoning 模式资格认证），
    ≠ `PHASE16_V5 CONTROLLED_E2E_QUALIFIED`；V5 保持「未通过、未恢复」。
-2. v3 policy（`75319a4a...`）作为**纯回溯评价契约**（codex 第 5 轮确认，V9 回溯
+2. v3 policy（`75319a4a...`）作为**纯回溯评价契约**（codex 第 5 轮确认收敛、
+   第 6 轮终审正式裁决 `V9_RETROSPECTIVE_EVALUATION_CLOSED`，V9 回溯
    评价闭合的依据）；未来执行参数（`project_budget_cny` = 10.0 含历史、余额
    `forward_budget_remaining_cny` = 3.395869、`maximum_future_development_candidates` = 2、
    retry/fallback 受控语义）收于 `forward_contract_draft`（phase17 草案，未接入运行时）；
