@@ -2,6 +2,12 @@
 
 > 淘宝主播 AI 助手 —— 基于 LangGraph 的直播 Agent 系统
 
+**项目定位（v1.0 定稿）**：受治理、有限循环、工具调用、人工审批协同的**直播运营 Agent 系统**——
+面向直播运营的人机协同决策支持 Agent。播前为 Workflow（确定性排品手卡），播中为
+bounded Agent loop（弹幕/告警 → EvidenceAnalyst 分析 → DecisionPlanner 规划 → 人审 →
+执行建议），播后为结构化复盘与归因。高风险经营动作一律人工审批，审计、预算、幂等、
+证据绑定与 fail-closed 治理贯穿全程；生产部署不在本版本范围内，未进行生产就绪声明。
+
 ## 架构总览
 
 ```mermaid
@@ -91,6 +97,31 @@ python scripts/run_all.py phase16-demo
 
 Phase 16 固定回放 `live-session-p001-sold-out-v2`：确定性售罄保护先执行，随后仅在高冲突证据满足门槛时顺序运行 EvidenceAnalystAgent 和 DecisionPlannerAgent。运营可批准、受控修改或拒绝方案；Demo 只持久化选中的人工决定和编译命令，绝不自动提交经营恢复。真实 smoke 缺少 endpoint/usage 证据时保持 `BLOCKED`，默认路由保持 `DETERMINISTIC_ONLY`。
 
+## 验证证据链（Phase 16 V9，2026-08-02 账本权威值）
+
+- **受控双 Agent E2E**：EvidenceAnalyst → DecisionPlanner 顺序编排（受控、非自主辩论），
+  12 runs 真实模型执行（8 PASS / 4 FAILED，失败终态按防刷分设计保留、不可重跑）
+- **账本**：PostgreSQL append-only qualification 账本，271 receipts / 6.604131 CNY /
+  1,894,873 tokens / 332 transport attempts；全部 receipt `receipt_complete=true`
+- **回执完整性**：成功回执必须携带实际响应端点与尝试次数（attempt_count/responded_endpoint_host），
+  缺失即 `receipt_complete=false` 无法通过门禁
+- **CI 确定性 gate**：`agent-runtime-pr.yml` 无密钥（`PHASE15_REAL_MODEL=0`），
+  Postgres + Kafka 环境 36 cases 确定性验证
+- **契约治理**：v2（历史执行契约，冻结不可改）/ v3（纯回溯评价契约，已闭合）/
+  Phase 17（holdout 执行契约，独立新建）；digest 认证 + 闭包漂移 fail-closed
+- **核验入口**：`python scripts/verify_phase16_qualification_ledger_export.py`
+  （只读 SELECT，14 项聚合断言全 PASS）
+
+## 诚实边界（如实声明，不包装）
+
+- 默认路由为 `DETERMINISTIC_ONLY`：LLM 生产自动路由未放开，系统按规则引擎安全降级
+- V9 = 开发/验证阶段资格认证（`DEVELOPMENT_VALIDATION_QUALIFIED`），**不等于**原始
+  Phase 16 V5 官方 DeepSeek 契约 PASS，**不等于**生产就绪
+- Phase 17 holdout 30 例为预声明的工程验收线（阈值 90%），不是统计显著性声明；
+  只验证冻结的 Phase 16 Analyst→Planner 受控链路，不代表整个系统已生产就绪
+- 记忆系统为受治理的检索与候选存储管线（证据约束/脱敏/幂等），不是模型自主学习
+- 真实平台 API、真实经营副作用、业务 KPI 与生产运维**不在本版本范围内，未进行生产就绪声明**
+
 ## 核心功能
 
 | 阶段 | 能力 | 技术实现 |
@@ -140,7 +171,7 @@ live-agent/
   front/         Web 副屏页面（Dashboard + Evaluation UI）
   scripts/       CLI 工具、演示脚本、数据种子
   docker/        PostgreSQL 初始化 DDL（9 个 init SQL）
-  tests/         单元测试（75）+ 集成测试（24）共 362 项
+  tests/         单元测试（unit 1703 / integration 250，2026-08-02 本地基线）
 ```
 
 ## 技术栈
