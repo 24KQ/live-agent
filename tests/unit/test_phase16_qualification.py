@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from src.decision_support.phase16_qualification import (
     HoldoutReleaseState,
     PHASE16_QUALIFICATION_ASSET_DIRECTORY,
     PHASE16_QUALIFICATION_CORPUS_ID,
+    PHASE16_QUALIFICATION_POLICY_PATH,
     PHASE16_V8_PREVIOUSLY_EXPOSED_CASE_IDS,
     Phase16HoldoutCommitment,
     Phase16QualificationCase,
@@ -29,7 +31,33 @@ from src.decision_support.phase16_qualification import (
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_qualification_policy_is_frozen_self_authenticating_and_rebuildable() -> None:
+@pytest.fixture()
+def frozen_v2_closure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把 source closure 恢复到 v2 冻结快照（模拟 v2 时刻源码）。
+
+    ledger.py 演进（407b43c 运行时强制、并发竞态修复）后，当前工作树相对
+    v2 冻结闭包漂移；真实 load 路径 fail-closed 拦截（fail-closed 语义由
+    test_qualification_policy_rejects_source_closure_drift 单独断言）。本 fixture
+    让聚焦各自不变式的测试在 v2 时刻闭包语义下运行，不改变被测行为。
+    """
+    frozen = json.loads(
+        (_PROJECT_ROOT / PHASE16_QUALIFICATION_POLICY_PATH).read_bytes()
+    )["source_file_digests"]
+    monkeypatch.setattr(
+        "src.decision_support.phase16_qualification.qualification_source_file_digests",
+        lambda *, repository_root: frozen,
+    )
+
+
+def test_qualification_policy_rejects_source_closure_drift() -> None:
+    """v2 闭包漂移必须被 load 路径 fail-closed 拦截（不 patch 本测试）。"""
+    with pytest.raises(ValueError, match="does not match"):
+        load_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
+
+
+def test_qualification_policy_is_frozen_self_authenticating_and_rebuildable(
+    frozen_v2_closure,
+) -> None:
     policy = build_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
     stored = load_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
 
@@ -58,7 +86,9 @@ def test_qualification_policy_rejects_relaxed_or_tampered_contract() -> None:
         type(policy).model_validate(payload)
 
 
-def test_qualification_corpus_is_byte_stable_and_current_assets_rebuild(tmp_path: Path) -> None:
+def test_qualification_corpus_is_byte_stable_and_current_assets_rebuild(
+    tmp_path: Path, frozen_v2_closure
+) -> None:
     policy = build_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
     first = tmp_path / "first"
     second = tmp_path / "second"
@@ -82,7 +112,9 @@ def test_qualification_corpus_is_byte_stable_and_current_assets_rebuild(tmp_path
         ).read_bytes()
 
 
-def test_qualification_corpus_has_strict_public_split_and_e2e_coverage() -> None:
+def test_qualification_corpus_has_strict_public_split_and_e2e_coverage(
+    frozen_v2_closure,
+) -> None:
     corpus = load_phase16_qualification_corpus(
         _PROJECT_ROOT / PHASE16_QUALIFICATION_ASSET_DIRECTORY,
         repository_root=_PROJECT_ROOT,
@@ -164,7 +196,9 @@ def test_v8_reason_categories_preserve_the_original_code(reason_code: str, expec
     assert classify_v8_reason_code(reason_code) == expected
 
 
-def test_manifest_cannot_claim_a_committed_holdout_without_digest() -> None:
+def test_manifest_cannot_claim_a_committed_holdout_without_digest(
+    frozen_v2_closure,
+) -> None:
     corpus = load_phase16_qualification_corpus(
         _PROJECT_ROOT / PHASE16_QUALIFICATION_ASSET_DIRECTORY,
         repository_root=_PROJECT_ROOT,

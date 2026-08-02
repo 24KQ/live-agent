@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
 from pathlib import Path
+
+import pytest
 
 from src.decision_support.controlled_e2e_v5 import (
     build_phase16_v5_analyst_profile,
@@ -12,6 +15,7 @@ from src.decision_support.controlled_e2e_v5 import (
 from src.decision_support.phase16_qualification import (
     HoldoutReleaseState,
     PHASE16_QUALIFICATION_ASSET_DIRECTORY,
+    PHASE16_QUALIFICATION_POLICY_PATH,
     build_phase16_qualification_policy,
     load_phase16_qualification_corpus,
 )
@@ -34,28 +38,50 @@ from src.specialist_runtime.profiles import FinalEvidenceBindingMode
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _setup(kind: QualificationCampaignKind):
-    policy = build_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
-    corpus = load_phase16_qualification_corpus(
-        _PROJECT_ROOT / PHASE16_QUALIFICATION_ASSET_DIRECTORY,
-        repository_root=_PROJECT_ROOT,
-        policy=policy,
+def _freeze_v2_closure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """source closure 恢复 v2 冻结快照（模拟 v2 时刻源码）。
+
+    ledger.py 演进（运行时强制 / 并发竞态修复）后当前工作树相对 v2 闭包漂移，
+    真实 load 路径 fail-closed（该语义由 test_phase16_qualification.py 的
+    test_qualification_policy_rejects_source_closure_drift 断言）。
+    """
+    frozen = json.loads(
+        (_PROJECT_ROOT / PHASE16_QUALIFICATION_POLICY_PATH).read_bytes()
+    )["source_file_digests"]
+    monkeypatch.setattr(
+        "src.decision_support.phase16_qualification.qualification_source_file_digests",
+        lambda *, repository_root: frozen,
     )
-    identity = corpus_identity_from_manifest(corpus.manifest)
-    bundle = build_phase16_qualification_candidate_bundle(
-        policy=policy,
-        repository_root=_PROJECT_ROOT,
-    )
-    campaign = QualificationCampaign(
-        campaign_id=f"phase16-qualification-{kind.value.lower()}-001",
-        campaign_kind=kind,
-        policy_digest=policy.policy_digest or "",
-        corpus_digest=identity.corpus_digest,
-        candidate_digest=bundle.candidate.candidate_digest or "",
-        manifest_digest="e" * 64,
-        reservation_cny="0.900000",
-    )
-    return policy, identity, bundle, campaign
+
+
+@pytest.fixture()
+def _setup_factory(monkeypatch: pytest.MonkeyPatch):
+    _freeze_v2_closure(monkeypatch)
+
+    def _setup(kind: QualificationCampaignKind):
+        policy = build_phase16_qualification_policy(repository_root=_PROJECT_ROOT)
+        corpus = load_phase16_qualification_corpus(
+            _PROJECT_ROOT / PHASE16_QUALIFICATION_ASSET_DIRECTORY,
+            repository_root=_PROJECT_ROOT,
+            policy=policy,
+        )
+        identity = corpus_identity_from_manifest(corpus.manifest)
+        bundle = build_phase16_qualification_candidate_bundle(
+            policy=policy,
+            repository_root=_PROJECT_ROOT,
+        )
+        campaign = QualificationCampaign(
+            campaign_id=f"phase16-qualification-{kind.value.lower()}-001",
+            campaign_kind=kind,
+            policy_digest=policy.policy_digest or "",
+            corpus_digest=identity.corpus_digest,
+            candidate_digest=bundle.candidate.candidate_digest or "",
+            manifest_digest="e" * 64,
+            reservation_cny="0.900000",
+        )
+        return policy, identity, bundle, campaign
+
+    return _setup
 
 
 def _complete_metrics(*, run_id: str, count: int):
@@ -79,8 +105,10 @@ def _complete_metrics(*, run_id: str, count: int):
     )
 
 
-def test_new_candidate_keeps_all_guardrails_and_makes_v8_failure_rules_executable() -> None:
-    policy, _identity, bundle, campaign = _setup(QualificationCampaignKind.DEVELOPMENT)
+def test_new_candidate_keeps_all_guardrails_and_makes_v8_failure_rules_executable(
+    _setup_factory,
+) -> None:
+    policy, _identity, bundle, campaign = _setup_factory(QualificationCampaignKind.DEVELOPMENT)
     analyst = bundle.analyst_profile
     planner = bundle.planner_profile
 
@@ -111,8 +139,10 @@ def test_new_candidate_keeps_all_guardrails_and_makes_v8_failure_rules_executabl
     assert planner.max_case_cost_cny == Decimal("0.100000")
 
 
-def test_campaign_admission_requires_a_committed_holdout_but_allows_public_development() -> None:
-    policy, pending, bundle, development = _setup(QualificationCampaignKind.DEVELOPMENT)
+def test_campaign_admission_requires_a_committed_holdout_but_allows_public_development(
+    _setup_factory,
+) -> None:
+    policy, pending, bundle, development = _setup_factory(QualificationCampaignKind.DEVELOPMENT)
     development_admission = admit_qualification_campaign(
         policy=policy,
         corpus=pending,
@@ -149,9 +179,11 @@ def test_campaign_admission_requires_a_committed_holdout_but_allows_public_devel
     assert committed_admission.allowed is True
 
 
-def test_evaluator_makes_development_validation_and_holdout_claims_non_substitutable() -> None:
+def test_evaluator_makes_development_validation_and_holdout_claims_non_substitutable(
+    _setup_factory,
+) -> None:
     evaluator = QualificationEvaluator()
-    policy, identity, bundle, development = _setup(QualificationCampaignKind.DEVELOPMENT)
+    policy, identity, bundle, development = _setup_factory(QualificationCampaignKind.DEVELOPMENT)
     development_assessment = evaluator.assess(
         campaign=development,
         policy=policy,
@@ -232,9 +264,11 @@ def test_evaluator_makes_development_validation_and_holdout_claims_non_substitut
     assert final_holdout.assessment_digest
 
 
-def test_evaluator_never_hides_a_semantic_failure_behind_high_aggregate_metrics() -> None:
+def test_evaluator_never_hides_a_semantic_failure_behind_high_aggregate_metrics(
+    _setup_factory,
+) -> None:
     evaluator = QualificationEvaluator()
-    policy, identity, bundle, validation = _setup(QualificationCampaignKind.VALIDATION)
+    policy, identity, bundle, validation = _setup_factory(QualificationCampaignKind.VALIDATION)
     metrics = list(_complete_metrics(run_id="validation-run", count=12))
     metrics[3] = build_qualification_metric(
         run_id="validation-run",
@@ -254,9 +288,11 @@ def test_evaluator_never_hides_a_semantic_failure_behind_high_aggregate_metrics(
     assert "PLANNER_RISK_COVERAGE_FAILED" in assessment.reason_codes
 
 
-def test_engineering_safety_conformance_is_independent_from_model_e2e_quality() -> None:
+def test_engineering_safety_conformance_is_independent_from_model_e2e_quality(
+    _setup_factory,
+) -> None:
     evaluator = QualificationEvaluator()
-    policy, identity, _bundle, _campaign = _setup(QualificationCampaignKind.DEVELOPMENT)
+    policy, identity, _bundle, _campaign = _setup_factory(QualificationCampaignKind.DEVELOPMENT)
     safety_metrics = tuple(
         build_qualification_metric(
             run_id="deterministic-safety-run",
