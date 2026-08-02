@@ -81,6 +81,28 @@
 | 1b432365-3b173072 val 130201 | PASS | 24 | 0.545277 | 170,018 |
 | 1b432365-d90f9f3d dev 140424 | PASS | 24 | 0.536970 | 168,393 |
 
+### 4.3 campaign ↔ run 映射（13/12 账本关系）
+
+| campaign（截断） | kind | runs |
+|:--|:--|:--|
+| development-candidate-1 | DEV | 1（dev 093840） |
+| validation-candidate-1 | VAL | **0（无 run，仅占位）** |
+| development-cdd634447ad6e459 | DEV | 1（dev 115908） |
+| development-3c10985be7a89a36 | DEV | 1（dev 154732） |
+| development-5f4afbda491d345b | DEV | 1（dev 160222） |
+| validation-5f4afbda491d345b | VAL | 1（val 161046） |
+| development-9eda8e8ae370dc1b | DEV | 1（dev 213032） |
+| development-8623a075a24c8727 | DEV | 1（dev 221215） |
+| validation-8623a075a24c8727 | VAL | 1（val 222715） |
+| development-f28d7e03ef8be1ff | DEV | 1（dev 071416） |
+| development-1b432365-3b173072 | DEV | 1（dev 125602） |
+| validation-1b432365-3b173072 | VAL | 1（val 130201） |
+| development-1b432365-d90f9f3d | DEV | 1（dev 140424） |
+
+13 campaigns 全部含于 `retrospective_campaign_ids`；12 个 run 全部有唯一 campaign 归属
+（runs 表 `UNIQUE (campaign_id)`）；唯一无 run 的 campaign 为 `validation-candidate-1`
+（V1 身份对齐期占位，无证据负载，不参与评价）。
+
 ## 5. 账本统计核验结果（闭合 R4 异议）
 
 | 指标 | 账本权威值 | 说明 |
@@ -92,11 +114,28 @@
 | legacy rows | 46 | candidate-1 + cdd63444（attempt 列迁移前，`responded_endpoint_host` NULL），已如实标注 |
 | incomplete receipts | 0 | 全部 `receipt_complete=true` |
 
+### 5.1 第三方复验入口（入库脚本）
+
+`scripts/verify_phase16_qualification_ledger_export.py`（只读 SELECT、load-dotenv
+不打印凭据、退出码 0 = 权威值全命中）。运行方式：
+
+    python -u scripts/verify_phase16_qualification_ledger_export.py
+
+- 脚本 sha256：`cfbb4689dc48b3b45e700bd396faf52ab36db021faf29658b3b23699c51741ac`
+  （2026-08-02 入库版；重跑结果与上表逐项一致的数据库即为本记录核验的同一账本）。
+- 2026-08-02 实测：13/13 项断言全 PASS（输出见上表）。
+
 ## 6. 诚实声明
 
 - **PROVIDER_IDENTITY_UNVERIFIED**：历史 campaign 的 provider 身份由渠道配置层
   （endpoint host ↔ provider 映射）表达，账本 receipt 无独立 provider 字段；
   现有 host/receipt/映射证据仅在可验证范围内作为补充证明，不包装为身份链闭合 PASS。
+- **legacy 46 行（host NULL）的影响**：candidate-1（24 行）+ cdd63444（22 行）两 run
+  的 receipt 写于 `attempt_count` / `responded_endpoint_host` 列迁移之前，这两列
+  为默认值 1 / NULL——它们的传输层事实（含端点归属）不可恢复，是
+  `PROVIDER_IDENTITY_UNVERIFIED` 的主要承载行；其余 225 行 receipt 均带
+  `responded_endpoint_host`，端点归属可查。三计数口径对这 46 行同样成立
+  （attempt_count 默认 1 → 46 attempts），不另行特殊处理。
 - **retry 证据边界**：TRANSPORT 重试 + failover 有真实证据（注入 run 24/24 ×
   attempt_count=3 → synapse）；HTTP 5xx / 429 / DEADLINE 路径仅单测证明，无真实
   provider 事件样本。
