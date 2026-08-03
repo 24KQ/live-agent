@@ -398,6 +398,9 @@ class PostgresPhase17HoldoutLedger:
         output_tokens: int | None,
         total_tokens: int | None,
         cost_cny: Decimal,
+        artifact_path: str | None = None,
+        artifact_digest: str | None = None,
+        artifact_capture_status: str = "UNAVAILABLE",
     ) -> None:
         """逐 attempt 证据只追加一次（codex 第十七轮 P0-3）。
 
@@ -414,16 +417,49 @@ class PostgresPhase17HoldoutLedger:
             raise Phase17HoldoutLedgerError("phase17 holdout attempt counters are invalid")
         if cost_cny < 0 or latency_ms < 0:
             raise Phase17HoldoutLedgerError("phase17 holdout attempt cost/latency are invalid")
+        if artifact_capture_status not in {"CAPTURED", "UNAVAILABLE", "FAILED"}:
+            raise Phase17HoldoutLedgerError("phase17 artifact capture status is invalid")
         if response_digest is not None and (
             len(response_digest) != 64 or any(ch not in _SHA256_HEX for ch in response_digest)
         ):
             raise Phase17HoldoutLedgerError("phase17 holdout attempt response digest must be sha256 hex")
+        if artifact_digest is not None and (
+            len(artifact_digest) != 64 or any(ch not in _SHA256_HEX for ch in artifact_digest)
+        ):
+            raise Phase17HoldoutLedgerError("phase17 artifact digest must be sha256 hex")
+        if artifact_capture_status == "CAPTURED":
+            if not artifact_path or artifact_digest is None or response_digest != artifact_digest:
+                raise Phase17HoldoutLedgerError(
+                    "phase17 captured artifact must match response digest"
+                )
+            expected_artifact_path = Path(
+                run_id,
+                case_id,
+                stage,
+                f"attempt-{attempt_index}.body",
+            ).as_posix()
+            if artifact_path != expected_artifact_path:
+                raise Phase17HoldoutLedgerError(
+                    "phase17 captured artifact path does not match attempt identity"
+                )
+        elif artifact_path is not None or artifact_digest is not None:
+            raise Phase17HoldoutLedgerError(
+                "phase17 uncaptured attempt cannot carry artifact identity"
+            )
+        if artifact_path is not None and (
+            artifact_path.startswith(("/", "\\")) or ".." in Path(artifact_path).parts
+        ):
+            raise Phase17HoldoutLedgerError("phase17 artifact path is unsafe")
         attempt_id = hashlib.sha256(
             f"{run_id}|{case_id}|{stage}|{attempt_index}".encode("utf-8")
         ).hexdigest()
         hmac_value = self._tag(
             domain="attempt",
             payload={
+                "run_id": run_id,
+                "case_id": case_id,
+                "stage": stage,
+                "attempt_index": attempt_index,
                 "request_id": request_id,
                 "endpoint_host": endpoint_host,
                 "model_id": model_id,
@@ -438,6 +474,9 @@ class PostgresPhase17HoldoutLedger:
                 "output_tokens": output_tokens,
                 "total_tokens": total_tokens,
                 "cost_cny": str(cost_cny),
+                "artifact_path": artifact_path,
+                "artifact_digest": artifact_digest,
+                "artifact_capture_status": artifact_capture_status,
             },
         )
         try:
@@ -448,13 +487,15 @@ class PostgresPhase17HoldoutLedger:
                            (attempt_id, run_id, case_id, stage, attempt_index, request_id,
                             endpoint_host, model_id, outcome, category, response_digest,
                             provider_response_id, http_status, latency_ms, attempts,
-                            input_tokens, output_tokens, total_tokens, cost_cny, receipt_hmac)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                            input_tokens, output_tokens, total_tokens, cost_cny,
+                            artifact_path, artifact_digest, artifact_capture_status, receipt_hmac)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                         (
                             attempt_id, run_id, case_id, stage, attempt_index, request_id,
                             endpoint_host, model_id, outcome, category, response_digest,
                             provider_response_id, http_status, latency_ms, attempts,
-                            input_tokens, output_tokens, total_tokens, cost_cny, hmac_value,
+                            input_tokens, output_tokens, total_tokens, cost_cny,
+                            artifact_path, artifact_digest, artifact_capture_status, hmac_value,
                         ),
                     )
                 connection.commit()
@@ -463,6 +504,98 @@ class PostgresPhase17HoldoutLedger:
         except psycopg.Error as error:
             raise Phase17HoldoutLedgerError(
                 "phase17 holdout attempt append failed"
+            ) from error
+
+    def record_phase17_safety_review(
+        self,
+        *,
+        run_id: str,
+        case_id: str,
+        artifact_digest: str,
+        verdict: str,
+        summary: str,
+        reviewer: str,
+    ) -> None:
+        """写入独立第三方安全审查；SQL 触发器再校验终态与 artifact 归属。"""
+
+        if reviewer != "claude-independent-review":
+            raise Phase17HoldoutLedgerError("phase17 safety reviewer identity is invalid")
+        if verdict not in {"PASS", "FAIL", "INCONCLUSIVE"}:
+            raise Phase17HoldoutLedgerError("phase17 safety review verdict is invalid")
+        if not summary.strip():
+            raise Phase17HoldoutLedgerError("phase17 safety review summary is required")
+        if len(artifact_digest) != 64 or any(ch not in _SHA256_HEX for ch in artifact_digest):
+            raise Phase17HoldoutLedgerError("phase17 safety review artifact digest is invalid")
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """INSERT INTO phase17_holdout_safety_reviews
+                           (run_id, case_id, artifact_digest, verdict, summary, reviewer)
+                           VALUES (%s,%s,%s,%s,%s,%s)""",
+                        (run_id, case_id, artifact_digest, verdict, summary, reviewer),
+                    )
+                connection.commit()
+        except Phase17HoldoutLedgerError:
+            raise
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 safety review append failed"
+            ) from error
+
+    def phase17_attempt_artifacts(
+        self,
+        *,
+        run_ids: tuple[str, ...],
+        case_ids: tuple[str, ...],
+    ) -> tuple[dict[str, object], ...]:
+        """读取聚合门禁需要的逐 attempt artifact 事实，不修改账本。"""
+
+        if not run_ids or not case_ids:
+            return ()
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT run_id, case_id, stage, attempt_index,
+                                  response_digest, artifact_path, artifact_digest,
+                                  artifact_capture_status
+                             FROM phase17_holdout_attempts
+                            WHERE run_id = ANY(%s) AND case_id = ANY(%s)
+                            ORDER BY run_id, case_id, stage, attempt_index""",
+                        (list(run_ids), list(case_ids)),
+                    )
+                    return tuple(dict(row) for row in cursor.fetchall())
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 attempt artifact query failed"
+            ) from error
+
+    def phase17_safety_review_records(
+        self,
+        *,
+        run_ids: tuple[str, ...],
+        case_ids: tuple[str, ...],
+    ) -> tuple[dict[str, object], ...]:
+        """读取独立第三方安全审查记录，供 --aggregate 做确定性判定。"""
+
+        if not run_ids or not case_ids:
+            return ()
+        try:
+            with self._connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """SELECT run_id, case_id, artifact_digest, verdict,
+                                  summary, reviewer
+                             FROM phase17_holdout_safety_reviews
+                            WHERE run_id = ANY(%s) AND case_id = ANY(%s)
+                            ORDER BY run_id, case_id""",
+                        (list(run_ids), list(case_ids)),
+                    )
+                    return tuple(dict(row) for row in cursor.fetchall())
+        except psycopg.Error as error:
+            raise Phase17HoldoutLedgerError(
+                "phase17 safety review query failed"
             ) from error
 
     def close_phase17_run(

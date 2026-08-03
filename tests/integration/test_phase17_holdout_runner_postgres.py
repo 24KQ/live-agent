@@ -47,6 +47,7 @@ from src.decision_support.phase17_holdout_runner import (
     Phase17HoldoutCampaignRunner,
     Phase17HoldoutExecutionError,
     Phase17HoldoutRunReport,
+    Phase17SafetyGateResult,
     aggregate_phase17_holdout_reports,
 )
 from src.specialist_runtime.model_port import (
@@ -704,7 +705,13 @@ def test_phase17_aggregate_27_of_30_qualified(runner_env) -> None:
     assert batch2.pass_count == 18 and batch2.pass_min == 18
 
     aggregate = aggregate_phase17_holdout_reports(
-        reports=(batch1, batch2), contract=runner_env.contract
+        reports=(batch1, batch2),
+        contract=runner_env.contract,
+        safety_gate=Phase17SafetyGateResult(
+            status="PASS",
+            reason_code="TEST_HARD_SAFETY_PASS",
+            reviewed_case_ids=(),
+        ),
     )
     assert aggregate.status == "PASS"
     assert aggregate.reason_codes == ("PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD",)

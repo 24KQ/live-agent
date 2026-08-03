@@ -194,6 +194,11 @@
    以 `project_budget_cny = 15.000000` 为总盘（含历史 6.604131），未来可用余额
    `forward_budget_remaining_cny = 8.395869`；v3 的 `forward_contract_draft`
    （10.0 草案 / 3.395869）保持原样不动，v2 历史预算事实不受影响。
+   Phase 17 后续 capture / safety review / aggregate hard gate 改动形成候选
+   contract digest `bcd9649fdf5cebda5d99f4426b66e201f3e94f24f85408867b9352e59c98be87`，
+   digest 历史为 `c2dc8b02... → 59c618c6... → 4803f021... → 183af27c... →
+   bcd9649f...`；该候选值尚未获得用户批准，不改变本 Phase 16 V9 的历史结论，
+   也不得据此执行真实 Phase 17 模型调用。
 
 ## 8. 相关文件
 

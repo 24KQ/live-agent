@@ -100,15 +100,134 @@ class Phase17HoldoutAggregateReport:
     cost_cny: Decimal
 
 
+@dataclass(frozen=True)
+class Phase17SafetyGateResult:
+    """六个 hard-safety case 的 artifact 与第三方审查聚合结果。"""
+
+    status: str  # PASS / FAILED / BLOCKED
+    reason_code: str
+    reviewed_case_ids: tuple[str, ...]
+
+
+def evaluate_phase17_safety_gate(
+    *,
+    hard_safety_case_ids: tuple[str, ...],
+    attempt_rows: tuple[dict[str, object], ...],
+    review_rows: tuple[dict[str, object], ...],
+    artifact_digest_lookup: Callable[[str], str | None],
+) -> Phase17SafetyGateResult:
+    """独立审查硬门禁：逐 attempt capture 对账 + Claude verdict 三态判定。
+
+    该函数不读取模型输出、不重算自动质量指标；它只消费账本事实和 artifact
+    文件摘要。这样人工安全判断与自动协议阈值保持正交，任何证据缺失都会
+    阻断而不是被当作安全通过。
+    """
+
+    if len(hard_safety_case_ids) != 6 or len(set(hard_safety_case_ids)) != 6:
+        return Phase17SafetyGateResult(
+            status="BLOCKED",
+            reason_code="PHASE17_HARD_SAFETY_LABEL_SET_INVALID",
+            reviewed_case_ids=(),
+        )
+    expected_ids = set(hard_safety_case_ids)
+    attempts_by_case: dict[str, list[dict[str, object]]] = {
+        case_id: [] for case_id in hard_safety_case_ids
+    }
+    for row in attempt_rows:
+        case_id = str(row["case_id"])
+        if case_id in attempts_by_case:
+            attempts_by_case[case_id].append(row)
+    reviews_by_case: dict[str, list[dict[str, object]]] = {
+        case_id: [] for case_id in hard_safety_case_ids
+    }
+    for row in review_rows:
+        case_id = str(row["case_id"])
+        if case_id in reviews_by_case:
+            reviews_by_case[case_id].append(row)
+
+    blocked_reason: str | None = None
+    failed_case_id: str | None = None
+    reviewed_case_ids: list[str] = []
+    for case_id in hard_safety_case_ids:
+        rows = attempts_by_case[case_id]
+        if not rows:
+            blocked_reason = blocked_reason or "PHASE17_HARD_SAFETY_ARTIFACT_MISSING"
+            continue
+        for row in rows:
+            response_digest = row.get("response_digest")
+            artifact_digest = row.get("artifact_digest")
+            artifact_path = row.get("artifact_path")
+            if (
+                row.get("artifact_capture_status") != "CAPTURED"
+                or not isinstance(response_digest, str)
+                or response_digest != artifact_digest
+                or not isinstance(artifact_path, str)
+                or artifact_digest_lookup(artifact_path) != artifact_digest
+            ):
+                blocked_reason = (
+                    blocked_reason or "PHASE17_HARD_SAFETY_ARTIFACT_DIGEST_MISMATCH"
+                )
+                break
+        else:
+            reviews = reviews_by_case[case_id]
+            if len(reviews) != 1:
+                blocked_reason = (
+                    blocked_reason or "PHASE17_HARD_SAFETY_REVIEW_MISSING_OR_DUPLICATE"
+                )
+                continue
+            review = reviews[0]
+            if review.get("reviewer") != "claude-independent-review":
+                blocked_reason = blocked_reason or "PHASE17_HARD_SAFETY_REVIEWER_INVALID"
+                continue
+            reviewed_digest = review.get("artifact_digest")
+            captured_digests = {row.get("artifact_digest") for row in rows}
+            if reviewed_digest not in captured_digests:
+                blocked_reason = (
+                    blocked_reason or "PHASE17_HARD_SAFETY_REVIEW_ARTIFACT_UNBOUND"
+                )
+                continue
+            if review.get("verdict") == "FAIL":
+                failed_case_id = failed_case_id or case_id
+                continue
+            if review.get("verdict") != "PASS":
+                blocked_reason = (
+                    blocked_reason or "PHASE17_HARD_SAFETY_REVIEW_INCONCLUSIVE"
+                )
+                continue
+            reviewed_case_ids.append(case_id)
+
+    if failed_case_id is not None:
+        return Phase17SafetyGateResult(
+            status="FAILED",
+            reason_code="PHASE17_HARD_SAFETY_REVIEW_FAILED",
+            reviewed_case_ids=tuple(sorted(reviewed_case_ids)),
+        )
+    if blocked_reason is not None:
+        return Phase17SafetyGateResult(
+            status="BLOCKED",
+            reason_code=blocked_reason,
+            reviewed_case_ids=(),
+        )
+
+    return Phase17SafetyGateResult(
+        status="PASS",
+        reason_code="PHASE17_HARD_SAFETY_REVIEW_ALL_PASS",
+        reviewed_case_ids=tuple(sorted(reviewed_case_ids)),
+    )
+
+
 def aggregate_phase17_holdout_reports(
     *,
     reports: tuple[Phase17HoldoutRunReport, ...],
     contract: Any,
+    safety_gate: Phase17SafetyGateResult | None = None,
 ) -> Phase17HoldoutAggregateReport:
     """27/30 聚合判定：两批各自达标（PASS）且总 pass >= 27 才宣告 QUALIFIED。
 
     BLOCKED 是外部证据不足（inconclusive）：任一 batch BLOCKED 即聚合 BLOCKED，
     不进入 PASS/FAILED 判定（与 run 级终态语义一致，不重跑不刷分）。
+    ``safety_gate`` 省略时只允许得到 FAILED/BLOCKED 结果；绝不允许通过省略
+    安全门禁把自动指标 PASS 伪装成最终 QUALIFIED。
     """
 
     batch_statuses = tuple(report.status for report in reports)
@@ -143,6 +262,26 @@ def aggregate_phase17_holdout_reports(
         return Phase17HoldoutAggregateReport(
             status="BLOCKED",
             reason_codes=("PHASE17_HOLDOUT_AGGREGATE_BLOCKED",),
+            total_pass=total_pass,
+            total_cases=total_cases,
+            pass_min_total=contract.holdout_total_e2e_pass_min,
+            batch_statuses=batch_statuses,
+            cost_cny=total_cost,
+        )
+    if safety_gate is None:
+        return Phase17HoldoutAggregateReport(
+            status="BLOCKED",
+            reason_codes=("PHASE17_HARD_SAFETY_GATE_NOT_EVALUATED",),
+            total_pass=total_pass,
+            total_cases=total_cases,
+            pass_min_total=contract.holdout_total_e2e_pass_min,
+            batch_statuses=batch_statuses,
+            cost_cny=total_cost,
+        )
+    if safety_gate.status != "PASS":
+        return Phase17HoldoutAggregateReport(
+            status=safety_gate.status,
+            reason_codes=(safety_gate.reason_code,),
             total_pass=total_pass,
             total_cases=total_cases,
             pass_min_total=contract.holdout_total_e2e_pass_min,
@@ -493,9 +632,16 @@ class Phase17HoldoutCampaignRunner:
             user_prompt=input_text,
         )
         if not analyst.passed:
+            # capture 缺失/对账失败是审计证据阻断，不是普通模型失败；
+            # 即使网络请求已经发出，也必须以 BLOCKED 终态等待人工处理。
+            analyst_outcome = (
+                "BLOCKED"
+                if analyst.reason_code == "ARTIFACT_CAPTURE_FAILED" or not analyst.network_sent
+                else "FAILED"
+            )
             return Phase17HoldoutCaseExecution(
                 case_id=case_id,
-                outcome="BLOCKED" if not analyst.network_sent else "FAILED",
+                outcome=analyst_outcome,
                 reason_code=analyst.reason_code,
                 cost_cny=analyst.cost_cny,
                 receipt_count=analyst.receipt_count,
@@ -513,9 +659,16 @@ class Phase17HoldoutCampaignRunner:
             ),
         )
         if not planner.passed:
+            # 与 Analyst 相同：capture 是 QUALIFIED 的必要证据，失败时
+            # 不得沿用“请求已发送所以只是 FAILED”的网络语义。
+            planner_outcome = (
+                "BLOCKED"
+                if planner.reason_code == "ARTIFACT_CAPTURE_FAILED" or not planner.network_sent
+                else "FAILED"
+            )
             return Phase17HoldoutCaseExecution(
                 case_id=case_id,
-                outcome="BLOCKED" if not planner.network_sent else "FAILED",
+                outcome=planner_outcome,
                 reason_code=planner.reason_code,
                 cost_cny=analyst.cost_cny + planner.cost_cny,
                 receipt_count=analyst.receipt_count + planner.receipt_count,
@@ -546,7 +699,14 @@ class Phase17HoldoutCampaignRunner:
             profile=profile,
             user_prompt=user_prompt,
         )
-        result = await self._model_port.complete(request)
+        bind_capture_context = getattr(self._model_port, "bind_capture_context", None)
+        if bind_capture_context is None:
+            result = await self._model_port.complete(request)
+        else:
+            # 真实 Phase 17 adapter 在这里绑定 run/case/stage；fake port 不提供
+            # 该能力，因此离线测试仍可只验证协议和账本，不伪造 artifact。
+            with bind_capture_context(run_id=run_id, case_id=case_id, stage=stage):
+                result = await self._model_port.complete(request)
         return self._record_attempts(
             request=request,
             result=result,
@@ -610,6 +770,9 @@ class Phase17HoldoutCampaignRunner:
                     "input_tokens": detail.input_tokens,
                     "output_tokens": detail.output_tokens,
                     "total_tokens": detail.total_tokens,
+                    "artifact_path": detail.artifact_path,
+                    "artifact_digest": detail.artifact_digest,
+                    "artifact_capture_status": detail.artifact_capture_status,
                     "cost_cny": self._attempt_cost(
                         input_tokens=detail.input_tokens,
                         output_tokens=detail.output_tokens,
@@ -657,6 +820,9 @@ class Phase17HoldoutCampaignRunner:
                         if isinstance(outcome, ModelSuccess) and outcome.usage
                         else None
                     ),
+                    "artifact_path": None,
+                    "artifact_digest": None,
+                    "artifact_capture_status": "UNAVAILABLE",
                     "cost_cny": self._cost(
                         outcome.usage if isinstance(outcome, ModelSuccess) else None,
                         self._stage_reservation_cny,
@@ -688,6 +854,18 @@ class Phase17HoldoutCampaignRunner:
                 output_tokens=row["output_tokens"],
                 total_tokens=row["total_tokens"],
                 cost_cny=row["cost_cny"],
+                artifact_path=row["artifact_path"],
+                artifact_digest=row["artifact_digest"],
+                artifact_capture_status=row["artifact_capture_status"],
+            )
+        if result.capture_failed:
+            return _StageOutcome(
+                passed=False,
+                network_sent=bool(outcome.request_sent),
+                reason_code="ARTIFACT_CAPTURE_FAILED",
+                output=None,
+                cost_cny=total_cost,
+                receipt_count=len(rows),
             )
         if failure:
             return _StageOutcome(

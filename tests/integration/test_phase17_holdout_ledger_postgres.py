@@ -679,6 +679,10 @@ def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
         domain="attempt",
         payload={
             "request_id": f"req-{run_id}-holdout-case-001-ANALYST",
+            "run_id": run_id,
+            "case_id": "holdout-case-001",
+            "stage": "ANALYST",
+            "attempt_index": 1,
             "endpoint_host": "synapse-ai.uk",
             "model_id": "gpt-5.6-luna",
             "outcome": "PASS",
@@ -692,6 +696,9 @@ def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
             "output_tokens": 500,
             "total_tokens": 1500,
             "cost_cny": "0.006000",
+            "artifact_path": None,
+            "artifact_digest": None,
+            "artifact_capture_status": "UNAVAILABLE",
         },
     )
     assert rows[0]["receipt_hmac"] == expected_1
@@ -700,6 +707,10 @@ def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
         domain="attempt",
         payload={
             "request_id": f"req-{run_id}-holdout-case-001-ANALYST",
+            "run_id": run_id,
+            "case_id": "holdout-case-001",
+            "stage": "ANALYST",
+            "attempt_index": 1,
             "endpoint_host": "synapse-ai.uk",
             "model_id": "gpt-5.6-luna",
             "outcome": "PASS",
@@ -713,6 +724,9 @@ def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
             "output_tokens": 500,
             "total_tokens": 1499,
             "cost_cny": "0.006000",
+            "artifact_path": None,
+            "artifact_digest": None,
+            "artifact_capture_status": "UNAVAILABLE",
         },
     )
     assert forged != rows[0]["receipt_hmac"]

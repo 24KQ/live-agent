@@ -16,6 +16,7 @@ endpoint_hosts）由契约冻结，``LLM_API_REASONING_EFFORT`` /
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -50,6 +51,11 @@ from src.decision_support.controlled_e2e_adapter_v5 import (
     DeepSeekV5ControlledE2EAdapter,
     _V5ThinkingDisabledTransport,
 )
+from src.decision_support.phase17_holdout_capture import (
+    Phase17ArtifactCapture,
+    Phase17CaptureAttempt,
+    Phase17CaptureTransport,
+)
 
 
 class Phase17AttemptDetail(StrictFrozenModel):
@@ -74,6 +80,9 @@ class Phase17AttemptDetail(StrictFrozenModel):
     input_tokens: int | None = Field(default=None, ge=0, strict=True)
     output_tokens: int | None = Field(default=None, ge=0, strict=True)
     total_tokens: int | None = Field(default=None, ge=0, strict=True)
+    artifact_path: str | None = Field(default=None, min_length=1)
+    artifact_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    artifact_capture_status: Literal["CAPTURED", "UNAVAILABLE", "FAILED"] = "UNAVAILABLE"
 
 
 @dataclass(frozen=True)
@@ -82,6 +91,7 @@ class Phase17AdapterOutcome:
 
     outcome: ModelOutcome
     attempt_details: tuple[Phase17AttemptDetail, ...]
+    capture_failed: bool = False
 
 
 class Phase17ModelPort(Protocol):
@@ -92,10 +102,27 @@ class Phase17ModelPort(Protocol):
 
 
 def _attempt_detail(
-    outcome: ModelOutcome, *, attempt_index: int, endpoint_host: str
+    outcome: ModelOutcome,
+    *,
+    attempt_index: int,
+    endpoint_host: str,
+    capture_attempt: Phase17CaptureAttempt | None = None,
 ) -> Phase17AttemptDetail:
     """把单次网络尝试的事实转成 Phase17AttemptDetail。"""
 
+    artifact_fields = (
+        {
+            "artifact_path": capture_attempt.artifact_path,
+            "artifact_digest": capture_attempt.artifact_digest,
+            "artifact_capture_status": (
+                "CAPTURED"
+                if capture_attempt.captured
+                else ("FAILED" if capture_attempt.error else "UNAVAILABLE")
+            ),
+        }
+        if capture_attempt is not None
+        else {}
+    )
     if isinstance(outcome, ModelSuccess):
         usage = outcome.usage
         return Phase17AttemptDetail(
@@ -110,6 +137,7 @@ def _attempt_detail(
             input_tokens=usage.input_tokens if usage else None,
             output_tokens=usage.output_tokens if usage else None,
             total_tokens=usage.total_tokens if usage else None,
+            **artifact_fields,
         )
     return Phase17AttemptDetail(
         attempt_index=attempt_index,
@@ -123,6 +151,7 @@ def _attempt_detail(
         input_tokens=None,
         output_tokens=None,
         total_tokens=None,
+        **artifact_fields,
     )
 
 
@@ -158,6 +187,7 @@ class Phase17V5ControlledE2EAdapter(DeepSeekV5ControlledE2EAdapter):
         *,
         endpoints: tuple[tuple[str, str], ...],
         transport: AsyncHttpTransport | None = None,
+        capture: Phase17ArtifactCapture | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
@@ -173,13 +203,30 @@ class Phase17V5ControlledE2EAdapter(DeepSeekV5ControlledE2EAdapter):
             raise ValueError(
                 "phase17 contract fixes model_id; LLM_API_MODEL_ID must be unset"
             )
+        self._capture = capture
+        base_transport = transport or HttpxAsyncHttpTransport()
+        if capture is not None:
+            base_transport = Phase17CaptureTransport(base_transport, capture=capture)
         super().__init__(
             endpoints=endpoints,
-            transport=transport,
+            transport=base_transport,
             clock=clock,
             monotonic=monotonic,
             sleep=sleep,
         )
+
+    def bind_capture_context(
+        self,
+        *,
+        run_id: str,
+        case_id: str,
+        stage: str,
+    ):
+        """绑定 runner 的 stage 身份；未启用 capture 时保持兼容的空上下文。"""
+
+        if self._capture is None:
+            return nullcontext()
+        return self._capture.bind_stage(run_id=run_id, case_id=case_id, stage=stage)
 
     async def complete(self, request: ModelRequest) -> Phase17AdapterOutcome:
         """按渠道有序列表执行（V5 语义），并按真实调用顺序收集逐次尝试事实。
@@ -205,14 +252,39 @@ class Phase17V5ControlledE2EAdapter(DeepSeekV5ControlledE2EAdapter):
                     request, self._clock
                 ).isoformat()
                 endpoint_request = ModelRequest.model_validate(payload)
-                outcome = await delegate.complete(endpoint_request)
+                attempt_context = (
+                    self._capture.begin_attempt(attempt_index=attempts)
+                    if self._capture is not None
+                    else nullcontext(None)
+                )
+                with attempt_context as capture_attempt:
+                    outcome = await delegate.complete(endpoint_request)
+                    if capture_attempt is not None:
+                        try:
+                            self._capture.require_captured(capture_attempt)
+                        except Exception:
+                            # capture 失败是审计硬阻断，不允许把它伪装成可重试
+                            # 的网络错误继续走渠道链；具体原因保留在 attempt
+                            # 状态中，由 runner 写入 BLOCKED 终态。
+                            pass
                 attempt_details.append(
                     _attempt_detail(
                         outcome,
                         attempt_index=attempts,
                         endpoint_host=endpoint_request.endpoint_host,
+                        capture_attempt=capture_attempt,
                     )
                 )
+                if capture_attempt is not None and capture_attempt.error is not None:
+                    return Phase17AdapterOutcome(
+                        outcome=_stamp_attempt(
+                            outcome,
+                            attempts=attempts,
+                            endpoint_host=endpoint_request.endpoint_host,
+                        ),
+                        attempt_details=tuple(attempt_details),
+                        capture_failed=True,
+                    )
                 if isinstance(outcome, ModelSuccess):
                     return Phase17AdapterOutcome(
                         outcome=_stamp_attempt(

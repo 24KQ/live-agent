@@ -27,6 +27,7 @@ Thumbs.db
 *.log
 tmp/
 temp/
+_probe_artifacts/
 
 # 第三方学习资料：文章和图片可能涉及转载授权，公开仓库默认不发布。
 docs/study/

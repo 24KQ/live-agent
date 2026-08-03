@@ -228,7 +228,8 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description=(
             "Phase 17 holdout 独立执行账本（contracts/campaigns/budget_events/"
-            "runs/run_results/case_results/attempts，append-only，与 v2 表族物理隔离）"
+            "runs/run_results/case_results/attempts/qualifications/safety_reviews，"
+            "append-only，与 v2 表族物理隔离）"
         ),
     ),
 ]

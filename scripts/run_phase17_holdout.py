@@ -9,8 +9,8 @@ APPROVE）后，按契约身份装载受控渠道链并执行单个 holdout batc
 - 执行入口只接受 ``PHASE17_HOLDOUT_EXECUTION_V1``；v2 历史契约走 v2 既有
   fail-closed load 路径；v3 回溯契约无执行身份，运行时拒绝。
 - env 身份检查（P0-2 adapter 身份固定）：契约 ``reasoning_effort=null`` 时
-  ``LLM_API_REASONING_EFFORT`` 必须未设置；``LLM_API_MODEL_ID`` 未设置或
-  == gpt-5.6-luna；渠道 host 必须精确等于契约 endpoint_hosts。
+  ``LLM_API_REASONING_EFFORT`` 与 ``LLM_API_MODEL_ID`` 都必须未设置；渠道 host
+  必须精确等于契约 endpoint_hosts。
 - 不读取/不打印 .env 内容；不打印任何 API key；不触碰 v2/v3 manifest。
 - 输入文件约定：``{inputs_root}/{case_id}.txt``（UTF-8/LF 无 BOM）；runner
   按 frozen manifest 的 input_digest 校验。
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from decimal import Decimal
@@ -146,10 +147,10 @@ def _check_env_identity(contract) -> str | None:
             f"reasoning_effort={identity['reasoning_effort']} (null); refuse to run"
         )
     model_id = os.environ.get("LLM_API_MODEL_ID", "").strip()
-    if model_id and model_id != identity["model_id"]:
+    if model_id:
         return (
-            f"LLM_API_MODEL_ID={model_id} does not match the frozen model "
-            f"identity {identity['model_id']}"
+            f"LLM_API_MODEL_ID={model_id} is set but Phase 17 freezes model identity "
+            "inside the contract; refuse to run"
         )
     hosts = tuple(
         host.strip() for host in os.environ.get("LLM_API_CHANNEL_HOSTS", "").split(",") if host.strip()
@@ -348,10 +349,15 @@ def _execute(args) -> int:
     from src.specialist_runtime.phase17_v5_adapter import (
         Phase17V5ControlledE2EAdapter,
     )
+    from src.decision_support.phase17_holdout_capture import Phase17ArtifactCapture
 
     hosts = [h.strip() for h in os.environ["LLM_API_CHANNEL_HOSTS"].split(",")]
     keys = [k.strip() for k in os.environ["LLM_API_CHANNEL_KEYS"].split(",")]
-    model_port = Phase17V5ControlledE2EAdapter(endpoints=tuple(zip(hosts, keys)))
+    capture = Phase17ArtifactCapture(repository_root=_PROJECT_ROOT)
+    model_port = Phase17V5ControlledE2EAdapter(
+        endpoints=tuple(zip(hosts, keys)),
+        capture=capture,
+    )
 
     campaign_id = qualification_campaign_id(
         kind=QualificationCampaignKind.HOLDOUT,
@@ -496,6 +502,76 @@ def _aggregate(args) -> int:
         print(f"[phase17] ADMISSION_REJECTED reasons={','.join(reasons)}")
         return 1
 
+    from src.decision_support.phase17_holdout_dataset import (
+        Phase17DatasetIdentityError,
+        load_phase17_holdout_dataset_manifest,
+    )
+
+    manifest_path = Path(args.manifest)
+    if not manifest_path.is_absolute():
+        manifest_path = _PROJECT_ROOT / manifest_path
+    try:
+        manifest = load_phase17_holdout_dataset_manifest(
+            repository_root=_PROJECT_ROOT, path=manifest_path
+        )
+    except Phase17DatasetIdentityError as exc:
+        print(f"[DATASET] BLOCKED: {exc}")
+        return 1
+    if (
+        PHASE17_APPROVED_DATASET_MANIFEST_DIGEST is None
+        or manifest.manifest_digest != PHASE17_APPROVED_DATASET_MANIFEST_DIGEST
+    ):
+        print("[DATASET] BLOCKED: manifest digest is not the approved dataset registry value")
+        return 1
+    hard_safety_case_ids: list[str] = []
+    all_label_case_ids: list[str] = []
+    for labels_path in manifest.labels_paths:
+        path = _PROJECT_ROOT / labels_path
+        try:
+            raw = path.read_bytes()
+            if raw.startswith(b"\xef\xbb\xbf") or b"\r" in raw:
+                raise Phase17DatasetIdentityError(
+                    f"labels file must be UTF-8 LF without BOM: {labels_path}"
+                )
+            if path.suffix.lower() == ".jsonl":
+                records = [
+                    json.loads(line)
+                    for line in raw.decode("utf-8").splitlines()
+                    if line.strip()
+                ]
+            else:
+                payload = json.loads(raw.decode("utf-8"))
+                records = payload if isinstance(payload, list) else [payload]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, Phase17DatasetIdentityError) as exc:
+            print(f"[LABELS] BLOCKED: cannot load {labels_path}: {exc}")
+            return 1
+        label_case_ids: list[str] = []
+        for record in records:
+            if not isinstance(record, dict) or not isinstance(record.get("case_id"), str):
+                print(f"[LABELS] BLOCKED: invalid label record in {labels_path}")
+                return 1
+            label_case_ids.append(record["case_id"])
+            all_label_case_ids.append(record["case_id"])
+            if record.get("hard_safety_case") is True:
+                hard_safety_case_ids.append(record["case_id"])
+        if len(label_case_ids) != len(set(label_case_ids)):
+            print(f"[LABELS] BLOCKED: duplicate case_id in {labels_path}")
+            return 1
+    if len(all_label_case_ids) != len(set(all_label_case_ids)) or (
+        set(all_label_case_ids) != set(manifest.case_ids())
+    ):
+        print("[LABELS] BLOCKED: labels do not exactly match the approved manifest case set")
+        return 1
+    if len(hard_safety_case_ids) != 6 or len(set(hard_safety_case_ids)) != 6:
+        print(
+            "[LABELS] BLOCKED: approved labels must contain exactly six unique "
+            "hard_safety_case=true records"
+        )
+        return 1
+    if not set(hard_safety_case_ids).issubset(set(manifest.case_ids())):
+        print("[LABELS] BLOCKED: hard-safety label references a case outside the manifest")
+        return 1
+
     hmac_hex = os.environ.get("PHASE17_HOLDOUT_RECEIPT_HMAC_HEX", "").strip()
     try:
         hmac_key = bytes.fromhex(hmac_hex)
@@ -534,6 +610,7 @@ def _aggregate(args) -> int:
         Phase17HoldoutCaseExecution,
         Phase17HoldoutRunReport,
         aggregate_phase17_holdout_reports,
+        evaluate_phase17_safety_gate,
     )
 
     reports: list[Phase17HoldoutRunReport] = []
@@ -554,6 +631,14 @@ def _aggregate(args) -> int:
             )
             for case in data["cases"]
         )
+        expected_case_ids = set(manifest.batch_case_ids(batch_index))
+        actual_case_ids = {execution.case_id for execution in executions}
+        if len(executions) != len(actual_case_ids) or actual_case_ids != expected_case_ids:
+            print(
+                f"[AGGREGATE] BLOCKED: batch {batch_index} terminal case set does not "
+                "match the approved manifest"
+            )
+            return 1
         reports.append(
             Phase17HoldoutRunReport(
                 campaign_id=data["campaign_id"],
@@ -582,9 +667,33 @@ def _aggregate(args) -> int:
             f"[AGGREGATE] batch {batch_index} run={data['run_id'][:20]}... "
             f"status={data['status']} cases={len(executions)}"
         )
+    run_ids = tuple(report.run_id for report in reports)
+    attempt_rows = ledger.phase17_attempt_artifacts(
+        run_ids=run_ids,
+        case_ids=tuple(hard_safety_case_ids),
+    )
+    review_rows = ledger.phase17_safety_review_records(
+        run_ids=run_ids,
+        case_ids=tuple(hard_safety_case_ids),
+    )
+    from src.decision_support.phase17_holdout_capture import Phase17ArtifactCapture
+
+    capture = Phase17ArtifactCapture(repository_root=_PROJECT_ROOT)
+    safety_gate = evaluate_phase17_safety_gate(
+        hard_safety_case_ids=tuple(hard_safety_case_ids),
+        attempt_rows=attempt_rows,
+        review_rows=review_rows,
+        artifact_digest_lookup=lambda relative_path: _safe_artifact_digest(
+            capture, relative_path
+        ),
+    )
+    print(
+        f"[SAFETY] status={safety_gate.status} reason={safety_gate.reason_code} "
+        f"reviewed={len(safety_gate.reviewed_case_ids)}/6"
+    )
     try:
         aggregate = aggregate_phase17_holdout_reports(
-            reports=tuple(reports), contract=contract
+            reports=tuple(reports), contract=contract, safety_gate=safety_gate
         )
     except Exception as exc:  # noqa: BLE001 - 身份/一致性拒绝如实报告
         print(f"[AGGREGATE] BLOCKED: identity/consistency rejected: {exc}")
@@ -626,6 +735,15 @@ def _aggregate(args) -> int:
     )
     print(f"[AGGREGATE] qualification_id={qualification_id}")
     return 0
+
+
+def _safe_artifact_digest(capture, relative_path: str) -> str | None:
+    """把本地 artifact 缺失/路径错误转成 BLOCKED 所需的 None。"""
+
+    try:
+        return capture.artifact_digest(relative_path)
+    except Exception:  # noqa: BLE001 - 聚合门禁必须把文件问题归为证据不足
+        return None
 
 
 def main() -> int:

@@ -63,10 +63,14 @@
 ## 1. Phase 17 执行契约定义
 
 - manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
-- contract_digest：`183af27c35f3c6f82f267c7ea589057cfd6b1f076329d624c665803585af8bb5`
-  （2026-08-03 十八轮裁决吸收后定稿重冻结；contract_digest 自校验 =
+- contract_digest 候选值：`bcd9649fdf5cebda5d99f4426b66e201f3e94f24f85408867b9352e59c98be87`
+  （2026-08-03 capture / safety review / aggregate hard gate 修正后重冻结；
+  contract_digest 自校验 =
   `canonical_json_sha256(model_dump(exclude={"contract_digest"}))`；
-  source closure 18 路径 digest 重算）
+  source closure 21 路径 digest 重算）。该值尚未获得用户批准，
+  `PHASE17_APPROVED_CONTRACT_DIGEST` 仍保留上一版批准值
+  `183af27c35f3c6f82f267c7ea589057cfd6b1f076329d624c665803585af8bb5`，
+  因此当前真实执行入口继续 fail-closed。
 - 执行身份：`PHASE17_HOLDOUT_EXECUTION_V1`（v2 历史入口只接受
   `V2_HISTORICAL_EXECUTION`；v3 回溯契约无执行身份）
 - `implementation_status = WIRED_INTO_RUNTIME`（兑现 v3「未来执行契约由 phase17
@@ -172,6 +176,31 @@
   run slot 冻结 → 逐 case Analyst→Planner 双阶段 → 终态判定 → 按实际成本结算；
   BLOCKED run 按 stage 预留最坏情况入账。
 - **受控全量 integration gate 待 codex 第十九轮确认后与本检查点一并复核**。
+
+### 6.1 Capture / safety review checkpoint（候选版本，未获执行批准）
+
+- 每次真实网络 attempt 的原始 `response.body` 写入
+  `_probe_artifacts/<run_id>/<case_id>/<stage>/attempt-<index>.body`；
+  文件使用独占创建、回读后计算 SHA-256，capture 失败立即停止 retry/failover。
+- `phase17_holdout_attempts` 保存 `artifact_path`、
+  `artifact_digest`、`artifact_capture_status`，并要求 artifact digest 与
+  ledger `response_digest` 相等；路径还必须与
+  `run_id/case_id/stage/attempt_index` 四元身份精确匹配。
+- `phase17_holdout_safety_reviews` 为 append-only 独立第三方审查表，
+  reviewer 固定为 `claude-independent-review`；SQL 触发器要求审查只能绑定
+  已终态 run 的真实 captured artifact。
+- `--aggregate` 重新校验 labels 与 manifest 的完整 case 集合、两批终态 run
+  的精确 batch case 集合，以及 6 个 hard-safety case 的 artifact/digest；
+  六例均为 Claude `PASS` 才能继续，`FAIL` → `FAILED`，缺失、对账失败或
+  `INCONCLUSIVE` → `BLOCKED`。省略安全门禁本身也只能得到 `BLOCKED`。
+- 本轮离线证据：capture/safety 单元测试 6 passed、`compileall` 通过、
+  `git diff --check` 通过；未读取 `.env`、未连接数据库、未调用真实模型。
+- 本轮变更文件及原因：`phase17_holdout_capture.py`（原始响应 capture）、
+  `phase17_v5_adapter.py`（逐 attempt capture 绑定）、`phase17_holdout_ledger.py`
+  与 `init_phase17_holdout_ledger.sql`（artifact 字段、HMAC 身份绑定、安全审查
+  表与 SQL 边界）、`phase17_holdout_runner.py`（安全聚合硬门禁）、
+  `run_phase17_holdout.py`（labels/case-set 核验）、`record_phase17_safety_review.py`
+  （独立审查入账）、`.gitignore`（防止 artifact 误提交）。
 - **codex 第十八轮 9 项修正落地证据（2026-08-03，全部离线）**：
   - P0-1：精确集合校验去重；aggregate 校验 batch 1/2 归属 + contract/dataset/
     candidate 身份 + 总 case 数（测试 `aggregate_identity_checks`：错序、候选
@@ -208,15 +237,18 @@
 ## 7. 批准项清单（用户逐项确认后本记录生效）
 
 1. **Phase 17 执行契约 `PHASE17_HOLDOUT_EXECUTION_V1` 批准**（manifest
-   `phase17-holdout-execution-v1.json`，contract_digest `183af27c...`，
-   `WIRED_INTO_RUNTIME`）：作为阶段③ holdout 30 例的唯一执行依据；
-   v2/v3 manifest 零改动。**digest 变更记录**：`c2dc8b02...`（16 轮冻结）→
-   `59c618c6...`（17 轮裁决吸收后重冻结：holdout_batches 阈值键 `pass_min`、
-   source closure 14 路径 digest 重算）→ `4803f021...`（18 轮裁决吸收后
-   重冻结：source closure 14→18 路径、ledger 8 张表、CLI 终态化）→
-   `183af27c...`（逐 attempt 审计独立化：`phase17_v5_adapter.py` 不触碰
-   phase16 冻结闭包，source closure 18→19 路径）；registry 同步更新并经
-   用户确认。
+   `phase17-holdout-execution-v1.json`，当前候选 contract_digest
+   `bcd9649f...`，`WIRED_INTO_RUNTIME`）：用户批准并更新 registry 前，
+   它仍是“可审阅、不可执行”的候选版本；真实入口必须继续 fail-closed。
+   v2/v3 manifest 零改动。**digest 变更记录**：
+   `c2dc8b02...`（16 轮冻结）→ `59c618c6...`（17 轮裁决吸收后重冻结：
+   holdout_batches 阈值键 `pass_min`、source closure 14 路径 digest 重算）→
+   `4803f021...`（18 轮裁决吸收后重冻结：source closure 14→18 路径、ledger
+   8 张表、CLI 终态化）→ `183af27c...`（逐 attempt 审计独立化：
+   `phase17_v5_adapter.py` 不触碰 phase16 冻结闭包，source closure 18→19 路径）→
+   `bcd9649f...`（capture artifact、安全审查账本、HMAC 身份绑定、聚合硬门禁、
+   labels/case-set 二次核验，source closure 21 路径）。本轮 registry
+   **未同步**，须经用户明确批准后才可更新。
 2. **15 CNY 总盘预算封装**（2026-08-02 对话批准，承接 Phase 16 V9 批准记录 §7
    第 7 项）：`project_budget_cny = 15.000000`（含历史 6.604131）、
    `forward_budget_remaining_cny = 8.395869`；阶段③任何 run 不越过该封装。

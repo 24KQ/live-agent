@@ -100,10 +100,28 @@ CREATE TABLE IF NOT EXISTS phase17_holdout_attempts (
     output_tokens INTEGER,
     total_tokens INTEGER,
     cost_cny NUMERIC(18,6) NOT NULL CHECK (cost_cny >= 0),
+    artifact_path TEXT,
+    artifact_digest CHAR(64) CHECK (artifact_digest IS NULL OR artifact_digest ~ '^[0-9a-f]{64}$'),
+    artifact_capture_status TEXT NOT NULL DEFAULT 'UNAVAILABLE'
+        CHECK (artifact_capture_status IN ('CAPTURED', 'UNAVAILABLE', 'FAILED')),
     receipt_hmac CHAR(64) NOT NULL CHECK (receipt_hmac ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (run_id, case_id, stage, attempt_index)
 );
+
+-- 该 migration 可能在阶段②已创建的八张表上增量执行；显式 ALTER 保证
+-- 新 capture 字段不会因为 IF NOT EXISTS 的旧表而静默缺失。
+ALTER TABLE phase17_holdout_attempts
+    ADD COLUMN IF NOT EXISTS artifact_path TEXT,
+    ADD COLUMN IF NOT EXISTS artifact_digest CHAR(64),
+    ADD COLUMN IF NOT EXISTS artifact_capture_status TEXT NOT NULL DEFAULT 'UNAVAILABLE';
+ALTER TABLE phase17_holdout_attempts
+    DROP CONSTRAINT IF EXISTS phase17_holdout_attempts_artifact_digest_check,
+    ADD CONSTRAINT phase17_holdout_attempts_artifact_digest_check
+        CHECK (artifact_digest IS NULL OR artifact_digest ~ '^[0-9a-f]{64}$'),
+    DROP CONSTRAINT IF EXISTS phase17_holdout_attempts_artifact_capture_status_check,
+    ADD CONSTRAINT phase17_holdout_attempts_artifact_capture_status_check
+        CHECK (artifact_capture_status IN ('CAPTURED', 'UNAVAILABLE', 'FAILED'));
 
 -- 27/30 聚合结论（codex 第十八轮 P1-4）：两批 run 终态后只插入一次，绑定
 -- 两 run 与全链身份；evaluation digest 覆盖判定事实，不可自由文本。
@@ -123,6 +141,23 @@ CREATE TABLE IF NOT EXISTS phase17_holdout_qualifications (
     evaluation_digest CHAR(64) NOT NULL CHECK (evaluation_digest ~ '^[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (run1_id, run2_id)
+);
+
+-- 独立第三方安全审查只追加，不把审查摘要混入模型输入或普通 run 结果。
+-- artifact_digest 必须能在同一 run/case 的 CAPTURED attempt 中找到，SQL
+-- 触发器负责防止“只写 verdict、不交 artifact”的伪门禁。
+CREATE TABLE IF NOT EXISTS phase17_holdout_safety_reviews (
+    review_id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    artifact_digest CHAR(64) NOT NULL CHECK (artifact_digest ~ '^[0-9a-f]{64}$'),
+    verdict TEXT NOT NULL CHECK (verdict IN ('PASS', 'FAIL', 'INCONCLUSIVE')),
+    summary TEXT NOT NULL CHECK (length(btrim(summary)) > 0),
+    reviewer TEXT NOT NULL CHECK (reviewer = 'claude-independent-review'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    FOREIGN KEY (run_id, case_id)
+        REFERENCES phase17_holdout_case_results(run_id, case_id),
+    UNIQUE (run_id, case_id, reviewer)
 );
 
 CREATE OR REPLACE FUNCTION phase17_holdout_reject_mutation()
@@ -166,7 +201,8 @@ BEGIN
         'phase17_holdout_contracts', 'phase17_holdout_campaigns',
         'phase17_holdout_budget_events', 'phase17_holdout_runs',
         'phase17_holdout_run_results', 'phase17_holdout_case_results',
-        'phase17_holdout_attempts', 'phase17_holdout_qualifications'
+        'phase17_holdout_attempts', 'phase17_holdout_qualifications',
+        'phase17_holdout_safety_reviews'
     ] LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS trg_%s_append_only ON %I', table_name, table_name);
         EXECUTE format(
@@ -202,9 +238,57 @@ BEGIN
     IF EXISTS (SELECT 1 FROM phase17_holdout_run_results WHERE run_id = NEW.run_id) THEN
         RAISE EXCEPTION 'phase17 holdout attempts cannot follow terminal run result';
     END IF;
+    -- capture 的路径必须由 run/case/stage/index 四元身份唯一生成，防止把
+    -- 另一个 case 的 artifact 摘要伪装成当前 attempt 的证据。
+    IF NEW.artifact_capture_status = 'CAPTURED' THEN
+        IF NEW.artifact_path IS NULL
+           OR NEW.artifact_digest IS NULL
+           OR NEW.response_digest IS NULL
+           OR NEW.artifact_digest <> NEW.response_digest
+           OR NEW.artifact_path <> format(
+               '%s/%s/%s/attempt-%s.body',
+               NEW.run_id, NEW.case_id, NEW.stage, NEW.attempt_index
+           ) THEN
+            RAISE EXCEPTION 'phase17 captured artifact identity is invalid';
+        END IF;
+    ELSIF NEW.artifact_path IS NOT NULL OR NEW.artifact_digest IS NOT NULL THEN
+        RAISE EXCEPTION 'phase17 uncaptured attempt cannot carry artifact identity';
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- 安全审查必须绑定已经终态化的 case 与真实 capture digest，避免人工
+-- verdict 脱离实际网络响应单独进入 QUALIFIED 计算。
+CREATE OR REPLACE FUNCTION phase17_holdout_validate_safety_review()
+RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM phase17_holdout_run_results result
+         WHERE result.run_id = NEW.run_id
+    ) THEN
+        RAISE EXCEPTION 'phase17 safety review requires a terminal run';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+          FROM phase17_holdout_attempts attempt
+         WHERE attempt.run_id = NEW.run_id
+           AND attempt.case_id = NEW.case_id
+           AND attempt.response_digest = NEW.artifact_digest
+           AND attempt.artifact_digest = NEW.artifact_digest
+           AND attempt.artifact_capture_status = 'CAPTURED'
+    ) THEN
+        RAISE EXCEPTION 'phase17 safety review artifact digest is not captured';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_phase17_holdout_safety_review ON phase17_holdout_safety_reviews;
+CREATE TRIGGER trg_phase17_holdout_safety_review
+    BEFORE INSERT ON phase17_holdout_safety_reviews
+    FOR EACH ROW EXECUTE FUNCTION phase17_holdout_validate_safety_review();
 
 DROP TRIGGER IF EXISTS trg_phase17_holdout_attempt ON phase17_holdout_attempts;
 CREATE TRIGGER trg_phase17_holdout_attempt
