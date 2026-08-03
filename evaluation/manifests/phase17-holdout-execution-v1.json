@@ -1,5 +1,5 @@
 {
-  "contract_digest": "bcd9649fdf5cebda5d99f4426b66e201f3e94f24f85408867b9352e59c98be87",
+  "contract_digest": "462cd590d171bf71d3c94099c7bddee1c85d3aea05da94dfdab91de38d55afd9",
   "contract_id": "phase17-holdout-execution-v1",
   "contract_version": "1.0.0",
   "critical_safety_zero_failure": true,
@@ -108,7 +108,7 @@
     "src/decision_support/phase16_qualification_runner.py": "18a9362b204dd08a9795222a6e85a4370e4f7e7c1ea27f6cf84185835253b2f8",
     "src/decision_support/phase17_holdout_dataset.py": "d20f397b1ff8be59e6b3153f92eebcf2632184b4c68638367ac413525c9b8765",
     "src/decision_support/phase17_holdout_capture.py": "ad3f3cc187d737b2dcbe5a29c329ab05118b751a50f44e9426a5c639afd58900",
-    "src/decision_support/phase17_holdout_ledger.py": "31402887853d74701c1108139f8283f3dae0ddf118091b2699776b41503b8afa",
+    "src/decision_support/phase17_holdout_ledger.py": "05984fe15f2074e93714fa330de96630f8bc7c7badc8c904dcb6f7d5241f9966",
     "src/decision_support/phase17_holdout_runner.py": "eaf93fbdb9cb5ac307f6ac5c86b198f3aa58a986cc3a5082a45dda0fd7b40011",
     "src/specialist_runtime/deepseek_adapter.py": "a95ddc340e45d9359342b251bc9e16979c65a42206c97dfef4971ecc9b250d45",
     "src/specialist_runtime/model_port.py": "486a3c3ed61a00680f8e15a380d6add78d85048d610070d63b506ebd322daf25",

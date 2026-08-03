@@ -237,9 +237,9 @@
 ## 7. 批准项清单（用户逐项确认后本记录生效）
 
 1. **Phase 17 执行契约 `PHASE17_HOLDOUT_EXECUTION_V1` 批准**（manifest
-   `phase17-holdout-execution-v1.json`，当前候选 contract_digest
-   `bcd9649f...`，`WIRED_INTO_RUNTIME`）：用户批准并更新 registry 前，
-   它仍是“可审阅、不可执行”的候选版本；真实入口必须继续 fail-closed。
+   `phase17-holdout-execution-v1.json`，当前批准 contract_digest
+   `462cd590...`，`WIRED_INTO_RUNTIME`）：用户批准并更新 registry 后，
+   真实入口才允许加载；registry 不匹配时仍 fail-closed。
    v2/v3 manifest 零改动。**digest 变更记录**：
    `c2dc8b02...`（16 轮冻结）→ `59c618c6...`（17 轮裁决吸收后重冻结：
    holdout_batches 阈值键 `pass_min`、source closure 14 路径 digest 重算）→
@@ -247,8 +247,9 @@
    8 张表、CLI 终态化）→ `183af27c...`（逐 attempt 审计独立化：
    `phase17_v5_adapter.py` 不触碰 phase16 冻结闭包，source closure 18→19 路径）→
    `bcd9649f...`（capture artifact、安全审查账本、HMAC 身份绑定、聚合硬门禁、
-   labels/case-set 二次核验，source closure 21 路径）。本轮 registry
-   **未同步**，须经用户明确批准后才可更新。
+   labels/case-set 二次核验，source closure 21 路径）→ `462cd590...`（修复
+   attempts INSERT 占位符 22→23，source closure 仍 21 路）。`462cd590...` 已经
+   获用户明确批准并同步 registry。
 2. **15 CNY 总盘预算封装**（2026-08-02 对话批准，承接 Phase 16 V9 批准记录 §7
    第 7 项）：`project_budget_cny = 15.000000`（含历史 6.604131）、
    `forward_budget_remaining_cny = 8.395869`；阶段③任何 run 不越过该封装。
@@ -266,6 +267,41 @@
    按 stage 预留最坏情况入账；失败如实入账、不重跑不刷分。
 7. **阶段③每次真实模型 run 前用户单独批准**；成本、receipts、tokens 入账后
    与 CLI 报告核对。
+
+8. **2026-08-04 用户批准 capture/safety gate 版本 contract digest**：用户批准
+   `bcd9649fdf5cebda5d99f4426b66e201f3e94f24f85408867b9352e59c98be87` 并授权
+   更新 `PHASE17_APPROVED_CONTRACT_DIGEST`。变更范围为 source closure **19 → 21**：
+   新增 `phase17_holdout_capture.py` 和
+   `record_phase17_safety_review.py`；语义只增加 6 个 hard-safety case 的
+   artifact capture、独立第三方安全审查入账与聚合硬门禁，未改变身份、预算、
+   阈值或 Phase 16 冻结契约。批准前的全量 gate 补证已保存；批准后必须重新运行
+   unit、integration、encoding gate，确认原先 registry 未批准导致的 fail-closed
+   结果全部转绿，才进入 4.1 样例前置检查点。真实模型执行仍须逐 run 单独批准。
+   批准后全量 integration 暴露 `phase17_holdout_ledger.py` 的 SQL 占位符缺失：
+   attempts INSERT 有 23 个参数但只有 22 个 `%s`。该修复只增加一个占位符和中文
+   说明注释，未改变身份、预算或阈值；因该文件属于 21 路 source closure，重新计算
+   candidate digest 为 `462cd590d171bf71d3c94099c7bddee1c85d3aea05da94dfdab91de38d55afd9`。
+   `bcd9649f...` 的批准不自动覆盖此后续代码修复；新 digest 须重新获得用户批准后
+   才能更新 registry 并重跑全量 gate。
+
+9. **2026-08-04 用户批准修复后的 contract digest**：用户独立复核确认
+   `462cd590d171bf71d3c94099c7bddee1c85d3aea05da94dfdab91de38d55afd9` 的变更范围
+   仅为 `phase17_holdout_ledger.py` 的 attempts INSERT 占位符从 22 补为 23，
+   并增加三行中文说明注释；23 列、23 占位符、23 参数逐项一致。用户批准重冻结
+   manifest 的 source closure（仍为 21 路，仅该文件 digest 更新）并授权将 registry
+   更新为 `462cd590...`。本批准不改变身份、预算、阈值或 Phase 16 冻结契约；更新后
+   必须重跑全量 unit、integration、encoding gate，另行记录 Phase 16 restart 测试
+   的干净数据库复核结果。
+
+10. **2026-08-04 批准后 gate 完成记录**：重冻结 manifest、registry 和两份批准记录
+    后，最终全量 unit 为 **1731 passed, 1 warning**，integration 为
+    **295 passed, 7 deselected, 5 warnings**，文档编码 gate `EXIT=0`。Phase 16
+    restart 在独立 UUID schema（fixture 创建后自动删除）下为 **1 passed**，因此
+    原全量序列中的残留/隔离现象没有在干净复核中重现；不把它标成代码 flake。批准后
+    第一次全量 integration 曾暴露 `test_phase17_aggregate_26_of_30_failed` 未传入
+    safety PASS gate 的测试夹具遗漏，已只在该测试中补入合成安全 PASS；生产聚合器
+    的“省略安全门禁即 BLOCKED”语义未修改，也不进入 contract source closure。
+    最终原始输出文件保留在工作树中，真实模型执行仍未进行。
 
 ## 8. 相关文件
 

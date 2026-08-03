@@ -197,8 +197,13 @@
    Phase 17 后续 capture / safety review / aggregate hard gate 改动形成候选
    contract digest `bcd9649fdf5cebda5d99f4426b66e201f3e94f24f85408867b9352e59c98be87`，
    digest 历史为 `c2dc8b02... → 59c618c6... → 4803f021... → 183af27c... →
-   bcd9649f...`；该候选值尚未获得用户批准，不改变本 Phase 16 V9 的历史结论，
-   也不得据此执行真实 Phase 17 模型调用。
+   bcd9649f...`；该值于 2026-08-04 获用户批准并更新 Phase 17 registry，随后
+   全量 integration 发现 source closure 内的 SQL 占位符缺失，修复后生成新候选
+   `462cd590...`；该值于 2026-08-04 获用户批准并已更新 Phase 17 registry。此状态
+   不改变本 Phase 16 V9 的历史结论；真实 Phase 17 模型调用仍须遵守独立契约、
+   数据集 registry 和逐 run 用户批准流程。批准后的离线复核：unit 1731 passed、
+   integration 295 passed（7 deselected）、文档编码 gate EXIT=0；Phase 16 restart
+   在独立 UUID schema 下 1 passed。该复核不改变 V9 历史账本或原始 V5 结论。
 
 ## 8. 相关文件
 

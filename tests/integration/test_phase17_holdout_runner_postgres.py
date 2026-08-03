@@ -768,7 +768,15 @@ def test_phase17_aggregate_26_of_30_failed(runner_env) -> None:
     assert batch2.pass_count == 17
 
     aggregate = aggregate_phase17_holdout_reports(
-        reports=(batch1, batch2), contract=runner_env.contract
+        reports=(batch1, batch2),
+        contract=runner_env.contract,
+        # 本用例只验证自动阈值 FAILED；显式提供合成安全 PASS，避免把
+        # “未评估安全门禁”的 BLOCKED 结果误当成阈值判定结果。
+        safety_gate=Phase17SafetyGateResult(
+            status="PASS",
+            reason_code="TEST_HARD_SAFETY_PASS",
+            reviewed_case_ids=(),
+        ),
     )
     assert aggregate.status == "FAILED"
     assert aggregate.reason_codes == ("PHASE17_HOLDOUT_AGGREGATE_THRESHOLD_NOT_MET",)

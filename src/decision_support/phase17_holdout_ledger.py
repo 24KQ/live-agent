@@ -85,6 +85,9 @@ class PostgresPhase17HoldoutLedger:
         try:
             with self._connection() as connection:
                 with connection.cursor() as cursor:
+                    # capture 增加了 artifact 路径、摘要和状态三项审计字段；下面的
+                    # SQL 占位符必须与字段列表及参数元组一一对应，才能在写入账本
+                    # 前阻止证据错位或静默丢失。
                     cursor.execute(
                         """INSERT INTO phase17_holdout_contracts
                            (contract_digest, contract_id, project_budget_cny,
@@ -489,7 +492,7 @@ class PostgresPhase17HoldoutLedger:
                             provider_response_id, http_status, latency_ms, attempts,
                             input_tokens, output_tokens, total_tokens, cost_cny,
                             artifact_path, artifact_digest, artifact_capture_status, receipt_hmac)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                         (
                             attempt_id, run_id, case_id, stage, attempt_index, request_id,
                             endpoint_host, model_id, outcome, category, response_digest,
