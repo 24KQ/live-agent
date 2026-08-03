@@ -16,8 +16,9 @@
   "field_contracts": {
     "case_id": {
       "type": "string",
-      "pattern": "^phase17-holdout-[a-z0-9-]+$",
-      "identity_role": "case identity only; final dataset manifest binds the input digest"
+      "pattern": "^phase17-(sample|holdout)-[a-z0-9-]+$",
+      "final_dataset_pattern": "^phase17-holdout-[a-z0-9-]+$",
+      "identity_role": "draft samples may use phase17-sample-*; final dataset manifest binds phase17-holdout-* input digests"
     },
     "split": {
       "type": "string",
