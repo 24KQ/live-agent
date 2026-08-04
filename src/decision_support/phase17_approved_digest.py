@@ -19,7 +19,7 @@ contract digest，形成自指循环（digest 依赖文件内容、文件内容�
 #: 2026-08-04 用户批准的 terra/high Phase 17 执行契约 digest。
 #: 该批准只解除契约 registry 的 fail-closed 拒绝；每个真实 batch 仍需单独批准。
 PHASE17_APPROVED_CONTRACT_DIGEST = (
-    "6cbb90299bdd961d228f47f67fce716ce9ed3f446020a923dffff6edb9004edb"
+    "75ac54c821a0f30d4bf2fbeee59e1dba453b4a6ec299c5ca8a9a2c1625efcd81"
 )
 
 #: 2026-08-04 用户批准的 30 例 holdout 数据集 manifest digest。
