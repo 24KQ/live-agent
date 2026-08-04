@@ -26,6 +26,7 @@ from src.decision_support.phase16_qualification import (
 )
 from src.specialist_runtime.models import canonical_json_sha256
 from scripts.run_phase17_holdout import (
+    _build_candidate_bundle,
     _check_dev_isolation,
     _load_frozen_batch_case_ids,
 )
@@ -122,14 +123,33 @@ def test_phase17_identity_requirements_are_frozen() -> None:
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     identity = contract.identity_requirements
     assert identity["provider_id"] == "synapse-ai"
-    assert identity["model_id"] == "gpt-5.6-luna"
+    assert identity["model_id"] == "gpt-5.6-terra"
     assert identity["endpoint_hosts"] == ["synapse-ai.uk"]
-    assert identity["reasoning_effort"] is None
+    assert identity["reasoning_effort"] == "high"
     assert identity["json_mode"] is True
     assert identity["max_total_tokens"] == 8000
     assert identity["max_output_tokens"] == 2800
     assert identity["per_attempt_deadline_seconds"] == 90
     assert identity["max_case_cost_cny"] == "0.100000"
+
+
+def test_phase17_candidate_bundle_uses_approved_identity_values() -> None:
+    """CLI 构造的 candidate/profile 身份必须与 terra/high 契约逐项一致。"""
+
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    bundle = _build_candidate_bundle(contract)
+
+    # 这里直接检查 CLI 最终使用的 bundle，而不是只检查 manifest 文本，防止
+    # candidate builder 继续从 Phase 16 历史默认常量读取 luna/null 身份。
+    assert bundle.candidate.candidate_id == "phase17-holdout-candidate-terra-high-v1"
+    assert bundle.candidate.model_id == "gpt-5.6-terra"
+    assert bundle.candidate.endpoint_host == "synapse-ai.uk"
+    assert bundle.analyst_profile.model_id == "gpt-5.6-terra"
+    assert bundle.planner_profile.model_id == "gpt-5.6-terra"
+    assert bundle.analyst_profile.endpoint_host == "synapse-ai.uk"
+    assert bundle.planner_profile.endpoint_host == "synapse-ai.uk"
+    assert bundle.analyst_profile.deadline_seconds == 90
+    assert bundle.planner_profile.deadline_seconds == 90
 
 
 def test_phase17_identity_drift_rejected_even_with_resigned_digest() -> None:

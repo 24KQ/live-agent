@@ -100,7 +100,7 @@ def _build_manifest() -> Phase17HoldoutDatasetManifest:
 def _profile(
     *,
     task_kind: SpecialistTaskKind,
-    model_id: str = "gpt-5.6-luna",
+    model_id: str = "gpt-5.6-terra",
     endpoint_host: str = "synapse-ai.uk",
 ) -> SpecialistProfile:
     prompt_text = f"phase17 {task_kind.value} system prompt"
@@ -128,7 +128,7 @@ def _profile(
 def _bundle(
     *,
     contract,
-    model_id: str = "gpt-5.6-luna",
+    model_id: str = "gpt-5.6-terra",
     endpoint_host: str = "synapse-ai.uk",
 ) -> CandidateProfileBundle:
     analyst = _profile(
@@ -142,7 +142,7 @@ def _bundle(
         endpoint_host=endpoint_host,
     )
     payload = {
-        "candidate_id": "phase17-candidate-luna-v1",
+        "candidate_id": "phase17-candidate-terra-high-v1",
         "policy_digest": contract.contract_digest,
         "model_id": model_id,
         "endpoint_host": endpoint_host,
@@ -178,8 +178,8 @@ def _campaign(
     campaign_id = qualification_campaign_id(
         kind=QualificationCampaignKind.HOLDOUT,
         candidate_digest=bundle.candidate.candidate_digest or "",
-        declared_model_id="gpt-5.6-luna",
-        declared_reasoning_effort=None,
+        declared_model_id="gpt-5.6-terra",
+        declared_reasoning_effort="high",
         declared_endpoint_hosts=("synapse-ai.uk",),
         batch_index=batch_index,
     )
@@ -190,8 +190,8 @@ def _campaign(
         candidate_digest=bundle.candidate.candidate_digest or "",
         dataset_manifest_digest=manifest.manifest_digest,
         reservation_cny=Decimal("1.000000"),
-        declared_model_id="gpt-5.6-luna",
-        declared_reasoning_effort=None,
+        declared_model_id="gpt-5.6-terra",
+        declared_reasoning_effort="high",
         declared_endpoint_hosts=("synapse-ai.uk",),
     )
 
@@ -406,7 +406,7 @@ def test_phase17_runner_end_to_end_pass(runner_env) -> None:
     assert all(row["outcome"] == "PASS" for row in attempt_rows)
     assert all(row["receipt_hmac"] and len(row["receipt_hmac"]) == 64 for row in attempt_rows)
     assert all(row["endpoint_host"] == "synapse-ai.uk" for row in attempt_rows)
-    assert all(row["model_id"] == "gpt-5.6-luna" for row in attempt_rows)
+    assert all(row["model_id"] == "gpt-5.6-terra" for row in attempt_rows)
     assert all(row["response_digest"] == "a" * 64 for row in attempt_rows)
     assert sum(Decimal(row["cost_cny"]) for row in attempt_rows) == report.cost_cny
     state = runner_env.ledger.budget_pool_state(runner_env.contract.contract_digest)

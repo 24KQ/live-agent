@@ -15,6 +15,7 @@ from src.decision_support.multi_agent import (
     _SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
     _build_profile,
 )
+from src.decision_support.phase16_qualification import PHASE17_IDENTITY_REQUIREMENTS
 from src.decision_support.models import ConflictRiskCode
 from src.specialist_runtime.models import SpecialistTaskKind
 from src.specialist_runtime.profiles import FinalEvidenceBindingMode, SpecialistProfile
@@ -33,6 +34,8 @@ PHASE16_QUALIFICATION_DEADLINE_SECONDS = 600
 
 #: Phase 17 契约身份固定的 per-attempt deadline（与 identity_requirements 一致）。
 PHASE17_HOLDOUT_DEADLINE_SECONDS = 90
+PHASE16_HISTORICAL_MODEL_ID = "gpt-5.6-luna"
+PHASE16_HISTORICAL_ENDPOINT_HOST = "synapse-ai.uk"
 
 _ANALYST_PROMPT_PREFIX = (
     "You are EvidenceAnalystAgent for a controlled, auditable qualification. "
@@ -69,6 +72,8 @@ def _qualification_profile(
     task_kind: SpecialistTaskKind,
     prompt_prefix: str,
     result_schema: dict[str, object],
+    model_id: str = PHASE16_HISTORICAL_MODEL_ID,
+    endpoint_host: str = PHASE16_HISTORICAL_ENDPOINT_HOST,
     deadline_seconds: int = PHASE16_QUALIFICATION_DEADLINE_SECONDS,
     max_case_cost_cny: str = PHASE16_QUALIFICATION_STAGE_RESERVATION_CNY,
 ) -> SpecialistProfile:
@@ -90,8 +95,8 @@ def _qualification_profile(
         max_output_tokens=PHASE16_QUALIFICATION_MAX_OUTPUT_TOKENS,
         max_case_cost_cny=Decimal(max_case_cost_cny),
         deadline_seconds=deadline_seconds,
-        model_id="gpt-5.6-luna",
-        endpoint_host="synapse-ai.uk",
+        model_id=model_id,
+        endpoint_host=endpoint_host,
         final_envelope_instruction='FINAL envelope: {"kind":"FINAL","final_output":<RESULT>}. ',
         final_evidence_binding_mode=FinalEvidenceBindingMode.SYSTEM_MANAGED_IDS,
     )
@@ -134,6 +139,8 @@ def build_phase17_holdout_profiles() -> tuple[SpecialistProfile, SpecialistProfi
             task_kind=SpecialistTaskKind.CONFLICT_ANALYSIS,
             prompt_prefix=_ANALYST_PROMPT_PREFIX,
             result_schema=_SMOKE_V2_CONFLICT_ANALYSIS_RESULT_SCHEMA,
+            model_id=str(PHASE17_IDENTITY_REQUIREMENTS["model_id"]),
+            endpoint_host=tuple(PHASE17_IDENTITY_REQUIREMENTS["endpoint_hosts"])[0],
             deadline_seconds=PHASE17_HOLDOUT_DEADLINE_SECONDS,
             max_case_cost_cny=PHASE16_QUALIFICATION_STAGE_RESERVATION_CNY,
         ),
@@ -142,6 +149,8 @@ def build_phase17_holdout_profiles() -> tuple[SpecialistProfile, SpecialistProfi
             task_kind=SpecialistTaskKind.LIVE_DECISION_PLANNING,
             prompt_prefix=_PLANNER_PROMPT_PREFIX,
             result_schema=_SMOKE_V2_LIVE_DECISION_PLANNING_RESULT_SCHEMA,
+            model_id=str(PHASE17_IDENTITY_REQUIREMENTS["model_id"]),
+            endpoint_host=tuple(PHASE17_IDENTITY_REQUIREMENTS["endpoint_hosts"])[0],
             deadline_seconds=PHASE17_HOLDOUT_DEADLINE_SECONDS,
             max_case_cost_cny=PHASE16_QUALIFICATION_STAGE_RESERVATION_CNY,
         ),

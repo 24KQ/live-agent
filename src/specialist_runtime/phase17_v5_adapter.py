@@ -8,9 +8,11 @@ drift），因此 phase16 文件不可修改。Phase 17 是独立执行契约，
 phase17 自己的 adapter：继承 V5 受控语义（禁思考、90s/尝试窗口、同端点重试、
 429 换端、绝对 deadline 门），同时按真实调用顺序收集 ``attempt_details``。
 
-运行时不读任何身份 env：Phase 17 契约身份（model_id / reasoning_effort /
-endpoint_hosts）由契约冻结，``LLM_API_REASONING_EFFORT`` /
-``LLM_API_MODEL_ID`` 非空即拒绝（fail-closed，杜绝运行环境覆盖契约身份）。
+运行时不接受环境变量覆盖模型或渠道身份：Phase 17 契约冻结
+``model_id`` / ``endpoint_hosts``，``LLM_API_MODEL_ID`` 非空即拒绝。推理强度
+是例外的显式传输配置：构造器要求 ``LLM_API_REASONING_EFFORT=high`` 与契约值
+一致，再复用 V5 的请求装饰器把该值写入每次真实 HTTP payload；这样既不允许
+环境静默改写契约，也能在离线 transport 测试中核对“实际发送 high”。
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from src.specialist_runtime.models import StrictFrozenModel
 from src.specialist_runtime.profiles import (
     FORMAL_ENDPOINT_HOSTS,
     FORMAL_MODEL_IDS,
+    FORMAL_REASONING_EFFORTS,
     normalize_endpoint_host,
 )
 
@@ -176,8 +179,8 @@ class Phase17V5ControlledE2EAdapter(DeepSeekV5ControlledE2EAdapter):
     传输层重试/换端语义（同端点最多 2 次、TRANSPORT_ERROR/5xx/DEADLINE_EXCEEDED
     可重试、429 换端、每次尝试独立 90s 窗口、绝对 deadline 门）。唯一差异：
 
-    - 运行时不接受任何身份 env（``LLM_API_REASONING_EFFORT`` /
-      ``LLM_API_MODEL_ID`` 非空即拒绝）——Phase 17 身份由契约冻结；
+    - ``LLM_API_REASONING_EFFORT`` 必须等于调用方传入的契约值 ``high``，并由
+      V5 transport 固定进实际 payload；``LLM_API_MODEL_ID`` 仍禁止环境覆盖；
     - ``complete()`` 返回 ``Phase17AdapterOutcome``（最终 outcome + 逐次
       网络尝试的明细），runner 据此逐行入账。
     """
@@ -186,18 +189,24 @@ class Phase17V5ControlledE2EAdapter(DeepSeekV5ControlledE2EAdapter):
         self,
         *,
         endpoints: tuple[tuple[str, str], ...],
+        reasoning_effort: str,
         transport: AsyncHttpTransport | None = None,
         capture: Phase17ArtifactCapture | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
-        """先拒绝身份 env（契约身份不可由运行环境覆盖），再按 V5 语义装配。"""
+        """校验契约推理强度与环境一致，再让父级 transport 固定发送 high。"""
 
-        if os.environ.get("LLM_API_REASONING_EFFORT", "").strip():
+        if reasoning_effort not in FORMAL_REASONING_EFFORTS:
             raise ValueError(
-                "phase17 contract fixes reasoning_effort=null; "
-                "LLM_API_REASONING_EFFORT must be unset"
+                f"phase17 reasoning_effort must be one of {sorted(FORMAL_REASONING_EFFORTS)}"
+            )
+        configured_effort = os.environ.get("LLM_API_REASONING_EFFORT", "").strip()
+        if configured_effort != reasoning_effort:
+            raise ValueError(
+                "phase17 contract reasoning_effort and LLM_API_REASONING_EFFORT differ; "
+                f"expected {reasoning_effort!r}"
             )
         if os.environ.get("LLM_API_MODEL_ID", "").strip():
             raise ValueError(

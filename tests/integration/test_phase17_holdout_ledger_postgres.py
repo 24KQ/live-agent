@@ -83,8 +83,8 @@ def _campaign(
     campaign_id = qualification_campaign_id(
         kind=QualificationCampaignKind.HOLDOUT,
         candidate_digest=candidate_digest,
-        declared_model_id="gpt-5.6-luna",
-        declared_reasoning_effort=None,
+        declared_model_id="gpt-5.6-terra",
+        declared_reasoning_effort="high",
         declared_endpoint_hosts=("synapse-ai.uk",),
         batch_index=batch_index,
     )
@@ -95,8 +95,8 @@ def _campaign(
         candidate_digest=candidate_digest,
         dataset_manifest_digest=dataset_manifest_digest,
         reservation_cny=reservation_cny,
-        declared_model_id="gpt-5.6-luna",
-        declared_reasoning_effort=None,
+        declared_model_id="gpt-5.6-terra",
+        declared_reasoning_effort="high",
         declared_endpoint_hosts=("synapse-ai.uk",),
     )
 
@@ -366,7 +366,7 @@ def _record_attempt(ledger, *, run_id: str, case_id: str = "holdout-case-001",
         attempt_index=1,
         request_id=f"req-{run_id}-{case_id}-{stage}",
         endpoint_host="synapse-ai.uk",
-        model_id="gpt-5.6-luna",
+        model_id="gpt-5.6-terra",
         outcome=outcome,
         category=None if outcome == "PASS" else "PLANNER_VALIDATION_FAILED",
         response_digest="a" * 64,
@@ -406,7 +406,7 @@ def test_phase17_attempt_records_receipt_hmac_and_case_link(ledger_factory) -> N
     assert len(rows) == 1
     row = rows[0]
     assert row["stage"] == "ANALYST" and row["outcome"] == "PASS"
-    assert row["endpoint_host"] == "synapse-ai.uk" and row["model_id"] == "gpt-5.6-luna"
+    assert row["endpoint_host"] == "synapse-ai.uk" and row["model_id"] == "gpt-5.6-terra"
     assert row["cost_cny"] == Decimal("0.006000")
     assert row["response_digest"] == "a" * 64
     assert row["receipt_hmac"] and len(row["receipt_hmac"]) == 64
@@ -684,7 +684,7 @@ def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
             "stage": "ANALYST",
             "attempt_index": 1,
             "endpoint_host": "synapse-ai.uk",
-            "model_id": "gpt-5.6-luna",
+            "model_id": "gpt-5.6-terra",
             "outcome": "PASS",
             "category": None,
             "response_digest": "a" * 64,
@@ -712,7 +712,7 @@ def test_phase17_attempt_hmac_covers_token_fields(ledger_factory) -> None:
             "stage": "ANALYST",
             "attempt_index": 1,
             "endpoint_host": "synapse-ai.uk",
-            "model_id": "gpt-5.6-luna",
+            "model_id": "gpt-5.6-terra",
             "outcome": "PASS",
             "category": None,
             "response_digest": "a" * 64,

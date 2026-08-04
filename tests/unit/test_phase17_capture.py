@@ -26,8 +26,12 @@ class _ResponseTransport:
 
     def __init__(self, response: AsyncHttpResponse | None = None) -> None:
         self.response = response
+        # 记录 transport 实际收到的请求 payload，验证 reasoning_effort 并非只存在于
+        # Phase 17 manifest，而是确实经过 V5 装饰器进入将要发送的 HTTP 请求。
+        self.payloads: list[dict[str, object]] = []
 
-    async def post_json(self, **_: object) -> AsyncHttpResponse:
+    async def post_json(self, **kwargs: object) -> AsyncHttpResponse:
+        self.payloads.append(dict(kwargs["payload"]))
         if self.response is None:
             raise RuntimeError("synthetic transport failure")
         return self.response
@@ -39,7 +43,7 @@ def _request() -> ModelRequest:
     return ModelRequest(
         request_id="request-001",
         endpoint_host="synapse-ai.uk",
-        model_id="gpt-5.6-luna",
+        model_id="gpt-5.6-terra",
         temperature=Decimal("0"),
         prompt_hash="a" * 64,
         result_schema_hash="b" * 64,
@@ -84,12 +88,14 @@ def test_phase17_capture_missing_body_is_blocking(tmp_path: Path) -> None:
 def test_phase17_adapter_captures_raw_response_before_return(tmp_path: Path, monkeypatch) -> None:
     """真实 adapter seam 必须把 HTTP body 摘要与 artifact 一起返回。"""
 
-    monkeypatch.delenv("LLM_API_REASONING_EFFORT", raising=False)
+    # Phase 17 契约要求 reasoning_effort=high；adapter 构造前显式设置它，模拟
+    # 真实 CLI 预检后的进程环境，之后直接断言 transport 看到的最终 payload。
+    monkeypatch.setenv("LLM_API_REASONING_EFFORT", "high")
     monkeypatch.delenv("LLM_API_MODEL_ID", raising=False)
     body = json.dumps(
         {
             "id": "response-001",
-            "model": "gpt-5.6-luna",
+            "model": "gpt-5.6-terra",
             "choices": [
                 {
                     "message": {
@@ -104,11 +110,13 @@ def test_phase17_adapter_captures_raw_response_before_return(tmp_path: Path, mon
         }
     ).encode("utf-8")
     capture = Phase17ArtifactCapture(repository_root=tmp_path)
+    transport = _ResponseTransport(
+        AsyncHttpResponse(status_code=200, headers={}, body=body)
+    )
     adapter = Phase17V5ControlledE2EAdapter(
         endpoints=(("synapse-ai.uk", "synthetic-key"),),
-        transport=_ResponseTransport(
-            AsyncHttpResponse(status_code=200, headers={}, body=body)
-        ),
+        reasoning_effort="high",
+        transport=transport,
         capture=capture,
     )
     with capture.bind_stage(run_id="run-001", case_id="case-001", stage="ANALYST"):
@@ -120,16 +128,19 @@ def test_phase17_adapter_captures_raw_response_before_return(tmp_path: Path, mon
     assert detail.artifact_capture_status == "CAPTURED"
     assert detail.artifact_digest == sha256(body).hexdigest()
     assert detail.response_digest == detail.artifact_digest
+    assert transport.payloads[0]["model"] == "gpt-5.6-terra"
+    assert transport.payloads[0]["reasoning_effort"] == "high"
 
 
 def test_phase17_adapter_stops_after_capture_failure(tmp_path: Path, monkeypatch) -> None:
     """没有 body 的 transport 失败不能继续 retry/failover。"""
 
-    monkeypatch.delenv("LLM_API_REASONING_EFFORT", raising=False)
+    monkeypatch.setenv("LLM_API_REASONING_EFFORT", "high")
     monkeypatch.delenv("LLM_API_MODEL_ID", raising=False)
     capture = Phase17ArtifactCapture(repository_root=tmp_path)
     adapter = Phase17V5ControlledE2EAdapter(
         endpoints=(("synapse-ai.uk", "synthetic-key"),),
+        reasoning_effort="high",
         transport=_ResponseTransport(),
         capture=capture,
     )

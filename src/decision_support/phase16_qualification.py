@@ -798,13 +798,23 @@ PHASE17_HOLDOUT_BATCHES: tuple[tuple[int, int], ...] = ((1, 10), (2, 20))
 PHASE17_HOLDOUT_BATCH_PASS_MINS: tuple[tuple[int, int], ...] = ((1, 9), (2, 18))
 PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN = 27
 PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE = True
-#: Phase 17 执行身份固定值（与 candidate bundle 声明一致 + v3 retry 语义一致）：
-#: 运行时 candidate/adapter 构造必须与这些值精确一致，否则 fail-closed。
+#: Phase 17 执行身份固定值（对齐 Phase 16 V9 最终 terra/high 验收身份）：
+#: 运行时 candidate/campaign/adapter 构造必须与这些值精确一致，否则 fail-closed。
+#: 当前 Phase 17 只冻结 Phase 16 V9 最终验收所采用的正式首端点
+#: ``synapse-ai.uk``；这里是单元素有序列表，而不是允许运行时追加渠道的默认值。
+#: 端点列表同时决定 failover 优先级，CLI 会要求环境逐项精确相等，不能任意替换。
+#: reasoning_effort=high 由 CLI 预检并由 V5 transport 钉入实际 HTTP payload，
+#: 不能只停留在 manifest 声明层。
+PHASE17_HOLDOUT_MODEL_ID = "gpt-5.6-terra"
+PHASE17_HOLDOUT_REASONING_EFFORT = "high"
+PHASE17_HOLDOUT_ENDPOINT_HOSTS: tuple[str, ...] = (
+    "synapse-ai.uk",
+)
 PHASE17_IDENTITY_REQUIREMENTS: dict[str, object] = {
     "provider_id": "synapse-ai",
-    "model_id": "gpt-5.6-luna",
-    "endpoint_hosts": ("synapse-ai.uk",),
-    "reasoning_effort": None,
+    "model_id": PHASE17_HOLDOUT_MODEL_ID,
+    "endpoint_hosts": PHASE17_HOLDOUT_ENDPOINT_HOSTS,
+    "reasoning_effort": PHASE17_HOLDOUT_REASONING_EFFORT,
     "json_mode": True,
     "max_total_tokens": 8000,
     "max_output_tokens": 2800,

@@ -344,6 +344,74 @@
     已批准的 `9f72e076...`，因此在新 digest 获批准前继续 fail-closed。身份、预算、
     阈值、dataset manifest digest `851a9f5f...` 与 Phase 16 冻结契约不变。
 
+15. **2026-08-04 用户批准 Phase 17 身份选型更正（新 digest 待批准）**：独立质询
+    发现原 `gpt-5.6-luna / reasoning_effort=null` 是从 Phase 16 candidate 默认常量
+    误抄而来，并非 Phase 16 V9 最终验收身份；该选型没有独立设计记录或用户批准项。
+    用户据此批准将 Phase 17 改签为 Phase 16 V9 最终验收所采用的
+    `gpt-5.6-terra / reasoning_effort=high`，并要求 reasoning 强度必须实际进入
+    HTTP payload，而不能只写在 manifest 中。
+
+    本次改签的完整冻结身份如下：
+
+    | 字段 | 新冻结值 |
+    |:--|:--|
+    | provider_id | `synapse-ai` |
+    | model_id | `gpt-5.6-terra` |
+    | endpoint_hosts（有序完整列表） | `["synapse-ai.uk"]`（单端点） |
+    | reasoning_effort | `high` |
+    | json_mode | `true` |
+    | max_total_tokens / max_output_tokens | `8000 / 2800` |
+    | per_attempt_deadline_seconds | `90` |
+    | max_case_cost_cny | `0.100000` |
+
+    运行时证据：CLI 要求 `LLM_API_REASONING_EFFORT=high`，Phase 17 adapter 通过
+    V5 请求装饰器将 `high` 写入真实请求 payload；离线 transport 单测直接核验最终
+    payload 字段。Phase 16 历史 builder、migration、receipt、报告和冻结闭包未改写，
+    其中的 luna/null 仅保留历史事实。Phase 17 活跃路径的身份/fixture 改动涉及
+    `phase16_qualification.py`、`phase16_qualification_candidate.py`、
+    `phase17_v5_adapter.py`、`run_phase17_holdout.py` 及 Phase 17 测试；
+    `.env.example` 同步为单端点 terra/high 示例。
+
+    身份变更清单（以本检查点最终行号为准）：
+
+    | 文件:行 | 变更 | 理由 |
+    |:--|:--|:--|
+    | `src/decision_support/phase16_qualification.py:808-817` | `luna/null` → `terra/high`；端点仍为 `synapse-ai.uk` | Phase 17 冻结常量与 manifest 同源，单端点顺序不可覆盖 |
+    | `src/decision_support/phase16_qualification_candidate.py:72-99, 139-153` | 通用 profile builder 参数化；Phase 17 profile 从契约读取 terra/synapse | 保留 Phase 16 历史 builder 默认值，同时阻断 Phase 17 复用历史默认身份 |
+    | `src/specialist_runtime/phase17_v5_adapter.py:192-213` | `reasoning_effort` 从无参数/要求 env 为空 → 显式要求 `high` 并传入 V5 payload | 证明实际请求强度，不允许 manifest-only 声明或环境静默漂移 |
+    | `scripts/run_phase17_holdout.py:211, 381-402` | candidate id、campaign 声明由契约读取，改为 terra/high/synapse | CLI 与契约身份保持单一来源 |
+    | `evaluation/manifests/phase17-holdout-execution-v1.json:2,59-69,97-116` | identity 与 21 路 source digest 重冻结 | 身份变化必须生成新 contract digest |
+    | `tests/unit/test_phase17_capture.py:40-46,91-132` | fixture 改 terra/high，新增最终 payload `reasoning_effort` 断言 | 覆盖真实发送字段 |
+    | `tests/unit/test_phase17_holdout_execution.py:120-151` | 新增 contract 与 candidate bundle 身份断言 | 覆盖构造层身份绑定 |
+    | `tests/integration/test_phase17_holdout_*.py` | Phase 17 fixture 改 terra/high；v2 反向隔离 fixture 保持 luna/null | 活跃路径对齐新契约，历史隔离测试保留旧 canonical 事实 |
+    | `.env.example:60-68` | 示例改为 terra/high/单端点 | 与 Phase 17 预检要求一致，不含任何密钥 |
+
+    全仓扫描中明确不改的旧值：`src/decision_support/phase16_qualification_candidate.py:37`
+    的 `PHASE16_HISTORICAL_MODEL_ID`、`src/specialist_runtime/profiles.py:32-39` 的
+    formal model 白名单、`src/decision_support/phase16_qualification_ledger.py` 的
+    通用历史默认值、Phase 16 migration（`docker/init_phase16_qualification_ledger.sql`
+    及 `alter_phase16_qualification_*.sql`）、Phase 16 历史测试/receipt/report/probe。
+    这些出现位置表达已发生的 luna/null 或允许的历史矩阵事实；改写它们会污染历史
+    账本或改变 Phase 16 冻结闭包，不属于本次 Phase 17 身份改签。
+
+    身份改签会改变 source closure 与 execution contract digest；本次重冻结得到：
+
+    - candidate：`phase17-holdout-candidate-terra-high-v1`，digest
+      `abe0a3fd6858423e6113777b7390be727d45ca02b24e29402e19cff3122ef484`；
+    - execution contract manifest digest：
+      `6cbb90299bdd961d228f47f67fce716ce9ed3f446020a923dffff6edb9004edb`；
+    - self-digest：`canonical_json_sha256(exclude contract_digest)` 逐字匹配；
+    - source closure：21 路，manifest 记录与当前磁盘逐文件匹配；
+    - digest 历史链：`c2dc8b02... → 59c618c6... → 4803f021... →
+      183af27c... → bcd9649f... → 462cd590... → 9f72e076... →
+      6cbb9029...`。
+
+    30 例数据集身份 `851a9f5f...`、预算、阈值和 Phase 16 历史契约不变。旧候选
+    `de2414a270...` 与按旧 luna/null 身份登记的 `9f72e076...` 不再作为新身份的
+    执行凭据；registry 暂不更新，直至用户批准新的 candidate/contract digest，
+    因此新 manifest 在批准前继续 fail-closed。上述 digest 仅为离线候选值，尚未
+    授权 registry 更新、预检放行或任何真实模型调用。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

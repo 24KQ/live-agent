@@ -92,6 +92,8 @@ def test_phase17_contract_cannot_attach_to_legacy_budget_pool(ledger_factory) ->
         campaign_id=qualification_campaign_id(
             kind=QualificationCampaignKind.HOLDOUT,
             candidate_digest="a" * 64,
+            # 这是反向隔离测试中的历史 v2 campaign；它必须保持旧的 canonical
+            # identity，才能把断言推进到“phase17 digest 不可进入 v2 预算池”。
             declared_model_id="gpt-5.6-luna",
             declared_reasoning_effort=None,
             declared_endpoint_hosts=("synapse-ai.uk",),

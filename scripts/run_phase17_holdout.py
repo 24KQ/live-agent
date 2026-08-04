@@ -8,9 +8,9 @@ APPROVE）后，按契约身份装载受控渠道链并执行单个 holdout batc
 设计约束（codex 第十七轮 P1-4）：
 - 执行入口只接受 ``PHASE17_HOLDOUT_EXECUTION_V1``；v2 历史契约走 v2 既有
   fail-closed load 路径；v3 回溯契约无执行身份，运行时拒绝。
-- env 身份检查（P0-2 adapter 身份固定）：契约 ``reasoning_effort=null`` 时
-  ``LLM_API_REASONING_EFFORT`` 与 ``LLM_API_MODEL_ID`` 都必须未设置；渠道 host
-  必须精确等于契约 endpoint_hosts。
+- env 身份检查（P0-2 adapter 身份固定）：契约冻结 ``reasoning_effort=high`` 时，
+  ``LLM_API_REASONING_EFFORT`` 必须精确为 ``high``，``LLM_API_MODEL_ID`` 必须未设置；
+  渠道 host 必须精确等于契约 endpoint_hosts。
 - 不读取/不打印 .env 内容；不打印任何 API key；不触碰 v2/v3 manifest。
 - 输入文件约定：``{inputs_root}/{case_id}.txt``（UTF-8/LF 无 BOM）；runner
   按 frozen manifest 的 input_digest 校验。
@@ -159,10 +159,11 @@ def _check_env_identity(contract) -> str | None:
 
     identity = contract.identity_requirements
     effort = os.environ.get("LLM_API_REASONING_EFFORT", "").strip()
-    if effort:
+    expected_effort = identity["reasoning_effort"]
+    if not isinstance(expected_effort, str) or effort != expected_effort:
         return (
-            f"LLM_API_REASONING_EFFORT={effort} is set but the contract freezes "
-            f"reasoning_effort={identity['reasoning_effort']} (null); refuse to run"
+            "LLM_API_REASONING_EFFORT must equal the frozen contract value "
+            f"{expected_effort!r}; refuse to run"
         )
     model_id = os.environ.get("LLM_API_MODEL_ID", "").strip()
     if model_id:
@@ -204,11 +205,13 @@ def _build_candidate_bundle(contract):
     from src.specialist_runtime.phase17_v5_adapter import phase17_adapter_digest
 
     analyst, planner = build_phase17_holdout_profiles()
+    identity = contract.identity_requirements
+    endpoint_hosts = tuple(identity["endpoint_hosts"])
     payload = {
-        "candidate_id": "phase17-holdout-candidate-luna-v1",
+        "candidate_id": "phase17-holdout-candidate-terra-high-v1",
         "policy_digest": contract.contract_digest,
-        "model_id": "gpt-5.6-luna",
-        "endpoint_host": "synapse-ai.uk",
+        "model_id": identity["model_id"],
+        "endpoint_host": endpoint_hosts[0],
         "analyst_profile_digest": analyst.profile_digest,
         "planner_profile_digest": planner.profile_digest,
         "adapter_digest": phase17_adapter_digest(repository_root=_PROJECT_ROOT),
@@ -299,7 +302,7 @@ def _execute(args) -> int:
     if env_error:
         print(f"[ENV] BLOCKED: {env_error}")
         return 1
-    print("[ENV] identity ok: reasoning_effort unset, model ok, channels match frozen endpoints")
+    print("[ENV] identity ok: reasoning_effort=high, model env unset, channels match frozen endpoints")
 
     hmac_hex = os.environ.get("PHASE17_HOLDOUT_RECEIPT_HMAC_HEX", "").strip()
     try:
@@ -372,17 +375,19 @@ def _execute(args) -> int:
     hosts = [h.strip() for h in os.environ["LLM_API_CHANNEL_HOSTS"].split(",")]
     keys = [k.strip() for k in os.environ["LLM_API_CHANNEL_KEYS"].split(",")]
     capture = Phase17ArtifactCapture(repository_root=_PROJECT_ROOT)
+    identity = contract.identity_requirements
     model_port = Phase17V5ControlledE2EAdapter(
         endpoints=tuple(zip(hosts, keys)),
+        reasoning_effort=str(identity["reasoning_effort"]),
         capture=capture,
     )
 
     campaign_id = qualification_campaign_id(
         kind=QualificationCampaignKind.HOLDOUT,
         candidate_digest=bundle.candidate.candidate_digest or "",
-        declared_model_id="gpt-5.6-luna",
-        declared_reasoning_effort=None,
-        declared_endpoint_hosts=("synapse-ai.uk",),
+        declared_model_id=str(identity["model_id"]),
+        declared_reasoning_effort=str(identity["reasoning_effort"]),
+        declared_endpoint_hosts=tuple(identity["endpoint_hosts"]),
         batch_index=args.batch,
     )
     campaign = Phase17HoldoutCampaign(
@@ -392,9 +397,9 @@ def _execute(args) -> int:
         candidate_digest=bundle.candidate.candidate_digest or "",
         dataset_manifest_digest=manifest.manifest_digest,
         reservation_cny=worst_case_cny,
-        declared_model_id="gpt-5.6-luna",
-        declared_reasoning_effort=None,
-        declared_endpoint_hosts=("synapse-ai.uk",),
+        declared_model_id=str(identity["model_id"]),
+        declared_reasoning_effort=str(identity["reasoning_effort"]),
+        declared_endpoint_hosts=tuple(identity["endpoint_hosts"]),
     )
     run_id = f"phase17-holdout-{uuid4().hex}"
 
