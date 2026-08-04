@@ -208,11 +208,7 @@ class _ScriptedModelPort:
         kind = self._plan[len(self.requests) - 1]
         if kind == "PASS":
             stage = "ANALYST" if request.messages[-1].content.startswith("input-") else "PLANNER"
-            output = (
-                {"trigger_codes": ["PRICE_CONFLICT"], "analysis": {"severity": "HIGH"}}
-                if stage == "ANALYST"
-                else {"risk_codes": ["RISK_PRICE_DRIFT"], "proposal": {"action": "HOLD"}}
-            )
+            output = _analyst_fake_output() if stage == "ANALYST" else _planner_fake_output()
             return Phase17AdapterOutcome(
                 outcome=ModelSuccess(
                     request_id=request.request_id,
@@ -226,12 +222,12 @@ class _ScriptedModelPort:
                 attempt_details=(),
             )
         if kind == "SEMANTIC_FAIL":
-            # 已联网但结构校验失败（如 planner 未产出 risk_codes）。
+            # 已联网但冻结 FINAL envelope 的 result 字段不完整，模拟语义校验失败。
             return Phase17AdapterOutcome(
                 outcome=ModelSuccess(
                     request_id=request.request_id,
                     model_id=request.model_id,
-                    output={"proposal": {"action": "HOLD"}},
+                    output=_final_envelope({}),
                     usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
                     response_digest="b" * 64,
                     latency_ms=Decimal("0"),
@@ -256,9 +252,9 @@ class _ScriptedModelPort:
                     request_id=request.request_id,
                     model_id=request.model_id,
                     output=(
-                        {"trigger_codes": ["PRICE_CONFLICT"], "analysis": {"severity": "HIGH"}}
+                        _analyst_fake_output()
                         if request.messages[-1].content.startswith("input-")
-                        else {"risk_codes": ["RISK_PRICE_DRIFT"], "proposal": {"action": "HOLD"}}
+                        else _planner_fake_output()
                     ),
                     usage=ModelUsage(input_tokens=1000, output_tokens=500, total_tokens=1500),
                     response_digest="c" * 64,
@@ -344,6 +340,48 @@ def _batch_one_cases(manifest: Phase17HoldoutDatasetManifest) -> tuple[tuple[str
     )
 
 
+def _final_envelope(final_output: dict[str, object]) -> dict[str, object]:
+    """生成与冻结 Phase 17 prompt 完全一致的模型 FINAL envelope fake。"""
+
+    return {"kind": "FINAL", "final_output": final_output}
+
+
+def _analyst_fake_output() -> dict[str, object]:
+    """返回通过冻结 Analyst result schema 的最小合成结果。"""
+
+    return _final_envelope(
+        {
+            "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+            "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+            "explanation": "synthetic evidence requires operator confirmation",
+            "evidence_ids": ["synthetic-evidence-001"],
+        }
+    )
+
+
+def _planner_fake_output() -> dict[str, object]:
+    """返回通过冻结 Planner result schema 的最小合成 option。"""
+
+    return _final_envelope(
+        {
+            "options": [
+                {
+                    "option_id": "hold-current",
+                    "product_strategy": "HOLD_AND_ESCALATE",
+                    "backup_product_id": None,
+                    "host_prompt": "请人工确认后再处理",
+                    "timing": "AFTER_OPERATOR_CONFIRMATION",
+                    "risk_flags": [
+                        "INVENTORY_CONFLICT_REQUIRES_REVIEW",
+                        "HUMAN_CONFIRMATION_REQUIRED",
+                    ],
+                    "evidence_ids": ["synthetic-evidence-001"],
+                }
+            ]
+        }
+    )
+
+
 def _execute(runner, env, cases):
     """同步入口：await 一次 execute 并返回报告（仓库既有 asyncio.run 模式）。"""
     return asyncio.run(
@@ -364,11 +402,12 @@ def _execute(runner, env, cases):
 def test_phase17_runner_end_to_end_pass(runner_env) -> None:
     """全 pass：run 终态 PASS、结算按实际成本、逐 attempt 证据入账。"""
     cases = _batch_one_cases(runner_env.manifest)
+    port = _ScriptedModelPort(("PASS",) * (len(cases) * 2))
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
         candidate_bundle=runner_env.bundle,
-        model_port=_ScriptedModelPort(("PASS",) * (len(cases) * 2)),
+        model_port=port,
     )
     report = _execute(runner, runner_env, cases)
 
@@ -377,6 +416,14 @@ def test_phase17_runner_end_to_end_pass(runner_env) -> None:
     assert report.pass_count == 10 and report.total == 10
     assert report.pass_min == 9
     assert report.cost_cny == Decimal("0.120000")  # 10 例 × 2 阶段 × (3M in + 6M out)/1M
+    first_planner_input = json.loads(port.requests[1].messages[-1].content)
+    assert set(first_planner_input["analysis"]) == {
+        "constraint_codes",
+        "risk_codes",
+        "explanation",
+        "evidence_ids",
+    }
+    assert "kind" not in first_planner_input["analysis"]
 
     rows = _query(
         runner_env.settings,

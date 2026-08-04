@@ -100,7 +100,15 @@ def test_phase17_adapter_captures_raw_response_before_return(tmp_path: Path, mon
                 {
                     "message": {
                         "content": json.dumps(
-                            {"trigger_codes": ["CONFLICT"], "analysis": {"severity": "HIGH"}}
+                            {
+                                "kind": "FINAL",
+                                "final_output": {
+                                    "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
+                                    "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
+                                    "explanation": "synthetic evidence requires review",
+                                    "evidence_ids": ["synthetic-evidence-001"],
+                                },
+                            }
                         )
                     },
                     "finish_reason": "stop",

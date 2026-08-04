@@ -6,8 +6,9 @@
 - 执行协议与 v2 保持一致：每 case 走 Analyst → Planner 双阶段，模型调用
   通过注入的 ``Phase17ModelPort``（真实路径为
   ``Phase17V5ControlledE2EAdapter``，V5 受控渠道链语义 + JSON mode +
-  90s/尝试 + 逐尝试审计明细）；结构判定与 v2 相同：analyst 需产出 trigger
-  codes，planner 需产出 risk coverage 与 proposal。
+  90s/尝试 + 逐尝试审计明细）；结构判定固定要求模型返回
+  ``FINAL/final_output`` envelope，Analyst 内层遵循冻结分析 schema，Planner
+  内层遵循冻结 options schema。
 
 身份断言（构造时 fail-closed）：
 - contract 已准入（``admit_phase17_holdout_execution``）；
@@ -411,6 +412,21 @@ class Phase17HoldoutCampaignRunner:
         return hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
 
     @staticmethod
+    def _final_output_mapping(output: Any) -> Mapping[str, Any] | None:
+        """提取冻结 AgentAction envelope 中的 ``final_output`` 投影。
+
+        Phase 17 的真实 adapter 返回模型原始 JSON，因此 runner 收到的是
+        ``{"kind":"FINAL","final_output":...}`` 两层结构，而不是只含
+        业务字段的内层对象。将解包逻辑集中在这里，避免 Analyst 校验、Planner
+        输入投影和测试 fake 各自维护一套不同的 envelope 规则。
+        """
+
+        if not isinstance(output, Mapping) or output.get("kind") != "FINAL":
+            return None
+        final_output = output.get("final_output")
+        return final_output if isinstance(final_output, Mapping) else None
+
+    @staticmethod
     def _attempt_cost(
         *,
         input_tokens: int | None,
@@ -646,6 +662,18 @@ class Phase17HoldoutCampaignRunner:
                 cost_cny=analyst.cost_cny,
                 receipt_count=analyst.receipt_count,
             )
+        analysis_payload = self._final_output_mapping(analyst.output)
+        if analysis_payload is None:
+            # ``_structure_valid`` 与此处共用同一个投影函数；该分支只作为
+            # 防未来维护者拆开两套判断后的第二道 fail-closed 防线，不能把
+            # envelope 误当成 Planner 的 analysis 输入继续发送。
+            return Phase17HoldoutCaseExecution(
+                case_id=case_id,
+                outcome="FAILED",
+                reason_code="ANALYST_VALIDATION_FAILED",
+                cost_cny=analyst.cost_cny,
+                receipt_count=analyst.receipt_count,
+            )
         planner = await self._dispatch_stage(
             campaign=campaign,
             run_id=run_id,
@@ -653,7 +681,10 @@ class Phase17HoldoutCampaignRunner:
             stage="PLANNER",
             profile=self._candidate_bundle.planner_profile,
             user_prompt=json.dumps(
-                {"case_id": case_id, "analysis": _plain_json(analyst.output)},
+                # Planner prompt 读取 analysis.risk_codes 等结果字段，因此只投影
+                # Analyst 的 final_output；把外层 FINAL envelope 嵌进去会造成
+                # 第二次“内部自洽、运行时错位”的隐性协议错误。
+                {"case_id": case_id, "analysis": _plain_json(analysis_payload)},
                 ensure_ascii=False,
                 sort_keys=True,
             ),
@@ -930,27 +961,36 @@ class Phase17HoldoutCampaignRunner:
 
     @staticmethod
     def _structure_valid(*, stage: str, output: Any) -> bool:
-        """与 v2 判定同构的结构校验：analyst 必须产出 trigger codes 与分析。
+        """校验 Phase 17 冻结的 FINAL envelope 与阶段结果字段。
 
         ModelSuccess.output 经 _freeze_json 冻结为 FrozenDict（Mapping 而非
-        dict 子类），因此用 Mapping 判定；非 JSON 对象一律结构失败。
+        dict 子类），因此用 Mapping 判定；非 JSON 对象一律结构失败。冻结
+        result schema 允许 Analyst 的 constraint_codes/risk_codes 为空（没有
+        对应 minItems），所以这里校验字段存在和容器类型；解释、证据 ID 与
+        Planner options 仍要求有实际内容。
         """
 
-        if not isinstance(output, Mapping):
+        final_output = Phase17HoldoutCampaignRunner._final_output_mapping(output)
+        if final_output is None:
             return False
         if stage == "ANALYST":
-            trigger_codes = output.get("trigger_codes")
-            analysis = output.get("analysis")
             return (
-                isinstance(trigger_codes, (list, tuple)) and bool(trigger_codes) and bool(analysis)
+                isinstance(final_output.get("constraint_codes"), (list, tuple))
+                and isinstance(final_output.get("risk_codes"), (list, tuple))
+                and isinstance(final_output.get("explanation"), str)
+                and bool(str(final_output["explanation"]).strip())
+                and isinstance(final_output.get("evidence_ids"), (list, tuple))
+                and bool(final_output["evidence_ids"])
+                and all(
+                    isinstance(evidence_id, str) and bool(evidence_id.strip())
+                    for evidence_id in final_output["evidence_ids"]
+                )
             )
-        risk_codes = output.get("risk_codes")
-        proposal = output.get("proposal")
-        return (
-            isinstance(risk_codes, (list, tuple))
-            and bool(risk_codes)
-            and isinstance(proposal, Mapping)
-        )
+        if stage == "PLANNER":
+            return isinstance(final_output.get("options"), (list, tuple)) and bool(
+                final_output["options"]
+            )
+        return False
 
 
 @dataclass(frozen=True)
