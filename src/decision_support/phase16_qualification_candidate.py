@@ -46,7 +46,7 @@ _ANALYST_PROMPT_PREFIX = (
     f"explanation 必须是一段简明、基于证据的说明，最多 {PHASE16_QUALIFICATION_MAX_EXPLANATION_CHARACTERS} "
     "个 Unicode 字符；不得用冗长复述、列表或尾随空白补充说明。500 字符 Schema 上限仍然"
     "是不可放宽的最终拒绝边界。无真实数据的形状示例："
-    '{"kind":"FINAL","final_output":{"constraint_codes":[],"risk_codes":[],"explanation":"brief evidence-grounded explanation","evidence_ids":["bundle-evidence-id"]}}. '
+    '{"kind":"FINAL","final_output":{"constraint_codes":[],"risk_codes":[],"explanation":"brief evidence-grounded explanation","evidence_ids":["<evidence-id-from-input>"]}}. '
 )
 
 _PLANNER_PROMPT_PREFIX = (
@@ -62,7 +62,7 @@ _PLANNER_PROMPT_PREFIX = (
     "backup_product_id 必须为 null。risk_flags 上限为 8，且闭合枚举恰有 8 个值，"
     "故完整覆盖始终可表达。无真实数据的形状示例（risk_flags 仅为占位；实际必须按输入"
     "analysis.risk_codes 逐项计算）："
-    '{"kind":"FINAL","final_output":{"options":[{"option_id":"placeholder-option","product_strategy":"HOLD_AND_ESCALATE","backup_product_id":null,"host_prompt":"placeholder text","timing":"AFTER_OPERATOR_CONFIRMATION","risk_flags":["HUMAN_CONFIRMATION_REQUIRED","SIDE_EFFECT_UNKNOWN"],"evidence_ids":["bundle-evidence-id"]}]}}. '
+    '{"kind":"FINAL","final_output":{"options":[{"option_id":"placeholder-option","product_strategy":"HOLD_AND_ESCALATE","backup_product_id":null,"host_prompt":"placeholder text","timing":"AFTER_OPERATOR_CONFIRMATION","risk_flags":["HUMAN_CONFIRMATION_REQUIRED","SIDE_EFFECT_UNKNOWN"],"evidence_ids":["<evidence-id-from-input>"]}]}}. '
 )
 
 

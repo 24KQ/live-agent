@@ -77,6 +77,17 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _case_input(case_id: str) -> str:
+    """为离线 fake 链提供带真实可见证据 ID 的原始 case 输入。
+
+    运行器现在会把模型 evidence_ids 与原始输入中的 ID 做硬子集校验，
+    所以测试输入必须显式携带一个合成证据 ID，不能再依赖只在 fake 输出中
+    存在的 ``synthetic-evidence-001`` 占位值。
+    """
+
+    return f"input-{case_id} SYN-P-9001"
+
+
 def _build_manifest() -> Phase17HoldoutDatasetManifest:
     """合成 30 例 manifest（与 unit fixture 同构，不触碰真实数据集）。"""
     case_ids = [f"holdout-case-{i:03d}" for i in range(1, 31)]
@@ -85,7 +96,7 @@ def _build_manifest() -> Phase17HoldoutDatasetManifest:
         "dataset_version": "1.0.0",
         "split": "HOLDOUT",
         "case_count": 30,
-        "case_id_to_input_digest": {cid: _digest(f"input-{cid}") for cid in case_ids},
+        "case_id_to_input_digest": {cid: _digest(_case_input(cid)) for cid in case_ids},
         "batch_case_ids": {"1": case_ids[:10], "2": case_ids[10:]},
         "dev_excluded_case_ids": ["development-case-001"],
         "inputs_root": "evaluation/phase17_holdout/inputs",
@@ -336,7 +347,7 @@ def _query(settings, statement: str, params: tuple[object, ...] = ()) -> list[di
 
 def _batch_one_cases(manifest: Phase17HoldoutDatasetManifest) -> tuple[tuple[str, str], ...]:
     return tuple(
-        (case_id, f"input-{case_id}") for case_id in manifest.batch_case_ids(1)
+        (case_id, _case_input(case_id)) for case_id in manifest.batch_case_ids(1)
     )
 
 
@@ -354,7 +365,7 @@ def _analyst_fake_output() -> dict[str, object]:
             "constraint_codes": ["OPERATOR_CONFIRMATION_REQUIRED"],
             "risk_codes": ["INVENTORY_CONFLICT_REQUIRES_REVIEW"],
             "explanation": "synthetic evidence requires operator confirmation",
-            "evidence_ids": ["synthetic-evidence-001"],
+            "evidence_ids": ["SYN-P-9001"],
         }
     )
 
@@ -375,7 +386,7 @@ def _planner_fake_output() -> dict[str, object]:
                         "INVENTORY_CONFLICT_REQUIRES_REVIEW",
                         "HUMAN_CONFIRMATION_REQUIRED",
                     ],
-                    "evidence_ids": ["synthetic-evidence-001"],
+                    "evidence_ids": ["SYN-P-9001"],
                 }
             ]
         }
@@ -552,7 +563,10 @@ def test_phase17_runner_hard_block_settles_worst_case(runner_env) -> None:
 
 def test_phase17_runner_rejects_subset_batch_before_ledger_write(runner_env) -> None:
     """精确集合校验（codex 第十七轮 P0-1）：子集（2 例）不再是合法 batch。"""
-    cases = tuple((case_id, f"input-{case_id}") for case_id in runner_env.manifest.batch_case_ids(1)[:2])
+    cases = tuple(
+        (case_id, _case_input(case_id))
+        for case_id in runner_env.manifest.batch_case_ids(1)[:2]
+    )
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
@@ -572,8 +586,8 @@ def test_phase17_runner_rejects_mixed_batch(runner_env) -> None:
     batch1_ids = runner_env.manifest.batch_case_ids(1)
     batch2_id = runner_env.manifest.batch_case_ids(2)[0]
     cases = tuple(
-        (case_id, f"input-{case_id}") for case_id in batch1_ids[:9]
-    ) + ((batch2_id, f"input-{batch2_id}"),)
+        (case_id, _case_input(case_id)) for case_id in batch1_ids[:9]
+    ) + ((batch2_id, _case_input(batch2_id)),)
     runner = Phase17HoldoutCampaignRunner(
         contract=runner_env.contract,
         ledger=runner_env.ledger,
@@ -726,7 +740,8 @@ def test_phase17_aggregate_27_of_30_qualified(runner_env) -> None:
     )
     # batch2 用 18/20 达标（18 PASS + 2 planner 语义失败）→ 总 28/30。
     batch2_cases = tuple(
-        (case_id, f"input-{case_id}") for case_id in runner_env.manifest.batch_case_ids(2)
+        (case_id, _case_input(case_id))
+        for case_id in runner_env.manifest.batch_case_ids(2)
     )
     plan2 = ("PASS",) * 37 + ("SEMANTIC_FAIL",) + ("PASS",) + ("SEMANTIC_FAIL",)
     batch2 = asyncio.run(
@@ -782,7 +797,8 @@ def test_phase17_aggregate_26_of_30_failed(runner_env) -> None:
     # batch2 精确 17/20：17 例全过 + 3 例 planner 失败（3 例 ≤ 阈值缺口，batch 仍 PASS 17>=18? 不，17 < 18 → FAILED）
     # 构造：batch2 17/20 → batch2 FAILED（未达 18）→ 聚合 FAILED。
     batch2_cases = tuple(
-        (case_id, f"input-{case_id}") for case_id in runner_env.manifest.batch_case_ids(2)
+        (case_id, _case_input(case_id))
+        for case_id in runner_env.manifest.batch_case_ids(2)
     )
     plan2 = (
         ("PASS",) * 35

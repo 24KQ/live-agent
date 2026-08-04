@@ -472,6 +472,16 @@
     提交下一独立批准点：batch1 10 例、9/10 阈值、最坏预算 `2.000000 CNY`、
     `gpt-5.6-terra/high`、`synapse-ai.uk`。本条不授权真实网络请求。
 
+18. **2026-08-04 用户批准生产级完整修复豁免（证据引用有效性，非调参）**：用户批准
+    对 Phase 17 证据引用有效性实施生产级修复。此次豁免仅覆盖清理 prompt 形状示例中的
+    无效证据占位符、为五个 postlive 输入补充可审计的合成证据 ID，以及在 runner 中
+    增加“模型 evidence_ids 必须属于原始 case 输入可见 ID 集合”的 fail-closed 兜底；
+    不得借此调整模型身份、Prompt 业务措辞、案例语义、阈值、预算、标签判定或历史账本。
+    该批准明确属于证据引用有效性修复，**不是**依据 batch1 结果提高通过率的调参授权。
+    历史 batch1 run、receipt、artifact、safety_reviews 和旧契约/数据集 registry 均保持
+    append-only 原状；本修复完成后必须重新计算 dataset/contract digest，并在新的用户批准
+    前保持 registry fail-closed，不得发起真实模型调用。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

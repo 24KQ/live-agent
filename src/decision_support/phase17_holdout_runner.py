@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -54,6 +55,14 @@ from src.specialist_runtime.phase17_v5_adapter import (
     Phase17AdapterOutcome,
     Phase17ModelPort,
     phase17_adapter_digest,
+)
+
+
+# Phase 17 的模型只能引用 case 输入中实际可见的合成证据 ID。这里使用边界
+# 约束避免从更长的商品号、自然语言片段或模型自行拼接的相似字符串中误提取
+# ID；labels、manifest 和任何运行时外部状态都不能扩大这个可见集合。
+_VISIBLE_EVIDENCE_ID_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])SYN-P-[0-9]{4}(?![A-Za-z0-9_-])"
 )
 
 
@@ -646,6 +655,7 @@ class Phase17HoldoutCampaignRunner:
             stage="ANALYST",
             profile=self._candidate_bundle.analyst_profile,
             user_prompt=input_text,
+            case_input_text=input_text,
         )
         if not analyst.passed:
             # capture 缺失/对账失败是审计证据阻断，不是普通模型失败；
@@ -688,6 +698,7 @@ class Phase17HoldoutCampaignRunner:
                 ensure_ascii=False,
                 sort_keys=True,
             ),
+            case_input_text=input_text,
         )
         if not planner.passed:
             # 与 Analyst 相同：capture 是 QUALIFIED 的必要证据，失败时
@@ -721,6 +732,7 @@ class Phase17HoldoutCampaignRunner:
         stage: str,
         profile: Any,
         user_prompt: str,
+        case_input_text: str,
     ) -> "_StageOutcome":
         request = self._build_request(
             campaign=campaign,
@@ -744,6 +756,7 @@ class Phase17HoldoutCampaignRunner:
             run_id=run_id,
             case_id=case_id,
             stage=stage,
+            case_input_text=case_input_text,
         )
 
     def _record_attempts(
@@ -754,6 +767,7 @@ class Phase17HoldoutCampaignRunner:
         run_id: str,
         case_id: str,
         stage: str,
+        case_input_text: str,
     ) -> "_StageOutcome":
         """把一次 stage 的逐网络 attempt 事实入账（codex 第十八轮 P0-3）。
 
@@ -767,7 +781,11 @@ class Phase17HoldoutCampaignRunner:
         outcome = result.outcome
         valid = (
             isinstance(outcome, ModelSuccess)
-            and self._structure_valid(stage=stage, output=outcome.output)
+            and self._structure_valid(
+                stage=stage,
+                output=outcome.output,
+                case_input=case_input_text,
+            )
         )
         failure = isinstance(outcome, ModelFailure)
         details = result.attempt_details
@@ -960,35 +978,75 @@ class Phase17HoldoutCampaignRunner:
         )
 
     @staticmethod
-    def _structure_valid(*, stage: str, output: Any) -> bool:
-        """校验 Phase 17 冻结的 FINAL envelope 与阶段结果字段。
+    def _visible_evidence_ids(case_input: str) -> frozenset[str]:
+        """从原始 case 输入提取模型可引用的证据 ID 集合。
+
+        证据可见性必须以实际发送给 Analyst 的原始输入为准，不能从 labels、
+        manifest、Planner 投影或其他外部状态补充。统一的 ``SYN-P-####`` 合成
+        ID 格式既便于人工审查，也让伪造的 ``bundle-evidence-id``、自然语言
+        占位符和未出现在输入中的任意字符串无法通过后续子集检查。
+        """
+
+        if not isinstance(case_input, str):
+            return frozenset()
+        return frozenset(_VISIBLE_EVIDENCE_ID_PATTERN.findall(case_input))
+
+    @staticmethod
+    def _evidence_ids_are_visible(
+        evidence_ids: Any,
+        visible_evidence_ids: frozenset[str],
+    ) -> bool:
+        """检查模型声明的证据引用非空、为字符串且完全属于输入可见集合。
+
+        这是结构门的硬约束，而不是对模型遵守 prompt 的信任：即使模型返回了
+        格式正确但并未出现在 case 输入中的 ID，也必须拒绝，避免把模型自造的
+        引用误记为已绑定证据。具体领域字段仍由冻结 result schema 负责。
+        """
+
+        if not isinstance(evidence_ids, (list, tuple)) or not evidence_ids:
+            return False
+        if any(
+            not isinstance(evidence_id, str) or not evidence_id.strip()
+            for evidence_id in evidence_ids
+        ):
+            return False
+        return set(evidence_ids).issubset(visible_evidence_ids)
+
+    @staticmethod
+    def _structure_valid(*, stage: str, output: Any, case_input: str) -> bool:
+        """校验 Phase 17 冻结的 FINAL envelope、阶段字段和证据归属。
 
         ModelSuccess.output 经 _freeze_json 冻结为 FrozenDict（Mapping 而非
-        dict 子类），因此用 Mapping 判定；非 JSON 对象一律结构失败。冻结
-        result schema 允许 Analyst 的 constraint_codes/risk_codes 为空（没有
-        对应 minItems），所以这里校验字段存在和容器类型；解释、证据 ID 与
-        Planner options 仍要求有实际内容。
+        dict 子类），因此用 Mapping 判定；非 JSON 对象一律结构失败。Analyst
+        和 Planner 都必须把 evidence_ids 限制在同一个原始 case 输入提取出的
+        可见集合内，Planner 不能因为其 user prompt 是 Analyst 投影而获得另一
+        套证据边界。
         """
 
         final_output = Phase17HoldoutCampaignRunner._final_output_mapping(output)
         if final_output is None:
             return False
+        visible_evidence_ids = Phase17HoldoutCampaignRunner._visible_evidence_ids(case_input)
         if stage == "ANALYST":
             return (
                 isinstance(final_output.get("constraint_codes"), (list, tuple))
                 and isinstance(final_output.get("risk_codes"), (list, tuple))
                 and isinstance(final_output.get("explanation"), str)
                 and bool(str(final_output["explanation"]).strip())
-                and isinstance(final_output.get("evidence_ids"), (list, tuple))
-                and bool(final_output["evidence_ids"])
-                and all(
-                    isinstance(evidence_id, str) and bool(evidence_id.strip())
-                    for evidence_id in final_output["evidence_ids"]
+                and Phase17HoldoutCampaignRunner._evidence_ids_are_visible(
+                    final_output.get("evidence_ids"), visible_evidence_ids
                 )
             )
         if stage == "PLANNER":
-            return isinstance(final_output.get("options"), (list, tuple)) and bool(
-                final_output["options"]
+            options = final_output.get("options")
+            if not isinstance(options, (list, tuple)) or not options:
+                return False
+            return all(
+                isinstance(option, Mapping)
+                and Phase17HoldoutCampaignRunner._evidence_ids_are_visible(
+                    option.get("evidence_ids"), visible_evidence_ids
+                )
+                for option in options
             )
         return False
 
