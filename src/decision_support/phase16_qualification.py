@@ -785,16 +785,19 @@ def required_planner_risk_codes() -> frozenset[str]:
 # v3 = 纯回溯评价契约（已闭合，仅评价器/报告可读，无执行身份）；
 # Phase 17 = 新建独立执行契约：身份路由要求执行入口必须显式声明
 # PHASE17_HOLDOUT_EXECUTION_V1，预算封装 15 CNY 总盘（含历史 6.604131，
-# 扣除上一份 Phase 17 batch1 真实结算 0.317055 后的新池余额 8.078814），
-# 静态落盘 retry/fallback 语义与 7+2 数据身份约束。该常量必须与执行契约
-# JSON 和独立账本预算池同时更新，否则 admission 会把已结算金额错误地重新
-# 当作可用余额，导致契约声明、运行时路由和账本口径不一致。
+# 本契约前 Phase 17 池已结算 1.317055，实际新池余额 7.078814），静态落盘
+# retry/fallback 语义与 7+2 数据身份约束。forward 字段必须同时与执行契约
+# JSON 和独立账本预算池一致；精确字段防篡改由 contract digest + approved registry
+# 保证，admission 只对“不得超过总盘上限”执行不等式语义校验。
 
 PHASE17_HOLDOUT_EXECUTION_CONTRACT_PATH = Path("evaluation/manifests/phase17-holdout-execution-v1.json")
 PHASE17_HOLDOUT_EXECUTION_CONTRACT_ID = "phase17-holdout-execution-v1"
 PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY = Decimal("15.000000")
 PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY = Decimal("6.604131")
-PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY = Decimal("8.078814")
+# 本契约前已结算：6cbb9029 池 BLOCKED run 1.000000 + 75ac54c8 池 batch1
+# 0.317055。该值属于总盘占用，不能在新契约的 forward 可用余额中再次释放。
+PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY = Decimal("1.317055")
+PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY = Decimal("7.078814")
 PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT = 30
 PHASE17_HOLDOUT_BATCHES: tuple[tuple[int, int], ...] = ((1, 10), (2, 20))
 #: 每批通过阈值（codex 第十七轮 P0-1：阈值必须作为契约事实在运行时执行）。
@@ -945,7 +948,14 @@ class Phase17HoldoutExecutionContract(BaseModel):
         ]
         if missing:
             raise ValueError(f"phase17 dataset identity constraints incomplete: {', '.join(missing)}")
-        if self.forward_budget_remaining_cny + self.retrospective_budget_actual_cny > self.project_budget_cny:
+        # 总盘校验必须把本契约前已结算的 Phase 17 池一并计入；否则会把
+        # 6cbb9029/75ac54c8 两个旧池的真实花费误当成新池可用余额。
+        if (
+            self.forward_budget_remaining_cny
+            + self.retrospective_budget_actual_cny
+            + PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY
+            > self.project_budget_cny
+        ):
             raise ValueError("phase17 budget envelope is over-committed")
         normalized_identity = {
             key: (tuple(value) if isinstance(value, list) else value)
@@ -1023,17 +1033,16 @@ def admit_phase17_holdout_execution(
         reasons.append("CONTRACT_NOT_WIRED_INTO_RUNTIME")
     if contract.project_budget_cny != PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY:
         reasons.append("PROJECT_BUDGET_ENVELOPE_DRIFT")
+    # loader 已通过 contract digest 与 approved registry 的双重精确身份校验，
+    # admission 层不重复承担“字段必须等于某个历史数字”的职责；这里仅检查
+    # forward 是否超过扣除历史实际占用后的总盘上限，避免预算语义被放宽。
     if (
         contract.forward_budget_remaining_cny
-        != PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY
-    ):
-        reasons.append("FORWARD_BUDGET_REMAINING_DRIFT")
-    if (
-        contract.project_budget_cny
+        > contract.project_budget_cny
         - contract.retrospective_budget_actual_cny
-        != contract.forward_budget_remaining_cny
+        - PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY
     ):
-        reasons.append("BUDGET_ENVELOPE_INCONSISTENT")
+        reasons.append("BUDGET_ENVELOPE_EXCEEDED")
     for batch in contract.holdout_batches:
         if batch["case_count"] == 10 and batch.get("pass_min", 9) != 9:
             reasons.append("BATCH_1_THRESHOLD_DRIFT")

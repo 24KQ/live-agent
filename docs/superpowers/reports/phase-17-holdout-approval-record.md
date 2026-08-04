@@ -498,6 +498,22 @@
     registry 仍为旧的 contract `75ac54c8...` 与 dataset `851a9f5f...`，批准前保持
     fail-closed。
 
+20. **2026-08-04 用户批准 Phase 17 第三版契约修正并授权候选 registry 更新**：前一候选
+    contract `f24c5437e700b48c5b3564f7b7085dc1ef837bcbdd7af75f2fd9d953912886a0` 在用户
+    批准后执行离线 gate 时暴露预算不变量缺陷：旧 admission 等式漏扣跨池已结算金额，
+    导致 2 个 unit 与 18 个 integration 测试在真实执行前被
+    `BUDGET_ENVELOPE_INCONSISTENT` 拦截。该候选未提交，现明确作废。
+    用户批准第三版将本契约前 Phase 17 池已结算总额固定为 `1.317055 CNY`
+    （`6cbb9029` 池 `1.000000` + `75ac54c8` 池 `0.317055`），将
+    `forward_budget_remaining_cny` 修正为 `7.078814 CNY`，并将 admission 总盘不变量
+    改为不等式上限；`project_budget_cny=15.000000`、retrospective
+    `6.604131` 和 dataset digest `28b1499f403dd3f193cb128ef30621edf75be93cc36595e3312988d203698ef4`
+    保持。第三版候选 contract digest 为
+    `86a76ff8b81b9dfbe568cd1d03523a3deb3359833d75e1710057c0bbb14306a8`，source closure
+    仅 `phase16_qualification.py` 变化；registry 已在工作树写入该候选值，等待 Claude
+    独立复核与用户对该完整 digest 的最终确认后提交 checkpoint。该修正不授权真实模型
+    调用，batch1 仍需独立批准。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

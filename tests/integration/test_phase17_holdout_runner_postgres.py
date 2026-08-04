@@ -470,7 +470,7 @@ def test_phase17_runner_end_to_end_pass(runner_env) -> None:
     state = runner_env.ledger.budget_pool_state(runner_env.contract.contract_digest)
     assert state["reserved_cny"] == Decimal("0")
     assert state["settled_cny"] == Decimal("0.120000")
-    assert state["available_cny"] == Decimal("8.275869")
+    assert state["available_cny"] == Decimal("6.958814")
 
 
 def test_phase17_runner_threshold_met_at_9_of_10(runner_env) -> None:
@@ -558,7 +558,7 @@ def test_phase17_runner_hard_block_settles_worst_case(runner_env) -> None:
     assert all(row["category"] == "TRANSPORT_ERROR" for row in attempt_rows)
     state = runner_env.ledger.budget_pool_state(runner_env.contract.contract_digest)
     assert state["settled_cny"] == Decimal("1.000000")
-    assert state["available_cny"] == Decimal("7.395869")
+    assert state["available_cny"] == Decimal("6.078814")
 
 
 def test_phase17_runner_rejects_subset_batch_before_ledger_write(runner_env) -> None:

@@ -14,6 +14,7 @@ from src.decision_support.phase16_qualification import (
     PHASE17_HOLDOUT_EXECUTION_CONTRACT_PATH,
     PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY,
     PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY,
+    PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY,
     PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY,
     PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT,
     PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN,
@@ -202,30 +203,58 @@ def test_phase17_identity_routing_accepts_only_phase17() -> None:
 
 
 def test_phase17_budget_envelope_is_frozen() -> None:
-    """预算封装：新池余额为 8.078814，v2/v3 历史预算事实保持不变。"""
+    """预算封装：新池余额为 7.078814，且扣除历史池占用后不超过总盘。"""
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     assert contract.project_budget_cny == PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY == Decimal("15.000000")
     assert contract.retrospective_budget_actual_cny == PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY
     assert contract.forward_budget_remaining_cny == PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY
-    assert contract.project_budget_cny - contract.retrospective_budget_actual_cny == contract.forward_budget_remaining_cny
-    assert contract.forward_budget_remaining_cny == Decimal("8.078814")
+    upper_bound = (
+        contract.project_budget_cny
+        - contract.retrospective_budget_actual_cny
+        - PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY
+    )
+    assert upper_bound == Decimal("7.078814")
+    assert contract.forward_budget_remaining_cny <= upper_bound
+    assert contract.forward_budget_remaining_cny == Decimal("7.078814")
 
 
 def test_phase17_budget_envelope_drift_rejects_admission() -> None:
-    """预算封装被改动（如退回 v3 draft 的 10 CNY 总盘）必须导致准入失败。"""
-    payload = _load_contract()
-    del payload["contract_digest"]
-    payload["project_budget_cny"] = "10.000000"
-    payload["forward_budget_remaining_cny"] = "3.395869"
-    payload["contract_digest"] = canonical_json_sha256(payload)
-    contract = Phase17HoldoutExecutionContract.model_validate(payload)
+    """预算总盘漂移且超过历史占用后的上限时，准入必须 fail-closed。"""
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    # model_copy(update=...) 模拟已加载对象在准入边界被篡改，专门覆盖 admission
+    # 的不等式防线；真实 loader 仍由 contract digest + registry 先行阻断此类篡改。
+    contract = contract.model_copy(
+        update={
+            "project_budget_cny": Decimal("10.000000"),
+            "forward_budget_remaining_cny": Decimal("3.395869"),
+        }
+    )
     allowed, reasons = admit_phase17_holdout_execution(
         requested_identity=QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1,
         contract=contract,
     )
     assert not allowed
     assert "PROJECT_BUDGET_ENVELOPE_DRIFT" in reasons
-    assert "FORWARD_BUDGET_REMAINING_DRIFT" in reasons
+    assert "BUDGET_ENVELOPE_EXCEEDED" in reasons
+
+
+def test_phase17_budget_admission_accepts_at_upper_bound_and_rejects_above() -> None:
+    """admission 允许上限值，超过上限即拒绝；精确身份仍由 digest 链负责。"""
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    allowed, reasons = admit_phase17_holdout_execution(
+        requested_identity=QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1,
+        contract=contract,
+    )
+    assert allowed and not reasons
+    over_limit = contract.model_copy(
+        update={"forward_budget_remaining_cny": Decimal("7.200000")}
+    )
+    allowed, reasons = admit_phase17_holdout_execution(
+        requested_identity=QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1,
+        contract=over_limit,
+    )
+    assert not allowed
+    assert "BUDGET_ENVELOPE_EXCEEDED" in reasons
 
 
 def test_phase17_holdout_structure_and_thresholds_are_frozen() -> None:
