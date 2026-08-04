@@ -412,6 +412,52 @@
     因此新 manifest 在批准前继续 fail-closed。上述 digest 仅为离线候选值，尚未
     授权 registry 更新、预检放行或任何真实模型调用。
 
+16. **2026-08-04 候选验证口径与 v3 闭包漂移补证（待独立复核）**：本条补充
+    `6cbb9029...` 候选验证的真实执行方法，不将候选绿结果误写成当前 registry
+    状态下的批准 gate。验证在独立 Python/pytest 进程内对已导入模块的
+    `src.decision_support.phase16_qualification.PHASE17_APPROVED_CONTRACT_DIGEST`
+    做了进程级临时覆盖，值为候选 `6cbb9029...`，随后执行候选 unit、Phase 17
+    PostgreSQL integration、capture/payload 和 manifest/closure 检查。该方法没有
+    修改 `src/decision_support/phase17_approved_digest.py` 文件，没有 patch loader
+    实现，也没有删除或跳过 loader 的 registry 比对；但它明确是“用候选批准值
+    验证候选闭包”的离线验证，不等价于当前 registry 已批准。进程退出后临时覆盖
+    自动消失；随后重新读取 registry 文件确认值仍为
+    `9f72e076e1e8e194339c552557b5631b341f2474e3f1d878c01bb13de854f230`，工作树
+    也未产生 tracked registry 修改。
+
+    未覆盖 registry 的真实状态复验为：unit **1727 passed + 7 failed**；Phase 17
+    PostgreSQL integration **2 passed + 21 failed + 20 errors**。这些失败/error
+    均在 loader/fixture admission 阶段因当前 registry `9f72e076...` 不等于候选
+    `6cbb9029...` 而 fail-closed；因此候选验证报告中的 unit **1734 passed**、
+    Phase 17 integration **43 passed**、Phase 17 专项 unit **21 passed** 和
+    capture/payload **6 passed**，只能标注为“候选 digest 进程级覆盖下的离线
+    结果”，不能标注为“当前 registry 已全绿”。本条验证没有读取 `.env`、没有
+    发起真实模型请求，也没有产生真实成本。
+
+    同时记录 v3 纯回溯评价契约的闭包漂移：
+    `evaluation/manifests/phase16-qualification-policy-v3.json` 持久化
+    `policy_digest=75319a4a1ce75f34134feb65a75e05857588fb3c368faf8837113ccd35746ddd`；
+    按其 11 路 `source_file_digests` 做当前源码重建得到
+    `b5aa5ae2fb222c907343ca314639cf8d54a7ad7d3efb1ae68e0b5c5c2fda4a43`。其中
+    `src/decision_support/phase16_qualification.py` 从持久化摘要
+    `99b8fd8b...` 变为当前 `9ee167e7...`，
+    `src/decision_support/phase16_qualification_candidate.py` 从
+    `d408eb52...` 变为当前 `357380e2...`；两者均自 Phase 17 首个执行契约
+    接入提交 `6101069` 起被 Phase 17 修改，因此这是 Phase 17 既有闭包漂移，
+    不是本次 terra/high 改签单独引入。当前结果应定性为 v3 的 fail-closed 安全
+    拒绝，而不是静默接受漂移。
+
+    可复验性边界必须同时写明：仓库当前
+    `load_phase16_qualification_policy` 的默认路径常量仍指向 v2 manifest；
+    因而上述 `75319a4a... → b5aa5ae2...` 是对 v3 manifest 执行同一 policy
+    闭包重建/自认证比较所得，不能把 v3 文件误当作 v2 loader 的直接输入。
+    默认 v2 loader 也会因当前源码闭包漂移而拒绝新 dispatch。V9 的历史账本、
+    已完成的历史结果和 `V9_RETROSPECTIVE_EVALUATION_CLOSED` 结论不因该拒绝
+    而改变；但按原 V9 验证命令重新发起 qualification dispatch 会撞上
+    fail-closed，不能宣称 V9 在当前源码上可重新执行。v3 继续只承担历史评价
+    读取/记录语义，不能作为 Phase 17 execution contract。以上两项补证完成前，
+    `6cbb9029...` 不进入 registry，也不放行 batch1 真实模型调用。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
