@@ -25,7 +25,10 @@ from src.decision_support.phase16_qualification import (
     phase17_holdout_source_file_digests,
 )
 from src.specialist_runtime.models import canonical_json_sha256
-from scripts.run_phase17_holdout import _check_dev_isolation
+from scripts.run_phase17_holdout import (
+    _check_dev_isolation,
+    _load_frozen_batch_case_ids,
+)
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +64,19 @@ def test_phase17_cli_dev_isolation_uses_manifest_public_api() -> None:
     )
 
     assert _check_dev_isolation(manifest) is None
+
+
+def test_phase17_cli_batch_check_uses_manifest_public_method() -> None:
+    """批次检查必须调用公开方法，不能把方法对象当作批次映射遍历。"""
+
+    def batch_case_ids(batch_index: int) -> tuple[str, ...]:
+        if batch_index == 1:
+            return ("phase17-holdout-public-case",)
+        raise KeyError(batch_index)
+
+    manifest = SimpleNamespace(batch_case_ids=batch_case_ids)
+    assert _load_frozen_batch_case_ids(manifest, 1) == ("phase17-holdout-public-case",)
+    assert _load_frozen_batch_case_ids(manifest, 3) is None
 
 
 def test_phase17_contract_loads_and_self_authenticates() -> None:

@@ -87,6 +87,21 @@ def _check_dev_isolation(manifest) -> str | None:
     return None
 
 
+def _load_frozen_batch_case_ids(manifest, batch_index: int) -> tuple[str, ...] | None:
+    """通过 manifest 的公开方法读取冻结批次；未知批次必须在联网前阻断。
+
+    数据集模型把 ``batch_case_ids`` 暴露为带批次参数的方法，而不是可直接
+    遍历的属性。CLI 统一在这里调用公开接口，避免把内部存储结构误当成
+    契约字段；``KeyError`` 或类型错误均按冻结批次不合法处理，保持
+    fail-closed 语义。
+    """
+
+    try:
+        return tuple(manifest.batch_case_ids(batch_index))
+    except (KeyError, TypeError):
+        return None
+
+
 def _probe() -> int:
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     print(f"[phase17] contract_id={contract.contract_id} digest={contract.contract_digest}")
@@ -270,10 +285,10 @@ def _execute(args) -> int:
         print(f"[DEV] BLOCKED: {dev_error}")
         return 1
     print("[DEV] ok: holdout cases are disjoint from the real dev corpus (independent check)")
-    if args.batch not in manifest.batch_case_ids:
+    case_ids = _load_frozen_batch_case_ids(manifest, args.batch)
+    if case_ids is None:
         print(f"[DATASET] BLOCKED: batch {args.batch} is not a frozen subset")
         return 1
-    case_ids = tuple(manifest.batch_case_ids(args.batch))
     pass_min = next(
         batch["pass_min"] for batch in contract.holdout_batches
         if batch["batch_index"] == args.batch

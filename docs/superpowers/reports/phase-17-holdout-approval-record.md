@@ -335,6 +335,15 @@
     `851a9f5f...`、Phase 16 冻结契约均未改变。该批准只解除执行契约的 fail-closed
     registry 拒绝；batch1 真实模型 run 仍须另行取得用户单独批准。
 
+14. **2026-08-04 批次前置检查再次发现待批准修复**：在批准 `9f72e076...` 后重跑
+    `--execute --batch 1`，DATASET 与 DEV 检查均通过，但 CLI 将公开方法
+    `manifest.batch_case_ids` 误当成可迭代属性，触发 `TypeError`，尚未进入 ENV、
+    数据库或模型调用。修复为调用 `batch_case_ids(batch_index)` 并增加有效/未知批次
+    回归测试。该修复改变 source closure，候选 digest 重算为
+    `de2414a2702d6d40b6111330058729fed7dc43e52e6bebdb5fc6ed59bb91a255`；registry 暂保留
+    已批准的 `9f72e076...`，因此在新 digest 获批准前继续 fail-closed。身份、预算、
+    阈值、dataset manifest digest `851a9f5f...` 与 Phase 16 冻结契约不变。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
