@@ -202,13 +202,13 @@ def test_phase17_identity_routing_accepts_only_phase17() -> None:
 
 
 def test_phase17_budget_envelope_is_frozen() -> None:
-    """预算封装：15 CNY 总盘 = 历史 6.604131 + 未来余额 8.395869（不改写 v2/v3 历史事实）。"""
+    """预算封装：新池余额为 8.078814，v2/v3 历史预算事实保持不变。"""
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     assert contract.project_budget_cny == PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY == Decimal("15.000000")
     assert contract.retrospective_budget_actual_cny == PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY
     assert contract.forward_budget_remaining_cny == PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY
     assert contract.project_budget_cny - contract.retrospective_budget_actual_cny == contract.forward_budget_remaining_cny
-    assert contract.forward_budget_remaining_cny == Decimal("8.395869")
+    assert contract.forward_budget_remaining_cny == Decimal("8.078814")
 
 
 def test_phase17_budget_envelope_drift_rejects_admission() -> None:

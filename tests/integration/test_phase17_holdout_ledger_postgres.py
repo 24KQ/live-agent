@@ -102,16 +102,16 @@ def _campaign(
 
 
 def test_phase17_contract_registration_initializes_budget_pool(ledger_factory) -> None:
-    """契约注册后预算池权威快照与冻结封装一致：15 总盘 / 8.395869 可用。"""
+    """契约注册后新预算池快照与冻结封装一致：15 总盘 / 8.078814 可用。"""
     ledger = ledger_factory()
     contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
     ledger.ensure_phase17_contract(contract)
     state = ledger.budget_pool_state(contract.contract_digest)
     assert state["project_budget_cny"] == Decimal("15.000000")
-    assert state["forward_budget_remaining_cny"] == Decimal("8.395869")
+    assert state["forward_budget_remaining_cny"] == Decimal("8.078814")
     assert state["reserved_cny"] == Decimal("0")
     assert state["settled_cny"] == Decimal("0")
-    assert state["available_cny"] == Decimal("8.395869")
+    assert state["available_cny"] == Decimal("8.078814")
 
 
 def test_phase17_campaign_reservation_consumes_pool_idempotently(ledger_factory) -> None:
@@ -127,7 +127,7 @@ def test_phase17_campaign_reservation_consumes_pool_idempotently(ledger_factory)
     ledger.ensure_phase17_campaign(campaign)
     state = ledger.budget_pool_state(contract.contract_digest)
     assert state["reserved_cny"] == Decimal("1.000000")
-    assert state["available_cny"] == Decimal("7.395869")
+    assert state["available_cny"] == Decimal("7.078814")
     # 幂等：同声明组合重复建立只复验 identity，不重复预留。
     ledger.ensure_phase17_campaign(campaign)
     state = ledger.budget_pool_state(contract.contract_digest)
@@ -174,7 +174,7 @@ def test_phase17_settlement_moves_reservation_to_actual(ledger_factory) -> None:
     state = ledger.budget_pool_state(contract.contract_digest)
     assert state["reserved_cny"] == Decimal("0")
     assert state["settled_cny"] == Decimal("0.500000")
-    assert state["available_cny"] == Decimal("7.895869")
+    assert state["available_cny"] == Decimal("7.578814")
     # 已结算 campaign 不可重复结算。
     with pytest.raises(Phase17HoldoutLedgerError, match="already settled"):
         ledger.settle_phase17_campaign(campaign_id=campaign.campaign_id, actual_cny=Decimal("0.100000"))
@@ -188,7 +188,7 @@ def test_phase17_settlement_exceeding_pool_rejected(ledger_factory) -> None:
     campaign = _campaign(
         contract_digest=contract.contract_digest,
         batch_index=1,
-        reservation_cny=Decimal("8.395869"),
+        reservation_cny=Decimal("8.078814"),
     )
     ledger.ensure_phase17_campaign(campaign)
     with pytest.raises(Phase17HoldoutLedgerError, match="exceeds budget pool"):
@@ -209,7 +209,7 @@ def test_phase17_release_frees_reservation(ledger_factory) -> None:
     ledger.release_phase17_campaign(campaign_id=campaign.campaign_id)
     state = ledger.budget_pool_state(contract.contract_digest)
     assert state["reserved_cny"] == Decimal("0")
-    assert state["available_cny"] == Decimal("8.395869")
+    assert state["available_cny"] == Decimal("8.078814")
     with pytest.raises(Phase17HoldoutLedgerError, match="already released"):
         ledger.release_phase17_campaign(campaign_id=campaign.campaign_id)
 

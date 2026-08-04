@@ -14,11 +14,11 @@
     "phase17-holdout-inventory-003": "b29f57ddd97275237472ed21091c5475ba60b7fa422cb17e14e466d5a941b277",
     "phase17-holdout-inventory-004": "80a33dcfd16d2fab9ce6579f8745e642c96f127ac50d4d45dc9d5e0b6804bcbf",
     "phase17-holdout-inventory-005": "b449e63ed57ccd9f9b12a72f22d8b3576c1676cc70782dc7f4154d5b8e8b5f90",
-    "phase17-holdout-postlive-001": "106a237b3c8641fb38947bbf9af0469ac18faa6776093b602e29541aa4e5f3b7",
-    "phase17-holdout-postlive-002": "d9ab944313155a2e317d25288f9f6020137782aa1343279ceb124d1e1842f98f",
-    "phase17-holdout-postlive-003": "5bbb3ae127b6df27778884f5d461c8583eb56b0a6b0da77a152001b2bc30344d",
-    "phase17-holdout-postlive-004": "5dbfe480f23c6d7f4bfea1f4035d9ecfb139b0bb94c8c64d084640485950b9a0",
-    "phase17-holdout-postlive-005": "941e11b5c8906b7904ea52327f84b20571989acad541ddaaab7efb6b4cd717cc",
+    "phase17-holdout-postlive-001": "3986eacfb5c14f237f234dba3390f6888b9bad66b31043d326125e5e6ff45954",
+    "phase17-holdout-postlive-002": "ce08ab2b1baa40ad9d3bb04f511a678673fabc3000268c1e81692c09c123f3da",
+    "phase17-holdout-postlive-003": "602ebd618a67a1e79309b85f6a79eb8a152544084c179b72c1eb2aee78d587e9",
+    "phase17-holdout-postlive-004": "9ad0f6c7a9ee0737009bebb6ab4d434c92d60d53febe281e96e807b1778e4b6a",
+    "phase17-holdout-postlive-005": "a6ab23279c30ef80e69ce6f0b2cefdc0a86103d9a30e435ac07058232caa73b0",
     "phase17-holdout-price-001": "d0b084cd83bd07e2efe5da895266fa9914635eb34de043208134efa15568549b",
     "phase17-holdout-price-002": "550713fcda660c53779b02d6a25fe2e29dd28bcf3a734e95b362895a37e95c45",
     "phase17-holdout-price-003": "ecf9eb857538bc57fc1991ac1c555ff97dc073a089051c33e7ad1582dcda784c",
@@ -96,5 +96,5 @@
   "labels_paths": [
     "evaluation/phase17_holdout/labels/phase17-holdout-labels-v1.jsonl"
   ],
-  "manifest_digest": "851a9f5fd4808caf2851088b0a4bd899e6e4948b94a1c9be9a9ae721209d4f52"
+  "manifest_digest": "28b1499f403dd3f193cb128ef30621edf75be93cc36595e3312988d203698ef4"
 }

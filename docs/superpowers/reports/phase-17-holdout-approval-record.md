@@ -482,6 +482,22 @@
     append-only 原状；本修复完成后必须重新计算 dataset/contract digest，并在新的用户批准
     前保持 registry fail-closed，不得发起真实模型调用。
 
+19. **2026-08-04 Phase 17 证据引用修复候选重冻结（待用户批准）**：postlive 五个输入经
+    用户终审通过后，按实际磁盘字节重算 30 例 dataset manifest，候选 dataset digest 为
+    `28b1499f403dd3f193cb128ef30621edf75be93cc36595e3312988d203698ef4`。执行契约同步
+    扣除旧 Phase 17 batch1 已结算的 `0.317055 CNY`，将
+    `forward_budget_remaining_cny` 从 `8.395869` 改为 `8.078814`，
+    `project_budget_cny` 仍为 `15.000000`；候选 contract digest 为
+    `f24c5437e700b48c5b3564f7b7085dc1ef837bcbdd7af75f2fd9d953912886a0`，canonical
+    self-digest 校验通过。重冻结时发现运行时 admission 同样硬编码旧余额，因此为保证
+    contract JSON、Phase 17 runtime constant 和独立 ledger 的池口径一致，source closure
+    实际变更 3 路：`phase16_qualification.py`、`phase16_qualification_candidate.py`、
+    `phase17_holdout_runner.py`；不是仅修改后两路。其余 18 路 closure 文件未变，
+    v2/v3 manifest、Phase 16 历史账本、旧 run/artifact/safety_reviews 均未触碰。
+    本条只记录候选重冻结事实，不授权 registry 更新、预检放行或任何真实模型调用；当前
+    registry 仍为旧的 contract `75ac54c8...` 与 dataset `851a9f5f...`，批准前保持
+    fail-closed。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

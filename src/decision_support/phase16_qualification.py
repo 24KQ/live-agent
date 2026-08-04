@@ -785,13 +785,16 @@ def required_planner_risk_codes() -> frozenset[str]:
 # v3 = 纯回溯评价契约（已闭合，仅评价器/报告可读，无执行身份）；
 # Phase 17 = 新建独立执行契约：身份路由要求执行入口必须显式声明
 # PHASE17_HOLDOUT_EXECUTION_V1，预算封装 15 CNY 总盘（含历史 6.604131，
-# 余额 8.395869），静态落盘 retry/fallback 语义与 7+2 数据身份约束。
+# 扣除上一份 Phase 17 batch1 真实结算 0.317055 后的新池余额 8.078814），
+# 静态落盘 retry/fallback 语义与 7+2 数据身份约束。该常量必须与执行契约
+# JSON 和独立账本预算池同时更新，否则 admission 会把已结算金额错误地重新
+# 当作可用余额，导致契约声明、运行时路由和账本口径不一致。
 
 PHASE17_HOLDOUT_EXECUTION_CONTRACT_PATH = Path("evaluation/manifests/phase17-holdout-execution-v1.json")
 PHASE17_HOLDOUT_EXECUTION_CONTRACT_ID = "phase17-holdout-execution-v1"
 PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY = Decimal("15.000000")
 PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY = Decimal("6.604131")
-PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY = Decimal("8.395869")
+PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY = Decimal("8.078814")
 PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT = 30
 PHASE17_HOLDOUT_BATCHES: tuple[tuple[int, int], ...] = ((1, 10), (2, 20))
 #: 每批通过阈值（codex 第十七轮 P0-1：阈值必须作为契约事实在运行时执行）。
