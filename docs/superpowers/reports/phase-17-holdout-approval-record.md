@@ -326,6 +326,15 @@
     `462cd590...`，因此真实入口仍 fail-closed；本修复不改变身份、预算、阈值、
     数据集 digest 或 Phase 16 冻结契约。
 
+13. **2026-08-04 用户批准 DEV 隔离修复后的 contract digest**：用户确认
+    `9f72e076e1e8e194339c552557b5631b341f2474e3f1d878c01bb13de854f230`，并授权将其
+    写入 `PHASE17_APPROVED_CONTRACT_DIGEST`。本次 source closure 仍为 21 路，唯一
+    运行时闭包变更是 `scripts/run_phase17_holdout.py`：DEV 隔离检查由不存在的私有属性
+    改为 manifest 的公开 `as_json()` / `case_ids()` API；同步新增 CLI 回归单测，测试文件
+    不属于运行时 closure。身份、预算、批次阈值、dataset manifest digest
+    `851a9f5f...`、Phase 16 冻结契约均未改变。该批准只解除执行契约的 fail-closed
+    registry 拒绝；batch1 真实模型 run 仍须另行取得用户单独批准。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

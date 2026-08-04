@@ -17,7 +17,7 @@ contract digest，形成自指循环（digest 依赖文件内容、文件内容�
 """
 
 PHASE17_APPROVED_CONTRACT_DIGEST = (
-    "462cd590d171bf71d3c94099c7bddee1c85d3aea05da94dfdab91de38d55afd9"
+    "9f72e076e1e8e194339c552557b5631b341f2474e3f1d878c01bb13de854f230"
 )
 
 #: 2026-08-04 用户批准的 30 例 holdout 数据集 manifest digest。
