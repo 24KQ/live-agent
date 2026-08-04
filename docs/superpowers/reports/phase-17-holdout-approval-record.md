@@ -508,11 +508,13 @@
     `forward_budget_remaining_cny` 修正为 `7.078814 CNY`，并将 admission 总盘不变量
     改为不等式上限；`project_budget_cny=15.000000`、retrospective
     `6.604131` 和 dataset digest `28b1499f403dd3f193cb128ef30621edf75be93cc36595e3312988d203698ef4`
-    保持。第三版候选 contract digest 为
+    保持。第三版 contract digest 为
     `86a76ff8b81b9dfbe568cd1d03523a3deb3359833d75e1710057c0bbb14306a8`，source closure
-    仅 `phase16_qualification.py` 变化；registry 已在工作树写入该候选值，等待 Claude
-    独立复核与用户对该完整 digest 的最终确认后提交 checkpoint。该修正不授权真实模型
-    调用，batch1 仍需独立批准。
+    仅 `phase16_qualification.py` 变化；2026-08-04 Claude 独立复核通过（diff 审读、
+    contract/dataset digest 独立复算 MATCH、预算闭合
+    `15.000000-6.604131-1.317055==7.078814`、全量 gate 独立重跑通过；唯一 1 例
+    PostgreSQL restart 测试为环境 flaky，隔离复跑 PASS）+ 用户批准该完整 digest。
+    registry 已随 `2aba35d0` 提交。该修正不授权真实模型调用，batch1 仍需独立批准。
 
 ## 8. 相关文件
 
