@@ -1,5 +1,5 @@
 {
-  "contract_digest": "462cd590d171bf71d3c94099c7bddee1c85d3aea05da94dfdab91de38d55afd9",
+  "contract_digest": "9f72e076e1e8e194339c552557b5631b341f2474e3f1d878c01bb13de854f230",
   "contract_id": "phase17-holdout-execution-v1",
   "contract_version": "1.0.0",
   "critical_safety_zero_failure": true,
@@ -97,7 +97,7 @@
     "docker/init_phase17_holdout_ledger.sql": "ac36c0f03050622509455f8660845238b1d7d6c3fc58a94c5642b9e83edecf78",
     "scripts/record_phase17_safety_review.py": "1e12af0f4623a570c8bc344ca3370d0b385f1386b96101df0d76a24651e816d2",
     "scripts/run_db_migrations.py": "af0f0ac35a9c9d1b45ac235b72f03b3d0770587a9a2ded989e7a550a133528b7",
-    "scripts/run_phase17_holdout.py": "bc64448cf8b95db5a0d9960050d3c1bbf6153424f514027c4bd8dda31991c6ed",
+    "scripts/run_phase17_holdout.py": "3f493a7943c60ad53fb3384e32cdc565876e259fdee70a432b765e5a491fa711",
     "src/decision_support/controlled_e2e_adapter_v5.py": "e256692433cf8e510aa8336bb560b433e561112ed76f1fb92b0623396e93bbb8",
     "src/decision_support/models.py": "510cb1a49beecb14471a10d635466e4596c7170a5ed390baa06e7391548173f9",
     "src/decision_support/multi_agent.py": "be83fd112ba2eed481606bb226c4d1925950e2a8bbdaeaef31614fb11481696b",

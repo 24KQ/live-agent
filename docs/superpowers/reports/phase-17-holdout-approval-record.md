@@ -313,6 +313,19 @@
     本批准只使数据集身份进入 registry；真实模型调用仍须按批次取得用户单独批准，
     不代表 batch1 已获执行批准。
 
+12. **2026-08-04 batch1 离线前置检查发现待批准修复**：dataset digest 已登记后，
+    `--execute --batch 1` 在 DEV 隔离检查处暴露 CLI 与 manifest 公共 API 不一致：
+    CLI 读取不存在的 `dev_excluded_case_ids` 和 `case_id_to_input_digest` 属性，
+    尚未进入 BATCH 输出，也未调用模型。修复仅改
+    `scripts/run_phase17_holdout.py`：改用 `manifest.as_json()` 和
+    `manifest.case_ids()`，并新增公开 API 回归单测；旧 contract digest
+    `462cd590...` 不再覆盖该 closure 变更。source closure 中该脚本 digest 从
+    `bc64448c...` 更新为 `3f493a79...`，候选 contract digest 重算为
+    `9f72e076e1e8e194339c552557b5631b341f2474e3f1d878c01bb13de854f230`。
+    该候选 digest 尚未获用户批准，`PHASE17_APPROVED_CONTRACT_DIGEST` 继续保持
+    `462cd590...`，因此真实入口仍 fail-closed；本修复不改变身份、预算、阈值、
+    数据集 digest 或 Phase 16 冻结契约。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

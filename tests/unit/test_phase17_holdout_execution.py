@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from src.decision_support.phase16_qualification import (
     phase17_holdout_source_file_digests,
 )
 from src.specialist_runtime.models import canonical_json_sha256
+from scripts.run_phase17_holdout import _check_dev_isolation
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +44,23 @@ def _write_contract(tmp_path: Path, payload: dict) -> Path:
     target = tmp_path / "phase17-holdout-execution-v1.json"
     target.write_bytes(raw)
     return target
+
+
+def test_phase17_cli_dev_isolation_uses_manifest_public_api() -> None:
+    """DEV 隔离检查必须通过 manifest 的公开只读 API 读取数据身份。"""
+
+    dev_path = _PROJECT_ROOT / "evaluation" / "phase16_qualification" / "development_cases.jsonl"
+    dev_ids = {
+        json.loads(raw)["case_id"]
+        for raw in dev_path.read_text(encoding="utf-8").splitlines()
+        if raw.strip()
+    }
+    manifest = SimpleNamespace(
+        as_json=lambda: {"dev_excluded_case_ids": sorted(dev_ids)},
+        case_ids=lambda: ("phase17-holdout-public-case",),
+    )
+
+    assert _check_dev_isolation(manifest) is None
 
 
 def test_phase17_contract_loads_and_self_authenticates() -> None:

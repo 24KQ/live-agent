@@ -72,13 +72,16 @@ def _check_dev_isolation(manifest) -> str | None:
         dev_case_ids.add(case_id)
     if not dev_case_ids:
         return f"dev corpus is empty at {dev_path}"
-    declared = set(manifest.dev_excluded_case_ids)
+    # manifest 模型刻意封装内部字典；CLI 只能通过公开的只读投影和 case_ids()
+    # 读取声明，避免把私有字段名误当成运行时契约，导致真实执行前置检查崩溃。
+    manifest_payload = manifest.as_json()
+    declared = set(manifest_payload["dev_excluded_case_ids"])
     if declared != dev_case_ids:
         return (
             "manifest dev_excluded_case_ids does not equal the real dev corpus: "
             f"missing={sorted(dev_case_ids - declared)[:5]} extra={sorted(declared - dev_case_ids)[:5]}"
         )
-    overlap = sorted(set(manifest.case_id_to_input_digest) & dev_case_ids)
+    overlap = sorted(set(manifest.case_ids()) & dev_case_ids)
     if overlap:
         return f"holdout cases overlap the real dev corpus: {overlap[:5]}"
     return None
