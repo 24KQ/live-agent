@@ -516,6 +516,14 @@
     PostgreSQL restart 测试为环境 flaky，隔离复跑 PASS）+ 用户批准该完整 digest。
     registry 已随 `2aba35d0` 提交。该修正不授权真实模型调用，batch1 仍需独立批准。
 
+21. **2026-08-04 用户批准一次性 `.env` 红线豁免，用于清理 P0-2 身份覆盖残留**：用户授权
+    删除 worktree `.env` 第 45 行 `LLM_API_MODEL_ID=...`（非密钥，31 字节）。除该行外，
+    其余 61 行字节级未动；执行过程中未读取、未打印其他 `.env` 内容。该豁免范围仅限本次
+    删除，防泄漏核心纪律（不读取、不打印 `.env` 中的 key）保持不变。触发背景是 Phase 17
+    P0-2 身份固定要求 `LLM_API_MODEL_ID` 必须未设置，而该行属于 v2 环境变量时代遗留的
+    合法配置。该修改不触碰 Phase 17 source closure、contract digest、dataset manifest 或
+    历史账本；删除后进程、用户、系统三层环境均无该变量，batch1 才允许继续进行预检。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`

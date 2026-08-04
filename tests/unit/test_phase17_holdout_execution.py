@@ -29,6 +29,7 @@ from src.specialist_runtime.models import canonical_json_sha256
 from scripts.run_phase17_holdout import (
     _build_candidate_bundle,
     _check_dev_isolation,
+    _check_env_identity,
     _load_frozen_batch_case_ids,
 )
 
@@ -49,6 +50,39 @@ def _write_contract(tmp_path: Path, payload: dict) -> Path:
     target = tmp_path / "phase17-holdout-execution-v1.json"
     target.write_bytes(raw)
     return target
+
+
+def test_phase17_env_identity_rejects_model_id_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """环境变量不得覆盖契约冻结的模型身份，必须在联网前 fail-closed。"""
+
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    # 该值即使与契约中的模型名相同，也属于环境覆盖；模型身份唯一来源必须是冻结契约。
+    monkeypatch.setenv("LLM_API_MODEL_ID", "gpt-5.6-terra")
+    monkeypatch.setenv("LLM_API_REASONING_EFFORT", "high")
+    monkeypatch.setenv("LLM_API_CHANNEL_HOSTS", "synapse-ai.uk")
+    monkeypatch.setenv("LLM_API_CHANNEL_KEYS", "unit-test-placeholder-key")
+
+    reason = _check_env_identity(contract)
+
+    assert reason is not None
+    assert "LLM_API_MODEL_ID" in reason
+
+
+def test_phase17_env_identity_accepts_unset_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """模型身份变量未设置且其他契约环境值有效时，环境准入应通过。"""
+
+    contract = load_phase17_holdout_execution_contract(repository_root=_PROJECT_ROOT)
+    # 测试只注入非密钥占位值；真实渠道 key 不应进入单测、日志或测试输出。
+    monkeypatch.delenv("LLM_API_MODEL_ID", raising=False)
+    monkeypatch.setenv("LLM_API_REASONING_EFFORT", "high")
+    monkeypatch.setenv("LLM_API_CHANNEL_HOSTS", "synapse-ai.uk")
+    monkeypatch.setenv("LLM_API_CHANNEL_KEYS", "unit-test-placeholder-key")
+
+    assert _check_env_identity(contract) is None
 
 
 def test_phase17_cli_dev_isolation_uses_manifest_public_api() -> None:
