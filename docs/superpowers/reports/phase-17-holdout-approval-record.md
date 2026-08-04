@@ -524,6 +524,16 @@
     合法配置。该修改不触碰 Phase 17 source closure、contract digest、dataset manifest 或
     历史账本；删除后进程、用户、系统三层环境均无该变量，batch1 才允许继续进行预检。
 
+22. **2026-08-05 用户批准第二次 `.env` 红线豁免，用于将渠道环境收窄到冻结身份**：用户授权
+    将 `LLM_API_CHANNEL_HOSTS` 从三个端点（`synapse-ai.uk`、`api.imagebridge.top`、
+    `ai.vote520.com`）缩减为契约冻结的单端点 `synapse-ai.uk`；同时将
+    `LLM_API_CHANNEL_KEYS` 从三个 key 缩减为对应第一个 key。真实 key 值未读取、未打印、
+    未复制，仅核对数量与长度等元信息；`.env` 行数保持 `61→61`、CRLF 保持，其余行字节级
+    未动。该豁免范围仅限本次环境对齐，防泄漏核心纪律不变。设计依据是 Phase 17 对齐
+    Phase 16 V9 验收身份，将首端点冻结为唯一执行身份；retry/fallback 语义仍由契约内实现
+    负责，但运行时白名单必须收窄为单元素。该修改不触碰 source closure、contract digest、
+    dataset manifest 或历史账本；环境对齐后才允许重新进行 batch1 预检。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
