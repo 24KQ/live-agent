@@ -303,6 +303,16 @@
     的“省略安全门禁即 BLOCKED”语义未修改，也不进入 contract source closure。
     最终原始输出文件保留在工作树中，真实模型执行仍未进行。
 
+11. **2026-08-04 用户批准 30 例 holdout 数据集 manifest**：用户确认
+    `851a9f5fd4808caf2851088b0a4bd899e6e4948b94a1c9be9a9ae721209d4f52`，并授权将其
+    写入 `PHASE17_APPROVED_DATASET_MANIFEST_DIGEST`。manifest 文件为
+    `evaluation/phase17_holdout/manifests/phase17-holdout-cases-v1.json`，包含 30 个
+    `case_id -> input_digest` 映射，batch 1/2 为互斥的 10+20 子集并覆盖全集，
+    dev 排除集为真实 development corpus 的 18 个 case ID，labels 与 inputs 物理分离。
+    loader、input digest、canonical self-digest、UTF-8/LF/无 BOM 校验均通过。
+    本批准只使数据集身份进入 registry；真实模型调用仍须按批次取得用户单独批准，
+    不代表 batch1 已获执行批准。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
@@ -310,6 +320,7 @@
 - 账本实现：`src/decision_support/phase17_holdout_ledger.py`
 - 执行器：`src/decision_support/phase17_holdout_runner.py`
 - 数据集机制：`src/decision_support/phase17_holdout_dataset.py`
+- 数据集 manifest：`evaluation/phase17_holdout/manifests/phase17-holdout-cases-v1.json`
 - 注册表：`src/decision_support/phase17_approved_digest.py`
 - CLI：`scripts/run_phase17_holdout.py`
 - 测试：`tests/unit/test_phase17_holdout_execution.py`、

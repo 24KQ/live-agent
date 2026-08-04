@@ -20,5 +20,8 @@ PHASE17_APPROVED_CONTRACT_DIGEST = (
     "462cd590d171bf71d3c94099c7bddee1c85d3aea05da94dfdab91de38d55afd9"
 )
 
-#: 冻结的 holdout 数据集 manifest digest；None = 尚未有获批数据集。
-PHASE17_APPROVED_DATASET_MANIFEST_DIGEST: str | None = None
+#: 2026-08-04 用户批准的 30 例 holdout 数据集 manifest digest。
+#: 该值只证明数据集身份已获批准；每次真实模型 run 仍需用户单独批准。
+PHASE17_APPROVED_DATASET_MANIFEST_DIGEST: str | None = (
+    "851a9f5fd4808caf2851088b0a4bd899e6e4948b94a1c9be9a9ae721209d4f52"
+)
