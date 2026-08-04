@@ -458,6 +458,20 @@
     读取/记录语义，不能作为 Phase 17 execution contract。以上两项补证完成前，
     `6cbb9029...` 不进入 registry，也不放行 batch1 真实模型调用。
 
+17. **2026-08-04 用户批准 `6cbb9029...` 并更新 contract registry**：Claude 独立
+    复核确认 candidate/contract digest 逐字符匹配、21 路 source closure 与磁盘一致、
+    terra/high 身份与 Phase 16 V9 验收身份一致、payload 级 `reasoning_effort=high`
+    断言覆盖，且第 16 项补证中的候选验证方法、未批准态数字和 v3 漂移定性均与
+    独立实测一致。用户据此批准完整 digest
+    `6cbb90299bdd961d228f47f67fce716ce9ed3f446020a923dffff6edb9004edb`，并授权将
+    `PHASE17_APPROVED_CONTRACT_DIGEST` 更新为该值；旧的 `9f72e076...` 不再是当前
+    Phase 17 contract registry 值。该操作不改变 30 例数据集 digest
+    `851a9f5f...`、预算、阈值、身份或 Phase 16 历史契约，也不等同于批准 batch1
+    真实模型调用。registry 更新后必须重新运行全量离线 gate 与
+    `--probe`/batch1 前置 DATASET、DEV、BATCH、ENV 检查；只有这些检查全通过，才
+    提交下一独立批准点：batch1 10 例、9/10 阈值、最坏预算 `2.000000 CNY`、
+    `gpt-5.6-terra/high`、`synapse-ai.uk`。本条不授权真实网络请求。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
