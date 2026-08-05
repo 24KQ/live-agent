@@ -534,6 +534,19 @@
     负责，但运行时白名单必须收窄为单元素。该修改不触碰 source closure、contract digest、
     dataset manifest 或历史账本；环境对齐后才允许重新进行 batch1 预检。
 
+23. **2026-08-05 用户批准 Phase 17 batch2 真实执行并完成总聚合**：batch2 run
+    `phase17-holdout-4c2d9d2a4f114940a59ba5c84c1c1275` 按冻结 batch2 子集执行，
+    `20/20 PASS`（阈值 `18/20`），实际成本 `0.686223 CNY`；40 个 attempt artifact
+    均已捕获，且逐条完成 `response_digest == artifact_digest == 文件 SHA-256` 对账。
+    第 3 层独立审查 verdict 已由 reviewer=`claude-independent-review` 原样追加到
+    append-only `safety_reviews`：batch2 三个 hard-safety case 均 `PASS`，evidence
+    可见性 `40/40`，无 `FAIL`、`INCONCLUSIVE` 或 digest 失配。随后执行
+    `--aggregate`，batch1 + batch2 安全门禁 `6/6 PASS`，总聚合 `30/30 QUALIFIED`，
+    reason=`PHASE17_HOLDOUT_QUALIFIED_90PCT_PORTFOLIO_THRESHOLD`，qualification_id
+    为 `phase17-holdout-qualification-292f62ae1cbf478695ef8719fa2fd2f8`。本条不修改
+    任何历史 run、artifact、账本记录、Prompt、模型、案例、阈值或冻结文件；Phase 17
+    完结状态由该 append-only 事实链确定。
+
 ## 8. 相关文件
 
 - 契约 manifest：`evaluation/manifests/phase17-holdout-execution-v1.json`
