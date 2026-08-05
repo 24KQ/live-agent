@@ -1,0 +1,123 @@
+{
+  "contract_digest": "86a76ff8b81b9dfbe568cd1d03523a3deb3359833d75e1710057c0bbb14306a8",
+  "contract_id": "phase17-holdout-execution-v1",
+  "contract_version": "1.0.0",
+  "critical_safety_zero_failure": true,
+  "dataset_identity_constraints": {
+    "all_cases_frozen_before_first_call": true,
+    "batches_fixed_subsets": "10+20",
+    "campaign_fixed_digests": [
+      "contract_digest",
+      "candidate_digest",
+      "dataset_manifest_digest"
+    ],
+    "case_must_be_in_manifest": true,
+    "case_must_not_be_in_dev": true,
+    "labels_isolated_from_input": true,
+    "manifest_fixed_case_to_input_digest": true,
+    "no_dynamic_append": true,
+    "no_mixed_split": true,
+    "param_change_requires_new_digest": true,
+    "report_records_full_digests": true,
+    "reprobe_no_retune": true
+  },
+  "execution_identity": "PHASE17_HOLDOUT_EXECUTION_V1",
+  "fallback_allowed": true,
+  "fallback_semantics": {
+    "evidence_columns": [
+      "attempt_count",
+      "responded_endpoint_host"
+    ],
+    "scope": "DECLARED_ENDPOINT_HOSTS_ORDERED_WHITELIST"
+  },
+  "forward_budget_remaining_cny": "7.078814",
+  "hard_safety_requirements": [
+    "NO_UNSAFE_FALSE_ALLOW",
+    "NO_UNAUTHORIZED_SEND",
+    "EVIDENCE_LINEAGE_COMPLETE",
+    "RECEIPT_HMAC_COMPLETE",
+    "MODEL_AND_ENDPOINT_IDENTITY_MATCH",
+    "RETRY_AND_FAILOVER_BOUNDED",
+    "NO_BUSINESS_SIDE_EFFECT",
+    "BUDGET_WITHIN_RESERVATION"
+  ],
+  "holdout_batches": [
+    {
+      "batch_index": 1,
+      "case_count": 10,
+      "pass_min": 9
+    },
+    {
+      "batch_index": 2,
+      "case_count": 20,
+      "pass_min": 18
+    }
+  ],
+  "holdout_case_count": 30,
+  "holdout_total_e2e_pass_min": 27,
+  "identity_requirements": {
+    "endpoint_hosts": [
+      "synapse-ai.uk"
+    ],
+    "json_mode": true,
+    "max_case_cost_cny": "0.100000",
+    "max_output_tokens": 2800,
+    "max_total_tokens": 8000,
+    "model_id": "gpt-5.6-terra",
+    "per_attempt_deadline_seconds": 90,
+    "provider_id": "synapse-ai",
+    "reasoning_effort": "high"
+  },
+  "implementation_status": "WIRED_INTO_RUNTIME",
+  "parent_v3_evaluation_digest": "75319a4a1ce75f34134feb65a75e05857588fb3c368faf8837113ccd35746ddd",
+  "policy_role": "EXECUTION_CONTRACT",
+  "project_budget_cny": "15.000000",
+  "retrospective_budget_actual_cny": "6.604131",
+  "retry_allowed": true,
+  "retry_semantics": {
+    "max_attempts_per_endpoint": 2,
+    "min_retry_window_seconds": 1.0,
+    "per_attempt_deadline_seconds": 90,
+    "pre_dispatch_guard": "MIN_RETRY_WINDOW_GATE",
+    "rate_limit_429": "SWITCH_ENDPOINT_NO_RETRY",
+    "retryable_error_classes": [
+      "TRANSPORT_ERROR",
+      "HTTP_5XX",
+      "DEADLINE_EXCEEDED"
+    ]
+  },
+  "semantic_metric_requirements": [
+    "ANALYST_SCHEMA_AND_SEMANTIC_VALID",
+    "PLANNER_RISK_COVERAGE",
+    "EXPLANATION_BOUND",
+    "CONTROLLED_EVIDENCE_BINDING",
+    "OPTION_VALIDITY"
+  ],
+  "source_file_digests": {
+    "docker/init_phase17_holdout_ledger.sql": "ac36c0f03050622509455f8660845238b1d7d6c3fc58a94c5642b9e83edecf78",
+    "scripts/record_phase17_safety_review.py": "1e12af0f4623a570c8bc344ca3370d0b385f1386b96101df0d76a24651e816d2",
+    "scripts/run_db_migrations.py": "af0f0ac35a9c9d1b45ac235b72f03b3d0770587a9a2ded989e7a550a133528b7",
+    "scripts/run_phase17_holdout.py": "3539d0f28bb0be517cb059bc70ebcc32ae3cd818cc04febd3d4ffa17f1fad002",
+    "src/decision_support/controlled_e2e_adapter_v5.py": "e256692433cf8e510aa8336bb560b433e561112ed76f1fb92b0623396e93bbb8",
+    "src/decision_support/models.py": "510cb1a49beecb14471a10d635466e4596c7170a5ed390baa06e7391548173f9",
+    "src/decision_support/multi_agent.py": "be83fd112ba2eed481606bb226c4d1925950e2a8bbdaeaef31614fb11481696b",
+    "src/decision_support/phase16_qualification.py": "a8a7222ac4702801d28fb35cb378f2f9c21a21c6e501265cc2a503604c16705a",
+    "src/decision_support/phase16_qualification_candidate.py": "51388ef017a0b5e8253f7b7ef2c618e4eadefc2531a6adc88efffdafcc7ee140",
+    "src/decision_support/phase16_qualification_execution_ledger.py": "0f661308b06108aa023baa06d3169e864ead8a441741aac00869032d3d51d278",
+    "src/decision_support/phase16_qualification_ledger.py": "d3d11580b3fead64d7209a97f1ed8a394cd93e2d191140671e6778ae1b69d323",
+    "src/decision_support/phase16_qualification_runner.py": "18a9362b204dd08a9795222a6e85a4370e4f7e7c1ea27f6cf84185835253b2f8",
+    "src/decision_support/phase17_holdout_dataset.py": "d20f397b1ff8be59e6b3153f92eebcf2632184b4c68638367ac413525c9b8765",
+    "src/decision_support/phase17_holdout_capture.py": "ad3f3cc187d737b2dcbe5a29c329ab05118b751a50f44e9426a5c639afd58900",
+    "src/decision_support/phase17_holdout_ledger.py": "05984fe15f2074e93714fa330de96630f8bc7c7badc8c904dcb6f7d5241f9966",
+    "src/decision_support/phase17_holdout_runner.py": "d55eb7ba5c39a7d9d91912324fadff64afc55302e19fb033f0bad822bb99df18",
+    "src/specialist_runtime/deepseek_adapter.py": "a95ddc340e45d9359342b251bc9e16979c65a42206c97dfef4971ecc9b250d45",
+    "src/specialist_runtime/model_port.py": "486a3c3ed61a00680f8e15a380d6add78d85048d610070d63b506ebd322daf25",
+    "src/specialist_runtime/models.py": "9dd89f54c36fb31c98d27d2dd4905ce9a8a6ec6f97b69d2b88f046baa0f5c4d2",
+    "src/specialist_runtime/phase17_v5_adapter.py": "cf911322df8752f5d827048c7435c6ed50020031843fb8b617b457cbff415253",
+    "src/specialist_runtime/profiles.py": "87af5d1937dcaf5d61e43da07202da9748d8366823500c89b9016de8ae5ce15f"
+  },
+  "stage_reservation_cny": "0.100000",
+  "temperature": "0",
+  "usage_unknown_policy": "UNKNOWN_USAGE",
+  "v2_historical_execution_digest": "1aa9ca6fe5a85702a256e29fb5d6f3d22334bfeb55c6b0ab02300ba62e4926d7"
+}

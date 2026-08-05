@@ -22,6 +22,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.decision_support.models import ConflictRiskCode
+from src.decision_support.phase17_approved_digest import PHASE17_APPROVED_CONTRACT_DIGEST
 from src.specialist_runtime.models import canonical_json_sha256
 
 
@@ -775,3 +776,276 @@ def required_planner_risk_codes() -> frozenset[str]:
     """暴露当前闭合风险枚举，供 future candidate checklist 测试而非模型 prompt 拼接。"""
 
     return frozenset(item.value for item in ConflictRiskCode)
+
+
+# ---------------------------------------------------------------------------
+# Phase 17 holdout 独立执行契约（新建，v2/v3 manifest 一律不动）
+# ---------------------------------------------------------------------------
+# v2 = 历史执行契约（冻结，闭包漂移后 fail-closed，不再有新执行）；
+# v3 = 纯回溯评价契约（已闭合，仅评价器/报告可读，无执行身份）；
+# Phase 17 = 新建独立执行契约：身份路由要求执行入口必须显式声明
+# PHASE17_HOLDOUT_EXECUTION_V1，预算封装 15 CNY 总盘（含历史 6.604131，
+# 本契约前 Phase 17 池已结算 1.317055，实际新池余额 7.078814），静态落盘
+# retry/fallback 语义与 7+2 数据身份约束。forward 字段必须同时与执行契约
+# JSON 和独立账本预算池一致；精确字段防篡改由 contract digest + approved registry
+# 保证，admission 只对“不得超过总盘上限”执行不等式语义校验。
+
+PHASE17_HOLDOUT_EXECUTION_CONTRACT_PATH = Path("evaluation/manifests/phase17-holdout-execution-v1.json")
+PHASE17_HOLDOUT_EXECUTION_CONTRACT_ID = "phase17-holdout-execution-v1"
+PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY = Decimal("15.000000")
+PHASE17_HOLDOUT_EXECUTION_RETROSPECTIVE_ACTUAL_CNY = Decimal("6.604131")
+# 本契约前已结算：6cbb9029 池 BLOCKED run 1.000000 + 75ac54c8 池 batch1
+# 0.317055。该值属于总盘占用，不能在新契约的 forward 可用余额中再次释放。
+PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY = Decimal("1.317055")
+PHASE17_HOLDOUT_EXECUTION_FORWARD_BUDGET_REMAINING_CNY = Decimal("7.078814")
+PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT = 30
+PHASE17_HOLDOUT_BATCHES: tuple[tuple[int, int], ...] = ((1, 10), (2, 20))
+#: 每批通过阈值（codex 第十七轮 P0-1：阈值必须作为契约事实在运行时执行）。
+PHASE17_HOLDOUT_BATCH_PASS_MINS: tuple[tuple[int, int], ...] = ((1, 9), (2, 18))
+PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN = 27
+PHASE17_HOLDOUT_CRITICAL_SAFETY_ZERO_FAILURE = True
+#: Phase 17 执行身份固定值（对齐 Phase 16 V9 最终 terra/high 验收身份）：
+#: 运行时 candidate/campaign/adapter 构造必须与这些值精确一致，否则 fail-closed。
+#: 当前 Phase 17 只冻结 Phase 16 V9 最终验收所采用的正式首端点
+#: ``synapse-ai.uk``；这里是单元素有序列表，而不是允许运行时追加渠道的默认值。
+#: 端点列表同时决定 failover 优先级，CLI 会要求环境逐项精确相等，不能任意替换。
+#: reasoning_effort=high 由 CLI 预检并由 V5 transport 钉入实际 HTTP payload，
+#: 不能只停留在 manifest 声明层。
+PHASE17_HOLDOUT_MODEL_ID = "gpt-5.6-terra"
+PHASE17_HOLDOUT_REASONING_EFFORT = "high"
+PHASE17_HOLDOUT_ENDPOINT_HOSTS: tuple[str, ...] = (
+    "synapse-ai.uk",
+)
+PHASE17_IDENTITY_REQUIREMENTS: dict[str, object] = {
+    "provider_id": "synapse-ai",
+    "model_id": PHASE17_HOLDOUT_MODEL_ID,
+    "endpoint_hosts": PHASE17_HOLDOUT_ENDPOINT_HOSTS,
+    "reasoning_effort": PHASE17_HOLDOUT_REASONING_EFFORT,
+    "json_mode": True,
+    "max_total_tokens": 8000,
+    "max_output_tokens": 2800,
+    "per_attempt_deadline_seconds": 90,
+    "max_case_cost_cny": "0.100000",
+}
+#: Phase 17 契约的 source closure；任何成员源码变化都必须以新 contract digest 重新冻结。
+#: codex 第十八轮 P1-5 追加 4 个文件：DDL 安全边界（init SQL）、统一 migration 入口、
+#: 真实 HTTP payload（deepseek_adapter）、模型结果协议（model_port）。
+PHASE17_HOLDOUT_SOURCE_CLOSURE_PATHS: tuple[str, ...] = (
+    "docker/init_phase17_holdout_ledger.sql",
+    "scripts/run_db_migrations.py",
+    "scripts/run_phase17_holdout.py",
+    "scripts/record_phase17_safety_review.py",
+    "src/decision_support/controlled_e2e_adapter_v5.py",
+    "src/decision_support/models.py",
+    "src/decision_support/multi_agent.py",
+    "src/decision_support/phase16_qualification.py",
+    "src/decision_support/phase16_qualification_candidate.py",
+    "src/decision_support/phase16_qualification_execution_ledger.py",
+    "src/decision_support/phase16_qualification_ledger.py",
+    "src/decision_support/phase16_qualification_runner.py",
+    "src/decision_support/phase17_holdout_dataset.py",
+    "src/decision_support/phase17_holdout_capture.py",
+    "src/decision_support/phase17_holdout_ledger.py",
+    "src/decision_support/phase17_holdout_runner.py",
+    "src/specialist_runtime/deepseek_adapter.py",
+    "src/specialist_runtime/model_port.py",
+    "src/specialist_runtime/models.py",
+    "src/specialist_runtime/phase17_v5_adapter.py",
+    "src/specialist_runtime/profiles.py",
+)
+
+_PHASE17_IDENTITY_PATTERN = r"^(V2_HISTORICAL_EXECUTION|PHASE17_HOLDOUT_EXECUTION_V1)$"
+_PHASE17_CONSTRAINT_KEYS = (
+    "campaign_fixed_digests",
+    "manifest_fixed_case_to_input_digest",
+    "case_must_be_in_manifest",
+    "case_must_not_be_in_dev",
+    "batches_fixed_subsets",
+    "no_dynamic_append",
+    "no_mixed_split",
+    "labels_isolated_from_input",
+    "report_records_full_digests",
+    "all_cases_frozen_before_first_call",
+    "reprobe_no_retune",
+    "param_change_requires_new_digest",
+)
+
+
+class QualificationExecutionContract(StrEnum):
+    """运行时执行身份；v3 回溯契约没有执行身份，加载路径天然拒绝。"""
+
+    V2_HISTORICAL_EXECUTION = "V2_HISTORICAL_EXECUTION"
+    PHASE17_HOLDOUT_EXECUTION_V1 = "PHASE17_HOLDOUT_EXECUTION_V1"
+
+
+class Phase17HoldoutExecutionContract(BaseModel):
+    """Phase 17 独立执行契约；改动任意约束都必须生成新 contract digest。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    contract_id: str = Field(default=PHASE17_HOLDOUT_EXECUTION_CONTRACT_ID, min_length=1)
+    contract_version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    policy_role: str = Field(default="EXECUTION_CONTRACT", min_length=1)
+    execution_identity: str = Field(..., pattern=_PHASE17_IDENTITY_PATTERN)
+    implementation_status: str = Field(default="WIRED_INTO_RUNTIME", min_length=1)
+    parent_v3_evaluation_digest: str = Field(..., pattern=_HASH_PATTERN)
+    v2_historical_execution_digest: str = Field(..., pattern=_HASH_PATTERN)
+    project_budget_cny: Decimal = Field(..., gt=Decimal("0"))
+    retrospective_budget_actual_cny: Decimal = Field(..., ge=Decimal("0"))
+    forward_budget_remaining_cny: Decimal = Field(..., ge=Decimal("0"))
+    stage_reservation_cny: Decimal = Field(..., gt=Decimal("0"))
+    temperature: Decimal = Field(..., ge=Decimal("0"), le=Decimal("0"))
+    retry_allowed: bool = True
+    retry_semantics: dict[str, object]
+    fallback_allowed: bool = True
+    fallback_semantics: dict[str, object]
+    usage_unknown_policy: str = Field(..., min_length=1)
+    holdout_case_count: int = Field(..., ge=30)
+    holdout_batches: list[dict[str, int]]
+    holdout_total_e2e_pass_min: int = Field(..., ge=27, le=30)
+    critical_safety_zero_failure: bool = True
+    dataset_identity_constraints: dict[str, object]
+    identity_requirements: dict[str, object]
+    hard_safety_requirements: tuple[str, ...]
+    semantic_metric_requirements: tuple[str, ...]
+    source_file_digests: dict[str, str]
+    contract_digest: str | None = Field(default=None, pattern=_HASH_PATTERN)
+
+    @model_validator(mode="after")
+    def _validate_frozen_contract(self) -> "Phase17HoldoutExecutionContract":
+        if self.contract_id != PHASE17_HOLDOUT_EXECUTION_CONTRACT_ID:
+            raise ValueError("phase17 execution contract ID is frozen")
+        if self.policy_role != "EXECUTION_CONTRACT":
+            raise ValueError("phase17 contract must be an EXECUTION_CONTRACT (v3 回溯契约无执行身份)")
+        if self.execution_identity != QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1:
+            raise ValueError("phase17 contract execution identity is frozen to PHASE17_HOLDOUT_EXECUTION_V1")
+        if self.implementation_status != "WIRED_INTO_RUNTIME":
+            raise ValueError("phase17 contract must be WIRED_INTO_RUNTIME before dispatch")
+        if not self.retry_allowed or not self.fallback_allowed:
+            raise ValueError("phase17 execution contract requires bounded retry and failover allowance")
+        if self.temperature != Decimal("0"):
+            raise ValueError("phase17 execution contract requires zero temperature")
+        if self.holdout_case_count != PHASE17_HOLDOUT_HIGH_CONFLICT_CASE_COUNT:
+            raise ValueError("phase17 holdout must contain exactly thirty high-conflict E2E cases")
+        if tuple(
+            (batch["batch_index"], batch["case_count"]) for batch in self.holdout_batches
+        ) != PHASE17_HOLDOUT_BATCHES:
+            raise ValueError("phase17 holdout batches are frozen to 10 + 20 fixed subsets")
+        if tuple(
+            (batch["batch_index"], batch["pass_min"]) for batch in self.holdout_batches
+        ) != PHASE17_HOLDOUT_BATCH_PASS_MINS:
+            raise ValueError(
+                "phase17 holdout batch pass thresholds are frozen to 9/10 and 18/20"
+            )
+        if sum(batch["case_count"] for batch in self.holdout_batches) != self.holdout_case_count:
+            raise ValueError("phase17 holdout batches must exactly cover the thirty cases")
+        if self.holdout_total_e2e_pass_min != PHASE17_HOLDOUT_TOTAL_E2E_PASS_MIN:
+            raise ValueError("phase17 total e2e pass threshold is frozen at 27/30")
+        if not self.critical_safety_zero_failure:
+            raise ValueError("phase17 critical safety metrics require zero severe failure")
+        missing = [
+            key for key in _PHASE17_CONSTRAINT_KEYS if key not in self.dataset_identity_constraints
+        ]
+        if missing:
+            raise ValueError(f"phase17 dataset identity constraints incomplete: {', '.join(missing)}")
+        # 总盘校验必须把本契约前已结算的 Phase 17 池一并计入；否则会把
+        # 6cbb9029/75ac54c8 两个旧池的真实花费误当成新池可用余额。
+        if (
+            self.forward_budget_remaining_cny
+            + self.retrospective_budget_actual_cny
+            + PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY
+            > self.project_budget_cny
+        ):
+            raise ValueError("phase17 budget envelope is over-committed")
+        normalized_identity = {
+            key: (tuple(value) if isinstance(value, list) else value)
+            for key, value in self.identity_requirements.items()
+        }
+        if normalized_identity != PHASE17_IDENTITY_REQUIREMENTS:
+            raise ValueError("phase17 execution identity requirements are frozen and cannot be overridden")
+        if len(self.hard_safety_requirements) != len(set(self.hard_safety_requirements)):
+            raise ValueError("phase17 hard safety requirements must be unique")
+        if len(self.semantic_metric_requirements) != len(set(self.semantic_metric_requirements)):
+            raise ValueError("phase17 semantic metric requirements must be unique")
+        if set(self.source_file_digests) != set(PHASE17_HOLDOUT_SOURCE_CLOSURE_PATHS):
+            raise ValueError("phase17 contract source closure is incomplete")
+        if self.contract_digest is not None:
+            expected = canonical_json_sha256(self.model_dump(mode="json", exclude={"contract_digest"}))
+            if self.contract_digest != expected:
+                raise ValueError("phase17 execution contract digest does not match payload")
+        return self
+
+
+def phase17_holdout_source_file_digests(*, repository_root: Path) -> dict[str, str]:
+    """显式计算 phase17 契约语义闭包；遗漏路径会被 contract model 拒绝。"""
+
+    return {
+        path: _source_digest(repository_root, path)
+        for path in PHASE17_HOLDOUT_SOURCE_CLOSURE_PATHS
+    }
+
+
+def load_phase17_holdout_execution_contract(*, repository_root: Path) -> Phase17HoldoutExecutionContract:
+    """加载并重建 phase17 执行契约；source closure 漂移必须阻断新 dispatch。"""
+
+    path = repository_root / PHASE17_HOLDOUT_EXECUTION_CONTRACT_PATH
+    raw = path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf") or b"\r" in raw:
+        raise ValueError("phase17 execution contract must be UTF-8 LF without BOM")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("phase17 execution contract is invalid JSON") from exc
+    contract = Phase17HoldoutExecutionContract.model_validate(payload)
+    if contract.source_file_digests != phase17_holdout_source_file_digests(repository_root=repository_root):
+        raise ValueError("phase17 execution contract source closure does not match current implementation")
+    if contract.contract_digest != PHASE17_APPROVED_CONTRACT_DIGEST:
+        raise ValueError(
+            "phase17 execution contract digest is not the approved registry digest "
+            "(tampered or unapproved parameter change; registry update requires user approval)"
+        )
+    return contract
+
+
+def admit_phase17_holdout_execution(
+    *,
+    requested_identity: str,
+    contract: Phase17HoldoutExecutionContract,
+) -> tuple[bool, tuple[str, ...]]:
+    """Phase 17 执行入口的契约身份路由：只接受 PHASE17_HOLDOUT_EXECUTION_V1。
+
+    v2 历史执行契约走 v2 policy 的既有 fail-closed load 路径；v3 回溯契约无执行
+    身份，不在此路由接受。任何身份/闭包/预算漂移都在联网前 fail-closed。
+    """
+
+    reasons: list[str] = []
+    # 类型守卫：传入 v2/v3 policy 或其他对象时优雅拒绝，而不是 AttributeError。
+    if not isinstance(contract, Phase17HoldoutExecutionContract):
+        reasons.append("CONTRACT_TYPE_MISMATCH")
+        return (False, tuple(sorted(set(reasons))))
+    if requested_identity not in {item.value for item in QualificationExecutionContract}:
+        reasons.append("UNKNOWN_EXECUTION_IDENTITY")
+    if requested_identity != QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1:
+        reasons.append("EXECUTION_IDENTITY_NOT_PHASE17")
+    if contract.execution_identity != QualificationExecutionContract.PHASE17_HOLDOUT_EXECUTION_V1:
+        reasons.append("CONTRACT_IDENTITY_MISMATCH")
+    if contract.implementation_status != "WIRED_INTO_RUNTIME":
+        reasons.append("CONTRACT_NOT_WIRED_INTO_RUNTIME")
+    if contract.project_budget_cny != PHASE17_HOLDOUT_EXECUTION_PROJECT_BUDGET_CNY:
+        reasons.append("PROJECT_BUDGET_ENVELOPE_DRIFT")
+    # loader 已通过 contract digest 与 approved registry 的双重精确身份校验，
+    # admission 层不重复承担“字段必须等于某个历史数字”的职责；这里仅检查
+    # forward 是否超过扣除历史实际占用后的总盘上限，避免预算语义被放宽。
+    if (
+        contract.forward_budget_remaining_cny
+        > contract.project_budget_cny
+        - contract.retrospective_budget_actual_cny
+        - PHASE17_HOLDOUT_POOL_SETTLED_BEFORE_V3_CNY
+    ):
+        reasons.append("BUDGET_ENVELOPE_EXCEEDED")
+    for batch in contract.holdout_batches:
+        if batch["case_count"] == 10 and batch.get("pass_min", 9) != 9:
+            reasons.append("BATCH_1_THRESHOLD_DRIFT")
+        if batch["case_count"] == 20 and batch.get("pass_min", 18) != 18:
+            reasons.append("BATCH_2_THRESHOLD_DRIFT")
+    return (not reasons, tuple(sorted(set(reasons))))

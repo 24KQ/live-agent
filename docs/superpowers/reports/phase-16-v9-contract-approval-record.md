@@ -188,6 +188,22 @@
 4. holdout 延后 phase17，V9 结论标注「未完成生产泛化验证」。
 5. merge 前提：v3 + 本记录 + 账本闭合 + 远端 PR Gate 全绿 + 用户最终 merge 审批。
 6. V9 报告与 Acceptance 文档同步更新（本仓库 `codex/phase16-v5-controlled-e2e`）。
+7. **2026-08-02 用户批准新建 Phase 17 总预算封装 15 CNY（对话），不改写 Phase 16
+   历史预算事实**：Phase 17 独立执行契约
+   （`evaluation/manifests/phase17-holdout-execution-v1.json`，`PHASE17_HOLDOUT_EXECUTION_V1`）
+   以 `project_budget_cny = 15.000000` 为总盘（含历史 6.604131），未来可用余额
+   `forward_budget_remaining_cny = 8.395869`；v3 的 `forward_contract_draft`
+   （10.0 草案 / 3.395869）保持原样不动，v2 历史预算事实不受影响。
+   Phase 17 后续 capture / safety review / aggregate hard gate 改动形成候选
+   contract digest `bcd9649fdf5cebda5d99f4426b66e201f3e94f24f85408867b9352e59c98be87`，
+   digest 历史为 `c2dc8b02... → 59c618c6... → 4803f021... → 183af27c... →
+   bcd9649f...`；该值于 2026-08-04 获用户批准并更新 Phase 17 registry，随后
+   全量 integration 发现 source closure 内的 SQL 占位符缺失，修复后生成新候选
+   `462cd590...`；该值于 2026-08-04 获用户批准并已更新 Phase 17 registry。此状态
+   不改变本 Phase 16 V9 的历史结论；真实 Phase 17 模型调用仍须遵守独立契约、
+   数据集 registry 和逐 run 用户批准流程。批准后的离线复核：unit 1731 passed、
+   integration 295 passed（7 deselected）、文档编码 gate EXIT=0；Phase 16 restart
+   在独立 UUID schema 下 1 passed。该复核不改变 V9 历史账本或原始 V5 结论。
 
 ## 8. 相关文件
 

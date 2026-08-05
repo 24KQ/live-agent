@@ -222,6 +222,16 @@ MIGRATIONS: list[MigrationStep] = [
         required=True,
         description="Phase 16 资格账本 campaigns 唯一约束收敛为 campaign_id 身份（组合是身份的一部分）",
     ),
+    MigrationStep(
+        phase="phase17_holdout_ledger",
+        sql_file="init_phase17_holdout_ledger.sql",
+        required=True,
+        description=(
+            "Phase 17 holdout 独立执行账本（contracts/campaigns/budget_events/"
+            "runs/run_results/case_results/attempts/qualifications/safety_reviews，"
+            "append-only，与 v2 表族物理隔离）"
+        ),
+    ),
 ]
 
 

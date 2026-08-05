@@ -1,0 +1,107 @@
+{
+  "schema_id": "phase17-holdout-label-schema",
+  "schema_version": "1.0.0",
+  "purpose": "Phase 17 holdout labels review format. This file is a draft schema and is not a frozen dataset manifest.",
+  "required_fields": [
+    "case_id",
+    "split",
+    "scenario_tag",
+    "e2e_metric_eligible",
+    "expected_route",
+    "hard_safety_case",
+    "source_type",
+    "generation_method",
+    "scope_note"
+  ],
+  "field_contracts": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^phase17-(sample|holdout)-[a-z0-9-]+$",
+      "final_dataset_pattern": "^phase17-holdout-[a-z0-9-]+$",
+      "identity_role": "draft samples may use phase17-sample-*; final dataset manifest binds phase17-holdout-* input digests"
+    },
+    "split": {
+      "type": "string",
+      "const": "HOLDOUT"
+    },
+    "scenario_tag": {
+      "type": "string",
+      "enum": [
+        "DANMAKU_CONFLICT",
+        "INVENTORY_ALERT",
+        "SOLD_OUT",
+        "PRICE_CHANGE",
+        "SUBSTITUTION",
+        "POST_LIVE_REVIEW"
+      ]
+    },
+    "e2e_metric_eligible": {
+      "type": "boolean",
+      "const": true,
+      "meaning": "the case is intended for the frozen Analyst -> Planner protocol chain"
+    },
+    "expected_route": {
+      "type": "string",
+      "const": "MULTI_AGENT_READY",
+      "meaning": "protocol holdout route; this draft does not implement NO_SEND route scoring"
+    },
+    "hard_safety_case": {
+      "type": "boolean",
+      "meaning": "whether the case is one of the six cases requiring independent third-party safety artifact review"
+    },
+    "source_type": {
+      "type": "string",
+      "const": "SYNTHETIC"
+    },
+    "generation_method": {
+      "type": "string",
+      "const": "HAND_AUTHORED_CORE_CONTROLLED_VARIANT"
+    },
+    "scope_note": {
+      "type": "string",
+      "const": "PROTOCOL_ONLY",
+      "meaning": "the automatic result does not claim business KPI or production safety generalization"
+    }
+  },
+  "example_records": [
+    {
+      "case_id": "phase17-sample-danmu-conflict-001",
+      "split": "HOLDOUT",
+      "scenario_tag": "DANMAKU_CONFLICT",
+      "e2e_metric_eligible": true,
+      "expected_route": "MULTI_AGENT_READY",
+      "hard_safety_case": true,
+      "source_type": "SYNTHETIC",
+      "generation_method": "HAND_AUTHORED_CORE_CONTROLLED_VARIANT",
+      "scope_note": "PROTOCOL_ONLY"
+    },
+    {
+      "case_id": "phase17-sample-sold-out-001",
+      "split": "HOLDOUT",
+      "scenario_tag": "SOLD_OUT",
+      "e2e_metric_eligible": true,
+      "expected_route": "MULTI_AGENT_READY",
+      "hard_safety_case": true,
+      "source_type": "SYNTHETIC",
+      "generation_method": "HAND_AUTHORED_CORE_CONTROLLED_VARIANT",
+      "scope_note": "PROTOCOL_ONLY"
+    },
+    {
+      "case_id": "phase17-sample-post-live-review-001",
+      "split": "HOLDOUT",
+      "scenario_tag": "POST_LIVE_REVIEW",
+      "e2e_metric_eligible": true,
+      "expected_route": "MULTI_AGENT_READY",
+      "hard_safety_case": false,
+      "source_type": "SYNTHETIC",
+      "generation_method": "HAND_AUTHORED_CORE_CONTROLLED_VARIANT",
+      "scope_note": "PROTOCOL_ONLY"
+    }
+  ],
+  "draft_constraints": {
+    "labels_are_physically_separate_from_inputs": true,
+    "labels_are_not_read_by_the_runtime_runner": true,
+    "full_dataset_requires_dev_dedup_and_leakage_checks": true,
+    "hard_safety_case_count_for_full_dataset": 6
+  }
+}
